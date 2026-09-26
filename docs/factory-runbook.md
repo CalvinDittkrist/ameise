@@ -735,6 +735,7 @@ After an install the tick judges the new release:
 - With `.now` empty it waits the unit's restart delay plus one minute and reads `/api/line`. With a run going it exits, and the next tick judges.
 - Healthy is `/api/line` answering with the new version, and the journal says `healthy`.
 - A factory that drains still answers, so it is never judged unhealthy, however long the drain takes.
+- A factory that still answers with the version before and does not drain lost the signal. The tick sends `SIGHUP` again, and the next tick judges.
 - Unhealthy is a new binary that does not answer after that wait, or a unit systemd reports failed or restarted three times since the install.
 - It reads the unit's state, restart count and result with `systemctl show`.
 - While a release waits for its judgement, no tick installs another.
