@@ -20,8 +20,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -41,14 +41,21 @@ const (
 	// verifies a release or signals the service.
 	ghCommand        = "/usr/bin/gh"
 	systemctlCommand = "/usr/bin/systemctl"
-	// The five-part policy of the attestation check.
-	releaseIdentity = `^https://github\.com/CalvinDittkrist/workflows/\.github/workflows/factory-release\.yml@refs/tags/factory/v[0-9]+\.[0-9]+\.[0-9]+$`
-	actionsIssuer   = "https://token.actions.githubusercontent.com"
-	slsaProvenance  = "https://slsa.dev/provenance/v1"
+	// The five-part policy of the attestation check, whose identity is releaseIdentity.
+	actionsIssuer  = "https://token.actions.githubusercontent.com"
+	slsaProvenance = "https://slsa.dev/provenance/v1"
 	// updateTimeout bounds a whole tick, downloads and the attestation check included, so a hung
 	// network never keeps the next tick from starting.
 	updateTimeout = 10 * time.Minute
+	// commandTimeout bounds a -version or systemctl call, verifyTimeout the attestation check.
+	commandTimeout = 30 * time.Second
+	verifyTimeout  = 5 * time.Minute
 )
+
+// releaseIdentity is the certificate identity of the attestation check: the release workflow of
+// releaseRepository at a factory version tag. It is built from the constant so the two never drift.
+var releaseIdentity = `^https://github\.com/` + regexp.QuoteMeta(releaseRepository) +
+	`/\.github/workflows/factory-release\.yml@refs/tags/factory/v[0-9]+\.[0-9]+\.[0-9]+$`
 
 // semver is a factory version, major.minor.patch.
 type semver [3]int
@@ -322,9 +329,9 @@ func (u *updater) running(listen string) (runningFactory, bool, error) {
 
 // fileVersion is what a binary reports on -version: the version of the file, never of the process.
 func (u *updater) fileVersion(path string) (semver, error) {
-	out, err := exec.CommandContext(u.ctx, path, "-version").Output()
+	out, reason, err := command(u.ctx, commandTimeout, path, "-version")
 	if err != nil {
-		return semver{}, fmt.Errorf("%s -version failed: %w", path, err)
+		return semver{}, fmt.Errorf("%s -version failed: %s", path, reason)
 	}
 	said := strings.TrimSpace(string(out))
 	v, ok := parseSemver(strings.TrimPrefix(said, "factory "))
@@ -336,9 +343,9 @@ func (u *updater) fileVersion(path string) (semver, error) {
 
 // serviceState is the service's ActiveState and Result as systemd reports them.
 func (u *updater) serviceState() (string, string, error) {
-	out, err := exec.CommandContext(u.ctx, systemctlCommand, "show", factoryUnit, "--property=ActiveState,Result").Output()
+	out, reason, err := command(u.ctx, commandTimeout, systemctlCommand, "show", factoryUnit, "--property=ActiveState,Result")
 	if err != nil {
-		return "", "", fmt.Errorf("%s show %s failed: %w", systemctlCommand, factoryUnit, err)
+		return "", "", fmt.Errorf("%s show %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
 	var active, result string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -355,9 +362,8 @@ func (u *updater) serviceState() (string, string, error) {
 // hangup has the running factory drain, to the factory's main process alone so the worker of the
 // run that is going does not die of the signal.
 func (u *updater) hangup() error {
-	out, err := exec.CommandContext(u.ctx, systemctlCommand, "kill", "--kill-whom=main", "-s", "HUP", factoryUnit).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s kill -s HUP %s failed: %w: %s", systemctlCommand, factoryUnit, err, strings.TrimSpace(string(out)))
+	if _, reason, err := command(u.ctx, commandTimeout, systemctlCommand, "kill", "--kill-whom=main", "-s", "HUP", factoryUnit); err != nil {
+		return fmt.Errorf("%s kill -s HUP %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
 	log.Printf("sent SIGHUP to %s: it drains and systemd starts the binary on disk", factoryUnit)
 	return nil
@@ -456,15 +462,7 @@ func (u *updater) downloadTo(url, path string) error {
 // of its own in the tick's work directory, which the tick removes, so the trust roots are fetched
 // through TUF on every tick and no token of anybody's is read.
 func (u *updater) verify(binary, bundle string, r release, work string) error {
-	cmd := exec.CommandContext(u.ctx, ghCommand, "attestation", "verify", binary,
-		"--repo", releaseRepository,
-		"--bundle", bundle,
-		"--cert-identity-regex", releaseIdentity,
-		"--source-ref", "refs/tags/"+r.tag,
-		"--cert-oidc-issuer", actionsIssuer,
-		"--deny-self-hosted-runners",
-		"--predicate-type", slsaProvenance)
-	cmd.Env = []string{
+	env := []string{
 		"PATH=/usr/bin:/bin",
 		"HOME=" + work,
 		"XDG_CONFIG_HOME=" + filepath.Join(work, "config"),
@@ -475,10 +473,17 @@ func (u *updater) verify(binary, bundle string, r release, work string) error {
 		"GH_PROMPT_DISABLED=1",
 		"GH_NO_UPDATE_NOTIFIER=1",
 	}
-	out, err := cmd.CombinedOutput()
+	_, reason, err := commandIn(u.ctx, verifyTimeout, env, "", ghCommand, "attestation", "verify", binary,
+		"--repo", releaseRepository,
+		"--bundle", bundle,
+		"--cert-identity-regex", releaseIdentity,
+		"--source-ref", "refs/tags/"+r.tag,
+		"--cert-oidc-issuer", actionsIssuer,
+		"--deny-self-hosted-runners",
+		"--predicate-type", slsaProvenance)
 	if err != nil {
 		return fmt.Errorf("the attestation of %s was refused (%v): %s; nothing is installed, and the next tick tries again",
-			r.tag, err, strings.Join(strings.Fields(string(out)), " "))
+			r.tag, err, strings.Join(strings.Fields(reason), " "))
 	}
 	return nil
 }

@@ -763,9 +763,15 @@ func commandWith(ctx context.Context, timeout time.Duration, input, name string,
 // when it failed, for the programs whose first line is not the reason: git's refused push starts with
 // the remote it went to and says why on the lines after it.
 func commandSaying(ctx context.Context, timeout time.Duration, input, name string, args ...string) ([]byte, string, error) {
+	return commandIn(ctx, timeout, nil, input, name, args...)
+}
+
+// commandIn is that command with an environment of its own, the process's when env is nil.
+func commandIn(ctx context.Context, timeout time.Duration, env []string, input, name string, args ...string) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
 	if input != "" {
 		cmd.Stdin = strings.NewReader(input)
 	}
