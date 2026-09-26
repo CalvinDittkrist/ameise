@@ -367,3 +367,49 @@ func TestACommandWithAnEnvironmentOfItsOwnSeesNoOtherVariable(t *testing.T) {
 		t.Errorf("the command saw the environment %q, want ONLY=this alone", got)
 	}
 }
+
+// The tick treats a state file that reads as JSON null like one that does not read: as empty.
+func TestAStateOfNullReadsAsEmpty(t *testing.T) {
+	t.Parallel()
+	u := &updater{state: t.TempDir()}
+	if err := os.WriteFile(u.statePath(), []byte("null"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.loadState(); err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	u.once("current", "0.3.0", "up to date")
+	if u.said["current"] != "0.3.0" {
+		t.Errorf("once keeps %v after a null state, want the key it said", u.said)
+	}
+}
+
+// factory -update is one tick through the real binary: it reads the configuration first, and it
+// exits with an error line and serves nothing. Run as a user other than root, the tick cannot open
+// its own root-owned directory, and says so.
+func TestTheUpdateFlagRunsOneTickAndExits(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "absent.json")
+	out, err := factoryCommand(binary, "-update", "-config", missing).CombinedOutput()
+	if err == nil || !strings.HasPrefix(string(out), "error: ") || !strings.Contains(string(out), missing) {
+		t.Errorf("-update with a missing configuration exits with %v and says %q, want an error that names the file", err, out)
+	}
+	if strings.Contains(string(out), updateStateDir) {
+		t.Errorf("-update with a missing configuration says %q, want the configuration read before the updater's directory", out)
+	}
+
+	if os.Geteuid() == 0 {
+		t.Skip("as root the tick would make the host's updater directory")
+	}
+	listen := freeAddress(t)
+	path := writeConfig(t, config{"listen": listen, "data_dir": t.TempDir(), "auto_update": false,
+		"repositories": []string{"acme/app"}})
+	out, err = factoryCommand(binary, "-update", "-config", path).CombinedOutput()
+	if err == nil || !strings.HasPrefix(string(out), "error: ") || !strings.Contains(string(out), updateStateDir) {
+		t.Errorf("-update as a user other than root exits with %v and says %q, want an error that names %s", err, out, updateStateDir)
+	}
+	if conn, dialErr := net.DialTimeout("tcp", listen, time.Second); dialErr == nil {
+		_ = conn.Close()
+		t.Errorf("-update left something listening on %s, want one tick and no factory", listen)
+	}
+}
