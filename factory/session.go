@@ -73,8 +73,8 @@ const (
 // implementSession is the session a first run of an issue starts with, and a resumed one whose branch
 // has no pull request open, is not waiting at the pr stage and has no implementation reported complete
 // for the gate stage to go on from. It implements the issue and commits, and the gate stage takes over.
-// A follow-up run starts none: the maintainer has read the pull request and asked for changes, so it
-// starts at the ci stage's address-reviews session.
+// A follow-up run starts none: a writer or a bot has reviewed the pull request, so it starts at the
+// ci stage's address-reviews session.
 func implementSession(brief string) session {
 	return session{stage: stageImplement, prompt: brief, timeout: implementTimeout, commits: true}.overridden()
 }

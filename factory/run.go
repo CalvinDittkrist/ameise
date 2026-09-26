@@ -36,22 +36,25 @@ const (
 	outcomeQuota       = "quota"
 )
 
-// What put a run in the line. routed is an issue taken from the queue of routed issues; the other
-// three are work this factory already holds and continues in the worktree of that claim: the one
+// What put a run in the line. routed is an issue taken from the queue of routed issues; the others
+// are work this factory already holds and continues in the worktree of that claim: the one
 // automatic resume after an interruption, the resume after the quota reset that a run which ran out
 // of it waits for, the run a person asked for by taking the assignee off an issue the factory holds
-// ([ADR 0026]), and the run a review that asks for changes on the pull request queues ([ADR 0023]).
+// ([ADR 0026]), the run a writer's review that asks for changes on the pull request queues
+// ([ADR 0023]), and the run a bot's review that leaves an unresolved thread on it queues ([ADR 0051]).
 // The signals of an issue's runs are what the next run of it is decided from, which is why every run
 // records its own.
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
+// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
 const (
 	signalRouted           = "routed"
 	signalInterruption     = "interruption"
 	signalQuota            = "quota"
 	signalRelease          = "release"
 	signalChangesRequested = "changes-requested"
+	signalBotReview        = "bot-review"
 )
 
 // The kinds of run the vocabulary names (docs/glossary.md): a first run claims its issue, a resumed
@@ -68,7 +71,7 @@ func kindOf(signal string) string {
 	switch signal {
 	case signalInterruption, signalQuota, signalRelease:
 		return kindResumed
-	case signalChangesRequested:
+	case signalChangesRequested, signalBotReview:
 		return kindFollowUp
 	default:
 		return kindFirst
@@ -104,9 +107,10 @@ type Run struct {
 	//
 	// [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 	LetGoAt *time.Time `json:"letGoAt"`
-	// Signal is what queued this run: routed, interruption, quota, release or changes-requested.
-	// SignalAt is when that signal happened (the routing, the interruption, the end of the run that
-	// ran out of quota, the moment the assignee came off, or the moment the review was submitted). It
+	// Signal is what queued this run: routed, interruption, quota, release, changes-requested or
+	// bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of the
+	// run that ran out of quota, the moment the assignee came off, or the moment the review was
+	// submitted). It
 	// is the answer this run is: a signal of an issue is acted on once, and a signal no later than the
 	// one its records already carry has been answered already.
 	// That is what keeps the factory from resuming the same release, or answering the same review, for

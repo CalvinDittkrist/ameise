@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 // The dashboard reads the factory's read-only interface and never writes: it polls /api/status,
 // /api/repositories and /api/line for the three areas, and /api/runs/{id} for the selected run.
@@ -112,13 +112,18 @@ function Tick({ children }) {
 // Facts are a row of short ones, separated the way the terminal separates them.
 function Facts({ className = 'facts', items }) {
   const shown = items.filter(Boolean)
+  // Each fact is one span with its separator after it, and the space between two spans is the one
+  // place a line that wraps breaks: a fact is never split over two lines, and no line starts with a dot.
   return (
     <p className={className}>
       {shown.map((item, i) => (
-        <span key={i}>
-          {i > 0 ? ' · ' : ''}
-          {item}
-        </span>
+        <Fragment key={i}>
+          {i > 0 && ' '}
+          <span>
+            {item}
+            {i < shown.length - 1 && ' ·'}
+          </span>
+        </Fragment>
       ))}
     </p>
   )
@@ -413,8 +418,9 @@ function Run({ id, now }) {
         items={[
           run.repository,
           // A first run is the ordinary one and says nothing; a run that continues held work says
-          // what brought it back: that it was resumed, or that a review asked for changes.
+          // what it is and the signal that brought it back, as the queue names it.
           run.kind && run.kind !== 'first' && `${run.kind} run`,
+          run.kind && run.kind !== 'first' && run.signal,
           run.model,
           <Tick key="t">{duration(run.startedAt, run.endedAt ?? now)}</Tick>,
           run.turns ? `${run.turns} turns` : '',

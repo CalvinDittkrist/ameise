@@ -17,22 +17,34 @@ import (
 // The follow-up run. A run that ended ready leaves a pull request, and the maintainer reads it on
 // GitHub: requesting changes there is the gesture that hands the objection back to the factory,
 // which queues a run in the worktree of the claim that starts at the factory's address-reviews stage
-// ([ADR 0023]). Nothing else is needed of the maintainer (no checkout, no comment on the issue),
-// and nothing of it is a state of the factory: the review is read from GitHub on every poll and what
-// has been answered is read from the run records, exactly as a release is ([ADR 0025]).
+// ([ADR 0023]). A bot's review that leaves an unresolved thread is the second gesture: the bot is an
+// app the maintainer installed, and its review queues the same run, within the repair budget of the
+// pull request rather than with a fresh one ([ADR 0051]). Nothing else is needed of the maintainer
+// (no checkout, no comment on the issue), and nothing of it is a state of the factory: the reviews
+// are read from GitHub on every poll and what has been answered is read from the run records,
+// exactly as a release is ([ADR 0025]).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
+// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+
+// reviewed is what one reading of a held pull request says a follow-up run could answer, as GitHub
+// timed each submission: the newest review of a writer that asks for changes, and the newest review
+// of a Bot account that left a thread nobody has resolved. Each is the zero time when there is none.
+type reviewed struct {
+	requested time.Time
+	bot       time.Time
+}
 
 // refreshRequested reads the pull requests this factory holds open, one per issue it holds, and
-// remembers the newest review of each that asks for changes. It runs on every poll, beside the
-// queue: a follow-up run stands in the same line as the work the factory resumes.
+// remembers what each one's reviews signal. It runs on every poll, beside the queue: a follow-up run
+// stands in the same line as the work the factory resumes.
 //
 // Only an issue whose last run has ended is asked about, which is both what the rule needs (a
 // review is answered after the run it arrived during) and what keeps the factory from asking
 // GitHub about a pull request while its worker is writing to it.
 func (f *Factory) refreshRequested(ctx context.Context) {
-	requested, early := map[string]time.Time{}, false
+	requested, early := map[string]reviewed{}, false
 	for key, held := range holdings(f.runs.list()) {
 		early = early || !held.idle
 		pull, watched := held.pull()
@@ -42,8 +54,8 @@ func (f *Factory) refreshRequested(ctx context.Context) {
 		if _, connected := f.connected(held.repository()); !connected {
 			continue // a repository this host is not to work is not watched either
 		}
-		if at := f.source.changesRequested(ctx, held.repository(), pull); !at.IsZero() {
-			requested[key] = at
+		if read := f.source.reviewed(ctx, held.repository(), pull); read != (reviewed{}) {
+			requested[key] = read
 		}
 	}
 	f.mu.Lock()
@@ -63,10 +75,11 @@ func (h holding) pull() (int, bool) {
 	return pullNumber(h.pullRequest)
 }
 
-// changesRequested says that a review asks for changes and that no run of this issue has answered
-// it: it was submitted after the last run of the issue ended, which is the rule the maintainer's
-// gesture is read by (an objection raised while a run was going is the running session's to see),
-// and after the review the last follow-up run of this issue already stands for.
+// unanswered says that a review a follow-up run could answer is there and that no run of this issue
+// has answered it: it was submitted after the last run of the issue ended, which is the rule the
+// maintainer's gesture is read by (an objection raised while a run was going is the running
+// session's to see), and after the review the last follow-up run of this issue already stands for,
+// whichever of the two signals queued that one: a follow-up run answers every review that stands.
 //
 // That second comparison is what makes one review one run, however many polls read it: it holds
 // GitHub's reading of the submission against GitHub's reading of the submission a record carries, so
@@ -75,7 +88,7 @@ func (h holding) pull() (int, bool) {
 // when a run ended is this host's reading and nothing of GitHub's says it: a host whose clock runs
 // ahead of GitHub's leaves a review submitted within that drift of the run's end unanswered, and the
 // maintainer's next review is read as it should be.
-func (h holding) changesRequested(at time.Time) bool {
+func (h holding) unanswered(at time.Time) bool {
 	if at.IsZero() || !h.holds || !h.idle {
 		return false
 	}
@@ -131,30 +144,62 @@ func (r ghReview) newer(than ghReview) bool {
 	return r.SubmittedAt.After(than.SubmittedAt)
 }
 
-// changesRequested is the newest review that asks for changes on one pull request of this factory,
-// submitted by somebody who may write to the repository, or the zero time when there is no such
-// review, when the pull request is no longer open, and when GitHub could not be read: a follow-up
-// run is queued on what GitHub said and never on the silence of a host that could not reach it.
+// reviewed is what the reviews of one pull request of this factory signal: the newest review that
+// asks for changes, submitted by somebody who may write to the repository, and the newest review of a
+// Bot account that left an unresolved thread. It is nothing at all when the pull request is no longer
+// open and when GitHub could not be read: a follow-up run is queued on what GitHub said and never on
+// the silence of a host that could not reach it, nor on half of a reading.
 //
-// Both readings are made on every poll rather than remembered against the pull request's updated_at,
+// The readings are made on every poll rather than remembered against the pull request's updated_at,
 // the way the routing times of the line are: the pull requests of a factory are the few it has open
 // at once, not every routed issue of every connected repository, and GitHub does not promise that
 // submitting a review touches the pull request at all.
-func (g *gitHub) changesRequested(ctx context.Context, repository string, pull int) time.Time {
-	none, key := time.Time{}, pullKey(repository, pull)
+func (g *gitHub) reviewed(ctx context.Context, repository string, pull int) reviewed {
+	key := pullKey(repository, pull)
 	if g.over(key) {
-		return none
+		return reviewed{}
 	}
-	newest, err := g.newestRequest(ctx, repository, pull)
+	requested, err := g.newestRequest(ctx, repository, pull)
+	var bot time.Time
+	if err == nil && !g.over(key) { // a pull request found closed just now has no review to read
+		bot, err = g.newestBotReview(ctx, repository, pull)
+	}
 	if err != nil {
 		if ctx.Err() == nil { // a request cancelled by a stopping factory is no failure of GitHub
 			g.warn(g.pullWarnings, key, "error: %v; a review on %s queues nothing until GitHub can be read", err, key)
 		}
-		return none
+		return reviewed{}
 	}
 	// The pull request was read, whatever it said: one this poll could read is none to warn about.
 	g.readable(g.pullWarnings, key)
-	return newest
+	return reviewed{requested: requested, bot: bot}
+}
+
+// newestBotReview is the newest review of a Bot account that opened a review thread nobody has
+// resolved, whatever the state of the review: Codex submits COMMENTED, and says it found nothing with
+// a plain comment and no review at all. The review threads carry both halves of it: GraphQL names the
+// type of the account that opened each, which tells an app from a user who took the same login, and
+// the review the opening comment was submitted with. A bot's review whose threads are all resolved
+// asks nothing any more; a maintainer who wants no run for it resolves them by hand.
+func (g *gitHub) newestBotReview(ctx context.Context, repository string, pull int) (time.Time, error) {
+	threads, err := g.reviewThreads(ctx, repository, pull)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var newest time.Time
+	for _, t := range threads {
+		if t.IsResolved || len(t.Comments.Nodes) == 0 {
+			continue
+		}
+		opening := t.Comments.Nodes[0]
+		if opening.Author.Type != accountBot || opening.PullRequestReview == nil || opening.PullRequestReview.SubmittedAt == nil {
+			continue
+		}
+		if at := *opening.PullRequestReview.SubmittedAt; at.After(newest) {
+			newest = at
+		}
+	}
+	return newest, nil
 }
 
 // newestRequest reads the one pull request. A failure to read it or its review list ends the

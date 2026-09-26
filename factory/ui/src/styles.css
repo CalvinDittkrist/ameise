@@ -361,6 +361,9 @@ h3 em {
   margin-top: -8px;
   white-space: normal;
 }
+.detail .facts > span {
+  white-space: nowrap;
+}
 .versions {
   margin-top: -16px;
 }

@@ -332,26 +332,34 @@ func named(checks []check) string {
 // ci is the ci stage of one run: it waits on the pull request the pr stage opened, repairs what
 // the budget allows and ends the run. Every way out of it ends the run.
 //
-// mandate says the run is a follow-up run, which a writer's review that asks for changes queued: it
-// starts at the address-reviews stage and answers what the reviewers ask for on the first reading it
-// makes, whatever the checks say, and that round is the mandate itself and no repair round. The count
-// of a follow-up run starts at none, as every run's does that does not resume one (execute), so the
-// review starts it again once; every round after it is the pipeline's own and counts.
-func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim claimed, pull string, mandate bool) {
+// answering says the run is a follow-up run: it starts at the address-reviews stage and answers what
+// the reviewers ask for on the first reading it makes, whatever the checks say. A writer's review
+// that asks for changes queued it as a mandate: that round is the mandate itself and no repair round,
+// and the count of the run starts at none, as every run's does that does not resume one (execute), so
+// the review starts it again once. A bot's review is no mandate: the run carries the count of the pull
+// request on (execute), the round that answers the bot is a repair round, and a count already at the
+// budget ends the run blocked before any session is started. Every round after the first is the
+// pipeline's own and counts.
+func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim claimed, pull string, answering bool) {
 	f.runs.update(r, func() {
 		r.PullRequest = pull
-		if mandate {
+		if answering {
 			r.stage(stageAddressReviews)
 		} else {
 			r.stage(stageCI)
 		}
 	})
 	knobs := f.ciFor(entry.Repository)
-	if mandate {
+	switch {
+	case answering && entry.Signal == signalBotReview:
+		f.runs.event(r, Event{Kind: "factory", Title: "answering the bot's review on " + pull,
+			Body: fmt.Sprintf("a bot reviewed at %s and left a thread unresolved, which is no mandate: the pull request's count of repair rounds carries over, at %d of %d, and answering the review is one of them",
+				entry.SignalAt.UTC().Format(time.RFC3339), r.RepairRounds, knobs.RepairRounds)})
+	case answering:
 		f.runs.event(r, Event{Kind: "factory", Title: "answering the review on " + pull,
 			Body: fmt.Sprintf("a writer asked for changes at %s, which is a new mandate on the pull request: its count of repair rounds starts again, at 0 of %d",
 				entry.SignalAt.UTC().Format(time.RFC3339), knobs.RepairRounds)})
-	} else {
+	default:
 		f.runs.event(r, Event{Kind: "factory", Title: "waiting on CI for " + pull,
 			Body: fmt.Sprintf("%d of %d repair rounds taken", r.RepairRounds, knobs.RepairRounds)})
 	}
@@ -407,13 +415,21 @@ func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim cla
 			spent = ""
 			f.resolveReplied(ctx, r, read, replied)
 			read = read.without(answered, replied)
-			if mandate {
-				mandate = false
-				if len(read.Objections)+len(read.Threads) == 0 {
+			verdict = judge(read, knobs, workflows, time.Now(), &doneAt)
+			if verdict == ciGreen && !readied.IsZero() && time.Since(readied) < knobs.ChecksGrace && !finishedSince(read.Checks, readied) {
+				verdict = ciWaiting
+			}
+			if answering {
+				answering = false
+				switch {
+				case len(read.Objections)+len(read.Threads) == 0:
 					f.runs.event(r, Event{Kind: "factory", Title: "no review asks for changes any more",
 						Body: "the review this run was queued for no longer stands, so there is nothing to answer and the run waits on CI"})
 					f.runs.update(r, func() { r.stage(stageCI) })
-				} else {
+				case entry.Signal == signalBotReview:
+					// Answered as a repair round, whatever the checks say: the budget below decides.
+					verdict = ciComments
+				default:
 					pushed, ok := f.address(parent, ctx, r, entry, claim, pull, read, answered, replied)
 					if !ok {
 						return
@@ -424,10 +440,6 @@ func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim cla
 					doneAt, said = time.Time{}, ""
 					continue
 				}
-			}
-			verdict = judge(read, knobs, workflows, time.Now(), &doneAt)
-			if verdict == ciGreen && !readied.IsZero() && time.Since(readied) < knobs.ChecksGrace && !finishedSince(read.Checks, readied) {
-				verdict = ciWaiting
 			}
 		}
 		if verdict != said {
@@ -940,9 +952,11 @@ func (c ghRollup) check() check {
 }
 
 // threadsQuery reads the review threads of one pull request: the id a reply names each by, whether it
-// is resolved, where it is, and its conversation, who said what, up to maxThreadComments comments.
+// is resolved, where it is, and its conversation, who said what, up to maxThreadComments comments,
+// each with the submission of the review it belongs to, which the watch of a held pull request reads
+// a bot's review by (newestBotReview).
 const threadsQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){` +
-	`reviewThreads(first:100){nodes{id isResolved path line comments(first:` + maxThreadComments + `){nodes{author{__typename login} url body}}}}}}}`
+	`reviewThreads(first:100){nodes{id isResolved path line comments(first:` + maxThreadComments + `){nodes{author{__typename login} url body pullRequestReview{submittedAt}}}}}}}}`
 
 // maxThreadComments bounds the comments read of one thread, the opening one among them.
 const maxThreadComments = "50"
@@ -962,26 +976,57 @@ type ghThreads struct {
 		Repository struct {
 			PullRequest struct {
 				ReviewThreads struct {
-					Nodes []struct {
-						ID         string `json:"id"`
-						IsResolved bool   `json:"isResolved"`
-						Path       string `json:"path"`
-						Line       int    `json:"line"`
-						Comments   struct {
-							Nodes []struct {
-								Author struct {
-									Type  string `json:"__typename"`
-									Login string `json:"login"`
-								} `json:"author"`
-								URL  string `json:"url"`
-								Body string `json:"body"`
-							} `json:"nodes"`
-						} `json:"comments"`
-					} `json:"nodes"`
+					Nodes []ghThread `json:"nodes"`
 				} `json:"reviewThreads"`
 			} `json:"pullRequest"`
 		} `json:"repository"`
 	} `json:"data"`
+}
+
+// accountBot is GraphQL's type of an app's account, which a user cannot take whatever login they
+// choose: GraphQL gives a bot's login without the [bot] REST puts after it.
+const accountBot = "Bot"
+
+// ghThread is one review thread as threadsQuery reads it.
+type ghThread struct {
+	ID         string `json:"id"`
+	IsResolved bool   `json:"isResolved"`
+	Path       string `json:"path"`
+	Line       int    `json:"line"`
+	Comments   struct {
+		Nodes []struct {
+			Author struct {
+				Type  string `json:"__typename"`
+				Login string `json:"login"`
+			} `json:"author"`
+			URL  string `json:"url"`
+			Body string `json:"body"`
+			// PullRequestReview is the review the comment was submitted with; GitHub answers null for a
+			// comment of no review, and a null submission for a review that is still pending.
+			PullRequestReview *struct {
+				SubmittedAt *time.Time `json:"submittedAt"`
+			} `json:"pullRequestReview"`
+		} `json:"nodes"`
+	} `json:"comments"`
+}
+
+// reviewThreads reads the review threads of one pull request.
+func (g *gitHub) reviewThreads(ctx context.Context, repository string, number int) ([]ghThread, error) {
+	owner, name, _ := strings.Cut(repository, "/")
+	body, err := json.Marshal(map[string]any{"query": threadsQuery,
+		"variables": map[string]any{"owner": owner, "name": name, "number": number}})
+	if err != nil {
+		return nil, err
+	}
+	raw, err := ghInput(ctx, ghTimeout, string(body), "api", "graphql", "--input", "-")
+	if err != nil {
+		return nil, fmt.Errorf("the review threads could not be read: %w", err)
+	}
+	var threads ghThreads
+	if err := json.Unmarshal(raw, &threads); err != nil {
+		return nil, fmt.Errorf("the review threads are no thread list: %w", err)
+	}
+	return threads.Data.Repository.PullRequest.ReviewThreads.Nodes, nil
 }
 
 // pullChecks reads what a gate on CI reads of the pull request of a run, and what every reading of the
@@ -1026,21 +1071,11 @@ func (g *gitHub) pullState(ctx context.Context, held Held, bots []string) (pullR
 	if err := g.readReviews(ctx, held.Repository, number, bots, &read); err != nil {
 		return pullReading{}, err
 	}
-	owner, name, _ := strings.Cut(held.Repository, "/")
-	body, err := json.Marshal(map[string]any{"query": threadsQuery,
-		"variables": map[string]any{"owner": owner, "name": name, "number": number}})
+	threads, err := g.reviewThreads(ctx, held.Repository, number)
 	if err != nil {
 		return pullReading{}, err
 	}
-	raw, err := ghInput(ctx, ghTimeout, string(body), "api", "graphql", "--input", "-")
-	if err != nil {
-		return pullReading{}, fmt.Errorf("the review threads could not be read: %w", err)
-	}
-	var threads ghThreads
-	if err := json.Unmarshal(raw, &threads); err != nil {
-		return pullReading{}, fmt.Errorf("the review threads are no thread list: %w", err)
-	}
-	for _, t := range threads.Data.Repository.PullRequest.ReviewThreads.Nodes {
+	for _, t := range threads {
 		if t.IsResolved {
 			continue
 		}
@@ -1056,7 +1091,7 @@ func (g *gitHub) pullState(ctx context.Context, held Held, bots []string) (pullR
 		// GraphQL gives a bot's login without [bot], so the account's type is what tells the bot from
 		// a user of the same name.
 		counts := func(login, kind string) (bool, error) {
-			if kind == "Bot" {
+			if kind == accountBot {
 				return true, nil
 			}
 			if login == "" {

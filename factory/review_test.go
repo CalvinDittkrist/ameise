@@ -378,6 +378,11 @@ func TestAReviewIsAnsweredOncePerIssueAndOnlyWhileTheIssueIsIdle(t *testing.T) {
 		r.SignalAt, r.StartedAt = at, at.Add(time.Second)
 		return r
 	}
+	botAnswered := func(id int, at time.Time) Run {
+		r := answered(id, at)
+		r.Signal = signalBotReview
+		return r
+	}
 	for _, c := range []struct {
 		name    string
 		runs    []Run
@@ -391,6 +396,11 @@ func TestAReviewIsAnsweredOncePerIssueAndOnlyWhileTheIssueIsIdle(t *testing.T) {
 		{"another review after the one that was answered", []Run{
 			run(1, signalRouted, outcomeReady, true), answered(2, requestedAt)},
 			requestedAt.Add(20 * time.Minute), true},
+		// A follow-up run answers every review that stands, so the one a bot's review queued has
+		// answered a writer's review submitted before that bot's, and the other way around.
+		{"a review older than the bot's review a follow-up run answered", []Run{
+			run(1, signalRouted, outcomeReady, true), botAnswered(2, requestedAt.Add(time.Minute))},
+			requestedAt, false},
 		{"a review submitted while the run was going", []Run{
 			run(1, signalRouted, outcomeReady, true)}, ended.Add(-5 * time.Minute), false},
 		{"no review at all", []Run{
@@ -400,7 +410,7 @@ func TestAReviewIsAnsweredOncePerIssueAndOnlyWhileTheIssueIsIdle(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			held := holdings(c.runs)["acme/edge-sensors#104"]
-			if follows := held.changesRequested(c.at); follows != c.follows {
+			if follows := held.unanswered(c.at); follows != c.follows {
 				t.Errorf("the factory reads this as a review to answer: %v, want %v", follows, c.follows)
 			}
 		})
@@ -418,7 +428,7 @@ func TestAReviewIsAnsweredOncePerIssueAndOnlyWhileTheIssueIsIdle(t *testing.T) {
 	}
 	active := watched
 	active[0].EndedAt, active[0].State = nil, "running"
-	if held := holdings(active)["acme/edge-sensors#104"]; held.changesRequested(requestedAt) {
+	if held := holdings(active)["acme/edge-sensors#104"]; held.unanswered(requestedAt) {
 		t.Error("an issue whose run is still going is read as reviewed; the run would be queued beside itself")
 	} else if _, ok := held.pull(); ok {
 		t.Error("the factory reads the pull request of a run that is still writing to it")
@@ -491,7 +501,284 @@ func TestAnAuthorGitHubCouldNotBeAskedAboutIsWarnedAboutAgainAfterItCould(t *tes
 	}
 }
 
+// TestABotsReviewRunsAFollowUpWhoseRoundCountsWithinTheBudget drives the second gesture: a run ends
+// ready and leaves a pull request, a bot reviews it with the state COMMENTED and leaves a thread, and
+// the factory answers the thread in the worktree of the claim, as a repair round of the pull request
+// rather than a new mandate ([ADR 0051]).
+//
+// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+func TestABotsReviewRunsAFollowUpWhoseRoundCountsWithinTheBudget(t *testing.T) {
+	t.Parallel()
+	gh, data := ciClaim(t)
+	gh.pullRequestIs(t, "acme/edge-sensors", claimedIssue, "open")
+	gh.reviews(t, "acme/edge-sensors", claimedIssue)
+	gh.reviewRequests(t, pullOfTheClaim, maintainers...)
+	gh.env = append(gh.env, `CLAUDE_SHIM_THEN_RESULT={"outcome":"complete","summary":"fixed the thread",`+
+		`"replies":[{"thread":"PRRT_7","body":"It gives up after five tries now."}],"fixed":["the retry gives up"]}`)
+	c := ciConfig(data, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	first := f.ended(t, 1)
+	if first.Outcome != outcomeReady || first.PullRequest != pullOfTheClaim {
+		t.Fatalf("the first run ended as %q (%s) with the pull request %q, want a ready run that opened %s; the factory's log:\n%s",
+			first.Outcome, first.Reason, first.PullRequest, pullOfTheClaim, f.output(t))
+	}
+
+	// The gesture: the bot reviews after that run ended, commenting and leaving one thread.
+	reviewedAt := after(*first.EndedAt)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(8001, reviewedAt))
+	gh.threads(t, reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt))
+
+	f.sawIn(t, 2, "replied to the thread")
+	// The thread is resolved on GitHub now, and the pull request carries the round's push.
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{head: gh.head(t, "acme/edge-sensors", claimedBranch),
+		reviews: []map[string]any{botReview(8001, reviewedAt)}})
+	second := f.ended(t, 2)
+	if second.Signal != signalBotReview || second.Kind != "follow-up" || second.Outcome != outcomeReady {
+		t.Fatalf("run 2 is a %q run on the signal %q that ended %q (%s), want a ready follow-up run on a bot's review; the factory's log:\n%s",
+			second.Kind, second.Signal, second.Outcome, second.Reason, f.output(t))
+	}
+	if !second.SignalAt.Equal(reviewedAt) {
+		t.Errorf("the follow-up run stands for a review submitted at %s, want the bot's at %s", second.SignalAt, reviewedAt)
+	}
+	// No mandate: the count of the pull request carries over and answering the bot is one round of it.
+	if second.RepairRounds != first.RepairRounds+1 {
+		t.Errorf("the follow-up run ended with %d repair rounds, want %d: the first run's %d and the round that answered the bot",
+			second.RepairRounds, first.RepairRounds+1, first.RepairRounds)
+	}
+	if !equal(second.Stages, []string{"address-reviews", "ci"}) {
+		t.Errorf("the follow-up run went through the stages %v, want [address-reviews ci]", second.Stages)
+	}
+	want := []string{"answering the bot's review on " + pullOfTheClaim, "repair round 1 of 3",
+		"replied to the thread on upload.go:42 and resolved it", "ci: green"}
+	if titles := factoryTitles(second, "answering", "repair round", "replied to", "ci: green"); !equal(titles, want) {
+		t.Errorf("the follow-up run said %v, want %v", titles, want)
+	}
+	if second.Worktree != first.Worktree || second.Branch != claimedBranch || !second.Holding {
+		t.Errorf("the follow-up run is %s in %s (holding=%v), want the branch and the worktree of the claim", second.Branch, second.Worktree, second.Holding)
+	}
+	brief := strings.Join(addressBriefs(second), "\n")
+	if !strings.Contains(brief, "PRRT_7 on upload.go:42") || !strings.Contains(brief, "The retry never gives up.") {
+		t.Errorf("the address-reviews session's brief does not carry the bot's thread:\n%s", brief)
+	}
+	graphql := gh.wrote(t, replyCall) + gh.wrote(t, resolveCall)
+	for _, want := range []string{`"id":"PRRT_7"`, "It gives up after five tries now.", "resolveReviewThread"} {
+		if !strings.Contains(graphql, want) {
+			t.Errorf("the factory's GraphQL calls do not carry %q:\n%s", want, graphql)
+		}
+	}
+	// A run that ends ready asks the maintainers for a review, whichever signal queued it.
+	f.notified(t, 2)
+	if asked := gh.made(t, reviewCall(pullOfTheClaim, "ada")); asked != 2 {
+		t.Errorf("the maintainers were asked for a review %d times, want once per ready run", asked)
+	}
+}
+
+// What a poll must not read as a bot's review: a thread by a user who took a bot's login, a bot's
+// review whose thread somebody resolved, one submitted before the last run of the issue ended, and a
+// bot's review that left no thread at all. The bot's thread after the run then fills the line, which
+// is what says the fixture was sound, and a writer's approval after it does not empty it: a
+// maintainer who wants no run resolves the bot's threads.
+func TestABotsReviewQueuesAFollowUpOnlyForAnUnresolvedThreadOfABotAfterTheRun(t *testing.T) {
+	t.Parallel()
+	gh, data, ended := heldPull(t, false)
+	gh.mayWrite(t, "acme/edge-sensors", "maintainer", true)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, ended.Add(time.Minute)))
+	ignored := []map[string]any{
+		reviewThread("PRRT_user", userAccount("chatgpt-codex-connector"), ended.Add(2*time.Minute)),
+		resolvedThread(reviewThread("PRRT_resolved", botAccount("chatgpt-codex-connector"), ended.Add(3*time.Minute))),
+		reviewThread("PRRT_before", botAccount("chatgpt-codex-connector"), ended.Add(-5*time.Minute)),
+	}
+	gh.threads(t, ignored...)
+
+	f := gh.start(t, config{"poll": "50ms", "deadline": "90s", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	f.queue(t, 0)
+	f.never(t, 3*time.Second, "the factory queued a follow-up run on a review that is no bot's unresolved thread after the run",
+		func() bool { return len(f.line(t).Queue) > 0 })
+
+	reviewedAt := ended.Add(10 * time.Minute).Truncate(time.Second)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, ended.Add(time.Minute)), botReview(2, reviewedAt),
+		review(3, "maintainer", "APPROVED", reviewedAt.Add(5*time.Minute)))
+	gh.threads(t, append(ignored, reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt))...)
+	head := f.queue(t, 1)[0]
+	if head.Number != claimedIssue || head.Signal != signalBotReview || !head.SignalAt.Equal(reviewedAt) {
+		t.Errorf("the line opens with #%d on the signal %q at %s, want #%d on a bot's review at %s",
+			head.Number, head.Signal, head.SignalAt, claimedIssue, reviewedAt)
+	}
+}
+
+// The draft a gate on CI opened is no pull request a follow-up run answers reviews on, a bot's no
+// more than a writer's: no pr stage has finished it.
+func TestABotsReviewOnTheDraftOfAGateOnCIQueuesNothing(t *testing.T) {
+	t.Parallel()
+	gh, data, ended := heldPull(t, true)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, ended.Add(time.Minute)))
+	gh.threads(t, reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), ended.Add(time.Minute)))
+
+	f := gh.start(t, config{"poll": "50ms", "deadline": "90s", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	f.never(t, 3*time.Second, "the factory queued a follow-up run on a bot's review of a draft",
+		func() bool { return len(f.line(t).Queue) > 0 })
+	if read := gh.made(t, "api graphql --input -"); read != 0 {
+		t.Errorf("the factory read the review threads of a draft %d times, want never: it is not watched", read)
+	}
+}
+
+// A bot's review read when the pull request has had every repair round of its budget is queued all
+// the same, and the run ends blocked on the reason every spent budget gives, before any session is
+// started, with the word to the maintainers that every blocked run sends. The thread still stands on
+// GitHub, and the one review is one run however many polls read it after.
+func TestABotsReviewAtTheBudgetBlocksTheRunItQueuesAndIsAnsweredOnce(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+	gh.issues(t, "acme/edge-sensors")
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	ended := began.Add(30 * time.Minute)
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+	spent := record(1, claimedIssue, claimedTitle, signalRouted, outcomeReady, true, began, ended)
+	spent.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	spent.PullRequest, spent.RepairRounds = pullOfTheClaim, 3
+	records(t, data, spent)
+
+	reviewedAt := ended.Add(10 * time.Minute).Truncate(time.Second)
+	gh.pullRequestIs(t, "acme/edge-sensors", claimedIssue, "open")
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, reviewedAt))
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{reviews: []map[string]any{botReview(1, reviewedAt)},
+		threads: []map[string]any{reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt)}})
+	gh.comments(t, "acme/edge-sensors", claimedIssue)
+
+	c := ciConfig(data, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	run := f.ended(t, 2)
+	if run.Signal != signalBotReview || run.Outcome != outcomeBlocked {
+		t.Fatalf("run 2 is on the signal %q and ended %q (%s), want a bot's review that blocks; the factory's log:\n%s",
+			run.Signal, run.Outcome, run.Reason, f.output(t))
+	}
+	for _, want := range []string{"has had 3 of 3 repair rounds (ci.repair_rounds)",
+		"unresolved thread on upload.go:42 by chatgpt-codex-connector: " + pullOfTheClaim + "#discussion_PRRT_7"} {
+		if !strings.Contains(run.Reason, want) {
+			t.Errorf("the blocked run gives the reason %q, want %q in it", run.Reason, want)
+		}
+	}
+	if workers := gh.workers(t); len(workers) != 0 {
+		t.Errorf("the factory started %d sessions, want none: the budget was spent before the run began", len(workers))
+	}
+	f.notified(t, 2)
+	if said := gh.commented(t, "acme/edge-sensors", claimedIssue); !strings.Contains(said, "@ada") || !strings.Contains(said, "`blocked`") {
+		t.Errorf("the comment on the issue is %q, want the blocked run with the maintainers mentioned", said)
+	}
+	f.never(t, 3*time.Second, "the factory started a third run, so it answered the one bot review twice",
+		func() bool { return !f.missing(t, 3) })
+	if read := gh.made(t, "api graphql --input -"); read < 3 {
+		t.Errorf("the review threads were read %d times, want a reading per poll: one run out of many polls is what is being proved", read)
+	}
+}
+
+// A writer's review that asks for changes is a new mandate whatever came before it: after the rounds
+// of bot follow-ups have spent the budget, the follow-up run it queues starts its count at none and
+// answers the review in a round that is not one of them.
+func TestAWritersReviewAfterBotFollowUpsStartsTheCountAgain(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+	gh.issues(t, "acme/edge-sensors")
+	began := time.Now().UTC().Add(-3 * time.Hour)
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+	worktree := filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	first := record(1, claimedIssue, claimedTitle, signalRouted, outcomeReady, true, began, began.Add(30*time.Minute))
+	first.Worktree, first.PullRequest, first.RepairRounds = worktree, pullOfTheClaim, 2
+	botAt := began.Add(40 * time.Minute).Truncate(time.Second)
+	bot := signalled(record(2, claimedIssue, claimedTitle, signalBotReview, outcomeReady, true, botAt.Add(time.Minute), began.Add(time.Hour)), botAt)
+	bot.Worktree, bot.PullRequest, bot.RepairRounds = worktree, pullOfTheClaim, 3
+	records(t, data, first, bot)
+
+	gh.pullRequestIs(t, "acme/edge-sensors", claimedIssue, "open")
+	objection := objectionOf(t, gh, 9001, "maintainer", "Log every retry.")
+	objection["submitted_at"] = began.Add(90 * time.Minute).Truncate(time.Second).Format(time.RFC3339)
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{reviews: []map[string]any{objection}})
+	gh.answer(t, pullCommented, pullOfTheClaim+"#issuecomment-5\n")
+	gh.env = append(gh.env, `CLAUDE_SHIM_RESULT={"outcome":"complete","summary":"logged","answer":"Every retry is logged now.","fixed":["log every retry"]}`)
+
+	f := gh.work(t, ciConfig(data, nil))
+	f.sawIn(t, 3, "answered the review summaries")
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{head: gh.head(t, "acme/edge-sensors", claimedBranch),
+		reviews: []map[string]any{objection}})
+	run := f.ended(t, 3)
+	if run.Signal != signalChangesRequested || run.Outcome != outcomeReady {
+		t.Fatalf("run 3 is on the signal %q and ended %q (%s), want a ready follow-up run on the writer's review; the factory's log:\n%s",
+			run.Signal, run.Outcome, run.Reason, f.output(t))
+	}
+	if run.RepairRounds != 0 {
+		t.Errorf("the follow-up run ended with %d repair rounds, want none: a writer's review starts the count again", run.RepairRounds)
+	}
+	if titles := factoryTitles(run, "answering the review", "repair round"); !equal(titles, []string{"answering the review on " + pullOfTheClaim}) {
+		t.Errorf("the follow-up run said %v, want that it answered the review without a repair round", titles)
+	}
+}
+
 // ---- the gh shim ----
+
+// heldPull is a factory's data directory that holds #104 with the pull request its ready run opened,
+// or the draft of a gate on CI, and when that run ended; the pull request is open.
+func heldPull(t *testing.T, draft bool) (*ghShim, string, time.Time) {
+	t.Helper()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	gh.issues(t, "acme/edge-sensors")
+	data := filepath.Join(t.TempDir(), "data")
+	gh.cloneInto(t, data, "acme/edge-sensors")
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	ended := began.Add(30 * time.Minute)
+	held := record(1, claimedIssue, claimedTitle, signalRouted, outcomeReady, true, began, ended)
+	held.PullRequest, held.Draft = pullOfTheClaim, draft
+	records(t, data, held)
+	gh.pullRequestIs(t, "acme/edge-sensors", claimedIssue, "open")
+	return gh, data, ended
+}
+
+// threads is the review threads of the pull request, as GitHub's GraphQL answers them.
+func (g *ghShim) threads(t *testing.T, threads ...map[string]any) {
+	t.Helper()
+	if threads == nil {
+		threads = []map[string]any{}
+	}
+	g.answer(t, "api graphql --input -", marshal(t, map[string]any{"data": map[string]any{"repository": map[string]any{
+		"pullRequest": map[string]any{"reviewThreads": map[string]any{"nodes": threads}}}}}))
+}
+
+// reviewThread is an unresolved thread on upload.go:42 that a review submitted at that time opened.
+func reviewThread(id string, author map[string]any, at time.Time) map[string]any {
+	thread := openThread(id, "upload.go", 42, author, "The retry never gives up.")
+	opening := thread["comments"].(map[string]any)["nodes"].([]map[string]any)[0]
+	opening["pullRequestReview"] = map[string]any{"submittedAt": at.Format(time.RFC3339)}
+	return thread
+}
+
+// resolvedThread is a thread somebody resolved.
+func resolvedThread(thread map[string]any) map[string]any {
+	thread["isResolved"] = true
+	return thread
+}
+
+// botReview is a review of the Codex app as GitHub's REST review list carries it: the login with the
+// [bot] suffix, the account type Bot, and the state COMMENTED whatever it found.
+func botReview(id int, at time.Time) map[string]any {
+	r := review(id, "chatgpt-codex-connector[bot]", "COMMENTED", at)
+	r["user"] = map[string]any{"login": "chatgpt-codex-connector[bot]", "type": "Bot"}
+	return r
+}
 
 // pullRequestIs is what GitHub says the state of one pull request is: open or closed, which is what
 // it calls a merged pull request too.

@@ -174,9 +174,9 @@ func TestFakeModeWorksTheCannedQueueOneRunAtATime(t *testing.T) {
 	for _, run := range line.Done {
 		worked = append(worked, fmt.Sprintf("%s#%d", run.Repository, run.Issue))
 	}
-	// The follow-up run of the review on #121's pull request stands before #118: held work first.
+	// The follow-up runs of the two reviews on #121's pull request stand before #118: held work first.
 	want := []string{"acme/edge-sensors#104", "acme/backtest#109", "acme/edge-sensors#112",
-		"acme/edge-sensors#115", "acme/edge-sensors#121", "acme/edge-sensors#121", "acme/backtest#118"}
+		"acme/edge-sensors#115", "acme/edge-sensors#121", "acme/edge-sensors#121", "acme/edge-sensors#121", "acme/backtest#118"}
 	if strings.Join(worked, " ") != strings.Join(want, " ") {
 		t.Errorf("the queue was worked as %v, want %v", worked, want)
 	}
@@ -191,7 +191,7 @@ func TestFakeModeWorksTheCannedQueueOneRunAtATime(t *testing.T) {
 	}
 
 	ready, blocked, failed := line.Done[0], line.Done[1], line.Done[2]
-	silent, detached, followUp, timeout := line.Done[3], line.Done[4], line.Done[5], line.Done[6]
+	silent, detached, followUp, botFollowUp, timeout := line.Done[3], line.Done[4], line.Done[5], line.Done[6], line.Done[7]
 
 	// ready: the pull request is the one the pr stage opened, the stages are the factory's, and the
 	// totals come from the result lines.
@@ -395,15 +395,34 @@ func TestFakeModeWorksTheCannedQueueOneRunAtATime(t *testing.T) {
 		t.Errorf("run 6 logged %q, want the review answered by an address-reviews session and then the ci stage", got)
 	}
 
+	// bot follow-up: the bot reviewed the pull request after run 6 ended and left a thread, which is no
+	// mandate: the run carried run 6's count of repair rounds on and spent one of them answering it.
+	if botFollowUp.Issue != 121 || botFollowUp.Signal != signalBotReview || botFollowUp.Kind != "follow-up" ||
+		botFollowUp.Outcome != "ready" || botFollowUp.PullRequest != detached.PullRequest {
+		t.Errorf("run 7 is a %q run of #%d on %q that ended %q with %q (%s), want a ready follow-up run of #121 on a bot's review of %s",
+			botFollowUp.Kind, botFollowUp.Issue, botFollowUp.Signal, botFollowUp.Outcome, botFollowUp.PullRequest, botFollowUp.Reason, detached.PullRequest)
+	}
+	if got := strings.Join(botFollowUp.Stages, " "); got != "address-reviews ci" || botFollowUp.RepairRounds != followUp.RepairRounds+1 {
+		t.Errorf("run 7 went through the stages %q with %d repair rounds, want %q with %d: the count carries over and the bot's round is one",
+			got, botFollowUp.RepairRounds, "address-reviews ci", followUp.RepairRounds+1)
+	}
+	var botLog apiRun
+	f.get(t, "/api/runs/7", &botLog)
+	if got := factoryTitles(botLog, "answering", "repair round", "replied", "ci: "); strings.Join(got, " | ") !=
+		"answering the bot's review on https://github.com/acme/edge-sensors/pull/221 | ci: review-comments | repair round 1 of 3 | "+
+			"replied to the thread on upload/retry.go:42 and resolved it | ci: green" {
+		t.Errorf("run 7 logged %q, want the bot's thread answered in a repair round and then the ci stage", got)
+	}
+
 	// timeout: the deadline passed and the whole process group was ended.
 	if timeout.Outcome != "timeout" || !strings.Contains(timeout.Reason, "deadline of 30s") {
-		t.Errorf("run 7 ended %q because %q, want timeout on the deadline", timeout.Outcome, timeout.Reason)
+		t.Errorf("run 8 ended %q because %q, want timeout on the deadline", timeout.Outcome, timeout.Reason)
 	}
 	full = apiRun{} // a field the interface omits would keep the value of the run read before
-	f.get(t, "/api/runs/7", &full)
+	f.get(t, "/api/runs/8", &full)
 	pids := workerPids(t, full)
 	if len(pids) != 2 {
-		t.Fatalf("the scripted worker of run 7 logged %d processes, want the worker and its child", len(pids))
+		t.Fatalf("the scripted worker of run 8 logged %d processes, want the worker and its child", len(pids))
 	}
 	for _, pid := range pids {
 		if survived(pid) {
@@ -428,16 +447,16 @@ func TestFakeModeWorksTheCannedQueueOneRunAtATime(t *testing.T) {
 	tokens := timeout.Tokens
 	if timeout.Totals != "factory" || timeout.Turns != turns || tokens.Input != 400*messages || tokens.CacheCreation != 1200*messages ||
 		tokens.Output != 250*messages || tokens.CacheRead != cacheRead+subagentContext {
-		t.Errorf("run 7 has turns %d and tokens %+v from %q, want the %d turns of its stream and the tokens of its %d messages, counted by the factory",
+		t.Errorf("run 8 has turns %d and tokens %+v from %q, want the %d turns of its stream and the tokens of its %d messages, counted by the factory",
 			timeout.Turns, tokens, timeout.Totals, turns, messages)
 	}
 	perMessage := 400*5 + 400*5*1.25 + 800*5*2 + 250*25 // input, the two cache writes, output, at $5 and $25 per million
 	if want := (float64(turns)*perMessage + float64(cacheRead)*0.5) / 1e6; math.Abs(timeout.CostUSD-want) > 1e-9 {
-		t.Errorf("run 7 cost %v, want %v: the worker's messages at the list price of %s, and nothing for the subagent's on %s",
+		t.Errorf("run 8 cost %v, want %v: the worker's messages at the list price of %s, and nothing for the subagent's on %s",
 			timeout.CostUSD, want, scriptedModel, unpricedModel)
 	}
 	if len(timeout.Warnings) != 1 || !strings.Contains(timeout.Warnings[0], "no price for "+unpricedModel) {
-		t.Errorf("run 7 has the warnings %q, want the one that says its cost leaves %s out", timeout.Warnings, unpricedModel)
+		t.Errorf("run 8 has the warnings %q, want the one that says its cost leaves %s out", timeout.Warnings, unpricedModel)
 	}
 
 	// The run is one JSON record and one append-only JSONL event log in the data directory.
@@ -1352,10 +1371,11 @@ func (f *factory) ended(t *testing.T, id int) apiRun {
 	return run
 }
 
-// cannedRuns is how many runs fake mode makes of its canned queue: one per entry, and the follow-up
-// run of the review its maintainer asks for on the detached worker's pull request, which stands in the
-// line before the last entry. The last run is the hanging one.
-var cannedRuns = len(cannedIssues) + 1
+// cannedRuns is how many runs fake mode makes of its canned queue: one per entry, and the two
+// follow-up runs of the detached worker's pull request, the one of the review its maintainer asks for
+// and the one of the review its bot submits after that, which stand in the line before the last entry.
+// The last run is the hanging one.
+var cannedRuns = len(cannedIssues) + 2
 
 // hangingIssue is the canned entry whose scripted worker hangs, which is the issue every test that
 // stops a factory mid-run works with. It is read from the scenario rather than from a position in

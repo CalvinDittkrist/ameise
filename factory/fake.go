@@ -62,9 +62,13 @@ type canned struct {
 	reads map[string]int // how often the ci stage has read each issue's pull request
 	gated map[string]int // how often a gate on CI has read each issue's pull request
 	// requested is when the maintainer of fake mode asked for changes on the pull request of an issue,
-	// and answered the issues whose pull request the factory has commented on since.
-	requested map[int]time.Time
-	answered  map[int]bool
+	// and answered the issues whose pull request the factory has commented on since. botReviewed is
+	// when the bot of fake mode reviewed it, and botResolved the issues whose bot thread the factory
+	// has resolved since.
+	requested   map[int]time.Time
+	answered    map[int]bool
+	botReviewed map[int]time.Time
+	botResolved map[int]bool
 }
 
 // The issues fake mode holds are not asked about: there is no GitHub behind a canned queue, so
@@ -76,34 +80,49 @@ func (c *canned) queue(context.Context, []Held) poll {
 // cannedPull is the number of the pull request a scripted worker of that issue reports.
 func cannedPull(issue int) int { return issue + 100 }
 
-// changesRequested answers that the maintainer asked for changes on the pull request of the detached
-// worker, the first time the factory asks about it, which is once that run has ended, and at that
-// moment from then on: one review, which queues one follow-up run. A data directory that holds that
-// follow-up run already has had its review, so a restarted factory reads the same one again rather than
-// a new one. Nobody asks for changes on any other pull request.
-func (c *canned) changesRequested(_ context.Context, _ string, pull int) time.Time {
+// reviewed answers that the maintainer asked for changes on the pull request of the detached worker,
+// the first time the factory asks about it, which is once that run has ended, and at that moment
+// from then on: one review, which queues one follow-up run. Once that run has ended too, the bot of
+// fake mode reviews the pull request it pushed to and leaves a thread, the first time the factory asks
+// after it: one review, which queues one follow-up run of its own. A data directory that holds those
+// follow-up runs already has had their reviews, so a restarted factory reads the same ones again
+// rather than new ones. Nobody reviews any other pull request.
+func (c *canned) reviewed(_ context.Context, _ string, pull int) reviewed {
 	issue := pull - 100
 	if scenarioOf(issue) != "detached" {
-		return time.Time{}
+		return reviewed{}
 	}
-	var answered time.Time
+	var requested, bot time.Time
+	followed := false // the maintainer's follow-up run has ended
 	for _, r := range c.runs.list() {
-		if r.Issue == issue && r.Signal == signalChangesRequested {
-			answered = r.SignalAt
+		if r.Issue != issue {
+			continue
+		}
+		switch r.Signal {
+		case signalChangesRequested:
+			requested, followed = r.SignalAt, r.EndedAt != nil
+		case signalBotReview:
+			bot = r.SignalAt
 		}
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.requested == nil {
-		c.requested = map[int]time.Time{}
+		c.requested, c.botReviewed = map[int]time.Time{}, map[int]time.Time{}
 	}
 	if _, asked := c.requested[issue]; !asked {
 		c.requested[issue] = time.Now()
-		if !answered.IsZero() {
-			c.requested[issue] = answered
+		if !requested.IsZero() {
+			c.requested[issue] = requested
 		}
 	}
-	return c.requested[issue]
+	if _, asked := c.botReviewed[issue]; !asked && (followed || !bot.IsZero()) {
+		c.botReviewed[issue] = time.Now()
+		if !bot.IsZero() {
+			c.botReviewed[issue] = bot
+		}
+	}
+	return reviewed{requested: c.requested[issue], bot: c.botReviewed[issue]}
 }
 
 // scenarioOf is the scripted worker of a canned issue.
@@ -141,6 +160,8 @@ func (c *canned) pullState(_ context.Context, held Held, _ []string) (pullReadin
 	c.reads[held.key()] = n + 1
 	_, requested := c.requested[held.Number]
 	unanswered := requested && !c.answered[held.Number]
+	_, botReviewed := c.botReviewed[held.Number]
+	botStands := botReviewed && !c.botResolved[held.Number]
 	c.mu.Unlock()
 	script := cannedCI[scenario]
 	state := ciGreen
@@ -160,10 +181,12 @@ func (c *canned) pullState(_ context.Context, held Held, _ []string) (pullReadin
 		read.Mergeable = "CONFLICTING"
 	}
 	read.Checks = []check{gate}
+	pull := fmt.Sprintf("https://github.com/%s/pull/%d", held.Repository, cannedPull(held.Number))
 	if state == ciComments || unanswered {
-		pull := fmt.Sprintf("https://github.com/%s/pull/%d", held.Repository, cannedPull(held.Number))
 		read.Objections = []objection{{Login: "maintainer", URL: pull + "#pullrequestreview-1",
 			Body: "The retry gives up without saying so. Log the attempt it gave up on."}}
+	}
+	if state == ciComments || unanswered || botStands {
 		read.Threads = []thread{{ID: cannedThread, Path: "upload/retry.go", Line: 42, Login: "chatgpt-codex-connector",
 			URL: pull + "#discussion_r1", Body: "This backoff never resets after a successful upload."}}
 	}
@@ -175,10 +198,23 @@ func (c *canned) failedLogs(context.Context, string, []check) string {
 	return "gate\tRun make check\t--- FAIL: TestCalibrationFileAge (0.02s)\n    calibration_test.go:41: want a warning, got none\nFAIL"
 }
 
-// replyToThread and resolveThread take the reply and the resolution: the canned pull request's thread
-// is only there while its reading says so.
+// replyToThread takes the reply: the canned pull request's thread is only there while its reading
+// says so.
 func (c *canned) replyToThread(context.Context, string, string) error { return nil }
-func (c *canned) resolveThread(context.Context, string) error         { return nil }
+
+// resolveThread takes the resolution, which answers the bot's review of every pull request the bot of
+// fake mode has reviewed: its thread is the canned one, so the pull request has none from then on.
+func (c *canned) resolveThread(context.Context, string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.botResolved == nil {
+		c.botResolved = map[int]bool{}
+	}
+	for issue := range c.botReviewed {
+		c.botResolved[issue] = true
+	}
+	return nil
+}
 
 // commentOnPull answers the review the maintainer of fake mode asked for changes with, so the pull
 // request of that issue has no review comments from then on.
