@@ -738,12 +738,12 @@ After an install the tick judges the new release:
 - A factory that still answers with the version before and does not drain lost the signal. The tick sends `SIGHUP` again, and the next tick judges.
 - Unhealthy is a new binary that does not answer after that wait, or a unit systemd reports failed or restarted three times since the install.
 - It reads the unit's state, restart count and result with `systemctl show`.
-- While a release waits for its judgement, no tick installs another.
+- While a release waits for its judgement, no tick installs another. A tick that judges does nothing else, and the next tick installs.
 
 An unhealthy release is rolled back, each step in the journal:
 
 - The version goes on the block list, `/var/lib/factory-update/blocked`, one version a line, root's own. It goes there even when the rollback cannot finish.
-- `factory.previous` is put back over `/usr/local/bin/factory`, and the tick runs `systemctl restart factory`.
+- `factory.previous` is put back over `/usr/local/bin/factory`, and the tick runs `systemctl restart factory`. A tick that ran out after putting it back only restarts the unit.
 - No tick downloads or installs a blocked version again. The next version is installed as usual.
 - When the previous binary does not answer either, the tick writes an `error:` line. Later ticks touch nothing until the factory answers on `/api/line` again.
 - Until then the judgement waits in `/var/lib/factory-update/judgement.json`.

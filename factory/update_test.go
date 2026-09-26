@@ -718,6 +718,29 @@ func TestNoTickInstallsAnotherReleaseWhileOneWaitsForItsJudgement(t *testing.T) 
 		t.Errorf("the judgement is %+v, the downloads %q and the binary on disk %s; want 0.3.0 still waiting and nothing installed",
 			p, h.fetched, h.onDisk())
 	}
+	if h.hungUp() {
+		t.Error("the tick sent SIGHUP to a factory that drains, want it left alone")
+	}
+}
+
+func TestARollbackThatRanOutBeforeTheRestartIsFinishedAtTheNextTick(t *testing.T) {
+	t.Parallel()
+	// The earlier tick blocked 0.3.0 and put 0.2.3 back, so no previous binary is left beside it.
+	h := newJudgeHost(t, "0.2.3", "0.2.3", judgement{Version: "0.3.0", Previous: "0.2.3"})
+	if err := os.Remove(h.u.exe + ".previous"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.u.block("0.3.0"); err != nil {
+		t.Fatal(err)
+	}
+	h.set(func(h *judgeHost) { h.active, h.restart = "failed", "0.2.3" })
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if p := h.pending(); p != nil || !h.restarted() || h.onDisk() != "0.2.3" || !h.blocked()[v030] {
+		t.Errorf("the judgement is %+v, restarted %v, on disk %s, block list %v; want it cleared, a restart, 0.2.3 and 0.3.0 blocked",
+			p, h.restarted(), h.onDisk(), h.blocked())
+	}
 }
 
 func TestARollbackThatRanOutOfTimeIsRecognisedAtTheNextTick(t *testing.T) {
@@ -841,12 +864,16 @@ func TestALostSignalIsSentAgainWhileAReleaseWaitsForItsJudgement(t *testing.T) {
 	if p := h.pending(); p == nil || p.Version != "0.3.0" {
 		t.Errorf("the judgement is %+v, want 0.3.0 still pending", p)
 	}
-	// The release is judged before the next one is installed; the download of 0.4.0 fails here.
+	// One tick judges the release, and only the tick after it installs the next one; the download
+	// of 0.4.0 fails here.
 	h.set(func(h *judgeHost) { h.answers = "0.3.0" })
-	if err := h.tick(); err == nil || !strings.Contains(err.Error(), "v0.4.0 cannot be downloaded") {
-		t.Fatalf("the tick after the signal answered %v, want it to judge 0.3.0 and go on to 0.4.0", err)
+	if err := h.tick(); err != nil || len(h.fetched) != 0 {
+		t.Fatalf("the tick after the signal answered %v and fetched %q, want 0.3.0 judged and nothing installed", err, h.fetched)
 	}
 	if p := h.pending(); p != nil {
 		t.Errorf("the judgement is %+v after the factory answers with 0.3.0, want it cleared", *p)
+	}
+	if err := h.tick(); err == nil || !strings.Contains(err.Error(), "v0.4.0 cannot be downloaded") {
+		t.Fatalf("the tick after the judgement answered %v, want it to go on to 0.4.0", err)
 	}
 }

@@ -168,20 +168,19 @@ func update(config string) error {
 	return err
 }
 
-// tick reads the three facts and does exactly one thing.
+// tick reads the three facts and does exactly one thing: it judges a release that waits for its
+// judgement, or it installs, signals or leaves alone.
 func (u *updater) tick(listen string) error {
 	pending, err := u.loadJudgement()
 	if err != nil {
 		return err
 	}
 	if pending != nil {
-		if done, err := u.judge(listen, *pending, false); done || err != nil {
-			return err
-		}
-		// A judgement the tick made is cleared; one it could not make yet stays pending.
-		if pending, err = u.loadJudgement(); err != nil {
-			return err
-		}
+		// A tick that judges installs nothing: at most one release waits for its judgement, and
+		// another installed now would keep the unjudged one as the previous binary, which a
+		// rollback would then put back. The next tick installs, once the judgement is made.
+		_, err := u.judge(listen, *pending, false)
+		return err
 	}
 	newest, err := u.newestRelease()
 	if err != nil {
@@ -224,13 +223,6 @@ func (u *updater) tick(listen string) error {
 	case !fileVersion.less(target):
 		log.Printf("the binary on disk is %s and the factory runs %s without draining; sending SIGHUP again", fileVersion, processVersion)
 		return u.hangup()
-	}
-	// At most one release waits for its judgement: another installed now would keep the unjudged
-	// one as the previous binary, which a rollback would then put back.
-	if pending != nil {
-		u.once("unjudged", pending.Version+" "+newest.version.String(), fmt.Sprintf("%s waits for its judgement; the tick installs %s once it is judged",
-			pending.Version, newest.version))
-		return nil
 	}
 	// The restarts are counted from here, so the restart after the drain and those of earlier
 	// releases never count as a unit that restarts again and again.
@@ -367,18 +359,23 @@ func (u *updater) rollback(listen string, p judgement) error {
 	}
 	log.Printf("put %s on the block list %s", p.Version, u.blockPath())
 	previous := u.exe + ".previous"
-	if _, err := u.fileVersion(previous); err != nil {
+	if u.onDiskIs(p.Previous) {
+		// An earlier tick put the previous binary back and ran out before the restart or its
+		// answer: only the restart is left to do.
+		log.Printf("the previous binary %s is back as %s already", p.Previous, u.exe)
+	} else if _, err := u.fileVersion(previous); err != nil {
 		p.Stuck = true
 		if saved := u.saveJudgement(&p); saved != nil {
 			return saved
 		}
 		u.said["stuck"] = p.Version
 		return fmt.Errorf("%s cannot be rolled back: the previous binary does not run (%v); the tick touches nothing more until the factory answers again", p.Version, err)
+	} else {
+		if err := os.Rename(previous, u.exe); err != nil {
+			return fmt.Errorf("the previous binary %s cannot be put back over %s: %w", previous, u.exe, err)
+		}
+		log.Printf("put the previous binary %s back as %s", p.Previous, u.exe)
 	}
-	if err := os.Rename(previous, u.exe); err != nil {
-		return fmt.Errorf("the previous binary %s cannot be put back over %s: %w", previous, u.exe, err)
-	}
-	log.Printf("put the previous binary %s back as %s", p.Previous, u.exe)
 	if _, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "restart", factoryUnit); err != nil {
 		return fmt.Errorf("%s restart %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
