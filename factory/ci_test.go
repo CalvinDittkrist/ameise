@@ -500,6 +500,43 @@ func TestTheRunWaitsInTheCIStageForChecksAndTheBotReview(t *testing.T) {
 	}
 }
 
+// A review_wait of 0s is an operator whose bot reviews only when asked: once the checks turn green
+// the run ends ready at once, with bot_reviewers at its default and no bot review on the pull request,
+// and asks the maintainers for a review as every ready run does.
+func TestAZeroReviewWaitEndsTheRunReadyOnceTheChecksAreGreen(t *testing.T) {
+	t.Parallel()
+	gh, data := ciClaim(t)
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{checks: []map[string]any{pending("test")}})
+	gh.reviewRequests(t, pullOfTheClaim, maintainers...)
+	c := ciConfig(data, map[string]any{"review_wait": "0s"})
+	c["notify"] = maintainers
+
+	f := gh.work(t, c)
+	f.saw(t, "ci: waiting")
+	just := passed("test")
+	just["completedAt"] = time.Now().UTC().Format(time.RFC3339)
+	greenAt := time.Now()
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{checks: []map[string]any{just}})
+	run := f.ended(t, 1)
+	// A wait of any length would hold the run for as long as it lasts after the checks passed; the
+	// run ends within a few polls instead, far inside the minute of the smallest wait anyone writes.
+	if waited := time.Since(greenAt); waited > 30*time.Second {
+		t.Errorf("the run ended %s after its checks turned green, want at once", waited)
+	}
+	if run.Outcome != outcomeReady || run.PullRequest != pullOfTheClaim {
+		t.Fatalf("the run ended as %q with %q (%s), want ready with %s; the factory's log:\n%s", run.Outcome, run.PullRequest, run.Reason, pullOfTheClaim, f.output(t))
+	}
+	if titles := factoryTitles(run, "ci: green"); len(titles) != 1 {
+		t.Errorf("the ci stage said %v, want green once", titles)
+	}
+	f.notified(t, 1)
+	for _, login := range maintainers {
+		if asked := gh.made(t, reviewCall(pullOfTheClaim, login)); asked != 1 {
+			t.Errorf("%s was asked for a review %d times, want once", login, asked)
+		}
+	}
+}
+
 // The answer to a review is on the record of the run that posted it, so a later run on the same pull
 // request, here a resume, reads the review that still stands on GitHub as answered and spends
 // nothing on it. That holds when the record spells the repository otherwise than the configuration
