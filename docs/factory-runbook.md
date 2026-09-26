@@ -435,6 +435,7 @@ The factory is steered on GitHub alone; its interface never writes ([ADR 0023](a
 | **Release** an issue that waits for you | Remove the machine user as its assignee. See [Releasing a held issue](#releasing-a-held-issue). |
 | **Cancel** a run or let an issue go | Remove the routing label, or close the issue. A run that is going is ended within one poll. See [Cancelling](#cancelling). |
 | **Request changes** | Submit a review that requests changes on the run's pull request, as somebody with write access. The factory answers it in the same worktree with an address-reviews session and posts the replies (see [The ci stage](#the-ci-stage)). One review is one run. |
+| **Let a bot review** | Install a reviewing app such as Codex on the repository. Its review on the run's pull request, after the run ended, queues the same run while a thread of it stands unresolved. The run spends a round of the pull request's `repair_rounds`. To have no run for it, resolve the bot's threads yourself. A later approval does not stop it. |
 | **Merge** | Merge the pull request yourself: the factory never merges. Merged or closed, it lets the issue go the same way as a cancel. |
 
 The logins in `notify` are asked for a review when a run ends `ready`. They are mentioned on the issue when a run waits for a person.
@@ -689,12 +690,15 @@ Rounds:
 - A run whose budget is spent while the pull request still conflicts, fails or has reviewers asking for changes is `blocked`. Its reason names what stands.
 - An address-reviews session that reports `blocked` names the point it cannot settle without you. It blocks the run on its words, notified like any blocked run.
 
-A follow-up run is queued by a review that requests changes (see [Operation on GitHub](#operation-on-github)).
+A follow-up run is queued by one of two reviews on a held issue's pull request, submitted after its last run ended (see [Operation on GitHub](#operation-on-github)):
 
-- It starts at the address-reviews stage: it answers that review first and then waits in the ci stage.
-- The review is a new mandate, so the follow-up run's count of repair rounds starts at none.
-- The round that answers it is not counted; the rounds after it count.
-- One review queues one follow-up run.
+- `changes-requested`: a writer's review that requests changes. It is a new mandate, so the count of repair rounds starts at none. The round that answers it is not counted; the rounds after it count.
+- `bot-review`: a review of any Bot account, in any state, that leaves a thread unresolved. It is no mandate: the count of the pull request's last run carries over, and the round that answers the bot counts as one.
+- A run on a bot's review whose count is already at `repair_rounds` is queued all the same. It ends `blocked` with the spent budget as its reason, before any session, and the `notify` logins are mentioned.
+- When both stand, the writer's review queues the run, and it answers the bot's threads too.
+- Either run starts at the address-reviews stage: it answers the review first and then waits in the ci stage.
+- The draft of a gate on CI is not watched for either review.
+- One review queues one follow-up run, however many polls read it. The run record, its events and the dashboard name the signal.
 
 After a repair:
 
