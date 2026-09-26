@@ -954,12 +954,17 @@ func (c ghRollup) check() check {
 // threadsQuery reads the review threads of one pull request: the id a reply names each by, whether it
 // is resolved, where it is, and its conversation, who said what, up to maxThreadComments comments,
 // each with the submission of the review it belongs to, which the watch of a held pull request reads
-// a bot's review by (newestBotReview).
-const threadsQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){` +
-	`reviewThreads(first:100){nodes{id isResolved path line comments(first:` + maxThreadComments + `){nodes{author{__typename login} url body pullRequestReview{submittedAt}}}}}}}}`
+// a bot's review by (newestBotReview). It reads one page of threads, the one after the cursor $after
+// (null for the first), and says where the next one starts.
+const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){pullRequest(number:$number){` +
+	`reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id isResolved path line comments(first:` + maxThreadComments + `){nodes{author{__typename login} url body pullRequestReview{submittedAt}}}}}}}}`
 
 // maxThreadComments bounds the comments read of one thread, the opening one among them.
 const maxThreadComments = "50"
+
+// maxThreadPages bounds the pages of threads read of one pull request, a thousand threads, so a
+// GitHub that keeps saying there is a next page cannot hold a reading forever.
+const maxThreadPages = 10
 
 // replyMutation and resolveMutation are the two calls that answer one thread: a reply in it, and its
 // resolution, which is what the worker's pr-resolve.sh makes. Each reads its own answer back
@@ -976,6 +981,10 @@ type ghThreads struct {
 		Repository struct {
 			PullRequest struct {
 				ReviewThreads struct {
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
 					Nodes []ghThread `json:"nodes"`
 				} `json:"reviewThreads"`
 			} `json:"pullRequest"`
@@ -1010,23 +1019,38 @@ type ghThread struct {
 	} `json:"comments"`
 }
 
-// reviewThreads reads the review threads of one pull request.
+// reviewThreads reads every review thread of one pull request, page by page: a reading that stops at
+// the first page misses the threads after it, whose replies and reviews then go unanswered. A pull
+// request with more pages than maxThreadPages is not read at all, rather than read in part.
 func (g *gitHub) reviewThreads(ctx context.Context, repository string, number int) ([]ghThread, error) {
 	owner, name, _ := strings.Cut(repository, "/")
-	body, err := json.Marshal(map[string]any{"query": threadsQuery,
-		"variables": map[string]any{"owner": owner, "name": name, "number": number}})
-	if err != nil {
-		return nil, err
+	all := []ghThread{}
+	var after any // null, the first page
+	for range maxThreadPages {
+		body, err := json.Marshal(map[string]any{"query": threadsQuery,
+			"variables": map[string]any{"owner": owner, "name": name, "number": number, "after": after}})
+		if err != nil {
+			return nil, err
+		}
+		raw, err := ghInput(ctx, ghTimeout, string(body), "api", "graphql", "--input", "-")
+		if err != nil {
+			return nil, fmt.Errorf("the review threads could not be read: %w", err)
+		}
+		var page ghThreads
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return nil, fmt.Errorf("the review threads are no thread list: %w", err)
+		}
+		threads := page.Data.Repository.PullRequest.ReviewThreads
+		all = append(all, threads.Nodes...)
+		if !threads.PageInfo.HasNextPage {
+			return all, nil
+		}
+		if threads.PageInfo.EndCursor == "" {
+			return nil, errors.New("the review threads have a next page and no cursor to it")
+		}
+		after = threads.PageInfo.EndCursor
 	}
-	raw, err := ghInput(ctx, ghTimeout, string(body), "api", "graphql", "--input", "-")
-	if err != nil {
-		return nil, fmt.Errorf("the review threads could not be read: %w", err)
-	}
-	var threads ghThreads
-	if err := json.Unmarshal(raw, &threads); err != nil {
-		return nil, fmt.Errorf("the review threads are no thread list: %w", err)
-	}
-	return threads.Data.Repository.PullRequest.ReviewThreads.Nodes, nil
+	return nil, fmt.Errorf("the review threads run over %d pages, more than this factory reads of one pull request", maxThreadPages)
 }
 
 // pullChecks reads what a gate on CI reads of the pull request of a run, and what every reading of the

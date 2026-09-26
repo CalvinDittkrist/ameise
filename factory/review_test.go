@@ -608,6 +608,23 @@ func TestABotsReviewQueuesAFollowUpOnlyForAnUnresolvedThreadOfABotAfterTheRun(t 
 	}
 }
 
+// A bot's thread on a later page of the review threads than the first is read all the same: GitHub
+// answers a hundred threads a page.
+func TestABotsThreadOnALaterPageOfThreadsQueuesAFollowUp(t *testing.T) {
+	t.Parallel()
+	gh, data, ended := heldPull(t, false)
+	reviewedAt := ended.Add(10 * time.Minute).Truncate(time.Second)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, reviewedAt))
+	gh.threadPage(t, "", "PAGE2", resolvedThread(reviewThread("PRRT_1", botAccount("chatgpt-codex-connector"), reviewedAt)))
+	gh.threadPage(t, "PAGE2", "", reviewThread("PRRT_101", botAccount("chatgpt-codex-connector"), reviewedAt))
+
+	f := gh.start(t, config{"poll": "50ms", "deadline": "90s", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	head := f.queue(t, 1)[0]
+	if head.Signal != signalBotReview || !head.SignalAt.Equal(reviewedAt) {
+		t.Errorf("the line opens with #%d on the signal %q at %s, want a bot's review at %s", head.Number, head.Signal, head.SignalAt, reviewedAt)
+	}
+}
+
 // The draft a gate on CI opened is no pull request a follow-up run answers reviews on, a bot's no
 // more than a writer's: no pr stage has finished it.
 func TestABotsReviewOnTheDraftOfAGateOnCIQueuesNothing(t *testing.T) {
@@ -813,6 +830,22 @@ func (g *ghShim) threads(t *testing.T, threads ...map[string]any) {
 	}
 	g.answer(t, "api graphql --input -", marshal(t, map[string]any{"data": map[string]any{"repository": map[string]any{
 		"pullRequest": map[string]any{"reviewThreads": map[string]any{"nodes": threads}}}}}))
+}
+
+// threadPage is one page of the review threads, the first when after is empty and otherwise the one
+// after that cursor, which says the page next is the one after the cursor next, when that is not empty.
+func (g *ghShim) threadPage(t *testing.T, after, next string, threads ...map[string]any) {
+	t.Helper()
+	if threads == nil {
+		threads = []map[string]any{}
+	}
+	request := "api graphql --input -"
+	if after != "" {
+		request += " after " + after
+	}
+	g.answer(t, request, marshal(t, map[string]any{"data": map[string]any{"repository": map[string]any{
+		"pullRequest": map[string]any{"reviewThreads": map[string]any{
+			"pageInfo": map[string]any{"hasNextPage": next != "", "endCursor": next}, "nodes": threads}}}}}))
 }
 
 // reviewThread is an unresolved thread on upload.go:42 that a review submitted at that time opened.

@@ -138,6 +138,18 @@ if [ "${1:-}" = api ] && [ "${2:-}" = --method ] && [ "${3:-}" = DELETE ]; then
   esac
 fi
 
+# A page of review threads after a cursor is answered from "<request>-after-<cursor>", and the first
+# page from the request's own answer below.
+if [ "$request" = "api graphql --input -" ]; then
+  after=$(printf '%s' "$input" | sed -n 's/.*"after":"\([A-Za-z0-9_]*\)".*/\1/p')
+  if [ -n "$after" ]; then
+    answer="${GH_SHIM_DIR:-/nowhere}/$named-after-$after"
+    [ -f "$answer" ] && exec cat "$answer"
+    echo "gh: the shim has no page of review threads after $after" >&2
+    exit 1
+  fi
+fi
+
 answer="${GH_SHIM_DIR:-/nowhere}/$named"
 [ -f "$answer" ] && exec cat "$answer"
 
