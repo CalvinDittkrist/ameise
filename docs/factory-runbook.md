@@ -727,6 +727,8 @@ Then it does exactly one thing:
   - The issuer is GitHub Actions, self-hosted runners are refused, and the predicate is SLSA provenance v1.
   - gh gets a fresh home of its own each time it verifies a release, so it fetches the trust roots through TUF every time.
   - The installed binary is kept beside the new one as `/usr/local/bin/factory.previous`, and the new one is renamed over it in one step.
+  - Right before that rename the tick saves the judgement and reads the unit's restart count, so restarts of the old binary during the download never count against the new one.
+  - A tick that ends between the two leaves the old binary in place. The next tick drops the judgement, and the tick after it installs the release again.
   - A run in `.now` stops no install: the drain waits for it, and systemd then starts the new binary.
 - **The service is stopped** (inactive with a successful result, as `systemctl stop` leaves it): a newer file is installed and nothing is started. The journal says so.
   - The release waits for its judgement until the operator starts the factory, and a tick after the start judges it.
@@ -748,6 +750,7 @@ An unhealthy release is rolled back, each step in the journal:
 
 - The version goes on the block list, `/var/lib/factory-update/blocked`, one version a line, root's own. It goes there even when the rollback cannot finish.
 - `factory.previous` is put back over `/usr/local/bin/factory`, and the tick runs `systemctl restart factory`. A tick that ran out after putting it back only restarts the unit.
+- A blocked release under a judgement is a rollback an earlier tick began. The next tick finishes it before it reads any answer, even when the rejected release still answers.
 - No tick downloads or installs a blocked version again. The next version is installed as usual.
 - When the previous binary does not answer either, the tick writes an `error:` line. Later ticks touch nothing until the factory answers on `/api/line` again.
 - Until then the judgement waits in `/var/lib/factory-update/judgement.json`.
