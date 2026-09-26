@@ -8,7 +8,15 @@ package main
 // The tick installs only what the release workflow of this repository built at the tag of the
 // version it installs, as gh's attestation check says without a login. It never downgrades, it
 // writes nothing into the factory's data directory, and it keeps its own state (what it said once)
-// in a root-owned directory of its own. It talks to gh and systemd through their commands, run as
+// in a root-owned directory of its own.
+//
+// A release that does not come up is undone. After an install the tick judges the new binary: at
+// once when the factory drained at once, at the next tick when a run was going. Healthy is the line
+// endpoint answering with the new version; a factory that drains answers, so it is never judged
+// unhealthy. A new binary that does not answer, or a unit that failed or restarts again and again,
+// has the previous binary put back, the unit restarted and the version put on the block list, which
+// no tick installs again. When the previous binary does not answer either, the tick says so and
+// touches nothing more until the factory answers again. It talks to gh and systemd through their commands, run as
 // child processes by absolute path and never through a shell.
 
 import (
@@ -44,9 +52,14 @@ const (
 	// The five-part policy of the attestation check, whose identity is releaseIdentity.
 	actionsIssuer  = "https://token.actions.githubusercontent.com"
 	slsaProvenance = "https://slsa.dev/provenance/v1"
-	// updateTimeout bounds a whole tick, downloads and the attestation check included, so a hung
-	// network never keeps the next tick from starting.
-	updateTimeout = 10 * time.Minute
+	// updateTimeout bounds a whole tick, downloads, the attestation check and the judgement
+	// included, so a hung network never keeps the next tick from starting.
+	updateTimeout = 20 * time.Minute
+	// settleMargin is how long past the unit's restart delay a started factory has to answer.
+	settleMargin = time.Minute
+	// restartLimit is how many restarts since the install make a unit that restarts again and
+	// again: the restart after the drain is one.
+	restartLimit = 3
 	// commandTimeout bounds a -version or systemctl call, verifyTimeout the attestation check.
 	commandTimeout = 30 * time.Second
 	verifyTimeout  = 5 * time.Minute
@@ -152,6 +165,15 @@ func update(config string) error {
 
 // tick reads the three facts and does exactly one thing.
 func (u *updater) tick(listen string) error {
+	pending, err := u.loadJudgement()
+	if err != nil {
+		return err
+	}
+	if pending != nil {
+		if done, err := u.judge(listen, *pending, false); done || err != nil {
+			return err
+		}
+	}
 	newest, err := u.newestRelease()
 	if err != nil {
 		return err
@@ -194,18 +216,233 @@ func (u *updater) tick(listen string) error {
 		log.Printf("the binary on disk is %s and the factory runs %s without draining; sending SIGHUP again", fileVersion, processVersion)
 		return u.hangup()
 	}
+	// The restarts are counted from here, so the restart after the drain and those of earlier
+	// releases never count as a unit that restarts again and again.
+	before, err := u.serviceState()
+	if err != nil {
+		return err
+	}
 	if err := u.install(newest); err != nil {
 		return err
 	}
+	pending = &judgement{Version: newest.version.String(), Previous: fileVersion.String(), Restarts: before.restarts}
+	if err := u.saveJudgement(pending); err != nil {
+		return err
+	}
 	if process.Draining {
-		log.Printf("installed %s; the factory drains already and systemd starts it when the drain ends: %s", newest.version, waitsFor(process.Now))
+		log.Printf("installed %s; the factory drains already and systemd starts it when the drain ends: %s; the next tick judges it",
+			newest.version, waitsFor(process.Now))
 		return nil
 	}
 	log.Printf("installed %s", newest.version)
-	if len(process.Now) > 0 {
-		log.Printf("a run in .now stops no install: %s", waitsFor(process.Now))
+	if err := u.hangup(); err != nil {
+		return err
 	}
-	return u.hangup()
+	if len(process.Now) > 0 {
+		log.Printf("a run in .now stops no install: %s; the next tick judges %s", waitsFor(process.Now), newest.version)
+		return nil
+	}
+	_, err = u.judge(listen, *pending, true)
+	return err
+}
+
+// judgement is an installed release the tick has not judged yet, kept in the updater's directory
+// from the install to the judgement.
+type judgement struct {
+	Version  string `json:"version"`  // the release installed
+	Previous string `json:"previous"` // the version of the binary kept as the previous one
+	Restarts int    `json:"restarts"` // the unit's NRestarts before the install
+	// Stuck says the rollback's binary did not answer either: the tick touches nothing more until
+	// the factory answers again.
+	Stuck bool `json:"stuck,omitempty"`
+}
+
+// judge reads whether the installed release came up. It says done when the tick does nothing
+// more: after a rollback, while the factory is stuck, or when the operator stopped it. settled says
+// the factory has had its time to start already.
+func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) {
+	if p.Stuck {
+		return u.stuck(listen, p)
+	}
+	if settled {
+		if err := u.settle(); err != nil {
+			return true, err
+		}
+	}
+	for {
+		process, reachable, err := u.running(listen)
+		if err != nil {
+			log.Printf("%v; the tick reads that as a factory that does not answer", err)
+		}
+		if reachable {
+			switch {
+			case process.Version == p.Version:
+				log.Printf("healthy: the factory answers with %s", p.Version)
+				return false, u.clearJudgement()
+			case newerThan(process.Version, p.Version):
+				log.Printf("%s is not judged: the factory answers with the newer %s", p.Version, process.Version)
+				return false, u.clearJudgement()
+			case process.Draining:
+				log.Printf("%s is not judged yet: the factory %s drains, however long that takes; %s", p.Version, process.Version, waitsFor(process.Now))
+			default:
+				log.Printf("%s is not judged yet: the factory answers with %s", p.Version, process.Version)
+			}
+			return false, nil
+		}
+		s, err := u.serviceState()
+		if err != nil {
+			return true, err
+		}
+		if s.active == "inactive" && s.result == "success" {
+			u.once("stopped", p.Version, fmt.Sprintf("%s is not judged: %s was stopped by the operator (inactive, success); the tick judges it once the factory runs", p.Version, factoryUnit))
+			return true, nil
+		}
+		again := s.restarts-p.Restarts >= restartLimit
+		if s.active == "failed" || again || settled {
+			log.Printf("unhealthy: %s does not answer on http://%s/api/line, and %s is %s", p.Version, listen, factoryUnit, s)
+			return true, u.rollback(listen, p)
+		}
+		if err := u.settle(); err != nil {
+			return true, err
+		}
+		settled = true
+	}
+}
+
+// newerThan says version a is a later release than version b.
+func newerThan(a, b string) bool {
+	va, okA := parseSemver(a)
+	vb, okB := parseSemver(b)
+	return okA && okB && vb.less(va)
+}
+
+// rollback puts the previous binary back, blocks the release and restarts the unit.
+func (u *updater) rollback(listen string, p judgement) error {
+	previous := u.exe + ".previous"
+	if _, err := u.fileVersion(previous); err != nil {
+		p.Stuck = true
+		if saved := u.saveJudgement(&p); saved != nil {
+			return saved
+		}
+		return fmt.Errorf("%s cannot be rolled back: the previous binary does not run (%v); the tick touches nothing more until the factory answers again", p.Version, err)
+	}
+	if err := u.block(p.Version); err != nil {
+		return err
+	}
+	log.Printf("put %s on the block list %s", p.Version, u.blockPath())
+	if err := os.Rename(previous, u.exe); err != nil {
+		return fmt.Errorf("the previous binary %s cannot be put back over %s: %w", previous, u.exe, err)
+	}
+	log.Printf("put the previous binary %s back as %s", p.Previous, u.exe)
+	if _, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "restart", factoryUnit); err != nil {
+		return fmt.Errorf("%s restart %s failed: %s", systemctlCommand, factoryUnit, reason)
+	}
+	log.Printf("restarted %s", factoryUnit)
+	if err := u.settle(); err != nil {
+		return err
+	}
+	if process, reachable, _ := u.running(listen); reachable {
+		log.Printf("rolled back: the factory answers with %s, and %s stays blocked", process.Version, p.Version)
+		return u.clearJudgement()
+	}
+	p.Stuck = true
+	if err := u.saveJudgement(&p); err != nil {
+		return err
+	}
+	u.said["stuck"] = p.Version
+	return fmt.Errorf("the previous binary %s does not answer on http://%s/api/line after the rollback either; the tick touches nothing more until the factory answers again", p.Previous, listen)
+}
+
+// stuck is a tick after a rollback that did not come up: it touches nothing until the factory
+// answers again.
+func (u *updater) stuck(listen string, p judgement) (bool, error) {
+	if process, reachable, _ := u.running(listen); reachable {
+		log.Printf("the factory answers again with %s; the tick goes on, and %s stays blocked", process.Version, p.Version)
+		delete(u.said, "stuck")
+		return false, u.clearJudgement()
+	}
+	u.once("stuck", p.Version, fmt.Sprintf("error: the factory does not answer since %s was rolled back to %s; the tick touches nothing until it answers again", p.Version, p.Previous))
+	return true, nil
+}
+
+func (u *updater) judgementPath() string { return filepath.Join(u.state, "judgement.json") }
+
+func (u *updater) loadJudgement() (*judgement, error) {
+	raw, err := os.ReadFile(u.judgementPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s cannot be read: %w", u.judgementPath(), err)
+	}
+	var p judgement
+	if err := json.Unmarshal(raw, &p); err != nil || p.Version == "" {
+		return nil, fmt.Errorf("%s does not read (%v); remove it and the tick judges nothing", u.judgementPath(), err)
+	}
+	return &p, nil
+}
+
+func (u *updater) saveJudgement(p *judgement) error {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(u.judgementPath(), raw)
+}
+
+func (u *updater) clearJudgement() error {
+	if err := os.Remove(u.judgementPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s cannot be removed: %w", u.judgementPath(), err)
+	}
+	return nil
+}
+
+// blockPath is the block list: one version a line, root's own. Deleting a line lifts its block.
+func (u *updater) blockPath() string { return filepath.Join(u.state, "blocked") }
+
+func (u *updater) blocked() (map[semver]bool, error) {
+	blocked := map[semver]bool{}
+	raw, err := os.ReadFile(u.blockPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return blocked, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("the block list %s cannot be read: %w", u.blockPath(), err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		v, ok := parseSemver(line)
+		if !ok {
+			return nil, fmt.Errorf("the block list %s carries %q, which is not major.minor.patch; the tick does nothing until it is fixed", u.blockPath(), line)
+		}
+		blocked[v] = true
+	}
+	return blocked, nil
+}
+
+func (u *updater) block(version string) error {
+	raw, err := os.ReadFile(u.blockPath())
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("the block list %s cannot be read: %w", u.blockPath(), err)
+	}
+	if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+		raw = append(raw, '\n')
+	}
+	if err := writeAtomic(u.blockPath(), append(raw, version+"\n"...)); err != nil {
+		return fmt.Errorf("%s cannot be put on the block list: %w", version, err)
+	}
+	return nil
+}
+
+// writeAtomic writes a file of the updater's directory, root's alone, in one rename.
+func writeAtomic(path string, raw []byte) error {
+	temp := path + ".new"
+	if err := os.WriteFile(temp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temp, path)
 }
 
 // waitsFor names the run the drain waits for.
@@ -223,13 +460,13 @@ func waitsFor(now []Run) string {
 // unreachable is a tick whose factory does not answer. A service the operator stopped gets the
 // newer file and is not started; any other state is one the tick does not act on.
 func (u *updater) unreachable(listen string, newest release, fileVersion semver) error {
-	active, result, err := u.serviceState()
+	s, err := u.serviceState()
 	if err != nil {
 		return err
 	}
-	if active != "inactive" || result != "success" {
+	if s.active != "inactive" || s.result != "success" {
 		return fmt.Errorf("the factory does not answer on http://%s/api/line and %s is %s with the result %s; the tick does nothing and tries again at the next one",
-			listen, factoryUnit, active, result)
+			listen, factoryUnit, s.active, s.result)
 	}
 	if !fileVersion.less(newest.version) {
 		u.once("current", "stopped "+fileVersion.String(), fmt.Sprintf("%s is stopped and the binary on disk is %s, the newest release %s; nothing to install", factoryUnit, fileVersion, newest.version))
@@ -242,7 +479,7 @@ func (u *updater) unreachable(listen string, newest release, fileVersion semver)
 	return nil
 }
 
-// newestRelease is the highest version among the repository's published factory releases, read
+// newestRelease is the highest version off the block list among the repository's published factory releases, read
 // through the REST API without a login. The latest-release endpoint is not used: factory releases
 // are published with latest set to false.
 func (u *updater) newestRelease() (release, error) {
@@ -255,6 +492,10 @@ func (u *updater) newestRelease() (release, error) {
 		Draft      bool    `json:"draft"`
 		Prerelease bool    `json:"prerelease"`
 		Assets     []asset `json:"assets"`
+	}
+	blocked, err := u.blocked()
+	if err != nil {
+		return release{}, err
 	}
 	var best *listed
 	var bestVersion semver
@@ -270,6 +511,10 @@ func (u *updater) newestRelease() (release, error) {
 				continue
 			}
 			v, ok := parseSemver(strings.TrimPrefix(r.Tag, releaseTagPrefix))
+			if ok && blocked[v] {
+				u.once("blocked "+v.String(), "yes", fmt.Sprintf("the release %s is on the block list %s; the tick never installs it", v, u.blockPath()))
+				continue
+			}
 			if ok && (best == nil || bestVersion.less(v)) {
 				best, bestVersion = r, v
 			}
@@ -348,22 +593,74 @@ func (u *updater) fileVersion(path string) (semver, error) {
 	return v, nil
 }
 
-// serviceState is the service's ActiveState and Result as systemd reports them.
-func (u *updater) serviceState() (string, string, error) {
-	out, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "show", factoryUnit, "--property=ActiveState,Result")
+// unitState is what systemd reports of the service.
+type unitState struct {
+	active   string // ActiveState
+	sub      string // SubState
+	result   string // Result
+	restarts int    // NRestarts, the restarts systemd made since the unit was last started by hand
+	delay    string // RestartUSec, the unit's restart delay as systemd prints it
+}
+
+func (s unitState) String() string {
+	return fmt.Sprintf("%s (%s) with the result %s after %d restarts", s.active, s.sub, s.result, s.restarts)
+}
+
+// serviceState is the service's state as systemd reports it.
+func (u *updater) serviceState() (unitState, error) {
+	var s unitState
+	out, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "show", factoryUnit,
+		"--property=ActiveState,SubState,Result,NRestarts,RestartUSec")
 	if err != nil {
-		return "", "", fmt.Errorf("%s show %s failed: %s", systemctlCommand, factoryUnit, reason)
+		return s, fmt.Errorf("%s show %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
-	var active, result string
 	for _, line := range strings.Split(string(out), "\n") {
-		if value, ok := strings.CutPrefix(line, "ActiveState="); ok {
-			active = value
-		}
-		if value, ok := strings.CutPrefix(line, "Result="); ok {
-			result = value
+		key, value, _ := strings.Cut(line, "=")
+		switch key {
+		case "ActiveState":
+			s.active = value
+		case "SubState":
+			s.sub = value
+		case "Result":
+			s.result = value
+		case "NRestarts":
+			s.restarts, _ = strconv.Atoi(value)
+		case "RestartUSec":
+			s.delay = value
 		}
 	}
-	return active, result, nil
+	return s, nil
+}
+
+// restartDelay reads a systemd time span such as 30s, 100ms or 1min 30s.
+func restartDelay(span string) (time.Duration, error) {
+	d, err := time.ParseDuration(strings.ReplaceAll(strings.ReplaceAll(span, "min", "m"), " ", ""))
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("the restart delay %q of %s does not read as a time span", span, factoryUnit)
+	}
+	return d, nil
+}
+
+// settle waits the unit's restart delay and a minute more, the time a started factory has to answer.
+func (u *updater) settle() error {
+	s, err := u.serviceState()
+	if err != nil {
+		return err
+	}
+	delay, err := restartDelay(s.delay)
+	if err != nil {
+		return err
+	}
+	wait := delay + settleMargin
+	log.Printf("waiting %s, the restart delay of %s and a minute, before the line endpoint is read", wait, factoryUnit)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-u.ctx.Done():
+		return fmt.Errorf("the tick ran out of time while it waited for %s: %w", factoryUnit, u.ctx.Err())
+	}
 }
 
 // hangup has the running factory drain, to the factory's main process alone so the worker of the
