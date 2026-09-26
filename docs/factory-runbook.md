@@ -709,7 +709,7 @@ The factory updates only its own binary, and only with auto-update on ([Auto-upd
 
 **The factory binary** needs no login and no SSH session any more. Each update tick reads three facts:
 
-- the newest release: the highest version among the published `factory/v<version>` releases of this repository. Drafts and pre-releases are left out, and the tick reads them through the REST API without a login;
+- the newest release: the highest version among the published `factory/v<version>` releases, read through the REST API without a login. Drafts and pre-releases are left out;
 - the running factory: its version, whether it drains and the run in `.now`, from `/api/line`;
 - the binary on disk: what `factory -version` prints. The tick logs both versions when they differ.
 
