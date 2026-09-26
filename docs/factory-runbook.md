@@ -360,7 +360,7 @@ What the settings rest on:
 - **One factory per host.** A second one fails on start, on the address or on the data directory's lock.
 
 ### Auto-update
-The factory binary updates itself when `auto_update` is `true`. An update tick is the binary run with `-update` as root by a systemd timer once an hour, with a randomized delay. It is short: it reads, does one thing, logs it to the journal and exits. It never waits for a drain; the next tick reads where the drain stands.
+The factory binary updates itself when `auto_update` is `true`. An update tick is the binary run with `-update` as root by a systemd timer once an hour, with a randomized delay. It is short: it reads, does one thing, logs it to the journal and exits. It never waits for a drain; the next tick reads where the drain stands. The decision behind it is [ADR 0050](adr/0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md).
 
 `/etc/systemd/system/factory-update.service`:
 
@@ -396,7 +396,7 @@ The one-time setup, as root:
 
 1. Write the two units above.
 2. Set `"auto_update": true` in `/etc/factory/factory.json`.
-3. Restart the factory once, so a process that reports `auto_update` runs: `systemctl restart factory` between runs, or a drain ([Draining](#draining)).
+3. Run a factory after 0.2.3 once, installed by hand ([Installation](#installation)) and restarted with `systemctl restart factory` between runs: the tick reads the version and the drain from its line and has it drain with `SIGHUP`, which a factory up to 0.2.3 does not do. A factory that runs such a release already needs no restart, since it reads `auto_update` again on its next poll.
 4. Start the timer:
 
    ```sh
