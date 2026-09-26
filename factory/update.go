@@ -224,17 +224,17 @@ func (u *updater) tick(listen string) error {
 		log.Printf("the binary on disk is %s and the factory runs %s without draining; sending SIGHUP again", fileVersion, processVersion)
 		return u.hangup()
 	}
-	// The restarts are counted from here, so the restart after the drain and those of earlier
-	// releases never count as a unit that restarts again and again.
-	before, err := u.serviceState()
+	// The judgement is saved before the binary is replaced, and its restarts are counted from that
+	// moment: the restarts of the old binary during the download never count against the new one.
+	err = u.install(newest, func() error {
+		before, err := u.serviceState()
+		if err != nil {
+			return err
+		}
+		pending = &judgement{Version: newest.version.String(), Previous: fileVersion.String(), Restarts: before.restarts}
+		return u.saveJudgement(pending)
+	})
 	if err != nil {
-		return err
-	}
-	if err := u.install(newest); err != nil {
-		return err
-	}
-	pending = &judgement{Version: newest.version.String(), Previous: fileVersion.String(), Restarts: before.restarts}
-	if err := u.saveJudgement(pending); err != nil {
 		return err
 	}
 	if process.Draining && len(process.Now) > 0 {
@@ -281,6 +281,23 @@ func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) 
 	if p.Stuck {
 		return u.stuck(listen, p)
 	}
+	if u.isBlocked(p.Version) {
+		// A tick blocks a release first and then rolls it back, so a blocked release under a
+		// judgement is a rollback an earlier tick began. The factory may still answer with the
+		// rejected release, so the rollback is finished before any answer is read as health.
+		if process, reachable, _ := u.running(listen); reachable && process.Version == p.Previous && u.onDiskIs(p.Previous) {
+			log.Printf("rolled back: the factory answers with %s, and %s stays blocked", process.Version, p.Version)
+			return false, u.clearJudgement()
+		}
+		log.Printf("%s is blocked and its rollback did not finish; the tick finishes it", p.Version)
+		return true, u.rollback(listen, p)
+	}
+	if !u.onDiskIs(p.Version) && u.onDiskIs(p.Previous) {
+		// The judgement is saved before the binary is replaced: a tick that ended in between left
+		// the previous binary in place, and the next tick installs the release again.
+		log.Printf("%s was never installed: the binary on disk is still %s; the judgement is dropped and the next tick installs it", p.Version, p.Previous)
+		return true, u.clearJudgement()
+	}
 	if settled {
 		if err := u.settle(); err != nil {
 			return true, err
@@ -308,9 +325,6 @@ func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) 
 				return false, u.clearJudgement()
 			case newerThan(process.Version, p.Version):
 				log.Printf("%s is not judged: the factory answers with the newer %s", p.Version, process.Version)
-				return false, u.clearJudgement()
-			case process.Version == p.Previous && u.rolledBack(p):
-				log.Printf("rolled back: the factory answers with %s, and %s stays blocked", process.Version, p.Version)
 				return false, u.clearJudgement()
 			case process.Draining:
 				log.Printf("%s is not judged yet: the factory %s drains, however long that takes; %s", p.Version, process.Version, waitsFor(process.Now))
@@ -357,16 +371,12 @@ func (u *updater) onDiskIs(version string) bool {
 	return err == nil && onDisk.String() == version
 }
 
-// rolledBack says a rollback of the release ran to its end already: the release is blocked and the
-// binary on disk is the previous one again. A tick that ran out of time after the restart leaves
-// its judgement behind, and this is how the next tick recognises it.
-func (u *updater) rolledBack(p judgement) bool {
+// isBlocked says the version is on the block list. A list that does not read says no here; the
+// next read of it, before any install, reports it.
+func (u *updater) isBlocked(version string) bool {
 	blocked, err := u.blocked()
-	if err != nil {
-		return false
-	}
-	version, ok := parseSemver(p.Version)
-	return ok && blocked[version] && u.onDiskIs(p.Previous)
+	v, ok := parseSemver(version)
+	return err == nil && ok && blocked[v]
 }
 
 // rollback blocks the release, puts the previous binary back and restarts the unit. The block
@@ -538,12 +548,12 @@ func (u *updater) unreachable(listen string, newest release, fileVersion semver)
 		u.once("current", "stopped "+fileVersion.String(), fmt.Sprintf("%s is stopped and the binary on disk is %s, the newest release %s; nothing to install", factoryUnit, fileVersion, newest.version))
 		return nil
 	}
-	if err := u.install(newest); err != nil {
-		return err
-	}
 	// The release waits for its judgement until the operator starts the factory. A start by hand
 	// sets NRestarts to 0, so the restarts are counted from 0.
-	if err := u.saveJudgement(&judgement{Version: newest.version.String(), Previous: fileVersion.String()}); err != nil {
+	err = u.install(newest, func() error {
+		return u.saveJudgement(&judgement{Version: newest.version.String(), Previous: fileVersion.String()})
+	})
+	if err != nil {
 		return err
 	}
 	log.Printf("installed %s; %s was stopped by the operator (inactive, success), so nothing is started; the tick judges it once the factory runs", newest.version, factoryUnit)
@@ -763,8 +773,9 @@ func (u *updater) hangup() error {
 
 // install downloads the release's binary and bundle, verifies the attestation and renames the
 // binary over the installed one, keeping that one beside it as the previous binary. A refused or
-// broken file installs nothing.
-func (u *updater) install(r release) error {
+// broken file installs nothing. ready runs right before the binary is replaced, and an error of
+// its own installs nothing either.
+func (u *updater) install(r release, ready func() error) error {
 	if r.binary == "" || r.bundle == "" {
 		return fmt.Errorf("the release %s lacks factory-linux-%s or its attestation bundle; nothing is installed", r.tag, runtime.GOARCH)
 	}
@@ -813,7 +824,15 @@ func (u *updater) install(r release) error {
 	if err := os.Link(u.exe, previous); err != nil {
 		return fmt.Errorf("the installed binary cannot be kept as %s: %w; nothing is installed", previous, err)
 	}
+	if err := ready(); err != nil {
+		return fmt.Errorf("%w; nothing is installed", err)
+	}
 	if err := os.Rename(freshPath, u.exe); err != nil {
+		// The judgement ready saved names a release that is not on disk; it is dropped here, and a
+		// tick that ends before this drops it at the next one.
+		if cleared := u.clearJudgement(); cleared != nil {
+			log.Print(cleared)
+		}
 		return fmt.Errorf("the new binary cannot be renamed over %s: %w; nothing is installed", u.exe, err)
 	}
 	installed = true

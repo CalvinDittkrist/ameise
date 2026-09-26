@@ -975,3 +975,94 @@ func TestAnInstallWhileTheOperatorStoppedTheFactoryIsJudgedOnceItRuns(t *testing
 			h.blocked(), h.restarted(), h.onDisk(), h.pending())
 	}
 }
+
+func TestARollbackThatRanOutIsFinishedEvenWhileTheRejectedReleaseAnswers(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		onDisk string // the binary an earlier tick left on disk after it blocked 0.3.0
+	}{
+		{name: "before the previous binary was put back", onDisk: "0.3.0"},
+		{name: "before the restart", onDisk: "0.2.3"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newJudgeHost(t, c.onDisk, "0.2.3", judgement{Version: "0.3.0", Previous: "0.2.3"})
+			if c.onDisk == "0.2.3" {
+				if err := os.Remove(h.u.exe + ".previous"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := h.u.block("0.3.0"); err != nil {
+				t.Fatal(err)
+			}
+			// The rejected process still runs and answers between two crashes.
+			h.set(func(h *judgeHost) { h.answers, h.restart, h.releases = "0.3.0", "0.2.3", []string{"0.3.0"} })
+			if err := h.tick(); err != nil {
+				t.Fatalf("the tick failed: %v", err)
+			}
+			if p := h.pending(); p != nil || !h.restarted() || h.onDisk() != "0.2.3" || !h.blocked()[v030] {
+				t.Errorf("the judgement is %+v, restarted %v, on disk %s, block list %v; want it cleared, a restart, 0.2.3 and 0.3.0 blocked",
+					p, h.restarted(), h.onDisk(), h.blocked())
+			}
+		})
+	}
+}
+
+func TestATickThatEndedBeforeTheBinaryWasReplacedInstallsTheReleaseAgain(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		answers string // what the old factory answers, empty for nothing
+		active  string
+	}{
+		{name: "the old factory answers", answers: "0.2.3", active: "active"},
+		{name: "the old factory does not answer", active: "failed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			// The judgement of 0.3.0 was saved, and the tick ended before 0.3.0 was renamed over 0.2.3.
+			h := newJudgeHost(t, "0.2.3", "0.2.2", judgement{Version: "0.3.0", Previous: "0.2.3"})
+			h.set(func(h *judgeHost) {
+				h.answers, h.active, h.releases, h.serves, h.hupTo = c.answers, c.active, []string{"0.3.0"}, "0.3.0", "0.3.0"
+			})
+			if err := h.tick(); err != nil {
+				t.Fatalf("the tick failed: %v", err)
+			}
+			if p := h.pending(); p != nil || len(h.blocked()) != 0 || h.restarted() || h.hungUp() || h.onDisk() != "0.2.3" {
+				t.Fatalf("the judgement is %+v, the block list %v, restarted %v, SIGHUP %v, on disk %s; want it dropped and nothing else touched",
+					p, h.blocked(), h.restarted(), h.hungUp(), h.onDisk())
+			}
+			if c.answers == "" {
+				return
+			}
+			if err := h.tick(); err != nil {
+				t.Fatalf("the next tick failed: %v", err)
+			}
+			if h.onDisk() != "0.3.0" || !h.hungUp() || h.pending() != nil || len(h.blocked()) != 0 {
+				t.Errorf("the next tick left %s on disk, SIGHUP %v, the judgement %+v and the block list %v; want 0.3.0 installed and judged healthy",
+					h.onDisk(), h.hungUp(), h.pending(), h.blocked())
+			}
+		})
+	}
+}
+
+func TestRestartsOfTheOldReleaseDuringTheDownloadDoNotCountAgainstTheNewOne(t *testing.T) {
+	t.Parallel()
+	h := newJudgeHost(t, "0.2.3", "0.2.2", judgement{Version: "unused"})
+	if err := h.u.clearJudgement(); err != nil {
+		t.Fatal(err)
+	}
+	h.set(func(h *judgeHost) {
+		h.answers, h.releases, h.serves, h.hupTo, h.restart = "0.2.3", []string{"0.3.0"}, "0.3.0", "0.3.0", "0.2.3"
+		// The old release restarts again and again while the new one is downloaded and verified.
+		h.onFetch = func(h *judgeHost) { h.restarts += restartLimit }
+	})
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if p := h.pending(); p != nil || len(h.blocked()) != 0 || h.restarted() || h.onDisk() != "0.3.0" {
+		t.Errorf("the judgement is %+v, the block list %v, restarted %v, on disk %s; want 0.3.0 judged healthy and kept",
+			p, h.blocked(), h.restarted(), h.onDisk())
+	}
+}
