@@ -36,15 +36,15 @@ type reviewed struct {
 	bot       time.Time
 }
 
-// refreshRequested reads the pull requests this factory holds open, one per issue it holds, and
+// refreshReviews reads the pull requests this factory holds open, one per issue it holds, and
 // remembers what each one's reviews signal. It runs on every poll, beside the queue: a follow-up run
 // stands in the same line as the work the factory resumes.
 //
 // Only an issue whose last run has ended is asked about, which is both what the rule needs (a
 // review is answered after the run it arrived during) and what keeps the factory from asking
 // GitHub about a pull request while its worker is writing to it.
-func (f *Factory) refreshRequested(ctx context.Context) {
-	requested, early := map[string]reviewed{}, false
+func (f *Factory) refreshReviews(ctx context.Context) {
+	reviews, early := map[string]reviewed{}, false
 	for key, held := range holdings(f.runs.list()) {
 		early = early || !held.idle
 		pull, watched := held.pull()
@@ -55,12 +55,12 @@ func (f *Factory) refreshRequested(ctx context.Context) {
 			continue // a repository this host is not to work is not watched either
 		}
 		if read := f.source.reviewed(ctx, held.repository(), pull); read != (reviewed{}) {
-			requested[key] = read
+			reviews[key] = read
 		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.requested, f.requestedEarly = requested, early
+	f.reviews, f.reviewsEarly = reviews, early
 }
 
 // pull is the pull request of this issue that the factory watches, and whether there is one at all.

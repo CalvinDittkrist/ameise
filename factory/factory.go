@@ -112,20 +112,20 @@ type Factory struct {
 
 	mu    sync.Mutex
 	queue []Issue
-	// requested is what the last poll found on the pull requests this factory holds open: what their
+	// reviews is what the last poll found on the pull requests this factory holds open: what their
 	// reviews signal, by issue. Like the queue it is a reading of GitHub and never a state of the
 	// factory; what has been answered is read from the run records ([ADR 0025]).
 	//
 	// [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
-	requested map[string]reviewed
-	// requestedEarly says that requested was read while a run was going: a run that ends between
+	reviews map[string]reviewed
+	// reviewsEarly says that reviews was read while a run was going: a run that ends between
 	// that reading and the start of the next one has not been asked about yet.
-	requestedEarly bool
-	unreadable     map[string]string
-	polledAt       time.Time
-	connecting     bool
-	user           string          // the login this host's gh is logged in as, read once and kept
-	held           map[string]bool // repositories this factory claims nothing from, so the log says it once
+	reviewsEarly bool
+	unreadable   map[string]string
+	polledAt     time.Time
+	connecting   bool
+	user         string          // the login this host's gh is logged in as, read once and kept
+	held         map[string]bool // repositories this factory claims nothing from, so the log says it once
 	// cancelling is how a poll ends a run that is still going: the cancel of the context that run
 	// works under, by run, put there when the run starts and taken out when it ends or is cancelled.
 	// Only a run of this factory is in it, so a record of an older start can never be signalled here.
@@ -265,7 +265,7 @@ func (f *Factory) Work(ctx context.Context) {
 		}
 		read := f.refreshQueue(ctx)
 		f.letIssuesGo(ctx, read.letGo)
-		f.refreshRequested(ctx)
+		f.refreshReviews(ctx)
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
 		// after it.
@@ -557,10 +557,10 @@ func (f *Factory) dispatch(ctx context.Context) {
 	// The run that was going when this poll read the reviews has ended since, and a review of its pull
 	// request would stand behind whatever the line starts next if it were not read now.
 	f.mu.Lock()
-	early := f.requestedEarly
+	early := f.reviewsEarly
 	f.mu.Unlock()
 	if early {
-		f.refreshRequested(ctx)
+		f.refreshReviews(ctx)
 	}
 	if _, waiting := f.waitingForQuota(time.Now()); waiting {
 		return
@@ -659,7 +659,7 @@ func (f *Factory) waiting() []Entry {
 		worked[run.key()] = true
 	}
 	f.mu.Lock()
-	queue, requested := f.queue, f.requested
+	queue, reviews := f.queue, f.reviews
 	f.mu.Unlock()
 	routedNow := map[string]Issue{}
 	for _, issue := range queue {
@@ -690,10 +690,10 @@ func (f *Factory) waiting() []Entry {
 			out = append(out, Entry{Issue: issue, Signal: held.resumes, SignalAt: held.signalAt(), resume: held.run, pull: held.pullRequest, drafted: held.drafted})
 		// A writer's review is the mandate and stands before a bot's: the run it queues answers the
 		// bot's threads as well, and ends after the bot's review, which is then answered too.
-		case held.unanswered(requested[key].requested):
-			out = append(out, Entry{Issue: issue, Signal: signalChangesRequested, SignalAt: requested[key].requested, resume: held.run, pull: held.pullRequest})
-		case held.unanswered(requested[key].bot):
-			out = append(out, Entry{Issue: issue, Signal: signalBotReview, SignalAt: requested[key].bot, resume: held.run, pull: held.pullRequest})
+		case held.unanswered(reviews[key].requested):
+			out = append(out, Entry{Issue: issue, Signal: signalChangesRequested, SignalAt: reviews[key].requested, resume: held.run, pull: held.pullRequest})
+		case held.unanswered(reviews[key].bot):
+			out = append(out, Entry{Issue: issue, Signal: signalBotReview, SignalAt: reviews[key].bot, resume: held.run, pull: held.pullRequest})
 		}
 	}
 	sort.Slice(out, func(a, b int) bool {

@@ -110,11 +110,10 @@ type Run struct {
 	// Signal is what queued this run: routed, interruption, quota, release, changes-requested or
 	// bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of the
 	// run that ran out of quota, the moment the assignee came off, or the moment the review was
-	// submitted). It
-	// is the answer this run is: a signal of an issue is acted on once, and a signal no later than the
-	// one its records already carry has been answered already.
-	// That is what keeps the factory from resuming the same release, or answering the same review, for
-	// as long as GitHub reports it, without a clock of its own.
+	// submitted). It is the answer this run is: a signal of an issue is acted on once, and a signal no
+	// later than the one its records already carry has been answered already. That is what keeps the
+	// factory from resuming the same release, or answering the same review, for as long as GitHub
+	// reports it, without a clock of its own.
 	Signal   string    `json:"signal"`
 	SignalAt time.Time `json:"signalAt"`
 	// Kind is what this run is in the vocabulary: a first, a resumed or a follow-up run. It says the

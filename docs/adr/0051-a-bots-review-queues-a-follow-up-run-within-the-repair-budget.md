@@ -18,7 +18,7 @@ Amends: [0023](0023-github-is-the-only-control-surface-of-the-factory.md) (a bot
 
 ## Consequences
 - Bot threads get their reply and resolution without a knob.
-- The follow-up run itself is the next ticket; this ADR records the decision whole.
+- The follow-up run came with #219, a ticket after the one that answers any Bot account's threads.
 - Rejected: the factory asking the bot for a review; a machine user without a Codex connection triggers nothing.
 - Rejected: pull requests under the maintainer's token; the machine user is the isolation boundary.
 - Rejected: a list of trusted bots for the signal; the knob would have to be set for the feature to work.
