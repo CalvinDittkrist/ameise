@@ -396,7 +396,9 @@ The one-time setup, as root:
 
 1. Write the two units above.
 2. Set `"auto_update": true` in `/etc/factory/factory.json`.
-3. Run a factory after 0.2.3 once, installed by hand ([Installation](#installation)) and restarted with `systemctl restart factory` between runs: the tick reads the version and the drain from its line and has it drain with `SIGHUP`, which a factory up to 0.2.3 does not do. A factory that runs such a release already needs no restart, since it reads `auto_update` again on its next poll.
+3. Run a release after 0.2.3. The tick reads the running version and the drain from `/api/line` and has the factory drain with `SIGHUP`. A factory up to 0.2.3 does neither.
+   - On 0.2.3 or before, install a newer release by hand ([Installation](#installation)). Then run `systemctl restart factory` once.
+   - On a newer release, restart nothing. The factory reads `auto_update` again on its next poll.
 4. Start the timer:
 
    ```sh
