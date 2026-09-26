@@ -25,7 +25,8 @@ This repository packages a way of working with coding agents as Claude Code plug
 ## Data flow
 
 ### Planning
-1. `/orchestrator:plan <idea | #N>`: `plan.sh` creates the branch `plan/<slug>`, a worktree and a workspace, and starts `claude --agent planner` with `/planner:plan`.
+1. `/orchestrator:plan [<idea | #N>]`: `plan.sh` creates `plan/<slug>`, a worktree and a workspace, and starts the planner on `/planner:plan`.
+   - Without an argument it opens an open session, `plan/open-<yyyymmdd-hhmm>`.
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer names per ticket whether the factory gets it; `issue.sh` refuses the label `factory` without `ready-for-agent` or beside `ready-for-human` ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
@@ -78,7 +79,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 8. Review: read-only reviewer sessions run in parallel. A `fix` verdict gets one fix session, and every round is recorded on the run.
 9. Pr: a read-only author session writes the title and body. The factory appends the gate result and the panel summary and opens the pull request.
 10. Ci: the factory starts a fix session for a conflict or failed checks, within a repair budget. Green ends the run `ready`.
-11. Address-reviews: a session fixes or declines each point of writers and configured bots. The factory posts the replies.
+11. Address-reviews: a session fixes or declines each point of writers and bots. The factory posts the replies.
 12. Each run writes one JSON record and one JSONL event log into the data directory. The HTTP interface and the dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
 13. The factory resumes an interrupted run once by itself, in its worktree. Taking the assignee off, the release signal, resumes it again.
 14. A new review that asks for changes, by a writer, queues a follow-up run at address-reviews. Held work stands before new issues.

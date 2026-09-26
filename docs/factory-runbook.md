@@ -157,21 +157,32 @@ Run the following as root unless it says otherwise.
    - It switches the `worker`, `planner` and `orchestrator` plugins of the `workflows` marketplace off.
    - So the host needs Claude Code, `git`, `gh`, the factory binary and the tools of the gates above, and no plugin of this repository.
    - A host that carries the plugin from an earlier factory moves over in [Moving a host off the plugin](#moving-a-host-off-the-plugin).
-6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64` and `checksums.txt`.
+6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64`, `checksums.txt` and `factory-v<version>.sigstore.json`.
    - They are static binaries with the dashboard inside them.
    - So the host needs no Go, no Node and no checkout for the factory itself.
+   - The `.sigstore.json` file is the attestation of both binaries: the release workflow signed their digests when it built them.
 
    ```sh
-   version=0.1.0
+   version=0.2.4   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
-   cd "$(mktemp -d)"
-   gh release download "factory/v$version" -R CalvinDittkrist/workflows -p "factory-linux-$arch" -p checksums.txt
-   sha256sum --check --ignore-missing checksums.txt   # must print: factory-linux-<arch>: OK
-   install -m 0755 "factory-linux-$arch" /usr/local/bin/factory
-   factory -version                                   # factory 0.1.0
+   cd "$(mktemp -d)" &&
+     gh release download "factory/v$version" -R CalvinDittkrist/workflows \
+       -p "factory-linux-$arch" -p checksums.txt -p "factory-v$version.sigstore.json" &&
+     sha256sum --check --ignore-missing checksums.txt &&   # must print: factory-linux-<arch>: OK
+     gh attestation verify "factory-linux-$arch" -R CalvinDittkrist/workflows \
+       --bundle "factory-v$version.sigstore.json" \
+       --cert-identity "https://github.com/CalvinDittkrist/workflows/.github/workflows/factory-release.yml@refs/tags/factory/v$version" \
+       --source-ref "refs/tags/factory/v$version" \
+       --deny-self-hosted-runners &&
+     install -m 0755 "factory-linux-$arch" /usr/local/bin/factory
+   factory -version                                   # factory <version>
    ```
 
-   Install nothing that `sha256sum` did not answer `OK` for.
+   - The download, the checksum, the attestation and the install are chained with `&&`, since a pasted block runs on past a failed line. So a refused file is never installed.
+   - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
+   - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
+   - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
+   - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
    - It needs Node 22.19 or later (`engines` of the package). Node 24 from NodeSource, installed with the gate's tools, is that.
    - Do not move the pin to 0.1.50. It reads the `utilization` of Claude's usage endpoint, the percentage used, as the percentage remaining.
@@ -205,7 +216,8 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `ci` | see below | The knobs of the ci stage ([The ci stage](#the-ci-stage)). |
 | `gate` | see below | The knobs of the gate stage ([The gate stage](#the-gate-stage)). |
 | `review` | see below | The knobs of the review stage ([The review stage](#the-review-stage)). |
-| `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is the one field read again on every poll, so it takes no restart ([Pausing](#pausing)). |
+| `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is read again on every poll, so it takes no restart ([Pausing](#pausing)). |
+| `auto_update` | `false` | Lets the host's update tick install factory releases on this host. It is read again on every poll like `paused`, and `/api/line` reports it. |
 | `notify` | `[]` | GitHub logins, without the `@`. They are asked for a review when a run ends `ready`, and mentioned on the issue when a run waits for a person. Empty: nobody is notified, and the log says so on start. |
 | `repositories` | none, at least one | The connected repositories, each `"owner/name"` or an object. See below the table. |
 | `quota_axi` | none: the check is off | The absolute path of the quota-axi installed above. |
@@ -222,10 +234,15 @@ The factory is configured by one JSON file and nothing else: no environment vari
 
 - `repair_rounds` (default `3`): the repair rounds one pull request may take.
 - `bot_reviewers` (default `["chatgpt-codex-connector"]`): the bot logins whose review is waited for once the checks pass.
+  - It decides only that wait. The threads of every Bot account are answered, listed or not.
 - `review_wait` (default `20m`): how long that review is waited for, as a Go duration.
+  - `"review_wait": "0s"` skips the wait, for a host whose bot reviews only when asked.
 - `checks_grace` (default `10m`): how long after a push an empty check list is waited out, in a repository with GitHub workflows. GitHub may not have registered the checks yet.
 - `"bot_reviewers": []` is for a host whose machine user no bot reviews the pull requests of.
-- Codex reviews automatically only what a connected account opens. Without it every run waits the whole `review_wait` for a review that never comes.
+- On a Plus plan, Codex reviews automatically only the pull requests of the connected account.
+  - `@codex review` works only from that account. A comment by a machine user without a Codex connection triggers nothing.
+  - Reviewing every pull request of a repository needs a Pro plan.
+  - Without a review, every run waits the whole `review_wait` for one that never comes.
 
 `gate`:
 
@@ -311,6 +328,8 @@ Environment=PATH=/home/factory/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/
 ExecStart=/usr/local/bin/factory -config /etc/factory/factory.json
 Restart=on-failure
 RestartSec=30s
+# A drain (SIGHUP) exits with 75, and systemd starts the binary on disk again.
+RestartForceExitStatus=75
 # SIGTERM goes to the factory alone, which ends its worker's process group and records the run as
 # interrupted; whatever is left of the service after it exits is killed.
 KillMode=mixed
@@ -337,6 +356,7 @@ What the settings rest on:
   - `KillMode=mixed` sends the first signal to the factory alone. So the factory ends the worker and records it, and systemd does not end it at the same moment.
   - `TimeoutStopSec=60s` leaves room for all of it. Then systemd kills what is left, including a process a worker started outside its group ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
   - The run is recorded as interrupted, and the next start resumes it once by itself.
+- **Restart after a drain.** `RestartForceExitStatus=75` starts the factory again after a drain ([Draining](#draining)), which exits with code 75 and not with an error.
 - **One factory per host.** A second one fails on start, on the address or on the data directory's lock.
 
 ## Access
@@ -596,12 +616,13 @@ Once the pr stage has opened the pull request, the factory waits on it, reading 
 | has checks pending | waits; the run's stage reads `ci`. |
 | has failed checks | starts a fix session with the failed checks and the tail of their failed logs from GitHub Actions, which fixes, commits and pushes. |
 | has no review of a listed bot yet, within `review_wait` of its checks passing | waits. |
-| has a writer's review that asks for changes, or an unresolved thread a writer or a listed bot opened | starts an address-reviews session in the worktree with what the reviewers still ask for. See [Answering reviews](#answering-reviews). |
+| has a writer's review that asks for changes, or an unresolved thread a writer or any Bot account opened | starts an address-reviews session in the worktree with what the reviewers still ask for. See [Answering reviews](#answering-reviews). |
 | is green | ends the run `ready` and asks `notify` for a review. |
 
 #### Answering reviews
 - The session is given the review summaries, then the unresolved threads with their ids and their replies.
-- Of those replies it is given only the ones a writer or a listed bot wrote.
+- Of those replies it is given only the ones a writer or a Bot account wrote.
+- GitHub's account type tells a bot from a user of the same login. A thread of a user who may not write starts no session.
 - It fixes each point or declines it with a reason, commits and pushes.
 - It reports a reply per thread and one answer to the summaries.
 - The factory posts a reply to each thread the brief listed and resolves it, and posts one comment on the pull request for the summaries.
@@ -638,7 +659,7 @@ After a repair:
 ### Updating
 The factory updates nothing. Claude Code, the factory binary and quota-axi are yours. The prompts every session runs on come with the factory binary. A change to them reaches a host with the next factory release ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 
-Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
+Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. A drain waits for that run instead ([Draining](#draining)). `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
 
 - **Claude Code**, as the user `factory`: `claude update`, then `claude --version`. Every run records the version it was made with.
 - **The factory binary**: download and check it as in [Installation](#installation), then `systemctl stop factory`.
@@ -648,6 +669,20 @@ Update them between runs. Stopping the factory interrupts the run that is going,
   - Then run `npm install -g quota-axi@<version>` and restart nothing.
   - If the factory cannot read its answer, every run carries a warning that the check could not answer and starts regardless ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md)).
   - Then install the pinned version again.
+
+### Draining
+A drain stops the factory between runs. `systemctl kill --kill-whom=main -s HUP factory` sends `SIGHUP` to the factory alone, and the factory drains:
+
+- It claims, resumes and follows up nothing new, and stops polling GitHub.
+- It waits for the run in `.now`, which ends with its own outcome and delivers the notifications it owes.
+- Then it exits with code 75, and systemd starts the binary on disk. An idle or paused factory exits at once.
+- The drained run was never interrupted, so it spends no automatic resume. The next process takes up its work as if the factory had never stopped.
+
+Keep `--kill-whom=main`. Without it systemd signals every process of the service, and the worker of the run that is going dies of the `SIGHUP`.
+
+`curl -s http://127.0.0.1:7341/api/line | jq '{version, draining, auto_update}'` reads the running process: its version, whether it drains and its `auto_update`. A second `SIGHUP` changes nothing, and the journal says so once.
+
+Stopping the service during a drain is still an interruption. `SIGTERM` records the run in `.now` as interrupted and spends its one automatic resume, drain or not.
 
 ### Moving a host off the plugin
 A host set up for an earlier factory carries the `worker` plugin, and its configuration may carry `worker_env`. The factory now refuses to start on `worker_env`, with an error that names the factory's own knobs to write instead:
@@ -677,7 +712,7 @@ Set `"paused": true` in the configuration and save it; the factory reads it at i
 - It claims, resumes, follows up, notifies and lets go of nothing, and the dashboard says it is paused.
 - Set `"paused": false` to unpause it the same way. The next poll claims again, and the endings a paused start owed are notified then.
 
-`paused` is the one field read again while the factory runs. Every other field takes effect only with `systemctl restart factory`, and the restart interrupts a run that is going. So pause first and restart once `.now` is empty (see [Updating](#updating)).
+`paused` and `auto_update` are the fields read again while the factory runs. Every other field takes effect only with a new start. `systemctl restart factory` interrupts a run that is going; a drain waits for it ([Draining](#draining)).
 
 A file that does not read when the factory reads it again changes nothing. The factory keeps the settings it runs with and names the error once in the journal.
 

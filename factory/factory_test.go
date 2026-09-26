@@ -34,8 +34,11 @@ import (
 // of seconds, which a test of that timeout cannot wait out otherwise.
 var binary, hurried string
 
-// hurriedTimeout is the session timeout the hurried binary is linked with.
-const hurriedTimeout = "2s"
+// hurriedTimeout is the session timeout the hurried binary is linked with. It holds every session of a
+// run. A test that hangs a later stage needs the sessions before it to end in time. At 2s the implement
+// session of the shim ran past it under the load of the whole gate. A session under test sleeps for
+// minutes, so the margin costs a test seconds and never its verdict.
+const hurriedTimeout = "10s"
 
 func TestMain(m *testing.M) {
 	// A test that runs this test binary again hands it the factory it built, which stays the
@@ -831,6 +834,7 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"login that is a team", `{"data_dir":"data","repositories":["a/b"],"notify":["acme/maintainers"]}`, `is not a GitHub login`},
 		{"empty login", `{"data_dir":"data","repositories":["a/b"],"notify":[""]}`, `is not a GitHub login`},
 		{"login twice in two spellings", `{"data_dir":"data","repositories":["a/b"],"notify":["Octocat","octocat"]}`, `notify names "octocat" twice`},
+		{"auto_update that is no boolean", `{"data_dir":"data","repositories":["a/b"],"auto_update":"yes"}`, `auto_update`},
 		{"unknown field", `{"data_dir":"data","repositories":["a/b"],"listn":"x"}`, `unknown field "listn"; the fields are listen, label`},
 		{"not JSON", `listen = 7341`, `see factory/factory.example.json`},
 		{"deadline in words", `{"data_dir":"data","repositories":["a/b"],"deadline":"90 minutes"}`, `is not a positive duration; write it as "90m"`},

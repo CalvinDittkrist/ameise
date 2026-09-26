@@ -15,6 +15,7 @@ Terms the code, the issues and the docs use, one row each.
 | catalogue issue | The issue, labelled `skill-candidate`, that lists the skills standardisation removed and how to restore each from the `pre-standard` tag. |
 | drift | A difference between a repository's GitHub workspace and the standard; `workspace.sh` prints one `diff:` line per difference. |
 | snapshot | The JSON file `workspace.sh --apply` writes before its first change: the previous value of everything it changes. |
+| open session | A planner session without a topic, opened by `/orchestrator:plan` with no argument on a `plan/open-<yyyymmdd-hhmm>` branch. It answers questions about the code and the design and becomes a planning session when a topic emerges. |
 | conversation language | The language the planner talks to the user in, set with `WF_PLANNER_LANGUAGE`; issues, comments and glossary terms stay English. |
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |
 | acceptance | The check of a whole spec against the code on the base branch after its tickets are closed; it ends with gap tickets or the spec closed ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)). |
@@ -38,7 +39,7 @@ Terms the code, the issues and the docs use, one row each.
 | author session | The read-only session of the factory's pr stage. From the diff, the commits and the issue it reports the pull request's title and body. |
 | review round | One round of the factory's review stage: the due reviewers run in parallel and report verdicts and findings; on any `fix`, one fix session gets every finding by its id. |
 | fix session | A factory session that repairs one thing, such as a merge conflict, failed checks or review findings, then commits and pushes. |
-| ci knobs | The factory's ci settings `repair_rounds`, `bot_reviewers`, `review_wait` and `checks_grace`, per host and per repository. They replace `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS` and `WF_PR_REVIEW_WAIT`. |
+| ci knobs | The factory's ci settings `repair_rounds`, `bot_reviewers`, `review_wait` and `checks_grace`, per host and per repository. `bot_reviewers` lists the bots whose review the ci stage waits for after green checks; it filters no threads. |
 | gate record | The result of one gate run, written by the worker's `gate.sh`: commit, dirty flag, exit status, time and output tail. It answers for its own commit only ([ADR 0019](adr/0019-the-gate-runs-once-per-review-round.md)). |
 | repair record | The count of CI repair rounds, such as a `/worker:address-reviews` round, of one pull request, kept by `repair.sh`, refused past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review ([ADR 0018](adr/0018-worker-stages-hand-facts-over-through-the-worktree-git-dir.md), [ADR 0032](adr/0032-the-stage-measures-the-context-on-entry-and-a-handoff-grants-one-skip.md)). |
 | factory | The Go service in `factory/` that works routed issues unattended on a host of its own ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Not a plugin. |
@@ -54,11 +55,16 @@ Terms the code, the issues and the docs use, one row each.
 | remote claim | Creating the issue's branch through the GitHub API, which exactly one claimer wins ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)). |
 | local claim | The orchestrator's claim of an issue into a Herdr worktree on a developer's machine (`/orchestrator:claim`). It refuses an issue the factory owns. |
 | release signal | Removing the assignee from an issue the factory holds, which queues a resumed run. |
-| changes-requested signal | A new review asking for changes on the pull request of a held issue, by a writer, after the last run ended. It queues a follow-up run; only the reviewer's latest review counts. |
-| follow-up run | The factory run that answers such a review: in the worktree of the claim, starting at address-reviews, with a fresh count of repair rounds. |
-| address-reviews session | The factory session that fixes or declines each point writers or configured bots still raise, pushes, and reports replies. The factory posts them and resolves the threads. |
+| changes-requested signal | A writer's new review asking for changes on a held issue's pull request, after the last run ended; only the latest counts. It is a mandate: the follow-up run's repair count starts at none. |
+| bot review signal | A Bot account's review on a held issue's pull request, after the last run ended, that leaves an unresolved thread. A later ticket makes it queue a follow-up run whose repair count carries over ([ADR 0051](adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md)). |
+| follow-up run | The factory run that answers a review on a held issue's pull request, in the claim's worktree, starting at address-reviews. A changes-requested signal starts its repair count afresh; a bot review signal carries it over. |
+| address-reviews session | The factory session that fixes or declines each point writers or bots still raise, pushes, and reports replies. The factory posts them and resolves the threads. |
 | quota check | The factory's call of the host's quota-axi before every run and after a session error ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0044](adr/0044-the-quota-check-reads-the-scope-of-every-model-a-run-spends.md)). |
 | connected repository | A repository named in the factory's configuration, as `owner/name`. |
+| drain | The factory's answer to `SIGHUP`: it claims and resumes nothing new, lets the run in `.now` end with its own outcome, delivers what that run owes and exits with the drain code, 75 ([ADR 0050](adr/0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md)). |
+| update tick | One run of the factory binary's update mode by the host's timer, as root; it reads the release, the running state and the file, does one action and exits. |
+| auto-update | The configuration field `auto_update` that lets the host install factory releases; false by default, read by the update tick and reported by the factory. |
+| block list | The updater's root-owned list of versions that failed after an install and are never installed again; a line is lifted by deleting it. |
 | dashboard | The page the factory serves at `/`, built into the binary from `factory/ui`. It reads the four endpoints and writes nothing ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). |
 | test hunt | One run of `/orchestrator:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
 | hunter | The read-only subagent `test-hunter` of a test hunt, with no shell, that reads one share of at most 1500 lines and replies with candidates. |
