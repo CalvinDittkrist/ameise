@@ -228,7 +228,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - `--settings`, `--agents`, `--agent`, `--permission-mode`, `--output-format`, `-p` and `--print` are refused, because the factory sets them.
 - `--plugin-dir` is refused too, because the sessions run no plugin.
 - The read-only sessions, the author of the pr stage and the reviewers of the review stage, take only the `--model` of these.
-- A reviewer whose own model is named takes none.
+- A reviewer whose own model is named takes none. The others run on `opus` when `worker_args` names no model.
 
 `ci`:
 
@@ -570,7 +570,8 @@ Each reviewer is a read-only session run as an inline agent of the factory's own
 
 - the tools `Read`, `Grep` and `Glob`, and `StructuredOutput` for its result, and nothing else
 - no MCP server, none of the workflow plugins and none of the worktree's settings
-- The code, docs and tests reviewers run on `sonnet`; security and senior run on the model `worker_args` names.
+- The code, docs and tests reviewers run on `sonnet`. Security and senior inherit the worker's model: `opus` unless `worker_args` names another.
+- The factory passes that model with `--model`, so no reviewer runs on the account default of the host's Claude login.
 
 Every reviewer of a round gets the same brief: the diff range, the base, the commits, the diff, the issue and the gate result. Each reports a verdict, `pass` or `fix`, and its findings.
 
@@ -639,6 +640,7 @@ Once the review stage has ended, the factory opens the pull request itself. It p
 
 - the tools `Read`, `Grep` and `Glob` and nothing else, no MCP server and none of the workflow plugins
 - none of the worktree's own settings, and of `worker_args` only the model
+- the worker's model, `opus` unless `worker_args` names another
 - briefed with the diff range, the commits, the diff and the issue
 
 The session reports a title in conventional-commit style, and a body that closes the issue and carries no verification section. The factory uses that body as it is and appends a verification section:
