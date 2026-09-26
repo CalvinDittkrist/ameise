@@ -328,7 +328,8 @@ Environment=PATH=/home/factory/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/
 ExecStart=/usr/local/bin/factory -config /etc/factory/factory.json
 Restart=on-failure
 RestartSec=30s
-# A drain (SIGHUP) exits with 75, and systemd starts the binary on disk again.
+# A drain (SIGHUP) exits with 75: a success, and systemd starts the binary on disk again.
+SuccessExitStatus=75
 RestartForceExitStatus=75
 # SIGTERM goes to the factory alone, which ends its worker's process group and records the run as
 # interrupted; whatever is left of the service after it exits is killed.
@@ -356,7 +357,14 @@ What the settings rest on:
   - `KillMode=mixed` sends the first signal to the factory alone. So the factory ends the worker and records it, and systemd does not end it at the same moment.
   - `TimeoutStopSec=60s` leaves room for all of it. Then systemd kills what is left, including a process a worker started outside its group ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
   - The run is recorded as interrupted, and the next start resumes it once by itself.
-- **Restart after a drain.** `RestartForceExitStatus=75` starts the factory again after a drain ([Draining](#draining)), which exits with code 75 and not with an error.
+- **Restart after a drain.** A drain ([Draining](#draining)) exits with code 75 and not with an error.
+  - `SuccessExitStatus=75` has systemd count the code as a success ([systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#SuccessExitStatus=)).
+  - Without it every drain, and so every update, leaves a `Failed with result 'exit-code'` line in the journal.
+  - It also leaves a failed unit for a monitor to report.
+  - `RestartForceExitStatus=75` starts the factory again after 30 seconds. It restarts on the code whatever `Restart=` says, so a success restarts as well ([systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#RestartForceExitStatus=)).
+  - Between the exit and the restart the unit reads `activating` (`auto-restart`) with the result `success`, never `inactive`.
+  - The update test mocks this reading and does not prove it. Check it on the host's systemd after a drain with `systemctl show factory -p ActiveState,SubState,Result`.
+  - So the update tick does not take a drained factory for one the operator stopped.
 - **One factory per host.** A second one fails on start, on the address or on the data directory's lock.
 
 ### Auto-update
