@@ -709,7 +709,7 @@ The factory updates only its own binary, and only with auto-update on ([Auto-upd
 
 **The factory binary** needs no login and no SSH session any more. Each update tick reads three facts:
 
-- the newest release: the highest version among the published `factory/v<version>` releases of this repository, drafts and pre-releases left out, read through the REST API without a login;
+- the newest release: the highest version among the published `factory/v<version>` releases of this repository. Drafts and pre-releases are left out, and the tick reads them through the REST API without a login;
 - the running factory: its version, whether it drains and the run in `.now`, from `/api/line`;
 - the binary on disk: what `factory -version` prints. The tick logs both versions when they differ.
 
@@ -722,7 +722,7 @@ Then it does exactly one thing:
   - It checks them with `gh attestation verify`, without a login. Then it installs the file and sends `SIGHUP`.
   - The policy: the certificate is this repository's release workflow at a factory tag, and the source ref is exactly the tag of that version.
   - The issuer is GitHub Actions, self-hosted runners are refused, and the predicate is SLSA provenance v1.
-  - gh gets a fresh home of its own on every tick, so it fetches the trust roots through TUF every time.
+  - gh gets a fresh home of its own each time it verifies a release, so it fetches the trust roots through TUF every time.
   - The installed binary is kept beside the new one as `/usr/local/bin/factory.previous`, and the new one is renamed over it in one step.
   - A run in `.now` stops no install: the drain waits for it, and systemd then starts the new binary.
 - **The service is stopped** (inactive with a successful result, as `systemctl stop` leaves it): a newer file is installed and nothing is started. The journal says so.
