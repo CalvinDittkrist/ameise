@@ -308,9 +308,9 @@ func (f *Factory) Draining() bool { return f.draining.Load() }
 // reading of the file said.
 func (f *Factory) AutoUpdate() bool { return f.autoUpdate.Load() }
 
-// drainExit is the code the process exits with after a drain: the service unit counts it as a
-// success and restarts on it (SuccessExitStatus=75, RestartForceExitStatus=75), and it is
-// EX_TEMPFAIL, a stop that asks to be run again.
+// drainExit is the code the process exits with after a drain. The service unit counts it as a
+// success and restarts on it (SuccessExitStatus=75, RestartForceExitStatus=75). It is EX_TEMPFAIL,
+// a stop that asks to be run again.
 const drainExit = 75
 
 // Follow has the factory read paused and auto_update from its configuration file again on every
