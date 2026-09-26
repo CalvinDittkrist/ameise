@@ -692,9 +692,11 @@ Rounds:
 
 A follow-up run is queued by one of two reviews on a held issue's pull request, submitted after its last run ended (see [Operation on GitHub](#operation-on-github)):
 
-- `changes-requested`: a writer's review that requests changes. It is a new mandate, so the count of repair rounds starts at none. The round that answers it is not counted; the rounds after it count.
-- `bot-review`: a review of any Bot account, in any state, that leaves a thread unresolved. It is no mandate: the count of the pull request's last run carries over, and the round that answers the bot counts as one.
-- A run on a bot's review whose count is already at `repair_rounds` is queued all the same. It ends `blocked` with the spent budget as its reason, before any session, and the `notify` logins are mentioned.
+- `changes-requested`: a writer's review that requests changes. It is a new mandate, so the count of repair rounds starts at none.
+- The round that answers it is not counted; the rounds after it count.
+- `bot-review`: a review of any Bot account, in any state, that leaves a thread unresolved.
+- It is no mandate: the count of the pull request's last run carries over, and the round that answers the bot counts.
+- A bot's review read with the count at `repair_rounds` still queues a run. That run ends `blocked` on the spent budget before any session, and mentions the `notify` logins.
 - When both stand, the writer's review queues the run, and it answers the bot's threads too.
 - Either run starts at the address-reviews stage: it answers the review first and then waits in the ci stage.
 - The draft of a gate on CI is not watched for either review.

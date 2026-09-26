@@ -82,7 +82,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 11. Address-reviews: a session fixes or declines each point of writers and bots. The factory posts the replies.
 12. Each run writes one JSON record and one JSONL event log into the data directory. The HTTP interface and the dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
 13. The factory resumes an interrupted run once, in its worktree. Taking the assignee off, the release signal, resumes it.
-14. A writer's new review that asks for changes, or a bot's that leaves an unresolved thread, queues a follow-up run at address-reviews. Only the writer's resets the repair count ([ADR 0051](adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md)). Held work stands before new issues.
+14. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
 15. On `ready` the configured logins are asked for a review. On `blocked`, `failed`, `timeout` or a second interruption they are mentioned on the issue.
 16. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
 17. Before each run a quota-axi check waits below the minimum and fails open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)). A used-up quota after an error ends `quota`.
