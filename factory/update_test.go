@@ -447,7 +447,10 @@ type judgeHost struct {
 	answers  string // the version the line endpoint answers with, or empty for none
 	draining bool
 	restart  string // what the line endpoint answers after systemctl restart
+	hupTo    string // what the line endpoint answers after SIGHUP: empty for no change, "-" for nothing
+	serves   string // the version the downloaded binary reports, or empty for downloads that fail
 	active   string
+	result   string
 	restarts int
 	releases []string
 	u        *updater
@@ -458,7 +461,7 @@ type judgeHost struct {
 
 func newJudgeHost(t *testing.T, onDisk, previous string, pending judgement) *judgeHost {
 	t.Helper()
-	h := &judgeHost{t: t, active: "active"}
+	h := &judgeHost{t: t, active: "active", result: "success"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -476,7 +479,14 @@ func newJudgeHost(t *testing.T, onDisk, previous string, pending judgement) *jud
 			json.NewEncoder(w).Encode(runningFactory{Version: h.answers, Draining: h.draining})
 		case strings.HasPrefix(r.URL.Path, "/download/"):
 			h.fetched = append(h.fetched, r.URL.Path)
-			http.NotFound(w, r)
+			switch {
+			case h.serves == "":
+				http.NotFound(w, r)
+			case r.URL.Path == "/download/binary":
+				io.WriteString(w, "factory "+h.serves+"\n")
+			default:
+				io.WriteString(w, "{}")
+			}
 		default:
 			http.Error(w, "not answering", http.StatusServiceUnavailable)
 		}
@@ -512,15 +522,25 @@ func newJudgeHost(t *testing.T, onDisk, previous string, pending judgement) *jud
 				}
 				return raw, "", nil
 			case name == systemctlCommand && args[0] == "show":
-				return []byte(fmt.Sprintf("ActiveState=%s\nSubState=running\nResult=success\nNRestarts=%d\nRestartUSec=1min 30s\n",
-					h.active, h.restarts)), "", nil
+				return []byte(fmt.Sprintf("ActiveState=%s\nSubState=running\nResult=%s\nNRestarts=%d\nRestartUSec=1min 30s\n",
+					h.active, h.result, h.restarts)), "", nil
 			case name == systemctlCommand && args[0] == "restart":
 				h.answers = h.restart
 				return nil, "", nil
 			case name == systemctlCommand && args[0] == "kill":
+				switch h.hupTo {
+				case "":
+				case "-":
+					h.answers = ""
+				default:
+					h.answers = h.hupTo
+				}
 				return nil, "", nil
 			}
 			return nil, "unexpected", fmt.Errorf("unexpected command %s", call)
+		},
+		runIn: func(context.Context, time.Duration, []string, string, string, ...string) ([]byte, string, error) {
+			return nil, "", nil
 		},
 	}
 	if err := h.u.saveJudgement(&pending); err != nil {
@@ -579,11 +599,17 @@ func (h *judgeHost) onDisk() string {
 	return strings.TrimSpace(strings.TrimPrefix(string(raw), "factory "))
 }
 
-func (h *judgeHost) restarted() bool {
+func (h *judgeHost) restarted() bool { return h.called(systemctlCommand + " restart " + factoryUnit) }
+
+func (h *judgeHost) hungUp() bool {
+	return h.called(systemctlCommand + " kill --kill-whom=main -s HUP " + factoryUnit)
+}
+
+func (h *judgeHost) called(want string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, call := range h.calls {
-		if call == systemctlCommand+" restart "+factoryUnit {
+		if call == want {
 			return true
 		}
 	}
@@ -724,5 +750,103 @@ func TestATickSaysSoWhenEveryReleaseIsBlocked(t *testing.T) {
 	h.set(func(h *judgeHost) { h.answers, h.releases = "0.2.3", []string{"0.3.0"} })
 	if err := h.tick(); err == nil || !strings.Contains(err.Error(), "block list") {
 		t.Errorf("the tick answered %v, want an error that names the block list", err)
+	}
+}
+
+func TestAnInstallWithNoRunGoingIsJudgedInTheSameTick(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		comesUp string // what the factory answers after SIGHUP, "-" for nothing
+		active  string
+	}{
+		{name: "healthy", comesUp: "0.3.0", active: "active"},
+		{name: "does not come up", comesUp: "-", active: "activating"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newJudgeHost(t, "0.2.3", "0.2.2", judgement{Version: "unused"})
+			if err := h.u.clearJudgement(); err != nil {
+				t.Fatal(err)
+			}
+			h.set(func(h *judgeHost) {
+				h.answers, h.releases, h.serves = "0.2.3", []string{"0.3.0"}, "0.3.0"
+				h.hupTo, h.restart, h.active = c.comesUp, "0.2.3", c.active
+			})
+			if err := h.tick(); err != nil {
+				t.Fatalf("the tick failed: %v", err)
+			}
+			if !h.hungUp() {
+				t.Errorf("the tick installed without sending SIGHUP")
+			}
+			if p := h.pending(); p != nil {
+				t.Errorf("the tick left the judgement %+v, want it judged in the same tick", *p)
+			}
+			if c.comesUp != "-" {
+				if len(h.blocked()) != 0 || h.restarted() || h.onDisk() != "0.3.0" {
+					t.Errorf("a healthy install was blocked %v, restarted %v or replaced by %s", h.blocked(), h.restarted(), h.onDisk())
+				}
+				return
+			}
+			if !h.blocked()[v030] || !h.restarted() || h.onDisk() != "0.2.3" {
+				t.Errorf("the rollback blocked %v, restarted %v and left %s on disk; want 0.3.0 blocked, a restart and 0.2.3",
+					h.blocked(), h.restarted(), h.onDisk())
+			}
+		})
+	}
+}
+
+func TestAJudgementWaitsWhileTheOperatorStoppedTheFactory(t *testing.T) {
+	t.Parallel()
+	h := newJudgeHost(t, "0.3.0", "0.2.3", judgement{Version: "0.3.0", Previous: "0.2.3"})
+	h.set(func(h *judgeHost) { h.active, h.result, h.releases = "inactive", "success", []string{"0.3.0"} })
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if p := h.pending(); p == nil || p.Version != "0.3.0" {
+		t.Errorf("the judgement is %+v, want 0.3.0 still pending", p)
+	}
+	if len(h.blocked()) != 0 || h.restarted() || h.onDisk() != "0.3.0" || len(h.fetched) != 0 {
+		t.Errorf("a stopped factory was blocked %v, restarted %v, left %s on disk or fetched %q; want nothing touched",
+			h.blocked(), h.restarted(), h.onDisk(), h.fetched)
+	}
+}
+
+func TestAJudgementIsClearedWhenTheFactoryAnswersWithANewerRelease(t *testing.T) {
+	t.Parallel()
+	h := newJudgeHost(t, "0.4.0", "0.3.0", judgement{Version: "0.3.0", Previous: "0.2.3"})
+	h.set(func(h *judgeHost) { h.answers, h.releases = "0.4.0", []string{"0.4.0"} })
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if p := h.pending(); p != nil {
+		t.Errorf("the judgement is %+v, want it cleared", *p)
+	}
+	if len(h.blocked()) != 0 || h.restarted() || h.onDisk() != "0.4.0" {
+		t.Errorf("the tick blocked %v, restarted %v or left %s on disk; want nothing touched", h.blocked(), h.restarted(), h.onDisk())
+	}
+}
+
+func TestALostSignalIsSentAgainWhileAReleaseWaitsForItsJudgement(t *testing.T) {
+	t.Parallel()
+	h := newJudgeHost(t, "0.3.0", "0.2.3", judgement{Version: "0.3.0", Previous: "0.2.3"})
+	// A newer release is out, so only the judgement can send the signal again.
+	h.set(func(h *judgeHost) { h.answers, h.releases = "0.2.3", []string{"0.3.0", "0.4.0"} })
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if !h.hungUp() || len(h.fetched) != 0 {
+		t.Errorf("the tick sent SIGHUP %v and fetched %q; want the signal again and nothing installed", h.hungUp(), h.fetched)
+	}
+	if p := h.pending(); p == nil || p.Version != "0.3.0" {
+		t.Errorf("the judgement is %+v, want 0.3.0 still pending", p)
+	}
+	// The release is judged before the next one is installed; the download of 0.4.0 fails here.
+	h.set(func(h *judgeHost) { h.answers = "0.3.0" })
+	if err := h.tick(); err == nil || !strings.Contains(err.Error(), "v0.4.0 cannot be downloaded") {
+		t.Fatalf("the tick after the signal answered %v, want it to judge 0.3.0 and go on to 0.4.0", err)
+	}
+	if p := h.pending(); p != nil {
+		t.Errorf("the judgement is %+v after the factory answers with 0.3.0, want it cleared", *p)
 	}
 }

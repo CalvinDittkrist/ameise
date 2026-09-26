@@ -303,6 +303,11 @@ func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) 
 				return false, u.clearJudgement()
 			case process.Draining:
 				log.Printf("%s is not judged yet: the factory %s drains, however long that takes; %s", p.Version, process.Version, waitsFor(process.Now))
+			case u.onDiskIs(p.Version):
+				// The signal was lost or never taken: the factory would answer with the old
+				// version forever, so the tick sends it again and the next tick judges.
+				log.Printf("%s is not judged yet: the factory answers with %s without draining; sending SIGHUP again", p.Version, process.Version)
+				return true, u.hangup()
 			default:
 				log.Printf("%s is not judged yet: the factory answers with %s", p.Version, process.Version)
 			}
@@ -321,7 +326,7 @@ func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) 
 			log.Printf("unhealthy: %s does not answer on http://%s/api/line, and %s is %s", p.Version, listen, factoryUnit, s)
 			return true, u.rollback(listen, p)
 		}
-		if err := u.settle(); err != nil {
+		if err := u.wait(s); err != nil {
 			return true, err
 		}
 		settled = true
@@ -335,6 +340,12 @@ func newerThan(a, b string) bool {
 	return okA && okB && vb.less(va)
 }
 
+// onDiskIs says the binary on disk reports version.
+func (u *updater) onDiskIs(version string) bool {
+	onDisk, err := u.fileVersion(u.exe)
+	return err == nil && onDisk.String() == version
+}
+
 // rolledBack says a rollback of the release ran to its end already: the release is blocked and the
 // binary on disk is the previous one again. A tick that ran out of time after the restart leaves
 // its judgement behind, and this is how the next tick recognises it.
@@ -344,11 +355,7 @@ func (u *updater) rolledBack(p judgement) bool {
 		return false
 	}
 	version, ok := parseSemver(p.Version)
-	if !ok || !blocked[version] {
-		return false
-	}
-	onDisk, err := u.fileVersion(u.exe)
-	return err == nil && onDisk.String() == p.Previous
+	return ok && blocked[version] && u.onDiskIs(p.Previous)
 }
 
 // rollback blocks the release, puts the previous binary back and restarts the unit. The block
@@ -700,6 +707,11 @@ func (u *updater) settle() error {
 	if err != nil {
 		return err
 	}
+	return u.wait(s)
+}
+
+// wait is settle on a state of the unit read already.
+func (u *updater) wait(s unitState) error {
 	delay, err := restartDelay(s.delay)
 	if err != nil {
 		return err
