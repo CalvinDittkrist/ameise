@@ -358,9 +358,11 @@ What the settings rest on:
   - `TimeoutStopSec=60s` leaves room for all of it. Then systemd kills what is left, including a process a worker started outside its group ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
   - The run is recorded as interrupted, and the next start resumes it once by itself.
 - **Restart after a drain.** A drain ([Draining](#draining)) exits with code 75 and not with an error.
-  - `SuccessExitStatus=75` has systemd count the code as a success. Without it every drain, and so every update, leaves a `Failed with result 'exit-code'` line in the journal and a failed unit for a monitor to report.
+  - `SuccessExitStatus=75` has systemd count the code as a success.
+  - Without it every drain, and so every update, leaves a `Failed with result 'exit-code'` line in the journal and a failed unit for a monitor to report.
   - `RestartForceExitStatus=75` starts the factory again after 30 seconds. It restarts on the code whatever `Restart=` says, so a success restarts as well.
-  - Between the exit and the restart the unit reads `activating` (`auto-restart`) with the result `success`, never `inactive`. So the update tick does not take a drained factory for one the operator stopped.
+  - Between the exit and the restart the unit reads `activating` (`auto-restart`) with the result `success`, never `inactive`.
+  - So the update tick does not take a drained factory for one the operator stopped.
 - **One factory per host.** A second one fails on start, on the address or on the data directory's lock.
 
 ### Auto-update
