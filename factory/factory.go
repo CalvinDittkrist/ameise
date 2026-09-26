@@ -785,6 +785,18 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 		f.mu.Unlock()
 	}()
 
+	// A follow-up run's pull request and the count of repair rounds it starts at are on its record
+	// before the claim, which a stop can cut off: the run that resumes it takes both from there, so a
+	// bot's review is held to the budget its pull request has spent.
+	if kindOf(entry.Signal) == kindFollowUp {
+		if pull, _ := pullRequest(entry.pull, r.Repository); pull != "" {
+			rounds := 0
+			if entry.Signal == signalBotReview {
+				rounds = f.roundsOn(r, pull)
+			}
+			f.runs.update(r, func() { r.PullRequest, r.RepairRounds = pull, rounds })
+		}
+	}
 	claim, err := f.take(ctx, r, entry)
 	if err != nil {
 		if errors.Is(err, errLost) {
@@ -861,8 +873,8 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 	// A follow-up run answers a review on the pull request the claim opened: it starts at the
 	// address-reviews stage and goes on into the ci stage. A writer's review is a new mandate, so its
 	// count of repair rounds starts at none; a bot's is not, so the count the pull request has had
-	// carries over ([ADR 0051]). The URL is rebuilt from the repository and the number, as a session's
-	// is.
+	// carries over ([ADR 0051]), which the record holds since before the claim. The URL is rebuilt
+	// from the repository and the number, as a session's is.
 	//
 	// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
 	if kindOf(entry.Signal) == kindFollowUp {
@@ -870,10 +882,6 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 		if pull == "" {
 			f.finish(r, outcomeFailed, "the follow-up run has no pull request to answer the review on: "+reason, nil)
 			return
-		}
-		if entry.Signal == signalBotReview {
-			rounds := f.roundsOn(r, pull)
-			f.runs.update(r, func() { r.RepairRounds = rounds })
 		}
 		f.ci(parent, ctx, r, entry, claim, pull, true)
 		return

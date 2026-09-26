@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -677,6 +678,62 @@ func TestABotsReviewAtTheBudgetBlocksTheRunItQueuesAndIsAnsweredOnce(t *testing.
 		func() bool { return !f.missing(t, 3) })
 	if read := gh.made(t, "api graphql --input -"); read < 3 {
 		t.Errorf("the review threads were read %d times, want a reading per poll: one run out of many polls is what is being proved", read)
+	}
+}
+
+// A bot's follow-up run that the factory's stop cuts off before its ci stage has the pull request and
+// the count it carries on its record already, so the run that resumes it is held to the same budget
+// rather than starting a fresh one.
+func TestABotsFollowUpInterruptedBeforeItsCIStageKeepsItsCountOnResume(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+	gh.issues(t, "acme/edge-sensors")
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	ended := began.Add(30 * time.Minute)
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+	spent := record(1, claimedIssue, claimedTitle, signalRouted, outcomeReady, true, began, ended)
+	spent.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	spent.PullRequest, spent.RepairRounds = pullOfTheClaim, 3
+	records(t, data, spent)
+
+	reviewedAt := ended.Add(10 * time.Minute).Truncate(time.Second)
+	gh.pullRequestIs(t, "acme/edge-sensors", claimedIssue, "open")
+	gh.pull(t, "acme/edge-sensors", claimedIssue, "open", false)
+	gh.openPullsListed(t, "acme/edge-sensors", claimedBranch, claimedIssue)
+	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(1, reviewedAt))
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{reviews: []map[string]any{botReview(1, reviewedAt)},
+		threads: []map[string]any{reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt)}})
+	gh.comments(t, "acme/edge-sensors", claimedIssue)
+	gh.versionHangs(t)
+
+	f := gh.work(t, ciConfig(data, nil))
+	f.eventually(t, 30*time.Second, "the version the bot's follow-up run is waiting on", func() bool {
+		return len(gh.hostCalls(t)) > 0
+	})
+	f.stop(t, syscall.SIGTERM)
+	record := map[string]any{}
+	read(t, filepath.Join(data, "run-2.json"), &record)
+	if record["signal"] != signalBotReview || record["outcome"] != outcomeInterrupted {
+		t.Fatalf("run 2 is on the signal %v and ended %v (%v), want the bot's follow-up run interrupted", record["signal"], record["outcome"], record["reason"])
+	}
+
+	gh.versionAnswersAgain(t)
+	c := ciConfig(data, nil)
+	c["listen"] = freeAddress(t)
+	again := gh.work(t, c)
+	resumed := again.ended(t, 3)
+	if resumed.Signal != signalInterruption || resumed.Outcome != outcomeBlocked || !strings.Contains(resumed.Reason, "has had 3 of 3 repair rounds") {
+		t.Fatalf("run 3 is on the signal %q and ended %q (%s), want the resume blocked on the budget the bot's run carried; the factory's log:\n%s",
+			resumed.Signal, resumed.Outcome, resumed.Reason, again.output(t))
+	}
+	if workers := gh.workers(t); len(workers) != 0 {
+		t.Errorf("the factory started %d sessions, want none: the budget was spent before either run began", len(workers))
 	}
 }
 
