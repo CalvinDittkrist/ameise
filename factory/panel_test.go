@@ -160,6 +160,32 @@ func TestThePanelRunsTheFactorysReviewersReadOnlyBesideEachOther(t *testing.T) {
 	}
 }
 
+// A host whose worker_args name no model leaves no session's model to the account default of its
+// Claude login: a reviewer that inherits its model runs on the worker's, opus, and one that names its
+// own keeps it.
+func TestInheritingReviewersRunOnTheWorkersModelWithoutWorkerArgs(t *testing.T) {
+	t.Parallel()
+	gh, data := panelClaim(t, "@echo the gate of a host without worker_args passes")
+	f := gh.work(t, ciConfig(data, nil))
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeReady {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	want := map[string]string{"code": "sonnet", "security": "opus", "docs": "sonnet", "tests": "sonnet", "senior": "opus"}
+	reviewers := gh.reviewerSessions(t)
+	if len(reviewers) != 5 {
+		t.Fatalf("the factory started %d reviewer sessions, want the five of the panel", len(reviewers))
+	}
+	for _, r := range reviewers {
+		agent, _ := agentOf(t, r)
+		name := strings.TrimSuffix(agent, "-reviewer")
+		inherits := want[name] == "opus"
+		if r.started("--model", "opus") != inherits || slices.Contains(r.args, "--model") != inherits {
+			t.Errorf("the %s reviewer was started with %v, want the model %s", name, r.args, want[name])
+		}
+	}
+}
+
 // A round in which reviewers ask for fixes has one fix session given every finding of the round, which
 // fixes one, disputes one and skips a nit. The next round runs only the reviewers that asked, and when
 // they pass the review ends; the gate runs on the head the fixes moved to, and the pull request carries
