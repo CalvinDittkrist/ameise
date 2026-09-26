@@ -520,8 +520,8 @@ func (u *updater) loadState() error {
 	if err != nil {
 		return fmt.Errorf("%s cannot be read: %w", u.statePath(), err)
 	}
-	if err := json.Unmarshal(raw, &u.said); err != nil {
-		// A state that does not read only costs a line said twice.
+	if err := json.Unmarshal(raw, &u.said); err != nil || u.said == nil {
+		// A state that does not read, or reads as null, only costs a line said twice.
 		u.said = map[string]string{}
 	}
 	return nil
