@@ -109,6 +109,10 @@ type updater struct {
 	exe    string // the installed binary, the file this tick runs as
 	state  string // updateStateDir
 	said   map[string]string
+	// api is the REST API the releases are read from, and run runs the -version and systemctl
+	// commands. A tick uses api.github.com and command; a test puts its own in their place.
+	api string
+	run func(ctx context.Context, timeout time.Duration, name string, args ...string) ([]byte, string, error)
 }
 
 // update is the tick, from the configuration to its one action. An error is the tick's alone: it
@@ -127,7 +131,8 @@ func update(config string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
-	u := &updater{ctx: ctx, client: &http.Client{Timeout: 5 * time.Minute}, exe: exe, state: updateStateDir}
+	u := &updater{ctx: ctx, client: &http.Client{Timeout: 5 * time.Minute}, exe: exe, state: updateStateDir,
+		api: "https://api.github.com", run: command}
 	if err := u.loadState(); err != nil {
 		return err
 	}
@@ -252,7 +257,7 @@ func (u *updater) newestRelease() (release, error) {
 	var best *listed
 	var bestVersion semver
 	for page := 1; ; page++ {
-		url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100&page=%d", releaseRepository, page)
+		url := fmt.Sprintf("%s/repos/%s/releases?per_page=100&page=%d", u.api, releaseRepository, page)
 		var releases []listed
 		if err := u.getJSON(url, &releases); err != nil {
 			return release{}, fmt.Errorf("the releases of %s cannot be read: %w", releaseRepository, err)
@@ -329,7 +334,7 @@ func (u *updater) running(listen string) (runningFactory, bool, error) {
 
 // fileVersion is what a binary reports on -version: the version of the file, never of the process.
 func (u *updater) fileVersion(path string) (semver, error) {
-	out, reason, err := command(u.ctx, commandTimeout, path, "-version")
+	out, reason, err := u.run(u.ctx, commandTimeout, path, "-version")
 	if err != nil {
 		return semver{}, fmt.Errorf("%s -version failed: %s", path, reason)
 	}
@@ -343,7 +348,7 @@ func (u *updater) fileVersion(path string) (semver, error) {
 
 // serviceState is the service's ActiveState and Result as systemd reports them.
 func (u *updater) serviceState() (string, string, error) {
-	out, reason, err := command(u.ctx, commandTimeout, systemctlCommand, "show", factoryUnit, "--property=ActiveState,Result")
+	out, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "show", factoryUnit, "--property=ActiveState,Result")
 	if err != nil {
 		return "", "", fmt.Errorf("%s show %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
@@ -362,7 +367,7 @@ func (u *updater) serviceState() (string, string, error) {
 // hangup has the running factory drain, to the factory's main process alone so the worker of the
 // run that is going does not die of the signal.
 func (u *updater) hangup() error {
-	if _, reason, err := command(u.ctx, commandTimeout, systemctlCommand, "kill", "--kill-whom=main", "-s", "HUP", factoryUnit); err != nil {
+	if _, reason, err := u.run(u.ctx, commandTimeout, systemctlCommand, "kill", "--kill-whom=main", "-s", "HUP", factoryUnit); err != nil {
 		return fmt.Errorf("%s kill -s HUP %s failed: %s", systemctlCommand, factoryUnit, reason)
 	}
 	log.Printf("sent SIGHUP to %s: it drains and systemd starts the binary on disk", factoryUnit)
