@@ -737,10 +737,11 @@ After an install the tick judges the new release:
 - A factory that drains still answers, so it is never judged unhealthy, however long the drain takes.
 - Unhealthy is a new binary that does not answer after that wait, or a unit systemd reports failed or restarted three times since the install.
 - It reads the unit's state, restart count and result with `systemctl show`.
+- While a release waits for its judgement, no tick installs another.
 
 An unhealthy release is rolled back, each step in the journal:
 
-- The version goes on the block list, `/var/lib/factory-update/blocked`, one version a line, root's own.
+- The version goes on the block list, `/var/lib/factory-update/blocked`, one version a line, root's own. It goes there even when the rollback cannot finish.
 - `factory.previous` is put back over `/usr/local/bin/factory`, and the tick runs `systemctl restart factory`.
 - No tick downloads or installs a blocked version again. The next version is installed as usual.
 - When the previous binary does not answer either, the tick writes an `error:` line. Later ticks touch nothing until the factory answers on `/api/line` again.
@@ -773,7 +774,7 @@ A rollback has limits:
 - A release that brings a new configuration field breaks the rollback of that one release. The previous binary refuses a configuration with a field it does not know.
   - Take the field out of `/etc/factory/factory.json` and run `systemctl restart factory`. The factory then answers, and the next tick goes on.
 - The previous binary reads the run records the new one wrote. A release adds a field of the run record and never changes one's type or meaning ([ADR 0050](adr/0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md)).
-  - Since 0.2.3 the record gained `unpushed` alone, which 0.2.3 ignores.
+  - A release after 0.2.3 added `unpushed`, the one field added since. 0.2.3, as the previous binary, ignores a field it does not know.
 
 The other two are yours. Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. A drain waits for that run instead ([Draining](#draining)). `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
 
