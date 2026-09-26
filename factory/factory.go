@@ -112,20 +112,20 @@ type Factory struct {
 
 	mu    sync.Mutex
 	queue []Issue
-	// requested is what the last poll found on the pull requests this factory holds open: the newest
-	// review that asks for changes, by issue. Like the queue it is a reading of GitHub and never a
-	// state of the factory; what has been answered is read from the run records ([ADR 0025]).
+	// reviews is what the last poll found on the pull requests this factory holds open: what their
+	// reviews signal, by issue. Like the queue it is a reading of GitHub and never a state of the
+	// factory; what has been answered is read from the run records ([ADR 0025]).
 	//
 	// [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
-	requested map[string]time.Time
-	// requestedEarly says that requested was read while a run was going: a run that ends between
+	reviews map[string]reviewed
+	// reviewsEarly says that reviews was read while a run was going: a run that ends between
 	// that reading and the start of the next one has not been asked about yet.
-	requestedEarly bool
-	unreadable     map[string]string
-	polledAt       time.Time
-	connecting     bool
-	user           string          // the login this host's gh is logged in as, read once and kept
-	held           map[string]bool // repositories this factory claims nothing from, so the log says it once
+	reviewsEarly bool
+	unreadable   map[string]string
+	polledAt     time.Time
+	connecting   bool
+	user         string          // the login this host's gh is logged in as, read once and kept
+	held         map[string]bool // repositories this factory claims nothing from, so the log says it once
 	// cancelling is how a poll ends a run that is still going: the cancel of the context that run
 	// works under, by run, put there when the run starts and taken out when it ends or is cancelled.
 	// Only a run of this factory is in it, so a record of an older start can never be signalled here.
@@ -148,10 +148,11 @@ type Factory struct {
 // line: an issue the factory holds is assigned to this host, which is what takes it out of it.
 type source interface {
 	queue(ctx context.Context, held []Held) poll
-	// changesRequested is the newest review that asks for changes on one pull request this factory
-	// opened, submitted by somebody who may write to the repository, and the zero time when there is
-	// none, when the pull request is no longer open and when GitHub could not be read.
-	changesRequested(ctx context.Context, repository string, pull int) time.Time
+	// reviewed is what the reviews of one pull request this factory opened signal (review.go): the
+	// newest review of a writer that asks for changes and the newest review of a bot that left an
+	// unresolved thread, and nothing when the pull request is no longer open and when GitHub could not
+	// be read.
+	reviewed(ctx context.Context, repository string, pull int) reviewed
 	// pullState is one reading of the pull request a run waits on in the ci stage (ci.go), with the
 	// reviews of the bots named; pullChecks the part of it a gate on CI reads, its mergeability and its
 	// checks (ci_gate.go); failedLogs the failed logs of the checks a fix session is given; and
@@ -264,7 +265,7 @@ func (f *Factory) Work(ctx context.Context) {
 		}
 		read := f.refreshQueue(ctx)
 		f.letIssuesGo(ctx, read.letGo)
-		f.refreshRequested(ctx)
+		f.refreshReviews(ctx)
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
 		// after it.
@@ -556,10 +557,10 @@ func (f *Factory) dispatch(ctx context.Context) {
 	// The run that was going when this poll read the reviews has ended since, and a review of its pull
 	// request would stand behind whatever the line starts next if it were not read now.
 	f.mu.Lock()
-	early := f.requestedEarly
+	early := f.reviewsEarly
 	f.mu.Unlock()
 	if early {
-		f.refreshRequested(ctx)
+		f.refreshReviews(ctx)
 	}
 	if _, waiting := f.waitingForQuota(time.Now()); waiting {
 		return
@@ -658,7 +659,7 @@ func (f *Factory) waiting() []Entry {
 		worked[run.key()] = true
 	}
 	f.mu.Lock()
-	queue, requested := f.queue, f.requested
+	queue, reviews := f.queue, f.reviews
 	f.mu.Unlock()
 	routedNow := map[string]Issue{}
 	for _, issue := range queue {
@@ -687,8 +688,12 @@ func (f *Factory) waiting() []Entry {
 			out = append(out, Entry{Issue: issue, Signal: signalRelease, SignalAt: issue.unassignedAt, resume: held.run, pull: held.pullRequest, drafted: held.drafted})
 		case held.resumes != "":
 			out = append(out, Entry{Issue: issue, Signal: held.resumes, SignalAt: held.signalAt(), resume: held.run, pull: held.pullRequest, drafted: held.drafted})
-		case held.changesRequested(requested[key]):
-			out = append(out, Entry{Issue: issue, Signal: signalChangesRequested, SignalAt: requested[key], resume: held.run, pull: held.pullRequest})
+		// A writer's review is the mandate and stands before a bot's: the run it queues answers the
+		// bot's threads as well, and ends after the bot's review, which is then answered too.
+		case held.unanswered(reviews[key].requested):
+			out = append(out, Entry{Issue: issue, Signal: signalChangesRequested, SignalAt: reviews[key].requested, resume: held.run, pull: held.pullRequest})
+		case held.unanswered(reviews[key].bot):
+			out = append(out, Entry{Issue: issue, Signal: signalBotReview, SignalAt: reviews[key].bot, resume: held.run, pull: held.pullRequest})
 		}
 	}
 	sort.Slice(out, func(a, b int) bool {
@@ -780,6 +785,18 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 		f.mu.Unlock()
 	}()
 
+	// A follow-up run's pull request and the count of repair rounds it starts at are on its record
+	// before the claim, which a stop can cut off: the run that resumes it takes both from there, so a
+	// bot's review is held to the budget its pull request has spent.
+	if kindOf(entry.Signal) == kindFollowUp {
+		if pull, _ := pullRequest(entry.pull, r.Repository); pull != "" {
+			rounds := 0
+			if entry.Signal == signalBotReview {
+				rounds = f.roundsOn(r, pull)
+			}
+			f.runs.update(r, func() { r.PullRequest, r.RepairRounds = pull, rounds })
+		}
+	}
 	claim, err := f.take(ctx, r, entry)
 	if err != nil {
 		if errors.Is(err, errLost) {
@@ -854,9 +871,13 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 		}
 	}
 	// A follow-up run answers a review on the pull request the claim opened: it starts at the
-	// address-reviews stage, with a repair count of its own that starts at none, and goes on into the
-	// ci stage. The URL is rebuilt from the repository and the number, as a session's is.
-	if entry.Signal == signalChangesRequested {
+	// address-reviews stage and goes on into the ci stage. A writer's review is a new mandate, so its
+	// count of repair rounds starts at none; a bot's is not, so the count the pull request has had
+	// carries over ([ADR 0051]), which the record holds since before the claim. The URL is rebuilt
+	// from the repository and the number, as a session's is.
+	//
+	// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+	if kindOf(entry.Signal) == kindFollowUp {
 		pull, reason := pullRequest(entry.pull, r.Repository)
 		if pull == "" {
 			f.finish(r, outcomeFailed, "the follow-up run has no pull request to answer the review on: "+reason, nil)
@@ -888,6 +909,18 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 	}
 
 	f.implement(parent, ctx, r, entry, claim)
+}
+
+// roundsOn is the count of repair rounds the pull request has had: the one the last run of the issue
+// on it recorded, other than r, and none when no run of it has recorded that pull request.
+func (f *Factory) roundsOn(r *Run, pull string) int {
+	rounds, last := 0, 0
+	for _, before := range f.runs.list() {
+		if before.ID != r.ID && before.ID > last && before.key() == r.key() && pullOf(before.PullRequest) == pullOf(pull) {
+			rounds, last = before.RepairRounds, before.ID
+		}
+	}
+	return rounds
 }
 
 // implement is the implement stage: one session briefed with the issue implements it and commits, and

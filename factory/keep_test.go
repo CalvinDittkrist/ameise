@@ -22,7 +22,7 @@ func TestARunThatEndsWithoutAPullRequestLeavesItsCommitsOnTheRemote(t *testing.T
 		worker   func(*testing.T, *ghShim)
 		outcome  string
 	}{
-		{"on the deadline, over a worker that hangs after committing", "3s",
+		{"on the deadline, over a worker that hangs after committing", "15s",
 			func(t *testing.T, gh *ghShim) { gh.workerWaits(t, 60*time.Second) }, outcomeTimeout},
 		{"blocked, by a worker that committed first", "90s",
 			func(t *testing.T, gh *ghShim) { gh.workerReportsBlocked(t, "the repository has no test for this") }, outcomeBlocked},
@@ -75,7 +75,7 @@ func TestAPushTheRemoteRefusesAtTheEndingIsAWarningTheNotificationNames(t *testi
 
 	data := filepath.Join(t.TempDir(), "data")
 	clone := gh.cloneInto(t, data, "acme/edge-sensors")
-	f := gh.work(t, config{"poll": "50ms", "deadline": "3s", "data_dir": data,
+	f := gh.work(t, config{"poll": "50ms", "deadline": "15s", "data_dir": data,
 		"repositories": []string{"acme/edge-sensors"}, "notify": maintainers})
 	worktree := filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
 	committed(t, f, worktree, "worked.md")

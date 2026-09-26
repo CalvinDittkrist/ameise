@@ -110,8 +110,9 @@ type holding struct {
 	// decided about the runs that opened it, and a run that takes the issue back afterwards is a
 	// claim of its own with nothing to show.
 	//
-	// addressed is the newest review asking for changes that a run of this issue already stands for,
-	// as GitHub timed its submission. A review no newer than that is answered ([ADR 0023]).
+	// addressed is the newest review that a follow-up run of this issue already stands for, a writer's
+	// asking for changes or a bot's, as GitHub timed its submission. A review no newer than that is
+	// answered ([ADR 0023]).
 	//
 	// [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 	pullRequest string
@@ -165,8 +166,8 @@ func holdings(runs []Run) map[string]holding {
 		if at := releaseAt(run); at.After(h.answered) {
 			h.answered = at
 		}
-		// And so does the review the issue's runs have answered.
-		if run.Signal == signalChangesRequested && run.SignalAt.After(h.addressed) {
+		// And so does the review the issue's runs have answered, a writer's or a bot's.
+		if kindOf(run.Signal) == kindFollowUp && run.SignalAt.After(h.addressed) {
 			h.addressed = run.SignalAt
 		}
 		out[key] = h
@@ -282,6 +283,7 @@ var resuming = map[string]string{
 	signalQuota:            "the resume after the reset of the quota the run before ran out of",
 	signalRelease:          "a person released the issue by removing the assignee",
 	signalChangesRequested: "a review asked for changes on the pull request",
+	signalBotReview:        "a bot's review left a thread unresolved on the pull request",
 }
 
 // released says that a person handed this held issue back to the factory. The issue is in the line

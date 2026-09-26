@@ -5,13 +5,15 @@ import { configuration, paused, working } from './where.js'
 // The dashboard read the way the maintainer reads it: in a browser, against the real binary in fake
 // mode. The canned queue is worked before the tests start (tests/factory.js), so the runs below are
 // the scripted ones: 1 ready, 2 blocked, 3 failed, 4 failed, 5 ready with a warning, 6 the follow-up
-// run a review of 5 asked for, ready, 7 still running.
+// run a review of 5 asked for, ready, 7 the follow-up run of a bot's review after 6, ready, 8 still
+// running.
 
 const READY_RUN = 1
 const BLOCKED_RUN = 2
 const WARNED_RUN = 5
 const FOLLOW_UP_RUN = 6
-const RUNNING_RUN = 7
+const BOT_REVIEW_RUN = 7
+const RUNNING_RUN = 8
 
 const detail = (page) => page.locator('.detail')
 
@@ -32,14 +34,15 @@ test('the three areas render from the canned data', async ({ page }) => {
   await expect(page.locator('.line .none')).toHaveText('empty')
 
   const done = page.locator('.line button.row:not(.now)')
-  await expect(done).toHaveCount(6)
-  // Newest first, each with how it ended: the follow-up run of #121 before the run it answered.
+  await expect(done).toHaveCount(7)
+  // Newest first, each with how it ended: the two follow-up runs of #121 before the run they answered.
   await expect(done.first()).toContainText('#121')
   await expect(done.first()).toContainText('ready')
   await expect(done.nth(1)).toContainText('#121')
+  await expect(done.nth(2)).toContainText('#121')
   await expect(done.last()).toContainText('#104')
   await expect(done.last()).toContainText('ready')
-  await expect(done.nth(4)).toContainText('blocked')
+  await expect(done.nth(5)).toContainText('blocked')
 })
 
 test('the whole queue is shown in its order while the factory is paused', async ({ page }) => {
@@ -110,10 +113,10 @@ test('the done section folds to its heading, and the browser keeps it folded', a
 
   // A first visit finds it open, and the heading says how many runs are done in either state.
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
-  await expect(done).toHaveCount(6)
+  await expect(done).toHaveCount(7)
   await heading.click()
   await expect(heading).toHaveAttribute('aria-expanded', 'false')
-  await expect(heading).toHaveText('Done6')
+  await expect(heading).toHaveText('Done7')
   for (const row of await done.all()) await expect(row).toBeHidden()
 
   await page.reload()
@@ -124,7 +127,7 @@ test('the done section folds to its heading, and the browser keeps it folded', a
   await expect(done.first()).toBeVisible()
   await page.reload()
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
-  await expect(done).toHaveCount(6)
+  await expect(done).toHaveCount(7)
   for (const row of await done.all()) await expect(row).toBeVisible()
 })
 
@@ -208,9 +211,18 @@ test('the stage line and the outcome box show the scripted states', async ({ pag
   await page.goto(working(`/#run=${FOLLOW_UP_RUN}`))
   // The follow-up run started at address-reviews and ended in ci, and never did the work before them.
   await expect(detail(page).locator('.facts').first()).toContainText('follow-up run')
+  await expect(detail(page).locator('.facts').first()).toContainText('changes-requested')
   await expect(detail(page).locator('.steps .at')).toHaveText('ci')
   await expect(detail(page).locator('.steps li').nth(5)).toHaveClass('done')
   await expect(detail(page).locator('.steps li').nth(0)).toHaveClass('')
+
+  // The follow-up run of the bot's review says which signal queued it, and went the same way.
+  await page.goto(working(`/#run=${BOT_REVIEW_RUN}`))
+  await expect(detail(page).locator('.facts').first()).toContainText('follow-up run')
+  await expect(detail(page).locator('.facts').first()).toContainText('bot-review')
+  await expect(detail(page).locator('.steps .at')).toHaveText('ci')
+  await expect(detail(page).locator('.steps li').nth(5)).toHaveClass('done')
+  await expect(detail(page).locator('.outcome')).toContainText('ready')
 
   // The run whose change the fix of its merge took out of every class shows the class full.
   await page.goto(working(`/#run=${WARNED_RUN}`))
