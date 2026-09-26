@@ -109,10 +109,12 @@ type updater struct {
 	exe    string // the installed binary, the file this tick runs as
 	state  string // updateStateDir
 	said   map[string]string
-	// api is the REST API the releases are read from, and run runs the -version and systemctl
-	// commands. A tick uses api.github.com and command; a test puts its own in their place.
-	api string
-	run func(ctx context.Context, timeout time.Duration, name string, args ...string) ([]byte, string, error)
+	// api is the REST API the releases are read from, run runs the -version and systemctl
+	// commands, and runIn runs gh in an environment of its own. A tick uses api.github.com, command
+	// and commandIn; a test puts its own in their place.
+	api   string
+	run   func(ctx context.Context, timeout time.Duration, name string, args ...string) ([]byte, string, error)
+	runIn func(ctx context.Context, timeout time.Duration, env []string, input, name string, args ...string) ([]byte, string, error)
 }
 
 // update is the tick, from the configuration to its one action. An error is the tick's alone: it
@@ -132,7 +134,7 @@ func update(config string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	u := &updater{ctx: ctx, client: &http.Client{Timeout: 5 * time.Minute}, exe: exe, state: updateStateDir,
-		api: "https://api.github.com", run: command}
+		api: "https://api.github.com", run: command, runIn: commandIn}
 	if err := u.loadState(); err != nil {
 		return err
 	}
@@ -465,7 +467,7 @@ func (u *updater) downloadTo(url, path string) error {
 
 // verify runs gh's attestation check with the five-part policy and without a login. gh gets a home
 // of its own in the tick's work directory, which the tick removes, so the trust roots are fetched
-// through TUF on every tick and no token of anybody's is read.
+// through TUF on every verification and no token of anybody's is read.
 func (u *updater) verify(binary, bundle string, r release, work string) error {
 	env := []string{
 		"PATH=/usr/bin:/bin",
@@ -478,7 +480,7 @@ func (u *updater) verify(binary, bundle string, r release, work string) error {
 		"GH_PROMPT_DISABLED=1",
 		"GH_NO_UPDATE_NOTIFIER=1",
 	}
-	_, reason, err := commandIn(u.ctx, verifyTimeout, env, "", ghCommand, "attestation", "verify", binary,
+	_, reason, err := u.runIn(u.ctx, verifyTimeout, env, "", ghCommand, "attestation", "verify", binary,
 		"--repo", releaseRepository,
 		"--bundle", bundle,
 		"--cert-identity-regex", releaseIdentity,

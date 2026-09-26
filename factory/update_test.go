@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -83,6 +86,8 @@ type tickCase struct {
 	running   *runningFactory
 	active    string
 	result    string
+	refuse    bool   // gh refuses the attestation
+	reports   string // what the downloaded binary says on -version, when not the newest release
 	wantErr   string // a part of the error, or empty for none
 	install   bool   // the tick tries to install the newest release
 	hangup    bool   // the tick sends SIGHUP
@@ -101,17 +106,19 @@ func TestATickDoesTheOneThingItsFactsCallFor(t *testing.T) {
 		{name: "installed and draining", newest: "0.3.0", onDisk: "0.3.0", running: draining("0.2.3", Run{ID: 1})},
 		{name: "installed and not draining", newest: "0.3.0", onDisk: "0.3.0", running: running("0.2.3"), hangup: true},
 		{name: "newer release, not draining", newest: "0.3.0", onDisk: "0.2.3", running: running("0.2.3", Run{ID: 1}),
-			install: true, wantErr: "cannot be downloaded"},
-		{name: "newer release, draining", newest: "0.3.0", onDisk: "0.2.3", running: draining("0.2.3"),
-			install: true, wantErr: "cannot be downloaded"},
+			install: true, hangup: true},
+		{name: "newer release, draining", newest: "0.3.0", onDisk: "0.2.3", running: draining("0.2.3"), install: true},
+		{name: "a refused attestation installs nothing", newest: "0.3.0", onDisk: "0.2.3", running: running("0.2.3"),
+			refuse: true, install: true, wantErr: "was refused"},
+		{name: "a binary that reports another version installs nothing", newest: "0.3.0", onDisk: "0.2.3",
+			running: running("0.2.3"), reports: "0.2.9", install: true, wantErr: "does not report that version"},
 		{name: "never downgrades", newest: "0.2.0", onDisk: "0.3.0", running: running("0.3.0"), wantOlder: true},
 		{name: "never downgrades a stale process", newest: "0.2.0", onDisk: "0.3.0", running: running("0.2.5"),
 			wantOlder: true, hangup: true},
 		{name: "a version that does not read", newest: "0.3.0", onDisk: "0.3.0", running: running("dev"),
 			wantErr: "not major.minor.patch"},
 		{name: "stopped and current", newest: "0.3.0", onDisk: "0.3.0", active: "inactive", result: "success"},
-		{name: "stopped and older", newest: "0.3.0", onDisk: "0.2.3", active: "inactive", result: "success",
-			install: true, wantErr: "cannot be downloaded"},
+		{name: "stopped and older", newest: "0.3.0", onDisk: "0.2.3", active: "inactive", result: "success", install: true},
 		{name: "not answering and failed", newest: "0.3.0", onDisk: "0.2.3", active: "failed", result: "exit-code",
 			wantErr: "the tick does nothing"},
 		{name: "not answering and starting", newest: "0.3.0", onDisk: "0.2.3", active: "activating", result: "success",
@@ -124,8 +131,14 @@ func TestATickDoesTheOneThingItsFactsCallFor(t *testing.T) {
 	}
 }
 
+const (
+	oldBinary = "the installed binary"
+	newBinary = "the released binary"
+)
+
 func runTick(t *testing.T, c tickCase) {
 	t.Helper()
+	var mu sync.Mutex
 	var downloads []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -142,9 +155,13 @@ func runTick(t *testing.T, c tickCase) {
 			})
 		case r.URL.Path == "/api/line" && c.running != nil:
 			json.NewEncoder(w).Encode(c.running)
-		case strings.HasPrefix(r.URL.Path, "/download/"):
+		case r.URL.Path == "/download/binary":
+			mu.Lock()
 			downloads = append(downloads, r.URL.Path)
-			http.NotFound(w, r)
+			mu.Unlock()
+			io.WriteString(w, newBinary)
+		case r.URL.Path == "/download/bundle":
+			io.WriteString(w, "{}")
 		default:
 			http.NotFound(w, r)
 		}
@@ -155,14 +172,23 @@ func runTick(t *testing.T, c tickCase) {
 	if c.running == nil {
 		listen = closedAddress(t)
 	}
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "factory")
-	var calls []string
+	bin := t.TempDir()
+	state := t.TempDir()
+	exe := filepath.Join(bin, "factory")
+	if err := os.WriteFile(exe, []byte(oldBinary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reports := c.newest
+	if c.reports != "" {
+		reports = c.reports
+	}
+	var calls, verified []string
+	var ghEnv []string
 	u := &updater{
 		ctx:    context.Background(),
 		client: server.Client(),
 		exe:    exe,
-		state:  dir,
+		state:  state,
 		said:   map[string]string{},
 		api:    server.URL,
 		run: func(_ context.Context, _ time.Duration, name string, args ...string) ([]byte, string, error) {
@@ -171,12 +197,22 @@ func runTick(t *testing.T, c tickCase) {
 			switch {
 			case name == exe && len(args) == 1 && args[0] == "-version":
 				return []byte("factory " + c.onDisk + "\n"), "", nil
+			case strings.HasPrefix(name, filepath.Join(bin, ".factory-new-")) && len(args) == 1 && args[0] == "-version":
+				return []byte("factory " + reports + "\n"), "", nil
 			case name == systemctlCommand && args[0] == "show":
 				return []byte(fmt.Sprintf("ActiveState=%s\nResult=%s\n", c.active, c.result)), "", nil
 			case name == systemctlCommand && args[0] == "kill":
 				return nil, "", nil
 			}
 			return nil, "unexpected", fmt.Errorf("unexpected command %s", call)
+		},
+		runIn: func(_ context.Context, _ time.Duration, env []string, _, name string, args ...string) ([]byte, string, error) {
+			verified = append([]string{name}, args...)
+			ghEnv = env
+			if c.refuse {
+				return nil, "verification failed", fmt.Errorf("exit status 1")
+			}
+			return nil, "", nil
 		},
 	}
 
@@ -204,6 +240,108 @@ func runTick(t *testing.T, c tickCase) {
 	}
 	if older := u.said["older"] != ""; older != c.wantOlder {
 		t.Errorf("the tick said the newest release is older: %v, want %v", older, c.wantOlder)
+	}
+	if c.install {
+		checkVerified(t, c, verified, ghEnv, state)
+	}
+	checkInstalled(t, c.install && c.wantErr == "", exe)
+}
+
+// checkVerified asserts gh checked the release with the whole policy, in a home under the
+// updater's own directory.
+func checkVerified(t *testing.T, c tickCase, verified, env []string, state string) {
+	t.Helper()
+	if len(verified) == 0 {
+		if c.wantErr == "" || c.refuse {
+			t.Errorf("the tick installed without asking gh")
+		}
+		return
+	}
+	call := strings.Join(verified, " ")
+	for _, part := range []string{
+		ghCommand + " attestation verify ",
+		"--repo " + releaseRepository,
+		"--cert-identity-regex " + releaseIdentity,
+		"--source-ref refs/tags/" + releaseTagPrefix + c.newest,
+		"--cert-oidc-issuer " + actionsIssuer,
+		"--deny-self-hosted-runners",
+		"--predicate-type " + slsaProvenance,
+	} {
+		if !strings.Contains(call, part) {
+			t.Errorf("gh ran as %q, want %q in it", call, part)
+		}
+	}
+	for _, v := range env {
+		if strings.HasPrefix(v, "HOME=") && !strings.HasPrefix(v, "HOME="+state+string(filepath.Separator)) {
+			t.Errorf("gh ran with %s, want a home under %s", v, state)
+		}
+		if strings.HasPrefix(v, "GH_TOKEN=") || strings.HasPrefix(v, "GITHUB_TOKEN=") {
+			t.Errorf("gh ran with a token: %s", v)
+		}
+	}
+}
+
+// checkInstalled asserts the binary on disk is the released one with the installed one kept
+// beside it, or the installed one untouched, and that no new file is left behind either way.
+func checkInstalled(t *testing.T, installed bool, exe string) {
+	t.Helper()
+	got, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, previousErr := os.ReadFile(exe + ".previous")
+	switch {
+	case installed && string(got) != newBinary:
+		t.Errorf("the binary on disk is %q after an install, want %q", got, newBinary)
+	case installed && (previousErr != nil || string(previous) != oldBinary):
+		t.Errorf("the previous binary is %q (%v), want %q", previous, previousErr, oldBinary)
+	case !installed && string(got) != oldBinary:
+		t.Errorf("the binary on disk is %q without an install, want %q", got, oldBinary)
+	case !installed && previousErr == nil:
+		t.Errorf("a tick without an install left %s.previous", exe)
+	}
+	if installed {
+		if info, err := os.Stat(exe); err != nil || info.Mode().Perm() != 0o755 {
+			t.Errorf("the installed binary has the mode %v (%v), want 0755", info.Mode().Perm(), err)
+		}
+	}
+	left, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), ".factory-new-*"))
+	if len(left) > 0 {
+		t.Errorf("the tick left %q beside the binary", left)
+	}
+}
+
+func TestTheSaidStateSurvivesATickOnDisk(t *testing.T) {
+	t.Parallel()
+	state := filepath.Join(t.TempDir(), "factory-update")
+	u := &updater{state: state}
+	if err := u.loadState(); err != nil {
+		t.Fatalf("a missing state does not load: %v", err)
+	}
+	if len(u.said) != 0 {
+		t.Fatalf("a missing state loads as %v, want nothing said", u.said)
+	}
+	if info, err := os.Stat(state); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("the state directory is %v (%v), want 0700", info, err)
+	}
+	u.once("current", "0.3.0", "up to date")
+	u.once("auto_update", "on", "auto-update on")
+	if err := u.saveState(); err != nil {
+		t.Fatalf("the state does not save: %v", err)
+	}
+	again := &updater{state: state}
+	if err := again.loadState(); err != nil {
+		t.Fatalf("the saved state does not load: %v", err)
+	}
+	if len(again.said) != 2 || again.said["current"] != "0.3.0" || again.said["auto_update"] != "on" {
+		t.Errorf("the state reads back as %v, want current 0.3.0 and auto_update on", again.said)
+	}
+	if err := os.WriteFile(filepath.Join(state, "said.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	broken := &updater{state: state}
+	if err := broken.loadState(); err != nil || len(broken.said) != 0 {
+		t.Errorf("a state that does not read loads as %v (%v), want nothing said and no error", broken.said, err)
 	}
 }
 
