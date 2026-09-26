@@ -42,7 +42,7 @@ type session struct {
 	schema string
 	// agent and agents are the inline agent a read-only session runs as (--agents, --agent): a reviewer
 	// of the panel, whose prompt, tools and model the definition carries. model is that definition's
-	// model; a session whose agent inherits it runs on the model worker_args names.
+	// model; a session whose agent inherits it runs on the worker's model.
 	agent, agents, model string
 	// commits is a session the factory briefs to commit its work on the branch, which the factory then
 	// pushes or gates by its commit: one that reports complete with changes it did not commit has not
@@ -260,7 +260,12 @@ func (f *Factory) command(ctx context.Context, s session, entry Entry, claim cla
 // readTools, and its own schema. The settings of the worktree it runs in are not loaded
 // (--setting-sources user): the branch is the work under review, and a hook its .claude/settings.json
 // declares would run a command at the session's start, which no tool list holds back. Of the
-// configured worker arguments it takes the model alone (readOnlyArgs). It keeps what every session
+// configured worker arguments it takes the model alone: a session whose agent names no model of its own
+// runs on the worker's, the model worker_args name or workerModel (modelOf). worker_args is written for
+// the worker, and an argument that gives it a capability (an MCP server through --mcp-config, which
+// --strict-mcp-config still loads, a plugin directory, an added directory or tools) would give it to a
+// session that reads text somebody else wrote as well
+// (https://code.claude.com/docs/en/cli-reference.md, checked on 2026-09-24). It keeps what every session
 // keeps: the session's settings, the auto permission mode and the worktree as its directory, which it
 // reads.
 func (f *Factory) readOnlyCommand(ctx context.Context, s session, claim claimed, settings string) *exec.Cmd {
@@ -280,30 +285,16 @@ func (f *Factory) readOnlyCommand(ctx context.Context, s session, claim claimed,
 		args = append(args, "--agents", s.agents, "--agent", s.agent)
 	}
 	if s.agent == "" || s.model == "inherit" {
-		args = append(args, readOnlyArgs(f.settings.WorkerArgs)...)
+		// A session without a model of its own runs on the worker's, named here: without --model it
+		// would run on the account default of the host's Claude login, which the factory does not
+		// decide (https://code.claude.com/docs/en/model-config.md, checked on 2026-09-26).
+		args = append(args, "--model", f.settings.WorkerModel)
 	}
 	args = append(args, "-p", s.prompt)
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = claim.worktree
 	cmd.Env = workerEnv(os.Environ(), sessionVariables)
 	return cmd
-}
-
-// readOnlyArgs is what a read-only session takes of worker_args: the model it names, and nothing else.
-// worker_args is written for the worker, and an argument that gives it a capability (an MCP server
-// through --mcp-config, which --strict-mcp-config still loads, a plugin directory, an added directory or
-// tools) would give it to a session that reads text somebody else wrote as well
-// (https://code.claude.com/docs/en/cli-reference.md, checked on 2026-09-24).
-func readOnlyArgs(workerArgs []string) []string {
-	for i := len(workerArgs) - 1; i >= 0; i-- {
-		if model, ok := strings.CutPrefix(workerArgs[i], "--model="); ok {
-			return []string{"--model", model}
-		}
-		if workerArgs[i] == "--model" && i+1 < len(workerArgs) {
-			return []string{"--model", workerArgs[i+1]}
-		}
-	}
-	return nil
 }
 
 // The outcomes a session reports. complete is a session that did its task. blocked is a session that

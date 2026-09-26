@@ -78,6 +78,11 @@ func TestTheFactoryOpensThePullRequestFromTheAuthorsTitleAndBody(t *testing.T) {
 	if !author.started("--setting-sources", "user") {
 		t.Errorf("the author session was started with %v, want the user's settings alone, none of the worktree's", author.args)
 	}
+	// It names no model of its own, so it runs on the worker's, opus when worker_args name none, and
+	// never on the account default of the host's Claude login.
+	if !author.started("--model", "opus") {
+		t.Errorf("the author session was started with %v, want the worker's model opus", author.args)
+	}
 	if author.cwd != workers[0].cwd {
 		t.Errorf("the author session ran in %s, want the run's worktree %s", author.cwd, workers[0].cwd)
 	}
