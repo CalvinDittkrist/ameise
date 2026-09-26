@@ -237,14 +237,23 @@ func (u *updater) tick(listen string) error {
 	if err := u.saveJudgement(pending); err != nil {
 		return err
 	}
-	if process.Draining {
+	if process.Draining && len(process.Now) > 0 {
 		log.Printf("installed %s; the factory drains already and systemd starts it when the drain ends: %s; the next tick judges it",
 			newest.version, waitsFor(process.Now))
 		return nil
 	}
 	log.Printf("installed %s", newest.version)
-	if err := u.hangup(); err != nil {
-		return err
+	if !process.Draining {
+		if err := u.hangup(); err != nil {
+			return err
+		}
+	} else if again, reachable, err := u.running(listen); err == nil && reachable && !again.Draining && again.Version == process.Version {
+		// The drain waited for no run and ended while the release was downloaded, so systemd started
+		// the old binary again: it gets the signal, and this tick judges as after any other.
+		process = again
+		if err := u.hangup(); err != nil {
+			return err
+		}
 	}
 	if len(process.Now) > 0 {
 		log.Printf("a run in .now stops no install: %s; the next tick judges %s", waitsFor(process.Now), newest.version)
@@ -285,6 +294,16 @@ func (u *updater) judge(listen string, p judgement, settled bool) (bool, error) 
 		if reachable {
 			switch {
 			case process.Version == p.Version:
+				// A release that restarts again and again can answer between two crashes, so the
+				// restarts decide before the answer does.
+				s, err := u.serviceState()
+				if err != nil {
+					return true, err
+				}
+				if s.restarts-p.Restarts >= restartLimit {
+					log.Printf("unhealthy: %s answers on http://%s/api/line, but %s restarted %d times since the install", p.Version, listen, factoryUnit, s.restarts-p.Restarts)
+					return true, u.rollback(listen, p)
+				}
 				log.Printf("healthy: the factory answers with %s", p.Version)
 				return false, u.clearJudgement()
 			case newerThan(process.Version, p.Version):
@@ -522,7 +541,12 @@ func (u *updater) unreachable(listen string, newest release, fileVersion semver)
 	if err := u.install(newest); err != nil {
 		return err
 	}
-	log.Printf("installed %s; %s was stopped by the operator (inactive, success), so nothing is started", newest.version, factoryUnit)
+	// The release waits for its judgement until the operator starts the factory. A start by hand
+	// sets NRestarts to 0, so the restarts are counted from 0.
+	if err := u.saveJudgement(&judgement{Version: newest.version.String(), Previous: fileVersion.String()}); err != nil {
+		return err
+	}
+	log.Printf("installed %s; %s was stopped by the operator (inactive, success), so nothing is started; the tick judges it once the factory runs", newest.version, factoryUnit)
 	return nil
 }
 

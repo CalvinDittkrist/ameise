@@ -729,14 +729,18 @@ Then it does exactly one thing:
   - The installed binary is kept beside the new one as `/usr/local/bin/factory.previous`, and the new one is renamed over it in one step.
   - A run in `.now` stops no install: the drain waits for it, and systemd then starts the new binary.
 - **The service is stopped** (inactive with a successful result, as `systemctl stop` leaves it): a newer file is installed and nothing is started. The journal says so.
+  - The release waits for its judgement until the operator starts the factory, and a tick after the start judges it.
 
 After an install the tick judges the new release:
 
 - With `.now` empty it waits the unit's restart delay plus one minute and reads `/api/line`. With a run going it exits, and the next tick judges.
-- Healthy is `/api/line` answering with the new version, and the journal says `healthy`.
+  - A drain with `.now` empty ends in a moment, so that tick judges too.
+  - When that drain ended during the download and systemd started the old binary again, the tick sends it `SIGHUP` first.
+- Healthy is `/api/line` answering with the new version while the unit restarted fewer than three times since the install. The journal says `healthy`.
 - A factory that drains still answers, so it is never judged unhealthy, however long the drain takes.
 - A factory that still answers with the version before and does not drain lost the signal. The tick sends `SIGHUP` again, and the next tick judges.
 - Unhealthy is a new binary that does not answer after that wait, or a unit systemd reports failed or restarted three times since the install.
+  - A release that answers between two crashes is unhealthy too.
 - It reads the unit's state, restart count and result with `systemctl show`.
 - While a release waits for its judgement, no tick installs another. A tick that judges does nothing else, and the next tick installs.
 
