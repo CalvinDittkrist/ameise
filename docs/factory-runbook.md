@@ -374,7 +374,7 @@ After=network-online.target
 Type=oneshot
 # Root: the tick renames the binary in /usr/local/bin and signals factory.service.
 ExecStart=/usr/local/bin/factory -update -config /etc/factory/factory.json
-TimeoutStartSec=15min
+TimeoutStartSec=25min
 ```
 
 `/etc/systemd/system/factory-update.timer`:
@@ -735,8 +735,33 @@ Then it does exactly one thing:
   - The issuer is GitHub Actions, self-hosted runners are refused, and the predicate is SLSA provenance v1.
   - gh gets a fresh home of its own each time it verifies a release, so it fetches the trust roots through TUF every time.
   - The installed binary is kept beside the new one as `/usr/local/bin/factory.previous`, and the new one is renamed over it in one step.
+  - Right before that rename the tick saves the judgement and reads the unit's restart count, so restarts of the old binary during the download never count against the new one.
+  - A tick that ends between the two leaves the old binary in place. The next tick drops the judgement, and the tick after it installs the release again.
   - A run in `.now` stops no install: the drain waits for it, and systemd then starts the new binary.
 - **The service is stopped** (inactive with a successful result, as `systemctl stop` leaves it): a newer file is installed and nothing is started. The journal says so.
+  - The release waits for its judgement until the operator starts the factory, and a tick after the start judges it.
+
+After an install the tick judges the new release:
+
+- With `.now` empty it waits the unit's restart delay plus one minute and reads `/api/line`. With a run going it exits, and the next tick judges.
+  - A drain with `.now` empty ends in a moment, so that tick judges too.
+  - When that drain ended during the download and systemd started the old binary again, the tick sends it `SIGHUP` first.
+- Healthy is `/api/line` answering with the new version while the unit restarted fewer than three times since the install. The journal says `healthy`.
+- A factory that drains still answers, so it is never judged unhealthy, however long the drain takes.
+- A factory that still answers with the version before and does not drain lost the signal. The tick sends `SIGHUP` again, and the next tick judges.
+- Unhealthy is a new binary that does not answer after that wait, or a unit systemd reports failed or restarted three times since the install.
+  - A release that answers between two crashes is unhealthy too.
+- It reads the unit's state, restart count and result with `systemctl show`.
+- While a release waits for its judgement, no tick installs another. A tick that judges does nothing else, and the next tick installs.
+
+An unhealthy release is rolled back, each step in the journal:
+
+- The version goes on the block list, `/var/lib/factory-update/blocked`, one version a line, root's own. It goes there even when the rollback cannot finish.
+- `factory.previous` is put back over `/usr/local/bin/factory`, and the tick runs `systemctl restart factory`. A tick that ran out after putting it back only restarts the unit.
+- A blocked release under a judgement is a rollback an earlier tick began. The next tick finishes it before it reads any answer, even when the rejected release still answers.
+- No tick downloads or installs a blocked version again. The next version is installed as usual.
+- When the previous binary does not answer either, the tick writes an `error:` line. Later ticks touch nothing until the factory answers on `/api/line` again.
+- Until then the judgement waits in `/var/lib/factory-update/judgement.json`.
 
 What the tick never does:
 
@@ -746,6 +771,26 @@ What the tick never does:
 - It runs `gh` and `systemctl` by absolute path, `/usr/bin/gh` and `/usr/bin/systemctl`, and never through a shell.
 
 `journalctl -u factory-update` reads what the ticks did.
+
+Roll a release back by hand, as root:
+
+```sh
+systemctl disable --now factory-update.timer                    # no tick in between
+echo 0.3.0 >> /var/lib/factory-update/blocked                   # the version that failed
+mv /usr/local/bin/factory.previous /usr/local/bin/factory
+rm -f /var/lib/factory-update/judgement.json
+systemctl restart factory
+systemctl enable --now factory-update.timer
+```
+
+Lift a block by deleting the version's line from `/var/lib/factory-update/blocked`. The next tick installs that version again.
+
+A rollback has limits:
+
+- A release that brings a new configuration field breaks the rollback of that one release. The previous binary refuses a configuration with a field it does not know.
+  - Take the field out of `/etc/factory/factory.json` and run `systemctl restart factory`. The factory then answers, and the next tick goes on.
+- The previous binary reads the run records the new one wrote. A release adds a field of the run record and never changes one's type or meaning ([ADR 0050](adr/0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md)).
+  - A release after 0.2.3 added `unpushed`, the one field added since. 0.2.3, as the previous binary, ignores a field it does not know.
 
 The other two are yours. Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. A drain waits for that run instead ([Draining](#draining)). `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
 
