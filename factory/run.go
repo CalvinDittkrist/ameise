@@ -146,6 +146,9 @@ type Run struct {
 	// Gates is every run of the gate, in the gate stage and on the final head: the commit, the exit
 	// status, the duration and the end of the output of each.
 	Gates []Gated `json:"gates,omitempty"`
+	// Sessions is every session the run started, in the order they started: the stage, the runtime it
+	// ran on and the model the factory named for it, and the label of one that ran beside others.
+	Sessions []Sessioned `json:"sessions,omitempty"`
 	// Answered is the reviews asking for changes on that pull request whose summaries the run
 	// answered, by their URL. A review stands on GitHub until its author approves, so every later run
 	// on the pull request reads these to leave them alone.
@@ -219,7 +222,9 @@ func (r *Run) release() {
 type heard struct {
 	// label names the session in the run's log when others run beside it, as a reviewer does, and is
 	// empty for a session that runs alone.
-	label         string
+	label string
+	// model is the model the factory named for the session, which a Codex session's events never say.
+	model         string
 	read          func(json.RawMessage) (result, error) // readResult when nil
 	result        *result                               // the structured result, when the result line carried one that fits
 	misfit        string                                // why the result line's structured output does not fit the schema
@@ -284,6 +289,15 @@ const (
 	totalsWorker  = "worker"
 	totalsFactory = "factory"
 )
+
+// Sessioned is one session of a run as its record names it. Model is the model the call names or the
+// definition of its agent does, and the worker's for a session that names none.
+type Sessioned struct {
+	Stage   string `json:"stage"`
+	Label   string `json:"label,omitempty"`
+	Runtime string `json:"runtime"`
+	Model   string `json:"model"`
+}
 
 // Tokens are the totals of the session. The result line's are the worker's own; the ones the factory
 // counts from the assistant lines are a floor, because those lines may carry a message's usage from

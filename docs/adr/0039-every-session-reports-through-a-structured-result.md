@@ -2,6 +2,7 @@
 
 Date: 2026-09-23
 Status: accepted
+Amended by: [0052](0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)
 
 ## Context
 - The factory read a run's end from the first `ready:` or `blocked:` line of the worker's markdown report ([ADR 0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)).
@@ -13,11 +14,11 @@ Every session starts through one session type, the only place a print-mode call 
 
 - A failed process, a missing result line or a result off the schema is a failed run.
 - `blocked` is a blocked run with its summary as the reason.
-- `complete` with a pull request of the run's repository is a ready run; the URL is rebuilt from repository and number, because issue text can steer what a session writes.
+- `complete` with a pull request of the run's repository is a ready run; the URL is rebuilt from repository and number, since issue text can steer a session.
 - The factory checks the result against the schema itself.
 - A session past its stage's timeout is ended with its process group, and the run fails naming the stage; only the run's deadline gives the outcome `timeout`.
 
 ## Consequences
 - The report parser goes; the coupling moves to the documented result line.
 - A new field changes the schema, the reader and the prompts at once.
-- Rejected: hardening the report parser, which grows with every new wording.
+- Rejected: hardening the report parser, which grows with each wording.

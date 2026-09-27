@@ -201,6 +201,17 @@ Run the following as root unless it says otherwise.
    - Configure the path `command -v` printed.
    - The factory runs it by that absolute path and never through `npx`, so nothing is fetched from npm at run time.
    - The script starts with `#!/usr/bin/env node`, so `node` has to be on the service's `PATH` (see [Service](#service)).
+8. **Codex**, only for a repository whose panel names the reviewer `codex` ([The Codex runtime](#the-codex-runtime)). As root, then log it in as the user `factory`:
+
+   ```sh
+   npm install -g @openai/codex   # the Codex CLI; the factory was tried with codex-cli 0.155.0
+   command -v codex               # /usr/bin/codex, on the service's PATH
+   ```
+
+   - As the user `factory`, run `codex login` and sign in with the ChatGPT account the reviewer runs on ([authentication](https://learn.chatgpt.com/codex/auth)).
+   - Over SSH, `codex login --device-auth` shows a URL to open on another machine and a code to enter there.
+   - The credential lands in `~/.codex/auth.json`. `codex login status` exits 0 once it is there.
+   - quota-axi reads the Codex quota from that same login.
 
 ## Configuration
 The factory is configured by one JSON file and nothing else: no environment variable, and nothing is written back. It refuses to start on an unknown field, a value it cannot use, or a second JSON value in the file. The error names the fix.
@@ -258,7 +269,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 `review`:
 
 - `rounds` (default `3`): the rounds the panel may take.
-- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round.
+- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round. `codex` adds the reviewer on Codex ([The Codex runtime](#the-codex-runtime)).
 - `gate_rounds` (default `2`): the fix sessions a gate that fails on the final head may take; `0` blocks on the first failure.
 - `classes` (default none): the change classes ([Change classes](#change-classes)).
 
@@ -270,6 +281,8 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - A repository's `classes` replace the host's as a whole. An unknown knob or reviewer is refused.
 
 `quota_minimum` applies to the all-models scope, and to the scope of each model the run spends. Those are the worker's model, and the one a reviewer of the repository's panel or change classes names for itself.
+
+A run whose panel or change classes name `codex` spends Codex as well. The check then also runs `quota_axi --provider codex --json` and holds the run back on a Codex scope below `quota_minimum` ([ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A Codex reading that fails lets the run start with a warning that names the Codex quota.
 
 The command line has three flags for the service:
 
@@ -575,12 +588,13 @@ Restarts and gestures:
 ### The review stage
 Once the gate stage has recorded a pass, the factory reviews the branch itself ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)). It starts the reviewers of the panel beside each other in the run's worktree.
 
-Each reviewer is a read-only session run as an inline agent of the factory's own prompt (`--agents`, `--agent`):
+Each reviewer on Claude Code is a read-only session run as an inline agent of the factory's own prompt (`--agents`, `--agent`):
 
 - the tools `Read`, `Grep` and `Glob`, and `StructuredOutput` for its result, and nothing else
 - no MCP server, none of the workflow plugins and none of the worktree's settings
 - The code, docs and tests reviewers run on `sonnet`. Security and senior inherit the worker's model: `opus` unless `worker_args` names another.
 - The factory passes that model with `--model`, so no reviewer runs on the account default of the host's Claude login.
+- The reviewer `codex` runs on Codex instead ([The Codex runtime](#the-codex-runtime)).
 
 Every reviewer of a round gets the same brief: the diff range, the base, the commits, the diff, the issue and the gate result. Each reports a verdict, `pass` or `fix`, and its findings.
 
@@ -609,6 +623,21 @@ It is the gate of the change class:
 
 Every round, fix and gate is recorded on the run as it ends. A run resumed during the review goes on from the rounds it recorded, if the branch still carries their commit. It runs no recorded round again. The dashboard shows the round the review is in.
 
+#### The Codex runtime
+Every session runs on a runtime, `claude` or `codex` ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)). Every session runs on `claude` but the reviewer `codex`, which a repository adds by naming it in `reviewers`.
+
+- It runs `codex exec` in the run's worktree, in the read-only sandbox, with `--json`, `--ephemeral` and its standard input closed.
+- It runs with `--ignore-user-config` and `--ignore-rules`: no MCP server, hook or rule of `~/.codex` or of the worktree reaches it. The login in `~/.codex` still holds.
+- Its model is `gpt-5.3-codex`, passed with `-m`. quota-axi reports its quota as the scope `model:codex_bengalfox`. The reviewer schema goes to `--output-schema` as a file.
+- Its last message, written to the file of `-o`, is its result. The factory reads it with the checks of a Claude reviewer's result.
+- The run record lists every session under `sessions` with its stage, runtime and model. The log names them on each `worker started`.
+- Codex reports tokens and no cost, so the run's `costUsd` leaves a Codex session out.
+- Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and that `codex login status` passes.
+- When either fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue. Install or log in ([Installation](#installation)), then release the issue.
+- A Codex turn that fails on its usage limit ends the run `quota` when quota-axi reads the Codex quota used up. The factory resumes it after the reset.
+- A resumed review goes on with the reviewers its panel recorded.
+- The quota check reads the Codex quota for it when that panel names `codex`, even if the configuration no longer does.
+
 #### Change classes
 A repository may carry an ordered list of change classes under `review.classes` ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). Each class has:
 
@@ -617,14 +646,14 @@ A repository may carry an ordered list of change classes under `review.classes` 
 - For example `docs/**` is everything under `docs`, and `*.md` a Markdown file at the root.
 - a `gate`, in one of the forms of `gate.command`: a list of arguments run in the worktree without a shell, or `[]` for no gate
 - or `"ci"` or `{"ci": [names]}` for a gate on CI
-- optionally `reviewers`, some of the five, which otherwise are the `reviewers` knob
+- optionally `reviewers`, some of the five or `codex`, which otherwise are the `reviewers` knob
 
 Which class applies:
 
 - The factory reads the files changed between the merge base and the head; a rename counts as both its paths.
 - The first class whose patterns cover every one of them applies.
 - When none does, or no file changed, the built-in class `full` applies.
-- `full` is the repository's `gate.command` (`make check` unless it says otherwise) and all five reviewers, whatever the `reviewers` knob says.
+- `full` is the repository's `gate.command` (`make check` unless it says otherwise) and all five reviewers, whatever the `reviewers` knob says. A `codex` in the `reviewers` knob joins them.
 - A repository without a class keeps its `reviewers` knob.
 
 When it is determined:
@@ -798,9 +827,9 @@ A rollback has limits:
 - A release that brings a new configuration field breaks the rollback of that one release. The previous binary refuses a configuration with a field it does not know.
   - Take the field out of `/etc/factory/factory.json` and run `systemctl restart factory`. The factory then answers, and the next tick goes on.
 - The previous binary reads the run records the new one wrote. A release adds a field of the run record and never changes one's type or meaning ([ADR 0050](adr/0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md)).
-  - A release after 0.2.3 added `unpushed`, the one field added since. 0.2.3, as the previous binary, ignores a field it does not know.
+  - Releases after 0.2.3 added `unpushed` and `sessions`, the fields added since. 0.2.3, as the previous binary, ignores a field it does not know.
 
-The other two are yours. Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. A drain waits for that run instead ([Draining](#draining)). `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
+The others are yours. Update them between runs. Stopping the factory interrupts the run that is going, which is resumed once by itself; a second interruption of the same issue waits for you. A drain waits for that run instead ([Draining](#draining)). `curl -s http://127.0.0.1:7341/api/line | jq '.now | length'` prints `0` when nothing runs. Pause the factory first (below) to keep it that way.
 
 - **Claude Code**, as the user `factory`: `claude update`, then `claude --version`. Every run records the version it was made with.
 - **quota-axi**: the factory reads the output of the pinned version. Move the pin only after reading the new version's changelog.
@@ -808,6 +837,7 @@ The other two are yours. Update them between runs. Stopping the factory interrup
   - Then run `npm install -g quota-axi@<version>` and restart nothing.
   - If the factory cannot read its answer, every run carries a warning that the check could not answer and starts regardless ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md)).
   - Then install the pinned version again.
+- **Codex**, where a panel names it: `npm install -g @openai/codex@<version>` as root, then `codex --version`. `codex login status` as the user `factory` says whether its login still stands.
 
 Without auto-update, install the factory binary by hand: download and check it as in [Installation](#installation), then `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`. Look for the new version in the journal's first line.
 

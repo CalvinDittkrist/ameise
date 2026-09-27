@@ -230,12 +230,12 @@ func (g gateCommand) clone() gateCommand {
 // readReviewers is a list of reviewers as the review has them: at least one, each known, none twice.
 func readReviewers(names []string) ([]string, error) {
 	if len(names) == 0 {
-		return nil, fmt.Errorf("reviewers is empty; name at least one of %s", strings.Join(defaultReview.Reviewers, ", "))
+		return nil, fmt.Errorf("reviewers is empty; name at least one of %s", strings.Join(knownReviewers, ", "))
 	}
 	seen := map[string]bool{}
 	for _, name := range names {
 		if _, known := reviewers[name]; !known {
-			return nil, fmt.Errorf("reviewers carries %q, which is no reviewer; the reviewers are %s", name, strings.Join(defaultReview.Reviewers, ", "))
+			return nil, fmt.Errorf("reviewers carries %q, which is no reviewer; the reviewers are %s", name, strings.Join(knownReviewers, ", "))
 		}
 		if seen[name] {
 			return nil, fmt.Errorf("reviewers names %q twice; remove the duplicate", name)
@@ -334,13 +334,18 @@ const (
 // classify is the class of a change: the first class that covers every changed file, and full when none
 // does or no file changed. Reviewers is the panel a class that names none asks, and gate the
 // repository's gate command, which the class full runs. The class full asks all five reviewers, since
-// it is the change no class vouches for, unless the repository has no class at all, where it is the
-// panel the repository configured.
+// it is the change no class vouches for, and a reviewer the panel adds to them, such as codex, unless
+// the repository has no class at all, where it is the panel the repository configured.
 func classify(classes []changeClass, files []string, panel []string, gate gateCommand) (changeClass, string) {
 	if len(classes) == 0 {
 		return changeClass{Name: classFull, Gate: gate.clone(), Reviewers: slices.Clone(panel)}, "the repository has no change class"
 	}
 	full := changeClass{Name: classFull, Gate: gate.clone(), Reviewers: slices.Clone(defaultReview.Reviewers)}
+	for _, name := range panel {
+		if !slices.Contains(full.Reviewers, name) {
+			full.Reviewers = append(full.Reviewers, name)
+		}
+	}
 	if len(files) == 0 {
 		return full, "no file changed"
 	}
