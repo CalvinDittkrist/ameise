@@ -90,8 +90,15 @@ wf_branch_for_issue() {
 # machine, an earlier claim of this one) owns the issue.
 wf_remote_branch_for_issue() {
   local heads
+  heads=$(wf_remote_heads) || return 1
+  printf '%s\n' "$heads" | wf_first_issue_branch "$1"
+}
+
+# The branch names on origin, one per line; returns 1 when origin cannot be read.
+wf_remote_heads() {
+  local heads
   heads=$(git ls-remote --heads origin 2>/dev/null) || return 1
-  printf '%s\n' "$heads" | sed -nE 's#^[^[:space:]]+[[:space:]]+refs/heads/##p' | wf_first_issue_branch "$1"
+  printf '%s\n' "$heads" | sed -nE 's#^[^[:space:]]+[[:space:]]+refs/heads/##p'
 }
 
 # The spec branch of spec $1 among the branches on stdin (one name per line), or empty: spec/<number>-<slug>,
@@ -109,8 +116,8 @@ wf_first_spec_branch() {
 # when it claims a spec run, and a ticket of that run is cut from it and merged back into it.
 wf_remote_spec_branch() {
   local heads
-  heads=$(git ls-remote --heads origin 2>/dev/null) || return 1
-  printf '%s\n' "$heads" | sed -nE 's#^[^[:space:]]+[[:space:]]+refs/heads/##p' | wf_first_spec_branch "$1"
+  heads=$(wf_remote_heads) || return 1
+  printf '%s\n' "$heads" | wf_first_spec_branch "$1"
 }
 
 # Path of the linked worktree checked out on branch $1 (from the main root), or empty.
