@@ -21,18 +21,21 @@ const (
 
 // apiSpecRun is a spec run as the interface serves it.
 type apiSpecRun struct {
-	ID         int          `json:"id"`
-	Repository string       `json:"repository"`
-	Spec       int          `json:"spec"`
-	Branch     string       `json:"branch"`
-	Base       string       `json:"base"`
-	State      string       `json:"state"`
-	Idle       bool         `json:"idle"`
-	ClaimedAt  *time.Time   `json:"claimedAt"`
-	LetGoAt    *time.Time   `json:"letGoAt"`
-	Reason     string       `json:"reason"`
-	Tickets    []SpecTicket `json:"tickets"`
-	Events     []Event      `json:"events"`
+	ID          int          `json:"id"`
+	Repository  string       `json:"repository"`
+	Spec        int          `json:"spec"`
+	Branch      string       `json:"branch"`
+	Base        string       `json:"base"`
+	State       string       `json:"state"`
+	Idle        bool         `json:"idle"`
+	ClaimedAt   *time.Time   `json:"claimedAt"`
+	LetGoAt     *time.Time   `json:"letGoAt"`
+	Reason      string       `json:"reason"`
+	Tickets     []SpecTicket `json:"tickets"`
+	PullRequest string       `json:"pullRequest"`
+	DoneAt      *time.Time   `json:"doneAt"`
+	WaitingOn   []int        `json:"waitingOn"`
+	Events      []Event      `json:"events"`
 }
 
 // routedSpecFixture is one repository with one spec routed to a spec run under the routing label, and
@@ -297,7 +300,7 @@ func TestAHostWithAnotherRoutingLabelDerivesTheSpecRunLabelFromIt(t *testing.T) 
 // one the repository standard's label_json can create. The Python suite holds those two to each other.
 func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
 	t.Parallel()
-	read := []string{readyLabel, defaultLabel, specLabel, specRunLabel(defaultLabel)}
+	read := []string{readyLabel, humanLabel, defaultLabel, specLabel, specRunLabel(defaultLabel)}
 
 	// labels.sh against a gh that has no label yet and creates every one it is asked for.
 	bin := t.TempDir()
