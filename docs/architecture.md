@@ -70,24 +70,25 @@ This repository packages a way of working with coding agents as Claude Code plug
 
 ### Factory
 1. The factory clones each connected repository into its data directory. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
-2. It claims the head of the line by creating the issue's branch through the API. A claimer that meets a branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
+2. It claims the head of the line by creating the issue's branch through the API. Meeting an existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
 3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)). `WF_BASE_BRANCH` is read from the repository's settings.
 4. It assigns itself, makes a worktree and records the Claude Code version. It updates nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
 6. Implement: one session commits the change and pushes nothing.
-7. Gate: the factory merges the base and runs the gate of the change class, here or on CI ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). A failure goes to a fix session.
+7. Gate: the factory merges the base and runs the change class's gate, here or on CI ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). A failure gets a fix session.
 8. Review: read-only reviewers run in parallel, `codex` on Codex. A `fix` gets one fix session; every round is recorded.
-9. Pr: a read-only author session writes the title and body. The factory appends the gate result and the panel summary and opens the pull request.
-10. Ci: the factory starts a fix session for a conflict or failed checks, within a repair budget. Green ends the run `ready`.
+9. Pr: a read-only author session writes the title and body; the factory appends the gate result and panel summary and opens it.
+10. Ci: a conflict or failed checks get a fix session, within a repair budget. Green ends the run `ready`, after validate when configured.
 11. Address-reviews: a session fixes or declines each point of writers and bots. The factory posts the replies.
-12. Each run writes one JSON record and one JSONL event log into the data directory. The HTTP interface and the dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
-13. The factory resumes an interrupted run once, in its worktree. Taking the assignee off, the release signal, resumes it.
-14. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
-15. On `ready` the configured logins are asked for a review. On `blocked`, `failed`, `timeout` or a second interruption they are mentioned on the issue.
-16. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
-17. Before each run a quota-axi check waits below the minimum and fails open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
-18. Sessions that write run in the auto permission mode, without Herdr and without `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-19. The factory took the stages over from the worker plugin, from the last to the first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
+12. Validate: read-only validators review the green pull request in parallel. A `fix` gets a fix session and another ci pass.
+13. Each run writes a JSON record and a JSONL event log to the data directory; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
+14. An interrupted run resumes once, in its worktree. Taking the assignee off, the release signal, resumes it.
+15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
+16. On `ready` the configured logins get a review request; on `blocked`, `failed`, `timeout` or a second interruption, a mention on the issue.
+17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
+18. Before each run a quota-axi check waits below the minimum and fails open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
+19. Writing sessions run in auto permission mode, without Herdr or `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
+20. The stages came over from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
 ### Release
 1. Tickets and their spec carry a `vX.Y.Z` milestone from `/planner:tickets`, so a release waits for the acceptance.
