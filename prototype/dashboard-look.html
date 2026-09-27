@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE: workflows</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* Throwaway prototype of the look. Light and dark follow the system. */
+:root {
+  --bg: #f6f7f9; --panel: #fff; --line: #e6e8ec; --text: #111318; --muted: #6b7280; --soft: #f0f2f5;
+  --accent: #4f6bed; --accent-soft: #eef1fd; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --idle: #8b5cf6;
+  --radius: 14px; --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text); background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1115; --panel: #161a21; --line: #262b35; --text: #e8eaef; --muted: #8b93a3; --soft: #1d222b; --accent: #7b93ff; --accent-soft: #1c2340; --shadow: none; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+h1, h2, h3, p, ul { margin: 0; padding: 0; } ul { list-style: none; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+.muted { color: var(--muted); }
+
+/* sidebar */
+.side { border-right: 1px solid var(--line); background: var(--panel); padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; }
+.side .brand { font-weight: 650; letter-spacing: -.01em; padding: 4px 10px 18px; display: flex; align-items: center; gap: 8px; }
+.side .brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); display: inline-block; }
+.side a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; color: inherit; text-decoration: none; }
+.side a:hover { background: var(--soft); } .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 550; }
+.side a .n { margin-left: auto; color: var(--muted); font-size: 12px; }
+.side .label { padding: 18px 10px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.side .add { color: var(--muted); }
+.side .quota { margin-top: auto; padding: 10px; display: grid; gap: 10px; font-size: 12px; color: var(--muted); }
+.side .quota .bar { height: 5px; background: var(--soft); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.side .quota .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.side .quota .low .bar i { background: var(--bad); }
+
+/* main */
+main { overflow: auto; padding: 36px 48px 64px; max-width: 1040px; }
+.head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+.head h1 { font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
+.cmd { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; box-shadow: var(--shadow); margin-bottom: 30px; }
+.cmd input { flex: 1; border: 0; background: none; font: inherit; color: inherit; outline: none; }
+.cmd kbd { font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+section { margin-bottom: 34px; }
+section h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
+section h2 b { font-weight: 600; color: var(--text); background: var(--soft); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.item { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--line); cursor: pointer; }
+.item:first-child { border-top: 0; } .item:hover { background: var(--soft); }
+.card .item:first-child { border-radius: var(--radius) var(--radius) 0 0; } .card .item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--muted)); flex: none; }
+.s-running { --c: var(--accent); } .s-ready { --c: var(--ok); } .s-blocked, .s-needs { --c: var(--bad); } .s-waiting { --c: var(--warn); } .s-idle { --c: var(--idle); }
+.item .t { flex: 1; min-width: 0; }
+.item .t .l1 { display: flex; gap: 8px; align-items: baseline; }
+.item .t .l1 .p { color: var(--muted); font-size: 12.5px; }
+.item .t .l2 { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+.pill.on { background: var(--accent-soft); color: var(--accent); }
+.btn { padding: 7px 13px; border-radius: 10px; background: var(--soft); font-weight: 550; font-size: 13px; white-space: nowrap; }
+.btn:hover { filter: brightness(.97); }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.ghost { background: none; color: var(--muted); } .btn.ghost:hover { color: var(--text); background: var(--soft); }
+.time { color: var(--muted); font-size: 12.5px; width: 34px; text-align: right; }
+.empty { padding: 18px; color: var(--muted); text-align: center; }
+.actions { display: flex; gap: 8px; }
+.switch:empty { display: none; }
+.switch { position: fixed; right: 16px; top: 12px; display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; font-size: 12px; box-shadow: var(--shadow); z-index: 2; }
+.switch button { padding: 4px 10px; border-radius: 999px; color: var(--muted); } .switch button.on { background: var(--soft); color: var(--text); }
+
+/* process */
+.back { color: var(--muted); font-size: 13px; display: inline-flex; gap: 6px; margin-bottom: 14px; text-decoration: none; }
+.phead { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.phead h1 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; flex: 1; }
+.meta { display: flex; gap: 14px; color: var(--muted); font-size: 13px; margin-bottom: 22px; flex-wrap: wrap; }
+.stages { display: flex; gap: 6px; margin-bottom: 26px; }
+.stages span { font-size: 12.5px; padding: 5px 12px; border-radius: 999px; background: var(--soft); color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.stages span.done { color: var(--text); } .stages span.now { background: var(--accent-soft); color: var(--accent); font-weight: 550; }
+.stages span.done::before { content: '✓'; font-size: 11px; color: var(--ok); }
+.conv { display: grid; gap: 14px; }
+.turn { display: grid; grid-template-columns: 70px 1fr; gap: 12px; }
+.turn .who { color: var(--muted); font-size: 12px; padding-top: 3px; }
+.turn.me .body { background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; }
+.turn.me .who { color: var(--accent); }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tools span { font-size: 12px; background: var(--soft); border-radius: 8px; padding: 3px 9px; color: var(--muted); }
+.tools span b { font-weight: 550; color: var(--text); }
+.ask { border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 12px; padding: 12px 16px; background: var(--panel); }
+.ask.q { border-left-color: var(--accent); }
+.ask .h { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.ask .actions { margin-top: 10px; }
+.compose { position: sticky; bottom: 0; margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 10px 10px 16px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); }
+.compose input { flex: 1; border: 0; background: none; font: inherit; color: inherit; outline: none; }
+.ctx { display: inline-flex; align-items: center; gap: 8px; }
+.ctx i { width: 60px; height: 5px; background: var(--soft); border-radius: 3px; overflow: hidden; display: inline-block; }
+.ctx i b { display: block; height: 100%; width: 34%; background: var(--accent); }
+</style>
+</head>
+<body>
+<nav class="side" id="side"></nav>
+<main id="main"></main>
+<div class="switch" id="switch"></div>
+<script>
+const projects = [
+  { id: 'workflows', name: 'workflows', base: 'main',
+    processes: [
+      { id: 'p142', kind: 'work', mode: 'manual', issue: 142, title: 'Read the configuration and derive the projects', branch: 'feat/142-read-the-configuration', stage: 'implement', state: 'running', since: '12m', note: 'Writing the config reader, tests green' },
+      { id: 'p131', kind: 'work', mode: 'yolo', issue: 131, title: 'Log the sensor drift', branch: 'fix/131-log-the-sensor-drift', stage: 'ci', state: 'waiting', since: '3m', note: 'PR #250, checks pending', pr: 250 },
+      { id: 'p118', kind: 'work', mode: 'manual', issue: 118, title: 'Refuse a project without an origin', branch: 'feat/118-refuse-a-project', stage: 'implement', state: 'blocked', since: '41m', note: 'Asks: keep the project in the file, or drop it?' },
+      { id: 'plan1', kind: 'plan', title: 'Open planning session', branch: 'plan/open-20260928-0011', stage: 'plan', state: 'idle', since: '2h', note: 'Waiting for you' },
+    ],
+    frontier: [{ n: 144, title: 'Board lists every project with its processes', m: 'v0.12.0' }, { n: 145, title: 'Claim from the frontier by one action', m: 'v0.12.0' }, { n: 151, title: 'Native notification on blocked, ready and failed', m: 'v0.12.0' }],
+  },
+  { id: 'trader', name: 'ultimate-trader', base: 'dev',
+    processes: [
+      { id: 'p88', kind: 'work', mode: 'manual', issue: 88, title: 'Reconnect the broker stream on drop', branch: 'feat/88-reconnect-the-broker-stream', stage: 'review', state: 'running', since: '6m', note: 'Round 2 of 3, security asked for a fix' },
+      { id: 'h1', kind: 'hunt', title: 'Test hunt', branch: 'hunt/tests-2026-09-27', stage: 'pr', state: 'ready', since: '1h', note: 'PR #412 green, 7 tests removed', pr: 412 },
+    ],
+    frontier: [{ n: 91, title: 'Backfill candles after a gap', m: 'v2.4.0' }],
+  },
+  { id: 'box', name: 'smart-box', base: 'main',
+    processes: [{ id: 's1', kind: 'standardize', title: 'Standardize', branch: 'chore/standardize', stage: 'approve', state: 'needs', since: '9m', note: '3 categories wait for your approval' }],
+    frontier: [],
+  },
+]
+const quota = [{ r: 'claude', pct: 63, reset: 'resets 14:00' }, { r: 'codex', pct: 9, reset: 'resets 19:30', low: true }]
+const stagesOf = { work: ['implement', 'gate', 'review', 'pr', 'ci', 'address-reviews'], plan: ['plan'], hunt: ['hunt', 'review', 'pr', 'ci'], standardize: ['audit', 'approve', 'apply'] }
+const conv = [
+  { who: 'assistant', text: 'I read the issue and AGENTS.md. The reader needs the listen address, the quota command and the projects; owner and name come from origin. Starting with a failing test.', tools: ['Read config.ts', 'Edit config.test.ts', 'Run vitest → 1 failed'] },
+  { who: 'assistant', text: 'Red as expected. Implementing the derivation from the origin URL.', tools: ['Edit config.ts'] },
+  { who: 'permission', tool: 'Bash', cmd: 'git remote set-url origin git@github.com:CalvinDittkrist/workflows.git', why: 'Rewrites the remote of the checkout.' },
+  { who: 'you', text: 'Deny. Read the URL, never change it. An ssh URL and an https URL name the same repository.' },
+  { who: 'assistant', text: 'Understood: parsing both forms, changing nothing. Adding the ssh case to the test.', tools: ['Edit config.test.ts', 'Run vitest → 2 passed'] },
+  { who: 'question', text: 'A project without an origin is refused. Should the controller keep it in the file, marked unusable, or drop it from the file?' },
+]
+const all = () => projects.flatMap((p) => p.processes.map((x) => ({ ...x, project: p })))
+const q = () => new URLSearchParams(location.hash.slice(1))
+const go = (patch) => { const p = q(); for (const [k, v] of Object.entries(patch)) v == null ? p.delete(k) : p.set(k, v); location.hash = p.toString() }
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+const primary = (x) => ({ blocked: 'Answer', needs: 'Approve', ready: 'Merge', idle: 'Continue' }[x.state])
+
+function side(view, sel) {
+  return `<div class="brand"><i></i>workflows</div>
+    <a href="#view=orchestrator" class="${view === 'orchestrator' ? 'on' : ''}">Orchestrator<span class="n">${all().filter((x) => primary(x)).length}</span></a>
+    <div class="label">Projects</div>
+    ${projects.map((p) => `<a href="#view=project&project=${p.id}" class="${view === 'project' && sel === p.id ? 'on' : ''}">${p.name}<span class="n">${p.processes.length}</span></a>`).join('')}
+    <a href="#" class="add">+ Add project</a>
+    <div class="quota">${quota.map((x) => `<div class="${x.low ? 'low' : ''}"><div style="display:flex;justify-content:space-between"><span>${x.r}</span><span>${x.pct}% · ${x.reset}</span></div><div class="bar"><i style="width:${x.pct}%"></i></div></div>`).join('')}</div>`
+}
+function item(x, withProject = true) {
+  const p = primary(x)
+  return `<div class="item s-${x.state}" onclick="go({view:'process',process:'${x.id}'})">
+    <span class="dot"></span>
+    <div class="t"><div class="l1">${withProject ? `<span class="p">${x.project.name}</span>` : ''}<span>${x.issue ? `<b>#${x.issue}</b> ` : ''}${esc(x.title)}</span></div><div class="l2">${esc(x.note)}</div></div>
+    <span class="pill ${x.state === 'running' ? 'on' : ''}">${x.stage}</span>
+    <span class="time">${x.since}</span>
+    ${p ? `<button class="btn primary" onclick="event.stopPropagation()">${p}</button>` : `<button class="btn ghost" onclick="event.stopPropagation()">Open</button>`}
+  </div>`
+}
+function frontier(list, withProject) {
+  return list.map(({ p, i }) => `<div class="item"><span class="dot"></span><div class="t"><div class="l1">${withProject ? `<span class="p">${p.name}</span>` : ''}<span><b>#${i.n}</b> ${esc(i.title)}</span></div></div><span class="pill">${i.m}</span><div class="actions"><button class="btn">Claim</button><button class="btn ghost">Plan</button></div></div>`).join('')
+}
+function orchestrator(cmd) {
+  const need = all().filter((x) => primary(x)); const run = all().filter((x) => !primary(x))
+  const fr = projects.flatMap((p) => p.frontier.map((i) => ({ p, i })))
+  return `<div class="head"><h1>Orchestrator</h1><span class="muted">${projects.length} projects · ${all().length} processes</span></div>
+    ${cmd ? `<div class="cmd"><span class="muted">›</span><input placeholder="Tell the orchestrator what to do: claim #144, plan an idea, release v0.12.0, or ask a question"><kbd>⌘K</kbd></div>` : ''}
+    <section><h2>Needs you <b>${need.length}</b></h2><div class="card">${need.map((x) => item(x)).join('')}</div></section>
+    <section><h2>Running <b>${run.length}</b></h2><div class="card">${run.map((x) => item(x)).join('')}</div></section>
+    <section><h2>Ready to start <b>${fr.length}</b></h2><div class="card">${frontier(fr, true)}</div></section>`
+}
+function project(id) {
+  const p = projects.find((x) => x.id === id) || projects[0]
+  const ps = p.processes.map((x) => ({ ...x, project: p }))
+  return `<div class="head"><h1>${p.name}</h1><span class="muted">base ${p.base}</span><span style="flex:1"></span><div class="actions"><button class="btn">Plan</button><button class="btn">Standardize</button><button class="btn">Hunt tests</button><button class="btn ghost">Release…</button></div></div>
+    <section><h2>Processes <b>${ps.length}</b></h2><div class="card">${ps.length ? ps.map((x) => item(x, false)).join('') : '<div class="empty">Nothing running</div>'}</div></section>
+    <section><h2>Ready to start <b>${p.frontier.length}</b></h2><div class="card">${p.frontier.length ? frontier(p.frontier.map((i) => ({ p, i })), false) : '<div class="empty">Frontier empty</div>'}</div></section>`
+}
+function process(id) {
+  const x = all().find((y) => y.id === id) || all()[0]
+  const st = stagesOf[x.kind]; const i = st.indexOf(x.stage)
+  return `<a class="back" href="#view=orchestrator">← Orchestrator</a>
+    <div class="phead"><span class="dot s-${x.state}" style="width:10px;height:10px"></span><h1>${x.issue ? `#${x.issue} ` : ''}${esc(x.title)}</h1><button class="btn">Open in terminal</button><button class="btn ghost">Hold</button><button class="btn ghost">Abandon</button></div>
+    <div class="meta"><span>${x.project.name}</span><span class="mono">${x.branch}</span>${x.mode ? `<span>${x.mode}</span>` : ''}<span>${x.since}</span><span class="ctx">context <i><b></b></i> 84k</span></div>
+    <div class="stages">${st.map((s, j) => `<span class="${j < i ? 'done' : j === i ? 'now' : ''}">${s}</span>`).join('')}</div>
+    <div class="conv">${conv.map((m) => {
+      if (m.who === 'permission') return `<div class="turn"><div class="who">permission</div><div class="ask"><div class="h">${m.tool} wants to run · ${esc(m.why)}</div><div class="mono">${esc(m.cmd)}</div><div class="actions"><button class="btn primary">Allow once</button><button class="btn">Allow for this process</button><button class="btn ghost">Deny</button></div></div></div>`
+      if (m.who === 'question') return `<div class="turn"><div class="who">question</div><div class="ask q"><div class="h">The session asks</div>${esc(m.text)}<div class="actions"><span class="muted" style="font-size:12.5px">Answer below</span></div></div></div>`
+      return `<div class="turn ${m.who === 'you' ? 'me' : ''}"><div class="who">${m.who}</div><div class="body">${esc(m.text)}${m.tools ? `<div class="tools">${m.tools.map((t) => `<span><b>${t.split(' ')[0]}</b> ${t.split(' ').slice(1).join(' ')}</span>`).join('')}</div>` : ''}</div></div>`
+    }).join('')}</div>
+    <div class="compose"><input placeholder="Write to the session…"><button class="btn primary">Send</button></div>`
+}
+function render() {
+  const p = q(); const view = p.get('view') || 'orchestrator'; const cmd = (p.get('cmd') || 'on') === 'on'
+  document.getElementById('side').innerHTML = side(view, p.get('project'))
+  document.getElementById('main').innerHTML = view === 'process' ? process(p.get('process')) : view === 'project' ? project(p.get('project')) : orchestrator(cmd)
+  document.getElementById('switch').innerHTML = view === 'orchestrator'
+    ? `<button class="${cmd ? 'on' : ''}" onclick="go({cmd:'on'})">with command bar</button><button class="${!cmd ? 'on' : ''}" onclick="go({cmd:'off'})">without</button>` : ''
+}
+addEventListener('hashchange', render); render()
+</script>
+</body>
+</html>
