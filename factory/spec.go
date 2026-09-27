@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -93,8 +94,11 @@ func (s *SpecStore) eventsPath(id int) string {
 	return filepath.Join(s.dir, fmt.Sprintf("spec-%d.events.jsonl", id))
 }
 
-// OpenSpecStore reads the spec runs already in the data directory. One that was claiming when the
-// factory stopped did not finish its claim, and says so as a failure with what it left behind.
+// OpenSpecStore reads the spec runs already in the data directory. A spec run that has not ended wrote
+// its record after an event it may not have counted, so its log is the truth about how much of it was
+// logged, as for a run. One that was claiming when the factory stopped before it named its spec branch
+// touched nothing on the remote and says so as a failure; one that had named it may have created it
+// and assigned the spec, and stays claiming for the working loop to finish (resumeSpec).
 func OpenSpecStore(dir string) (*SpecStore, error) {
 	s := &SpecStore{dir: dir}
 	records, err := filepath.Glob(filepath.Join(dir, "spec-[0-9]*.json"))
@@ -113,12 +117,19 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 		if r.ID <= 0 {
 			return nil, fmt.Errorf("the spec run record %s has no id; move it aside to start without it", file)
 		}
+		if r.State == specClaiming || r.State == specHolding {
+			events, err := s.events(r.ID, 0)
+			if err != nil {
+				return nil, fmt.Errorf("the event log %s cannot be read: %w; move it aside to start without it", s.eventsPath(r.ID), err)
+			}
+			r.EventCount = len(events)
+		}
 		s.specs = append(s.specs, r)
 	}
 	sort.Slice(s.specs, func(a, b int) bool { return s.specs[a].ID < s.specs[b].ID })
 	for _, r := range s.specs {
-		if r.State == specClaiming {
-			reason := "the factory stopped while this spec was being claimed" + specLeftBehind(r.Branch)
+		if r.State == specClaiming && r.Branch == "" {
+			reason := "the factory stopped while this spec was being claimed" + specLeftBehind("")
 			s.event(r, Event{Kind: "error", Title: specFailed, Body: reason})
 			s.update(r, func() { r.State, r.Reason = specFailed, reason })
 		}
@@ -259,9 +270,25 @@ func (f *Factory) heldSpecs() []Held {
 // the label that stood when a claim was lost or a spec was let go is the one that was acted on, and
 // setting it again is the gesture that asks for another claim. The claim runs in the working loop
 // while no run is going, so it is the only thing that writes to the clone.
+//
+// One pass claims one spec at most, and a claim the factory stopped in comes first. A claim fetches
+// the clone, which may wait as long as a clone does, and the line of issues behind it waits for it
+// too: one claim per dispatch keeps that wait to one, and the next spec is claimed a poll later.
 func (f *Factory) claimSpecs(ctx context.Context) {
 	if f.fake {
 		return // the canned line of fake mode holds no spec
+	}
+	for _, held := range f.specs.list() {
+		if ctx.Err() != nil || f.Paused() || f.Draining() {
+			return
+		}
+		if _, ok := f.connected(held.Repository); held.State != specClaiming || !ok || !f.claimable(held.Repository) {
+			continue
+		}
+		if r, ok := f.specs.find(held.ID); ok {
+			f.resumeSpec(ctx, r)
+			return
+		}
 	}
 	f.mu.Lock()
 	routed := append([]Issue{}, f.specQueue...) // sorted by refreshQueue
@@ -283,6 +310,7 @@ func (f *Factory) claimSpecs(ctx context.Context) {
 			continue
 		}
 		f.claimSpec(ctx, spec)
+		return
 	}
 }
 
@@ -294,6 +322,22 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 	r := &SpecRun{Repository: spec.Repository, Spec: spec.Number, Title: spec.Title, State: specClaiming,
 		SignalAt: spec.RoutedAt, StartedAt: time.Now(), Warnings: []string{}}
 	f.specs.add(r)
+	f.takeSpec(ctx, r, false)
+}
+
+// resumeSpec finishes a claim the factory stopped in after the record named its spec branch. The
+// branch may stand on the remote and the spec may be assigned already, so the claim goes on from the
+// creation of the branch: a branch of that name that this host's login created is the one this spec
+// run made, and assigning the spec again changes nothing when it is assigned. A branch somebody else
+// created is a lost claim, as ever.
+func (f *Factory) resumeSpec(ctx context.Context, r *SpecRun) {
+	f.specs.event(r, Event{Kind: "factory", Title: "resuming the claim",
+		Body: "the factory stopped while this spec was being claimed; the claim of " + r.Branch + " goes on where it stopped"})
+	log.Printf("spec run %d (%s#%d) resumes the claim of %s", r.ID, r.Repository, r.Spec, r.Branch)
+	f.takeSpec(ctx, r, true)
+}
+
+func (f *Factory) takeSpec(ctx context.Context, r *SpecRun, resumed bool) {
 	end := func(state, reason string) {
 		kind := "error"
 		if state == specLost {
@@ -307,7 +351,7 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 		if ctx.Err() == nil && !created {
 			// Nothing of the spec was touched, so the reason lies with this host or with GitHub, and the
 			// issues of the repository would meet it too.
-			f.hold(spec.Repository, "could not be claimed from: "+err.Error())
+			f.hold(r.Repository, "could not be claimed from: "+err.Error())
 		}
 		branch := ""
 		if created {
@@ -316,14 +360,17 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 		end(specFailed, "the spec could not be claimed: "+err.Error()+specLeftBehind(branch))
 	}
 
-	connected, _ := f.connected(spec.Repository)
+	connected, _ := f.connected(r.Repository)
 	clone := clonePath(f.settings.DataDir, connected.Name)
 	base, err := fetchBase(ctx, connected, clone)
 	if err != nil {
 		failed(err, false)
 		return
 	}
-	if held := remoteSpecBranch(ctx, clone, spec.Number); held != "" {
+	branch := specBranchName(Issue{Number: r.Spec, Title: r.Title})
+	if resumed {
+		branch = r.Branch
+	} else if held := remoteSpecBranch(ctx, clone, r.Spec); held != "" {
 		f.specs.update(r, func() { r.Branch, r.Base = held, base })
 		end(specLost, "the spec branch "+held+" stands on the remote already, so this spec run touched nothing; remove that branch and set the spec-run label again to claim the spec")
 		return
@@ -333,22 +380,25 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 		failed(err, false)
 		return
 	}
-	branch := specBranchName(spec)
+	// The record names the spec branch before it is created: a host that loses power while the branch
+	// is made, or before the spec is assigned, finds the claim to finish in this record alone.
+	f.specs.update(r, func() { r.Branch, r.Base = branch, base })
 	f.specs.event(r, Event{Kind: "factory", Title: "claiming " + branch, Body: fmt.Sprintf("creating refs/heads/%s of %s at %s (%s)", branch, connected.Name, head, base)})
 	if err := createRef(ctx, connected.Name, branch, head); err != nil {
-		if errors.Is(err, errLost) {
-			f.specs.update(r, func() { r.Branch, r.Base = branch, base })
+		switch {
+		case errors.Is(err, errLost) && resumed && createdBy(ctx, connected.Name, branch, login):
+			f.specs.event(r, Event{Kind: "factory", Title: branch + " is this spec run's",
+				Body: fmt.Sprintf("%s stands on the remote and %s created it: it is the branch this spec run made before the factory stopped", branch, login)})
+		case errors.Is(err, errLost):
 			end(specLost, "another claimer holds "+branch+" on the remote; this spec run touched nothing else")
 			return
+		default:
+			failed(err, false)
+			return
 		}
-		failed(err, false)
-		return
 	}
-	// The spec branch is on the remote from here on, and the record names it before anything else is
-	// tried: a host that loses power in between is read from this record alone.
-	f.specs.update(r, func() { r.Branch, r.Base = branch, base })
-	if err := assignSelf(ctx, connected.Name, spec.Number, login); err != nil {
-		failed(fmt.Errorf("spec #%d of %s could not be assigned to %s: %w", spec.Number, connected.Name, login, err), true)
+	if err := assignSelf(ctx, connected.Name, r.Spec, login); err != nil {
+		failed(fmt.Errorf("spec #%d of %s could not be assigned to %s: %w", r.Spec, connected.Name, login, err), true)
 		return
 	}
 	now := time.Now()
@@ -356,6 +406,14 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 	f.specs.event(r, Event{Kind: "factory", Title: "claimed " + branch,
 		Body: fmt.Sprintf("the spec branch %s is on the remote at %s (%s) and the spec is assigned to %s; the spec run holds the spec, idle", branch, head, base, login)})
 	log.Printf("spec run %d (%s#%d) holds %s", r.ID, r.Repository, r.Spec, branch)
+}
+
+// createdBy says whether the latest activity GitHub records on a branch (its creation, a push) was
+// made by that login. A reading that fails says no, so the claim ends lost and touches nothing.
+func createdBy(ctx context.Context, repository, branch, login string) bool {
+	raw, err := gh(ctx, "api", "repos/"+repository+"/activity?ref="+url.QueryEscape("refs/heads/"+branch)+"&per_page=1",
+		"--jq", ".[0].actor.login // empty")
+	return err == nil && strings.EqualFold(strings.TrimSpace(string(raw)), login)
 }
 
 // letSpecsGo answers the decisions a poll read about the specs this factory holds: the spec-run label

@@ -331,7 +331,8 @@ func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
 }
 
 // interruptedSpecRuns writes the records of two spec runs a factory left claiming when it stopped:
-// spec run 1 had created its spec branch and logged two events, spec run 2 had created nothing.
+// spec run 1 had named its spec branch and logged two events, but its record counts one, as a record
+// written before its last event does; spec run 2 had named nothing.
 func interruptedSpecRuns(t *testing.T) string {
 	t.Helper()
 	data := filepath.Join(t.TempDir(), "data")
@@ -340,7 +341,7 @@ func interruptedSpecRuns(t *testing.T) string {
 	}
 	for _, r := range []SpecRun{
 		{ID: 1, Repository: "acme/edge-sensors", Spec: specNumber, Title: specTitle, Branch: specBranch, Base: "main",
-			State: "claiming", Warnings: []string{}, EventCount: 2},
+			State: "claiming", Warnings: []string{}, EventCount: 1},
 		{ID: 2, Repository: "acme/edge-sensors", Spec: specNumber + 1, Title: "Another spec", State: "claiming", Warnings: []string{}},
 	} {
 		raw, err := json.Marshal(r)
@@ -351,7 +352,7 @@ func interruptedSpecRuns(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	for seq, title := range []string{"claiming " + specBranch, "the spec branch is on the remote"} {
+	for seq, title := range []string{"opened", "claiming " + specBranch} {
 		if err := appendEvent(filepath.Join(data, "spec-1.events.jsonl"), seq+1, Event{Kind: "factory", Title: title}); err != nil {
 			t.Fatal(err)
 		}
@@ -359,31 +360,73 @@ func interruptedSpecRuns(t *testing.T) string {
 	return data
 }
 
-func TestASpecRunTheFactoryStoppedInWhileClaimingIsFailedOnRestart(t *testing.T) {
+func TestASpecRunTheFactoryStoppedInBeforeNamingItsBranchIsFailedOnRestartAndOneThatNamedItWaits(t *testing.T) {
 	t.Parallel()
 	f := start(t, config{"paused": true, "data_dir": interruptedSpecRuns(t)})
 
-	var created, untouched apiSpecRun
-	f.get(t, "/api/specs/1", &created)
+	var named, untouched apiSpecRun
+	f.get(t, "/api/specs/1", &named)
 	f.get(t, "/api/specs/2", &untouched)
-	for _, c := range []struct {
-		spec apiSpecRun
-		says string
-	}{
-		{created, "the spec branch " + specBranch + " was created on the remote and is left behind"},
-		{untouched, "nothing was claimed on the remote"},
-	} {
-		if c.spec.State != "failed" || !strings.Contains(c.spec.Reason, "the factory stopped while this spec was being claimed") ||
-			!strings.Contains(c.spec.Reason, c.says) {
-			t.Errorf("spec run %d is %s for %q after a restart, want failed because the factory stopped mid-claim, saying %q",
-				c.spec.ID, c.spec.State, c.spec.Reason, c.says)
-		}
-		if n := len(c.spec.Events); n == 0 || c.spec.Events[n-1].Title != "failed" {
-			t.Errorf("spec run %d logged %q, want the failure last", c.spec.ID, titles(c.spec.Events))
-		}
+	if untouched.State != "failed" || !strings.Contains(untouched.Reason, "the factory stopped while this spec was being claimed") ||
+		!strings.Contains(untouched.Reason, "nothing was claimed on the remote") {
+		t.Errorf("spec run 2 is %s for %q after a restart, want failed because the factory stopped before it claimed anything",
+			untouched.State, untouched.Reason)
 	}
-	if want := []string{"claiming " + specBranch, "the spec branch is on the remote", "failed"}; !equal(titles(created.Events), want) {
-		t.Errorf("spec run 1 logged %q, want %q", titles(created.Events), want)
+	if want := []string{"failed"}; !equal(titles(untouched.Events), want) {
+		t.Errorf("spec run 2 logged %q, want %q", titles(untouched.Events), want)
+	}
+	// A paused factory finishes no claim, so the spec run that named its branch waits as it was.
+	if named.State != "claiming" || named.Branch != specBranch {
+		t.Errorf("spec run 1 is %s on %q after a paused restart, want it still claiming %s", named.State, named.Branch, specBranch)
+	}
+	if want := []string{"opened", "claiming " + specBranch}; !equal(titles(named.Events), want) {
+		t.Errorf("spec run 1 logged %q, want %q", titles(named.Events), want)
+	}
+}
+
+func TestAClaimTheFactoryStoppedInIsFinishedOnRestartFromWhatStandsOnTheRemote(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name      string
+		stands    bool   // the spec branch was created before the factory stopped
+		createdBy string // who GitHub says created it
+		want      string
+	}{
+		{"stopped before the branch was created", false, "", "holding"},
+		{"stopped after the branch was created or the spec assigned", true, "factory-bot", "holding"},
+		{"another claimer created the branch", true, "somebody-else", "lost"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			gh := newGhShim(t)
+			gh.routedSpecFixture(t, "acme/edge-sensors", "factory")
+			base := gh.head(t, "acme/edge-sensors", "main")
+			if c.stands {
+				gh.branchAt(t, "acme/edge-sensors", specBranch, base)
+				gh.pushedBy(t, "acme/edge-sensors", specBranch, c.createdBy)
+			}
+
+			f := gh.work(t, config{"poll": "50ms", "data_dir": interruptedSpecRuns(t), "repositories": []string{"acme/edge-sensors"}})
+			spec := f.specRunIn(t, c.want)
+			if head := gh.head(t, "acme/edge-sensors", specBranch); head != base {
+				t.Errorf("%s is at %q on the remote, want it at the head of main (%s)", specBranch, head, base)
+			}
+			assigned := gh.made(t, "issue edit 230 --repo acme/edge-sensors --add-assignee factory-bot")
+			if want := map[string]int{"holding": 1, "lost": 0}[c.want]; assigned != want {
+				t.Errorf("the factory assigned the spec %d times, want %d", assigned, want)
+			}
+			if got := titles(spec.Events); len(got) < 3 || got[2] != "resuming the claim" {
+				t.Errorf("spec run 1 logged %q, want the resumption right after the two events it had", got)
+			}
+			for i, e := range spec.Events {
+				if e.Seq != i+1 {
+					t.Errorf("event %d of spec run 1 has the sequence number %d, want %d: a restart reused a number", i+1, e.Seq, i+1)
+				}
+			}
+			if specs := f.specRuns(t); len(specs) != 2 {
+				t.Errorf("the factory has %d spec runs, want the 2 it had: a resumed claim is no new one", len(specs))
+			}
+		})
 	}
 }
 
@@ -392,14 +435,14 @@ func TestASpecRunIsServedWithTheEventsAfterTheOneAskedForAndAnUnknownOneIsNotFou
 	f := start(t, config{"paused": true, "data_dir": interruptedSpecRuns(t)})
 
 	var tail apiSpecRun
-	f.get(t, "/api/specs/1?after=2", &tail)
-	if len(tail.Events) != 1 || tail.Events[0].Seq != 3 || tail.Events[0].Title != "failed" {
-		t.Errorf("after=2 served %+v, want only the third event, the failure", tail.Events)
+	f.get(t, "/api/specs/1?after=1", &tail)
+	if len(tail.Events) != 1 || tail.Events[0].Seq != 2 || tail.Events[0].Title != "claiming "+specBranch {
+		t.Errorf("after=1 served %+v, want only the second event, the claiming", tail.Events)
 	}
 	var all apiSpecRun
 	f.get(t, "/api/specs/1?after=-5", &all)
-	if len(all.Events) != 3 {
-		t.Errorf("a negative after served %d events, want all 3", len(all.Events))
+	if len(all.Events) != 2 {
+		t.Errorf("a negative after served %d events, want both", len(all.Events))
 	}
 	for _, path := range []string{"/api/specs/3", "/api/specs/one", "/api/specs/0"} {
 		response := f.do(t, "GET", path)
