@@ -263,9 +263,71 @@ func TestLettingASpecGoLeavesItsOpenSpecPullRequestOpen(t *testing.T) {
 	if now := f.runNow(t, 1); now.Outcome != outcomeReady || now.PullRequest != specPullURL {
 		t.Errorf("the run of the spec pull request is %q with %q after the letting-go, want it ready with %s", now.Outcome, now.PullRequest, specPullURL)
 	}
+	f.eventually(t, 30*time.Second, "the spec pull request's run let go", func() bool { return f.runNow(t, 1).LetGoAt != nil })
+	if _, err := os.Stat(run.Worktree); err == nil {
+		t.Errorf("the worktree %s of the spec pull request's run stays after the letting-go", run.Worktree)
+	}
+	if gh.head(t, "acme/edge-sensors", specBranch) == "" {
+		t.Errorf("the spec branch %s is gone from the remote, want it kept under the open spec pull request", specBranch)
+	}
 	for _, call := range gh.calls(t) {
 		if strings.HasPrefix(call, "pr close") || strings.Contains(call, "state=closed") {
 			t.Errorf("the factory closed the spec pull request: %s", call)
 		}
+	}
+}
+
+// A spec pull request GitHub refuses to open ends its run failed, and the spec branch and its worktree
+// stay as they are: the run resumed them, so it is not the run's to take back.
+func TestASpecPullRequestThatCannotBeOpenedFailsAndLeavesTheSpecBranch(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+	gh.fail(t, createPullCall("acme/edge-sensors")+"*")
+	f := gh.work(t, ticketConfig(data, nil, nil))
+	run := f.ended(t, 1)
+	if run.Issue != specNumber || run.Signal != signalSpecPull || run.Outcome != outcomeFailed || run.PullRequest != "" {
+		t.Fatalf("run 1 worked #%d on %q and ended %q with %q (%s), want the spec pull request of #%d failed and unopened; the factory's log:\n%s",
+			run.Issue, run.Signal, run.Outcome, run.PullRequest, run.Reason, specNumber, f.output(t))
+	}
+	for _, want := range []string{"the spec pull request could not be opened", specBranch + " and its worktree stay as they are"} {
+		if !strings.Contains(run.Reason, want) {
+			t.Errorf("run 1 failed for %q, want it to say %q", run.Reason, want)
+		}
+	}
+	if _, err := os.Stat(run.Worktree); err != nil {
+		t.Errorf("the worktree %s of the spec branch is gone after the failure: %v", run.Worktree, err)
+	}
+	if spec := f.specRunNow(t); spec.State != specHolding || spec.PullRequest != "" {
+		t.Errorf("the spec run is %s with the spec pull request %q, want it holding with none", spec.State, spec.PullRequest)
+	}
+}
+
+// A merged spec pull request whose spec cannot be let go keeps the spec run holding, and a later poll
+// that can take the assignee off ends it done.
+func TestAMergedSpecPullRequestIsHeldUntilTheAssigneeComesOff(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+	gh.specPullIs(t, false)
+	gh.unassigns(t, "acme/edge-sensors", specNumber, "factory-bot")
+	f := gh.work(t, ticketConfig(data, nil, nil))
+	if run := f.ended(t, 1); run.Outcome != outcomeReady || run.PullRequest != specPullURL {
+		t.Fatalf("run 1 ended %q with %q (%s), want the spec pull request ready; the factory's log:\n%s", run.Outcome, run.PullRequest, run.Reason, f.output(t))
+	}
+
+	gh.fail(t, fmt.Sprintf("issue edit %d --repo acme/edge-sensors --remove-assignee *", specNumber))
+	gh.specPullIs(t, true)
+	f.eventually(t, 30*time.Second, "the spec run warns that the spec could not be let go", func() bool {
+		return slices.Contains(titles(f.specRunNow(t).Events), "the spec could not be let go")
+	})
+	if spec := f.specRunNow(t); spec.State != specHolding || spec.DoneAt != nil {
+		t.Errorf("the spec run is %s (done at %v) while the assignee is still on the spec, want it holding", spec.State, spec.DoneAt)
+	}
+
+	gh.fail(t, "")
+	done := f.specRunIn(t, specDone)
+	if done.DoneAt == nil || !strings.Contains(done.Reason, specPullURL) {
+		t.Errorf("the spec run is done at %v for %q, want the time and the merge of %s", done.DoneAt, done.Reason, specPullURL)
 	}
 }
