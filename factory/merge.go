@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// The merge stage ends a ticket run of a spec run whose ci stage is green, whose panel summary is ready
-// and whose validation passed: the factory squash-merges the ticket's pull request into the spec
-// branch under the pull request's title, records the ticket as merged on the spec run, and closes the
-// ticket with a comment that names the pull request, because GitHub closes no issue on a merge into a
-// branch other than the default one
+// The merge stage ends a ticket run of a spec run. It runs when the ci stage is green, the panel
+// summary is ready and the validation passed. The factory squash-merges the ticket's pull request into
+// the spec branch under the pull request's title and records the ticket as merged on the spec run.
+// GitHub closes no issue on a merge into a branch other than the default one
 // (https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue,
-// checked 2026-09-27). A ticket whose panel did not pass is not merged: its run ends ready with a review
-// request, and a person merges the pull request into the spec branch or changes it.
+// checked 2026-09-27), so the factory closes the ticket with a comment that names the pull request. A
+// ticket whose panel did not pass is not merged. Its run ends ready with a review request, and a person
+// merges the pull request into the spec branch or changes it.
 
 // stageMerge is the stage a ticket run is in while the factory merges its pull request.
 const stageMerge = "merge"
@@ -103,9 +103,11 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 	if err == nil {
 		err = f.source.closeIssue(ctx, repository, ticket)
 	}
-	if err != nil && ctx.Err() == nil {
-		f.specs.warn(s, "ticket not closed", fmt.Sprintf("ticket #%d of %s is merged by %s and could not be closed: %v; close it by hand", ticket, repository, pull, err))
-		return
+	if err != nil {
+		if ctx.Err() == nil {
+			f.specs.warn(s, "ticket not closed", fmt.Sprintf("ticket #%d of %s is merged by %s and could not be closed: %v; close it by hand", ticket, repository, pull, err))
+		}
+		return // the record says open, as the ticket is
 	}
 	f.specs.update(s, func() { s.Tickets[s.ticket(ticket, "")].Closed = true })
 	log.Printf("spec run %d (%s#%d): ticket #%d is merged by %s and closed", s.ID, repository, spec, ticket, pull)
