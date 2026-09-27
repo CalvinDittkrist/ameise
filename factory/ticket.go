@@ -27,6 +27,9 @@ type SpecTicket struct {
 	PullRequest string     `json:"pullRequest,omitempty"`
 	MergedAt    *time.Time `json:"mergedAt,omitempty"`
 	Closed      bool       `json:"closed,omitempty"`
+	// closing says a caller of ticketMerged comments on the ticket and closes it now, so the merge
+	// stage and the poll that reads the merge, which can meet, close it once between them.
+	closing bool
 }
 
 // ticketReady is the rule a ticket of a held spec is taken by: open, no pull request, carrying the
