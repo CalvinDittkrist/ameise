@@ -65,19 +65,9 @@ func (f *Factory) claim(ctx context.Context, r *Run, entry Entry) (claimed, erro
 	}
 	clone := clonePath(f.settings.DataDir, connected.Name)
 
-	// The remote is fetched before anything is read of it, so the rule below reads what the
-	// repository says now and the branch is cut from what the base holds now: a clone is written once
-	// and never checked out again, and its working tree is the day this host cloned it.
-	if _, err := gitWithin(ctx, clone, fetchTimeout, "fetch", "--quiet", "--prune", "origin"); err != nil {
-		return claimed{}, fmt.Errorf("%s could not be fetched into %s: %w; can this host reach the repository?", connected.Name, clone, err)
-	}
-	// A fetch does not touch refs/remotes/origin/HEAD. That reference is written once, when this host
-	// cloned the repository, so "the head the remote points at" would be the head it pointed at then.
-	// A repository that moves its default branch afterwards would be branched off the old one
-	// for as long as this clone lives, or off a name the remote no longer has at all. Asking the
-	// remote for it again with every claim is what keeps the rule's second step true.
-	if _, err := git(ctx, clone, "remote", "set-head", "origin", "--auto"); err != nil {
-		log.Printf("error: the head %s points at could not be read into %s: %v; this claim uses what that clone last knew", connected.Name, clone, err)
+	base, err := fetchBase(ctx, connected, clone)
+	if err != nil {
+		return claimed{}, err
 	}
 	// A branch of this issue on the remote is a claim somebody has made already, whatever slug its
 	// title spelled at the time. GitHub refuses the second creation of one reference, not the second
@@ -86,7 +76,6 @@ func (f *Factory) claim(ctx context.Context, r *Run, entry Entry) (claimed, erro
 	// they won. The issue number in the branch is what both of them share, and reading it back is the
 	// local driver's own rule (wf_remote_branch_for_issue in the orchestrator's lib.sh) asked of the
 	// references this claim has just fetched.
-	base := baseBranch(ctx, connected, clone)
 	if held := remoteBranchForIssue(ctx, clone, issue.Number); held != "" {
 		// Unless it is this factory's own branch, made by the run that once held the issue and left
 		// on the remote when the issue was let go. The entry carries that run, and that branch is
@@ -126,15 +115,7 @@ func (f *Factory) claim(ctx context.Context, r *Run, entry Entry) (claimed, erro
 		return claimed{branch: held}, errLost
 	}
 
-	head, err := git(ctx, clone, "rev-parse", "refs/remotes/origin/"+base)
-	if err != nil {
-		return claimed{}, fmt.Errorf("the head of the base branch %s of %s could not be read: %w; is that branch on the remote?", base, connected.Name, err)
-	}
-
-	// The user this host is logged in as is read before the branch is created: it is a host fact that
-	// says nothing about the race, and asking for it first keeps a host that cannot answer it from
-	// leaving a branch behind for nothing.
-	login, err := f.login(ctx)
+	head, login, err := f.branchPoint(ctx, connected, clone, base)
 	if err != nil {
 		return claimed{}, err
 	}
@@ -375,6 +356,44 @@ func excludeWorktrees(clone string) {
 
 // worktreesEntry is the line the local workflow appends to .git/info/exclude.
 const worktreesEntry = ".claude/worktrees/"
+
+// fetchBase is the first step of every claim, of an issue and of a spec alike: the remote fetched,
+// its head asked again, and the base the base branch rule names read from what the remote says now.
+func fetchBase(ctx context.Context, connected Connected, clone string) (string, error) {
+	// The remote is fetched before anything is read of it, so the rule below reads what the
+	// repository says now and the branch is cut from what the base holds now: a clone is written once
+	// and never checked out again, and its working tree is the day this host cloned it.
+	if _, err := gitWithin(ctx, clone, fetchTimeout, "fetch", "--quiet", "--prune", "origin"); err != nil {
+		return "", fmt.Errorf("%s could not be fetched into %s: %w; can this host reach the repository?", connected.Name, clone, err)
+	}
+	// A fetch does not touch refs/remotes/origin/HEAD. That reference is written once, when this host
+	// cloned the repository, so "the head the remote points at" would be the head it pointed at then.
+	// A repository that moves its default branch afterwards would be branched off the old one
+	// for as long as this clone lives, or off a name the remote no longer has at all. Asking the
+	// remote for it again with every claim is what keeps the rule's second step true.
+	if _, err := git(ctx, clone, "remote", "set-head", "origin", "--auto"); err != nil {
+		log.Printf("error: the head %s points at could not be read into %s: %v; this claim uses what that clone last knew", connected.Name, clone, err)
+	}
+	return baseBranch(ctx, connected, clone), nil
+}
+
+// branchPoint is the commit a claim cuts its branch at, the head of the base, and the login the claim
+// assigns, both read before the branch is created.
+func (f *Factory) branchPoint(ctx context.Context, connected Connected, clone, base string) (head, login string, err error) {
+	head, err = git(ctx, clone, "rev-parse", "refs/remotes/origin/"+base)
+	if err != nil {
+		return "", "", fmt.Errorf("the head of the base branch %s of %s could not be read: %w; is that branch on the remote?", base, connected.Name, err)
+	}
+
+	// The user this host is logged in as is read before the branch is created: it is a host fact that
+	// says nothing about the race, and asking for it first keeps a host that cannot answer it from
+	// leaving a branch behind for nothing.
+	login, err = f.login(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return head, login, nil
+}
 
 // connected is the configured repository of that name.
 func (f *Factory) connected(name string) (Connected, bool) {

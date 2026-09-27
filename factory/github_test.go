@@ -563,7 +563,7 @@ func factoryQueueOf(t *testing.T, issues []issueJSON, want int) ([]int, string) 
 	}
 	request := ""
 	for _, call := range gh.calls(t) {
-		if strings.HasPrefix(call, "api repos/o/r/issues?labels=") {
+		if strings.HasPrefix(call, "api repos/o/r/issues?labels="+readyLabel) { // not the list of routed specs
 			request = call
 		}
 	}

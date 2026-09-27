@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"testing/fstest"
@@ -1550,14 +1551,30 @@ func (f *factory) state(t *testing.T) string {
 	return state
 }
 
+// nextPort is the last port freeAddress handed out. It starts at a place of its own per test process.
+var nextPort = atomic.Int32{}
+
+func init() {
+	nextPort.Store(int32(os.Getpid() % 10000))
+}
+
+// freeAddress answers an address on a port no other test of this process was given. The ports lie
+// below the kernel's ephemeral range (32768 and up on Linux, 49152 and up on macOS), so a listener on
+// port 0 that a parallel test opens between this probe and the factory's own bind never takes it.
 func freeAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 20000 {
+		port := 12000 + int(nextPort.Add(1))%20000
+		listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		if err != nil {
+			continue
+		}
+		address := listener.Addr().String()
+		listener.Close()
+		return address
 	}
-	defer listener.Close()
-	return listener.Addr().String()
+	t.Fatal("no free port between 12000 and 32000 on 127.0.0.1")
+	return ""
 }
 
 var (

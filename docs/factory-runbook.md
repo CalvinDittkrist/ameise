@@ -453,7 +453,7 @@ The dashboard is then at `https://<host>.<tailnet>.ts.net/` for the devices of y
 
 - Never use `tailscale funnel` for it, which publishes to the internet.
 - Never set `listen` to an address other networks reach.
-- The interface is read-only: `/api/status`, `/api/repositories`, `/api/line`, `/api/runs/{id}` and the dashboard under `/`.
+- The interface is read-only: `/api/status`, `/api/repositories`, `/api/line`, `/api/runs/{id}`, `/api/specs`, `/api/specs/{id}` and the dashboard under `/`.
 - It shows issue titles, repository names and a worker's tool calls, with the content of private repositories in them ([security](security.md#the-factory)).
 
 ## Operation on GitHub
@@ -462,6 +462,7 @@ The factory is steered on GitHub alone; its interface never writes ([ADR 0023](a
 | You want to | On GitHub |
 | --- | --- |
 | **Route** an issue | Give it the routing label beside `ready-for-agent`, with no assignee and no open blocker. The planner does this when you route a ticket ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)). The line is ordered by the time the label was set, oldest first. Work the factory already holds comes first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)). |
+| **Route** a spec | Give the spec the spec-run label, `<label>:spec-run`, beside `spec`, with no assignee. The planner does this for a spec run. See [Spec runs](#spec-runs). |
 | **Release** an issue that waits for you | Remove the machine user as its assignee. See [Releasing a held issue](#releasing-a-held-issue). |
 | **Cancel** a run or let an issue go | Remove the routing label, or close the issue. A run that is going is ended within one poll. See [Cancelling](#cancelling). |
 | **Request changes** | Submit a review that requests changes on the run's pull request, as somebody with write access. The factory answers it in the same worktree with an address-reviews session and posts the replies (see [The ci stage](#the-ci-stage)). One review is one run. |
@@ -487,6 +488,21 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
 - The run's warning then carries what git said, the `! [rejected]` line with it.
 - The branch is deleted only when it carries nothing beyond its base, or its pull request was merged at the commit the branch is at.
 - The run's log says which of the two it was, and no record is touched ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
+
+### Spec runs
+- A spec is routed when it is open, carries `spec` and the spec-run label, and has no assignee. It needs no `ready-for-agent`.
+- The spec-run label is the routing label with `:spec-run` after it: `factory:spec-run`, or `robot:spec-run` on a host whose `label` is `robot`.
+- Every poll reads the routed specs beside the routed issues. The factory claims a routed spec while no run is going.
+  - It creates the spec branch `spec/<number>-<slug>` through the API, from the base the base branch rule names. Exactly one claimer wins.
+  - It then assigns itself to the spec. The spec run holds the spec, idle: it starts no session yet.
+- A spec branch already on the remote ends the spec run `lost`, and nothing is touched. Delete the branch and set the spec-run label again to claim the spec.
+- A held spec is read on every poll. Take the spec-run label off, or close the spec, to let it go.
+  - The factory takes its assignee off and records the letting-go on the spec run.
+  - The spec branch stays, with everything on it.
+  - Routing the spec again claims it again only once that branch is gone.
+- A ticket whose parent carries the spec-run label never enters the line, whatever labels it carries.
+  - A parent that cannot be read keeps its ticket out of that poll, with one warning in the journal.
+- `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events.
 
 ### The implement stage
 A run starts with the version of Claude Code it is made with, written on the run. Then one implement session runs in the run's worktree ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
@@ -934,6 +950,8 @@ Everything the factory knows about itself is in `data_dir`:
 | `factory.lock` | The lock that keeps a second factory off this directory; the kernel releases it when the process is gone. | Harmless, and pointless: it is taken again on start. |
 | `run-<n>.json` | The record of run `n`: issue, branch, worktree, outcome, versions, warnings, what it owes a notification. | No. The records are how a factory knows after a restart what it holds, which resume it has spent and what it still owes the maintainer. Deleting one makes it forget an issue it holds. |
 | `run-<n>.events.jsonl` | The append-only event log of run `n`, which the dashboard shows. | Only with its record, and only for an issue the factory no longer holds. |
+| `spec-<n>.json` | The record of spec run `n`: the spec, its spec branch and base, its state and the time of its claim. | No. It is how a factory knows after a restart which spec it holds. |
+| `spec-<n>.events.jsonl` | The append-only event log of spec run `n`. | Only with its record, and only for a spec the factory no longer holds. |
 | `run-<n>.lock` | The lock the worker of run `n` held; it tells a start whether that worker is still alive. | With the factory stopped, for a run whose record is no longer running. |
 | `repos/<owner>/<name>/` | The clone of a connected repository, in lower case, with the worktrees of the issues the factory holds under `.claude/worktrees/`. | Not while a worktree in it holds commits that are not pushed. Every run that ends without a pull request pushes its worktree, so only a run whose push failed (a warning on it) leaves such commits. The clone of a repository you disconnected may go once its worktrees are pushed. A missing clone is made again on the next start. |
 | `repos/<owner>/.<name>.cloning-*` | A clone that was cut off. | Yes; the next start sweeps it too. |

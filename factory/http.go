@@ -20,6 +20,8 @@ func (f *Factory) Handler() http.Handler {
 	mux.HandleFunc("/api/repositories", f.repositories)
 	mux.HandleFunc("/api/line", f.line)
 	mux.HandleFunc("/api/runs/{id}", f.run)
+	mux.HandleFunc("/api/specs", f.specRuns)
+	mux.HandleFunc("/api/specs/{id}", f.specRun)
 	// The headers are outside the refusal, so an answer that refuses carries them too.
 	return browserSafe(readOnly(mux))
 }
@@ -52,14 +54,16 @@ func readOnly(next http.Handler) http.Handler {
 }
 
 // index is what the interface offers, for a reader with a terminal rather than a browser. The
-// browser gets the dashboard under /, which reads exactly these four.
+// browser gets the dashboard under /, which reads the first four.
 func (f *Factory) index(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("factory\n\n" +
 		"GET /api/status        what the factory is doing\n" +
 		"GET /api/repositories  the connected repositories\n" +
 		"GET /api/line          what runs now, what waits, what is done\n" +
-		"GET /api/runs/{id}     one run with its record and its events (?after=<seq> for the rest)\n"))
+		"GET /api/runs/{id}     one run with its record and its events (?after=<seq> for the rest)\n" +
+		"GET /api/specs         the spec runs, oldest first\n" +
+		"GET /api/specs/{id}    one spec run with its record and its events (?after=<seq> for the rest)\n"))
 }
 
 // status is what the factory is doing: running, paused, or waiting for the Claude quota to reset.
@@ -156,6 +160,38 @@ func (f *Factory) run(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, struct {
 		Run
+		Events []Event `json:"events"`
+	}{record, events})
+}
+
+// specRuns is every spec run's record, oldest first.
+func (f *Factory) specRuns(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, f.specs.list())
+}
+
+// specRun is one spec run with its record and its events, read as a run is.
+func (f *Factory) specRun(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	record, found := f.specs.get(id)
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	after, _ := strconv.Atoi(r.URL.Query().Get("after"))
+	if after < 0 {
+		after = 0
+	}
+	events, err := f.specs.events(id, after)
+	if err != nil {
+		http.Error(w, "the event log of spec run "+strconv.Itoa(id)+" cannot be read", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, struct {
+		SpecRun
 		Events []Event `json:"events"`
 	}{record, events})
 }
