@@ -10,26 +10,23 @@ Coordinator session for one repository. Start it in the main checkout inside a H
 | `/orchestrator:yolo-claim <issue> [--force] [--env NAME=VALUE]` | `claim.sh --yolo` | same, worker merges itself when green |
 | `/orchestrator:hunt-tests [--sandbox] [--base b]` | `hunt.sh` | branch `hunt/tests-<date>` without an issue, worktree and workspace, start `claude --agent worker … /worker:hunt-tests` with the settings of a manual claim ([ADR 0045](../../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)) |
 | `/orchestrator:board` | `board.sh` | table of issue, branch, agent state, PR, checks, review and workspace; then the frontier with milestones, and the specs ready for acceptance |
-| `/orchestrator:merge <pr>` | `merge.sh` | refuse unless CLEAN, green, no unresolved threads and no changes requested; remove workspace and worktree, squash-merge, delete branches, fast-forward main; a promotion from `dev` gets a merge commit; a merge outside the default branch closes the issue with a comment |
+| `/orchestrator:merge <pr>` | `merge.sh` | refuse unless CLEAN, green, no unresolved threads and no changes requested; remove workspace and worktree, squash-merge, delete branches, fast-forward main; a promotion from `dev` gets a merge commit; a merge outside the default branch also closes the issue |
 | `/orchestrator:release <vX.Y.Z>` | `release.sh` | refuse while the milestone is missing or open or the tag exists; with `dev` plus `main` wait for the promotion's merge; tag, GitHub release with generated notes, close the milestone |
 | `/orchestrator:abandon <issue\|branch> [--force]` | `abandon.sh` | drop the worktree; refuses unpushed or dirty work without `--force` |
 | `/orchestrator:herdr` | | loads Herdr's own skill for manual pane control |
 | `/orchestrator:gh-axi` | | the `gh-axi` discovery skill, so agents prefer it over raw `gh` |
 
-The frontier is the open `ready-for-agent` issues without open blocker, assignee, worktree, routing or spec-run label, or a parent with the spec-run label. A spec is ready for acceptance when it is open, has native sub-issues and none of them is open.
+The frontier is the open `ready-for-agent` issues without open blocker, assignee, worktree, routing label or spec run. A spec is ready for acceptance when it is open, has native sub-issues and none of them is open.
 
 A claim refuses before anything is created, and the error names the labels or branch and the fix. `--force` claims anyway.
 
 - An issue without `ready-for-agent` is refused ([ADR 0014](../../docs/adr/0014-claims-require-ready-for-agent.md)).
-- An issue with the routing label `factory` is refused, because the factory host claims it.
-- So is an issue with the spec-run label `factory:spec-run`.
+- An issue with the routing label `factory` or `factory:spec-run` is refused, because the factory host claims it.
 - An issue whose `<type>/<issue>-…` branch already exists on origin is refused, since creating that branch is the claim on the remote. `abandon.sh` leaves such a branch on origin.
 - A forced claim over a remote branch adopts it and runs code nobody here reviewed. It refuses while a local branch of that name points elsewhere.
 - An origin that cannot be read is a warning; that check never stops a claim.
 
-A ticket whose parent carries the spec-run label is a ticket of a spec run. Without `ready-for-human` it is the factory's and refused like one that carries the label itself; `--force` claims it anyway.
-
-A ticket of a spec run is cut from the parent's spec branch, which its pull request targets. `--base` wins. A parent of another repository, or one that cannot be read, leaves the usual base with a warning.
+A ticket whose parent carries the spec-run label is refused too, unless it has `ready-for-human`. Such a ticket branches from and targets the parent's spec branch; `--base` wins. An unreadable or foreign parent leaves the usual base with a warning.
 
 `--env NAME=VALUE`, repeatable, sets one worker knob for the claimed session and no other.
 
