@@ -726,7 +726,10 @@ type ciPull struct {
 
 // ciReads is the answer to the three reads the ci stage makes of a pull request each time it looks:
 // the pull request with its rollup, its reviews and its review threads. A later call replaces them,
-// which is how a test moves a pull request on while the factory waits on it.
+// which is how a test moves a pull request on while the factory waits on it. The factory reads the
+// pull request first, so it is written last: a reading that sees its new head sees the reviews and
+// threads that go with it, and one that still sees the old head is one the factory waits out as the
+// head its last round was spent on.
 func (g *ghShim) ciReads(t *testing.T, repository string, number int, p ciPull) {
 	t.Helper()
 	if p.mergeable == "" {
@@ -747,12 +750,12 @@ func (g *ghShim) ciReads(t *testing.T, repository string, number int, p ciPull) 
 	if p.threads == nil {
 		p.threads = []map[string]any{}
 	}
-	g.answer(t, pullViewCall(repository, number), marshal(t, map[string]any{
-		"mergeable": p.mergeable, "headRefName": p.branch, "headRefOid": p.head, "isCrossRepository": false,
-		"commits": []map[string]any{{"committedDate": "2026-01-01T00:00:00Z"}}, "statusCheckRollup": p.checks}))
 	g.answer(t, "api --paginate "+reviewsRequest(repository, number), marshal(t, p.reviews))
 	g.answer(t, "api graphql --input -", marshal(t, map[string]any{"data": map[string]any{"repository": map[string]any{
 		"pullRequest": map[string]any{"reviewThreads": map[string]any{"nodes": p.threads}}}}}))
+	g.answer(t, pullViewCall(repository, number), marshal(t, map[string]any{
+		"mergeable": p.mergeable, "headRefName": p.branch, "headRefOid": p.head, "isCrossRepository": false,
+		"commits": []map[string]any{{"committedDate": "2026-01-01T00:00:00Z"}}, "statusCheckRollup": p.checks}))
 }
 
 // opensPull is the answer to the pull request the pr stage opens: that number of that repository.
@@ -1468,9 +1471,24 @@ func readFile(t *testing.T, path string) string {
 	return string(raw)
 }
 
+// writeFile puts a file in place whole: written beside it and renamed over it. A test changes the
+// answers of the shims under a running factory, and a file written in place is empty for a moment,
+// which a call that reads it then takes for the whole answer.
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+	next, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = next.WriteString(body)
+	if closed := next.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Rename(next.Name(), path)
+	}
+	if err != nil {
+		os.Remove(next.Name())
 		t.Fatal(err)
 	}
 }

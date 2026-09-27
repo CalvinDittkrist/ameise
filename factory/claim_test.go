@@ -1208,9 +1208,7 @@ func (g *ghShim) verdict(t *testing.T, reviewer string, n int, result string) {
 	if n > 0 {
 		name += "." + strconv.Itoa(n)
 	}
-	if err := os.WriteFile(filepath.Join(g.verdicts, name), []byte(result), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(g.verdicts, name), result)
 }
 
 // authorSessions is every author session of the pr stage the claude shim was started as, in order.

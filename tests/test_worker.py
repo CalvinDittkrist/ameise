@@ -459,7 +459,12 @@ class SlowGateTests(ShimTest):
         super().setUp()
         self.git("checkout", "-qb", "feat/108-x")
         (self.repo / ".gitignore").write_text("starts.log\n")
-        (self.repo / "Makefile").write_text(SLOW_GATE)
+        # The gate lasts at least 3 s, and on while the file hold exists: a test that needs the gate in flight
+        # across several calls holds it there, since a loaded machine can spend 3 s on those calls alone.
+        self.hold = self.base / "hold"
+        self.addCleanup(self.hold.unlink, missing_ok=True)  # before the wait for detached processes, which runs later
+        (self.repo / "Makefile").write_text(SLOW_GATE.replace(
+            "\t@sleep 3\n", f"\t@sleep 3\n\t@while [ -e '{self.hold}' ]; do sleep 0.05; done\n"))
         self.git("add", "."); self.git("commit", "-qm", "chore: slow gate")
         self.head = self.git("rev-parse", "--short", "HEAD").strip()
 
@@ -556,6 +561,7 @@ class SlowGateTests(ShimTest):
         self.assertEqual(self.starts(), 1)
 
     def test_a_run_at_another_head_while_a_gate_is_in_flight_is_refused(self):
+        self.hold.touch()
         self.assertEqual(self.gate("run").returncode, 3)
         (self.repo / "a.txt").write_text("a")
         self.git("add", "."); self.git("commit", "-qm", "feat: a")
@@ -563,6 +569,7 @@ class SlowGateTests(ShimTest):
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn(f"a gate is running at {self.head}", r.stderr)
         self.assertIn("gate.sh wait", r.stderr)
+        self.hold.unlink()
         self.assertEqual(self.wait_to_the_end().returncode, 0)
         self.assertEqual(self.starts(), 1)
 

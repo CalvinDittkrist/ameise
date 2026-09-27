@@ -525,10 +525,13 @@ func TestABotsReviewRunsAFollowUpWhoseRoundCountsWithinTheBudget(t *testing.T) {
 			first.Outcome, first.Reason, first.PullRequest, pullOfTheClaim, f.output(t))
 	}
 
-	// The gesture: the bot reviews after that run ended, commenting and leaving one thread.
+	// The gesture: the bot reviews after that run ended, commenting and leaving one thread. The pull
+	// request stays at the head the round is spent on until the test moves it on below, so the reading
+	// after the round's push waits for the thread to be resolved rather than answering it again.
 	reviewedAt := after(*first.EndedAt)
-	gh.reviews(t, "acme/edge-sensors", claimedIssue, botReview(8001, reviewedAt))
-	gh.threads(t, reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt))
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{head: gh.head(t, "acme/edge-sensors", claimedBranch),
+		reviews: []map[string]any{botReview(8001, reviewedAt)},
+		threads: []map[string]any{reviewThread("PRRT_7", botAccount("chatgpt-codex-connector"), reviewedAt)}})
 
 	f.sawIn(t, 2, "replied to the thread")
 	// The thread is resolved on GitHub now, and the pull request carries the round's push.

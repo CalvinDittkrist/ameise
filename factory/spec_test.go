@@ -39,6 +39,9 @@ type apiSpecRun struct {
 	Events      []Event      `json:"events"`
 }
 
+// specRoutedAgo is how long before a test the spec of routedSpecFixture was routed to a spec run.
+const specRoutedAgo = time.Hour
+
 // routedSpecFixture is one repository with one spec routed to a spec run under the routing label, and
 // nothing routed besides it. The reading of the held spec answers it assigned to the factory, with
 // both of its labels.
@@ -49,7 +52,7 @@ func (g *ghShim) routedSpecFixture(t *testing.T, repository, label string) issue
 	g.answer(t, "api "+issuesRequest(repository, label), "[]")
 	spec := openIssue(specNumber, specTitle, now.Add(-72*time.Hour), specLabel, specRunLabel(label))
 	g.answer(t, "api "+specsRequest(repository, label), marshal(t, []issueJSON{spec}))
-	g.timeline(t, repository, specNumber, labeled(specRunLabel(label), now.Add(-time.Hour)))
+	g.timeline(t, repository, specNumber, labeled(specRunLabel(label), now.Add(-specRoutedAgo)))
 	g.loggedInAs(t, "factory-bot")
 	g.assigns(t, repository, specNumber, "factory-bot")
 	held := openIssue(specNumber, specTitle, now.Add(-72*time.Hour), specLabel, specRunLabel(label))
@@ -337,17 +340,22 @@ func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
 
 // interruptedSpecRuns writes the records of two spec runs a factory left claiming when it stopped:
 // spec run 1 had named its spec branch and logged two events, but its record counts one, as a record
-// written before its last event does; spec run 2 had named nothing.
+// written before its last event does; spec run 2 had named nothing. Each carries the routing it
+// answered, as every claim's record does: the routing of routedSpecFixture, to the second GitHub
+// writes, when the fixture is written after it. A record without it would read as a claim older
+// than that routing, and a lost claim would be claimed again on the next poll.
 func interruptedSpecRuns(t *testing.T) string {
 	t.Helper()
+	routedAt := time.Now().UTC().Add(-specRoutedAgo).Truncate(time.Second)
 	data := filepath.Join(t.TempDir(), "data")
 	if err := os.MkdirAll(data, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range []SpecRun{
 		{ID: 1, Repository: "acme/edge-sensors", Spec: specNumber, Title: specTitle, Branch: specBranch, Base: "main",
-			State: "claiming", Warnings: []string{}, EventCount: 1},
-		{ID: 2, Repository: "acme/edge-sensors", Spec: specNumber + 1, Title: "Another spec", State: "claiming", Warnings: []string{}},
+			State: "claiming", SignalAt: routedAt, Warnings: []string{}, EventCount: 1},
+		{ID: 2, Repository: "acme/edge-sensors", Spec: specNumber + 1, Title: "Another spec", State: "claiming", SignalAt: routedAt,
+			Warnings: []string{}},
 	} {
 		raw, err := json.Marshal(r)
 		if err != nil {
@@ -428,6 +436,12 @@ func TestAClaimTheFactoryStoppedInIsFinishedOnRestartFromWhatStandsOnTheRemote(t
 					t.Errorf("event %d of spec run 1 has the sequence number %d, want %d: a restart reused a number", i+1, e.Seq, i+1)
 				}
 			}
+			// The polls after the claim ended claim nothing new: the second poll after this reading
+			// starts once the dispatch of the first has ended.
+			polled := gh.made(t, "api "+specsRequest("acme/edge-sensors", "factory"))
+			f.eventually(t, 20*time.Second, "two more polls of the routed specs", func() bool {
+				return gh.made(t, "api "+specsRequest("acme/edge-sensors", "factory")) >= polled+2
+			})
 			if specs := f.specRuns(t); len(specs) != 2 {
 				t.Errorf("the factory has %d spec runs, want the 2 it had: a resumed claim is no new one", len(specs))
 			}

@@ -34,9 +34,7 @@ func (g *ghShim) checksAre(t *testing.T, number int, at string, checks ...map[st
 	if checks == nil {
 		checks = []map[string]any{}
 	}
-	if err := os.WriteFile(filepath.Join(g.answers, name), []byte(marshal(t, checks)), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, filepath.Join(g.answers, name), marshal(t, checks))
 }
 
 // The calls that finish the draft in the pr stage.
