@@ -9,7 +9,8 @@ import { configuration, paused, working } from './where.js'
 // failed, 8 failed, 9 ready with a warning, 10 the follow-up run a review of 9 asked for, ready, 11 the
 // follow-up run of a bot's review after 10, ready, 12 still running.
 
-const SPEC_RUN = 1
+const SPEC_RUN = 1 // the id of the spec run, which spec runs count apart from runs
+const FIRST_TICKET_RUN = 1
 const REVALIDATED_RUN = 2
 const READY_RUN = 5
 const BLOCKED_RUN = 6
@@ -307,7 +308,7 @@ test('a spec run is selected through the URL with its record and its events', as
 
   // A ticket of it selects its run from the detail as from the line.
   await detail(page).locator('.tickets li').first().getByRole('button').click()
-  await expect(page).toHaveURL(new RegExp(`#run=${SPEC_RUN}$`))
+  await expect(page).toHaveURL(new RegExp(`#run=${FIRST_TICKET_RUN}$`))
   await expect(detail(page).locator('h3')).toContainText('#131')
 
   await page.goto(working('/#spec=999'))

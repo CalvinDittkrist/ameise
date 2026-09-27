@@ -90,8 +90,10 @@ button {
 .state-lost {
   --c: var(--faint);
 }
-/* A spec run that holds its spec with nothing going and nothing to wait for. */
-.state-claimed {
+/* A spec run that holds its spec with nothing going and nothing to wait for, and a ticket of it no
+   run has taken yet. */
+.state-claimed,
+.state-waiting {
   --c: var(--dim);
 }
 @keyframes pulse {

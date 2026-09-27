@@ -183,9 +183,14 @@ func (c *canned) reviewed(_ context.Context, _ string, pull int) reviewed {
 	return reviewed{requested: c.requested[issue], bot: c.botReviewed[issue]}
 }
 
+// cannedWork is every canned issue a worker works: the canned queue and the tickets of the canned spec.
+func cannedWork() []cannedIssue {
+	return append(slices.Clone(cannedIssues), cannedSpec.tickets...)
+}
+
 // scenarioOf is the scripted worker of a canned issue or a canned ticket.
 func scenarioOf(issue int) string {
-	for _, c := range append(slices.Clone(cannedIssues), cannedSpec.tickets...) {
+	for _, c := range cannedWork() {
 		if c.number == issue {
 			return c.scenario
 		}
@@ -337,8 +342,7 @@ func (c *canned) closeIssue(context.Context, string, int) error                {
 
 // issueText answers the title of a canned issue, ticket or spec and a body of its own.
 func (c *canned) issueText(_ context.Context, _ string, number int) (string, string, error) {
-	issues := append(slices.Clone(cannedIssues), cannedSpec.tickets...)
-	issues = append(issues, cannedIssue{number: cannedSpec.number, title: cannedSpec.title})
+	issues := append(cannedWork(), cannedIssue{number: cannedSpec.number, title: cannedSpec.title})
 	for _, issue := range issues {
 		if issue.number == number {
 			return issue.title, "The canned issue #" + strconv.Itoa(number) + " of fake mode: " + issue.title + ".", nil
