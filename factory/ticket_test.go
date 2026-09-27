@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -29,7 +30,9 @@ func (g *ghShim) ticketOf(t *testing.T, number int, title string) issueJSON {
 	g.assigns(t, "acme/edge-sensors", number, "factory-bot")
 	g.comments(t, "acme/edge-sensors", number)
 	g.issue(t, "acme/edge-sensors", assignedTo(openIssue(number, title, now.Add(-48*time.Hour), readyLabel, specRunLabel("factory")), "factory-bot"))
-	return openIssue(number, title, now.Add(-48*time.Hour), readyLabel, specRunLabel("factory"))
+	ticket := openIssue(number, title, now.Add(-48*time.Hour), readyLabel, specRunLabel("factory"))
+	ticket["repository_url"] = "https://api.github.com/repos/acme/edge-sensors"
+	return ticket
 }
 
 // subIssues is the sub-issue list of the spec, as GitHub answers it.
@@ -279,6 +282,101 @@ func TestATicketMergedByAPersonIsRecordedAndNotMergedAgain(t *testing.T) {
 	}
 	if !strings.Contains(gh.commented(t, "acme/edge-sensors", ticketIssue), "pull/231") {
 		t.Errorf("ticket #231 was closed without a comment that names its pull request")
+	}
+}
+
+// A sub-issue of the spec from another repository is no ticket, although it carries the labels and a
+// lower number: it is read by its number in the spec's repository, which would work another issue.
+func TestASubIssueFromAnotherRepositoryIsNotWorked(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	foreign := gh.ticketOf(t, 228, "A ticket of another repository")
+	foreign["repository_url"] = "https://api.github.com/repos/acme/other-repo"
+	gh.subIssues(t, foreign, gh.ticketOf(t, ticketIssue, ticketTitle))
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	run := f.ended(t, 1)
+	if run.Issue != ticketIssue || run.Outcome != outcomeMerged {
+		t.Fatalf("run 1 worked #%d and ended %q (%s), want ticket #%d merged and #228 of the other repository left alone; the factory's log:\n%s",
+			run.Issue, run.Outcome, run.Reason, ticketIssue, f.output(t))
+	}
+	if read := gh.made(t, "api --paginate "+eventsRequest("acme/edge-sensors", 228)); read != 0 {
+		t.Errorf("the factory read the events of #228 %d times, want never: it is no ticket of the spec", read)
+	}
+}
+
+// A merge GitHub refuses ends the ticket run blocked, with a reason that names the pull request and
+// the spec branch, and the ticket stays open.
+func TestATicketWhoseMergeIsRefusedEndsBlocked(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.fail(t, "api --method PUT repos/acme/edge-sensors/pulls/231/merge*")
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeBlocked || run.Stage != stageMerge ||
+		!strings.Contains(run.Reason, "pull/231") || !strings.Contains(run.Reason, specBranch) {
+		t.Fatalf("run 1 ended %q in %q (%s), want blocked at merge naming the pull request and %s; the factory's log:\n%s",
+			run.Outcome, run.Stage, run.Reason, specBranch, f.output(t))
+	}
+	if gh.made(t, "issue close 231 --repo acme/edge-sensors") != 0 {
+		t.Errorf("the factory closed the ticket whose pull request it could not merge")
+	}
+	if spec := f.specRunNow(t); len(spec.Tickets) != 1 || spec.Tickets[0].MergedAt != nil {
+		t.Errorf("the spec run lists the tickets %+v, want #231 not merged", spec.Tickets)
+	}
+}
+
+// A factory stopped in the merge stage before GitHub took the merge merges on its restart, once. One
+// stopped after the merge and before the ticket was closed merges nothing again and closes the ticket
+// once, as the poll that reads the merge does.
+func TestARestartedFactoryGoesOnAtTheMergeOnce(t *testing.T) {
+	t.Parallel()
+	for _, at := range []string{"before the merge", "after the merge"} {
+		t.Run(at, func(t *testing.T) {
+			t.Parallel()
+			gh, data := ticketClaim(t)
+			merge := "api --method PUT repos/acme/edge-sensors/pulls/231/merge --input -"
+			closing := "issue close 231 --repo acme/edge-sensors"
+			if at == "before the merge" {
+				gh.stall(t, "api --method PUT *")
+			} else {
+				gh.stall(t, "issue comment 231 *")
+			}
+			first := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+			first.eventually(t, 90*time.Second, "the call "+at+" to be reached", func() bool {
+				if at == "before the merge" {
+					return gh.made(t, merge) == 1
+				}
+				return gh.asked(t, "issue comment 231 ") == 1
+			})
+			first.stop(t, syscall.SIGTERM)
+			gh.stall(t, "")
+			squashes := func() int {
+				return len(strings.Fields(gh.git(t, gh.remotePath("acme/edge-sensors"), "log", "--format=%h", "--grep=feat: ticket 231", "refs/heads/"+specBranch)))
+			}
+			if at == "after the merge" {
+				gh.openTicketPull(t, ticketIssue, ticketBranch, true) // GitHub answers it merged now
+			}
+
+			again := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+			again.eventually(t, 60*time.Second, "the merged ticket closed", func() bool { return gh.made(t, closing) >= 1 })
+			reading := "api " + subIssuesRequest("acme/edge-sensors", specNumber)
+			before := gh.made(t, reading)
+			again.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, reading) >= before+5 })
+			want := 1
+			if at == "before the merge" {
+				want = 2 // the stalled call is counted, and GitHub never took it
+			}
+			if gh.made(t, merge) != want || squashes() != 1 {
+				t.Errorf("the factory asked for the merge %d times and the spec branch holds %d squashes, want %d asks and one squash; the factory's log:\n%s",
+					gh.made(t, merge), squashes(), want, again.output(t))
+			}
+			if gh.made(t, closing) != 1 {
+				t.Errorf("the ticket was closed %d times, want once", gh.made(t, closing))
+			}
+			if spec := again.specRunNow(t); len(spec.Tickets) != 1 || spec.Tickets[0].MergedAt == nil || !spec.Tickets[0].Closed {
+				t.Errorf("the spec run lists the tickets %+v, want #231 merged and closed", spec.Tickets)
+			}
+		})
 	}
 }
 
