@@ -67,7 +67,7 @@ while IFS='	' read -r t state title; do
     wf_warn "could not read the pull requests that closed #$t; the pull requests and files below are incomplete"
   fi
   # The second lookup, by the branch contract: <type>/<ticket>-<slug of the title>, for every type the
-  # claim can give it (wf_branch_type in the orchestrator), so a ticket relabelled since is still found.
+  # claim can give it (wf_branch_type in the orchestrator). So a ticket relabelled since is still found.
   # The slug comes from the current title: a ticket retitled after its claim is not found, and says so.
   if [ "$prs" = - ]; then
     slug=$(wf_slug "$title"); heads=""
