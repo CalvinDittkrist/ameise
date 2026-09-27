@@ -227,7 +227,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `ci` | see below | The knobs of the ci stage ([The ci stage](#the-ci-stage)). |
 | `gate` | see below | The knobs of the gate stage ([The gate stage](#the-gate-stage)). |
 | `review` | see below | The knobs of the review stage ([The review stage](#the-review-stage)). |
-| `validate` | off | The knobs of the validate stage ([The validate stage](#the-validate-stage)). Without it the stage is off. |
+| `validate` | see below | The knobs of the validate stage ([The validate stage](#the-validate-stage)). Without it the stage is off. |
 | `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is read again on every poll, so it takes no restart ([Pausing](#pausing)). |
 | `auto_update` | `false` | Lets the host's update tick install factory releases on this host. It is read again on every poll like `paused`, and `/api/line` reports it. |
 | `notify` | `[]` | GitHub logins, without the `@`. They are asked for a review when a run ends `ready`, and mentioned on the issue when a run waits for a person. Empty: nobody is notified, and the log says so on start. |
