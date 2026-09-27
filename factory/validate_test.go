@@ -255,11 +255,12 @@ func TestAValidatorOnCodexOnAHostWithoutItBlocksTheRun(t *testing.T) {
 }
 
 // A factory restarted while a run validated resumes it at the validate stage; one restarted after the
-// run recorded a pass on the commit the branch is at does not validate it again.
+// run recorded a pass on the commit the branch is at does not validate it again; one restarted after a
+// round that did not pass on that commit, and before its fix reported, runs the fix before validating.
 func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 	t.Parallel()
-	for name, passed := range map[string]bool{"during the validation": false, "after a pass": true} {
-		t.Run(name, func(t *testing.T) {
+	for _, at := range []string{"during the validation", "after a pass", "at the fix"} {
+		t.Run(at, func(t *testing.T) {
 			t.Parallel()
 			gh := newGhShim(t)
 			gh.remote(t, "acme/edge-sensors")
@@ -274,8 +275,15 @@ func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 			interrupted.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
 			interrupted.PullRequest = pullOfTheClaim
 			interrupted.Stages = []string{"implement", "gate", "review", "pr", "ci", "validate"}
-			if passed {
+			switch at {
+			case "after a pass":
 				interrupted.Validation = &Validation{Passed: true, Rounds: []Round{{Number: 1, Head: head, Verdicts: []Verdict{{Reviewer: "senior", Verdict: verdictPass, Findings: []Finding{}}}}}}
+			case "at the fix":
+				interrupted.Validation = &Validation{Rounds: []Round{{Number: 1, Head: head, Verdicts: []Verdict{{Reviewer: "senior", Verdict: verdictFix,
+					Findings: []Finding{{ID: "F1", Severity: "S2", Path: "worked.md", Line: 1, Claim: "The retry is unbounded.", Why: "It never gives up.", Fix: "Bound it."}}}}}}}
+				gh.env = append(gh.env, "GIT_AUTHOR_NAME=factory", "GIT_AUTHOR_EMAIL=factory@example.com",
+					"GIT_COMMITTER_NAME=factory", "GIT_COMMITTER_EMAIL=factory@example.com", "CLAUDE_SHIM_THEN_COMMIT=validated.md")
+				gh.repairs(t, map[string]any{"outcome": "complete", "fixed": []string{"F1"}, "disputed": []any{}, "skipped": []any{}, "summary": "bounded"})
 			}
 			records(t, data, interrupted)
 			gh.issues(t, "acme/edge-sensors")
@@ -289,13 +297,33 @@ func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 					resumed.Signal, resumed.Outcome, resumed.Stage, resumed.Reason, f.output(t))
 			}
 			senior := validatorSessionsOf(t, gh, "senior")
-			if passed && (len(senior) != 0 || len(factoryTitles(resumed, "validated already at "+short(head))) != 1) {
-				t.Errorf("the resume started the senior validator %d times, want none and an event that the pass stands", len(senior))
+			workers := gh.workers(t)
+			switch at {
+			case "after a pass":
+				if len(senior) != 0 || len(factoryTitles(resumed, "validated already at "+short(head))) != 1 {
+					t.Errorf("the resume started the senior validator %d times, want none and an event that the pass stands", len(senior))
+				}
+			case "during the validation":
+				if len(senior) != 1 || resumed.Validation == nil || !resumed.Validation.Passed || resumed.Validation.Rounds[0].Head != head {
+					t.Errorf("the resume started the senior validator %d times and recorded %+v, want one round that passed at %s", len(senior), resumed.Validation, short(head))
+				}
+			case "at the fix":
+				if len(factoryTitles(resumed, "resuming at the fix of validation round 1")) != 1 {
+					t.Errorf("the resume did not say it resumes at the fix; the run's events: %v", factoryTitles(resumed, ""))
+				}
+				if len(workers) != 1 {
+					t.Errorf("the resume started %d worker sessions, want the one fix session", len(workers))
+				}
+				v := resumed.Validation
+				if v == nil || len(v.Rounds) != 2 || v.Rounds[0].Repair == nil || !v.Passed || len(senior) != 1 {
+					t.Errorf("the resume started the senior validator %d times and recorded %+v, want the fix of round 1 and one new round that passed", len(senior), v)
+				}
+				if labels := sessionsAt(resumed, stageValidate); len(labels) < 2 || labels[0] != "" {
+					t.Errorf("the resume ran the validate sessions %v, want the fix session before any validator", labels)
+				}
+				return
 			}
-			if !passed && (len(senior) != 1 || resumed.Validation == nil || !resumed.Validation.Passed || resumed.Validation.Rounds[0].Head != head) {
-				t.Errorf("the resume started the senior validator %d times and recorded %+v, want one round that passed at %s", len(senior), resumed.Validation, short(head))
-			}
-			if workers := gh.workers(t); len(workers) != 0 {
+			if len(workers) != 0 {
 				t.Errorf("the resume started %d worker sessions, want none: the work is done", len(workers))
 			}
 		})
