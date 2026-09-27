@@ -498,6 +498,8 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
 - A spec branch already on the remote ends the spec run `lost`, and nothing is touched. Delete the branch and set the spec-run label again to claim the spec.
 - A held spec is read on every poll. Take the spec-run label off, or close the spec, to let it go.
   - The factory takes its assignee off and records the letting-go on the spec run.
+  - A ticket run that is going ends `cancelled`. A later poll pushes and removes its worktree and takes the assignee off the ticket.
+  - An open spec pull request stays open for a person.
   - The spec branch stays, with everything on it.
   - Routing the spec again claims it again only once that branch is gone.
 - A ticket whose parent carries the spec-run label never enters the line as a routed issue, whatever labels it carries.
@@ -530,6 +532,23 @@ GitHub closes no linked issue on a merge into a branch other than the default on
 
 - A panel that did not pass merges nothing. The run ends `ready` with a review request, and a person merges or changes the pull request.
 - A pull request merged already, by a person or before a restart, is not merged again. The ticket is recorded and closed once.
+
+#### The spec pull request
+A spec run ends with its spec pull request, once the spec has sub-issues and every one of them is closed.
+
+- It is a run on the spec itself, with the signal `spec-pull`, taken before the tickets and the routed issues.
+  - It merges the base into the spec branch once more when the merge is clean, and makes a worktree of the spec branch.
+- It opens the pull request from the spec branch to the base. The body says `Part of #<spec>`, never `Closes`, and lists every ticket with its pull request.
+- It goes through the ci stage alone: failing checks or a conflict get a fix session on the spec branch, within the repair budget.
+  - A writer's or a bot's review queues a follow-up run, as on any pull request.
+- Green ends the run `ready` with a review request to the `notify` logins. A person squash-merges it; the acceptance stays with the planner.
+- The poll that reads it merged ends the spec run `done` and takes the assignee off the spec. The records and events stay.
+
+A spec run waits when its open tickets all carry `ready-for-human` or are blocked.
+
+- It takes no ticket and opens no spec pull request.
+- It comments once per such ticket on the spec, mentioning the `notify` logins and naming the ticket.
+- Close the ticket once its pull request is merged into the spec branch, and the spec run goes on at the next poll.
 - A merge GitHub refuses ends the run `blocked` with its reason.
 
 ### The implement stage
@@ -980,7 +999,7 @@ Everything the factory knows about itself is in `data_dir`:
 | `factory.lock` | The lock that keeps a second factory off this directory; the kernel releases it when the process is gone. | Harmless, and pointless: it is taken again on start. |
 | `run-<n>.json` | The record of run `n`: issue, branch, worktree, outcome, versions, warnings, what it owes a notification. | No. The records are how a factory knows after a restart what it holds, which resume it has spent and what it still owes the maintainer. Deleting one makes it forget an issue it holds. |
 | `run-<n>.events.jsonl` | The append-only event log of run `n`, which the dashboard shows. | Only with its record, and only for an issue the factory no longer holds. |
-| `spec-<n>.json` | The record of spec run `n`: the spec, its spec branch and base, its state, the time of its claim and its tickets. | No. It is how a factory knows after a restart which spec it holds. |
+| `spec-<n>.json` | The record of spec run `n`: the spec, its spec branch and base, its state, the time of its claim, its tickets and its spec pull request. | No. It is how a factory knows after a restart which spec it holds. |
 | `spec-<n>.events.jsonl` | The append-only event log of spec run `n`. | Only with its record, and only for a spec the factory no longer holds. |
 | `run-<n>.lock` | The lock the worker of run `n` held; it tells a start whether that worker is still alive. | With the factory stopped, for a run whose record is no longer running. |
 | `repos/<owner>/<name>/` | The clone of a connected repository, in lower case, with the worktrees of the issues the factory holds under `.claude/worktrees/`. | Not while a worktree in it holds commits that are not pushed. Every run that ends without a pull request pushes its worktree, so only a run whose push failed (a warning on it) leaves such commits. The clone of a repository you disconnected may go once its worktrees are pushed. A missing clone is made again on the next start. |
