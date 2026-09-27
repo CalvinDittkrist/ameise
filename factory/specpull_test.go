@@ -21,6 +21,12 @@ var specPullURL = fmt.Sprintf("https://github.com/acme/edge-sensors/pull/%d", sp
 // branch into main.
 func (g *ghShim) specPullIs(t *testing.T, merged bool) {
 	t.Helper()
+	g.specPullInto(t, "main", merged)
+}
+
+// specPullInto is the reading of the spec pull request into a base, open or merged.
+func (g *ghShim) specPullInto(t *testing.T, base string, merged bool) {
+	t.Helper()
 	state := "open"
 	if merged {
 		state = "closed"
@@ -28,7 +34,7 @@ func (g *ghShim) specPullIs(t *testing.T, merged bool) {
 	g.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d", specNumber), marshal(t, map[string]any{
 		"number": specNumber, "state": state, "merged": merged, "title": specPullTitle(specTitle),
 		"head": map[string]any{"ref": specBranch, "repo": map[string]any{"full_name": "acme/edge-sensors"}},
-		"base": map[string]any{"ref": "main", "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
+		"base": map[string]any{"ref": base, "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
 }
 
 // heldSpec is the reading of the held spec after a gesture of the maintainer changed it.
@@ -329,5 +335,107 @@ func TestAMergedSpecPullRequestIsHeldUntilTheAssigneeComesOff(t *testing.T) {
 	done := f.specRunIn(t, specDone)
 	if done.DoneAt == nil || !strings.Contains(done.Reason, specPullURL) {
 		t.Errorf("the spec run is done at %v for %q, want the time and the merge of %s", done.DoneAt, done.Reason, specPullURL)
+	}
+}
+
+// A repository that moves its default branch while a spec runs gets the spec pull request against the
+// base it has now, and the run records that base: the merge a person makes into it ends the spec run.
+func TestASpecPullRequestFollowsTheBaseTheRepositoryMovedTo(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.specPullInto(t, "dev", false)
+	gh.unassigns(t, "acme/edge-sensors", specNumber, "factory-bot")
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	if ticket := f.ended(t, 1); ticket.Issue != ticketIssue || ticket.Outcome != outcomeMerged {
+		t.Fatalf("run 1 worked #%d and ended %q (%s), want ticket #%d merged; the factory's log:\n%s", ticket.Issue, ticket.Outcome, ticket.Reason, ticketIssue, f.output(t))
+	}
+	gh.branchAt(t, "acme/edge-sensors", "dev", gh.head(t, "acme/edge-sensors", "main"))
+	gh.commitOn(t, "acme/edge-sensors", "dev")
+	gh.defaultBranchIs(t, "acme/edge-sensors", "dev")
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+
+	run := f.ended(t, 2)
+	if run.Signal != signalSpecPull || run.Outcome != outcomeReady || run.Base != "dev" {
+		t.Fatalf("run 2 on %q ended %q into %q (%s), want the spec pull request ready into dev; the factory's log:\n%s",
+			run.Signal, run.Outcome, run.Base, run.Reason, f.output(t))
+	}
+	if opened := gh.opened(t, "acme/edge-sensors"); opened[len(opened)-1].Base != "dev" {
+		t.Errorf("the spec pull request goes into %s, want dev", opened[len(opened)-1].Base)
+	}
+	gh.specPullInto(t, "dev", true)
+	if done := f.specRunIn(t, specDone); !strings.Contains(done.Reason, "into dev") {
+		t.Errorf("the spec run is done for %q, want the merge into dev", done.Reason)
+	}
+}
+
+// A spec whose title takes GitHub's whole allowance gets a spec pull request whose title is cut to the
+// longest the factory opens.
+func TestASpecPullRequestTitleIsCutToTheLongestTheFactoryOpens(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	long := strings.Repeat("a long spec title ", 15)[:256]
+	now := time.Now().UTC()
+	gh.answer(t, "api "+specsRequest("acme/edge-sensors", "factory"), marshal(t, []issueJSON{
+		openIssue(specNumber, long, now.Add(-72*time.Hour), specLabel, specRunLabel("factory"))}))
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(specNumber, long, now.Add(-72*time.Hour), specLabel, specRunLabel("factory")), "factory-bot"))
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+	f := gh.work(t, ticketConfig(data, nil, nil))
+	f.ended(t, 1)
+	opened := gh.opened(t, "acme/edge-sensors")
+	if len(opened) == 0 {
+		t.Fatalf("no spec pull request was opened; the factory's log:\n%s", f.output(t))
+	}
+	if title := opened[0].Title; len(title) != 100 || !strings.HasPrefix(title, "feat: a long spec title") {
+		t.Errorf("the spec pull request's title is %d characters, %q, want the first 100 of the prefixed spec title", len(title), title)
+	}
+}
+
+// An open sub-issue from another repository keeps the spec from its spec pull request, though it is no
+// ticket the factory takes; once it is closed the spec pull request lists it.
+func TestAnOpenSubIssueOfAnotherRepositoryHoldsTheSpecPullRequestBack(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	elsewhere := openIssue(7, "Flash the new firmware", time.Now().UTC().Add(-48*time.Hour), readyLabel, specRunLabel("factory"))
+	elsewhere["repository_url"] = "https://api.github.com/repos/acme/firmware"
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)), elsewhere)
+	gh.specPullIs(t, false)
+	f := gh.work(t, ticketConfig(data, nil, nil))
+
+	reading := "api " + subIssuesRequest("acme/edge-sensors", specNumber)
+	f.eventually(t, 20*time.Second, "several polls", func() bool { return gh.made(t, reading) >= 5 })
+	if records, _ := filepath.Glob(filepath.Join(data, "run-*.json")); len(records) != 0 {
+		t.Fatalf("the spec with an open sub-issue elsewhere started %d runs, want none; the factory's log:\n%s", len(records), f.output(t))
+	}
+
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)), closedIssue(elsewhere))
+	if run := f.ended(t, 1); run.Signal != signalSpecPull || run.Outcome != outcomeReady {
+		t.Fatalf("run 1 on %q ended %q (%s), want the spec pull request ready; the factory's log:\n%s", run.Signal, run.Outcome, run.Reason, f.output(t))
+	}
+	if body := gh.opened(t, "acme/edge-sensors")[0].Body; !strings.Contains(body, "acme/firmware#7 Flash the new firmware") {
+		t.Errorf("the spec pull request's body does not list the sub-issue of acme/firmware:\n%s", body)
+	}
+}
+
+// A ticket merged into the spec branch and then taken off the spec's sub-issues still counts: the spec
+// gets its spec pull request, and the body lists the ticket with its pull request.
+func TestATicketTakenOffTheSpecAfterItsMergeStaysInTheSpecPullRequest(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.specPullIs(t, false)
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	if ticket := f.ended(t, 1); ticket.Issue != ticketIssue || ticket.Outcome != outcomeMerged {
+		t.Fatalf("run 1 worked #%d and ended %q (%s), want ticket #%d merged; the factory's log:\n%s", ticket.Issue, ticket.Outcome, ticket.Reason, ticketIssue, f.output(t))
+	}
+	gh.subIssues(t)
+
+	if run := f.ended(t, 2); run.Signal != signalSpecPull || run.Outcome != outcomeReady {
+		t.Fatalf("run 2 on %q ended %q (%s), want the spec pull request ready; the factory's log:\n%s", run.Signal, run.Outcome, run.Reason, f.output(t))
+	}
+	opened := gh.opened(t, "acme/edge-sensors")
+	body := opened[len(opened)-1].Body
+	for _, want := range []string{"#231 " + ticketTitle, "https://github.com/acme/edge-sensors/pull/231"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the spec pull request's body does not say %q:\n%s", want, body)
+		}
 	}
 }
