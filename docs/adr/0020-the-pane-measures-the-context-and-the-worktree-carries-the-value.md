@@ -1,7 +1,7 @@
 # 0020. The pane's status line measures a worker's context, and the worktree carries the value
 
 Date: 2026-09-21
-Status: accepted; the 200 000 safety net is superseded by [ADR 0031](0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md)
+Status: accepted; the 200 000 safety net is superseded by [ADR 0031](0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md); superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - A worker session's context size was invisible, so nothing could decide when to hand work to a fresh session ([ADR 0017](0017-worker-subagents-run-in-the-foreground.md)).

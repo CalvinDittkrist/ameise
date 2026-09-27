@@ -1,7 +1,7 @@
 # 0034. The compact trigger is 200 000, and the window is what raises it
 
 Date: 2026-09-21
-Status: accepted
+Status: accepted; superseded for the local workflow by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - [ADR 0031](0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md) pinned a window of 200 000 at 80 %, a compact trigger of 160 000.

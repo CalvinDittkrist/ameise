@@ -1,7 +1,7 @@
 # 0032. The stage measures the context on entry, and the context a handoff started does one unit of work before the next
 
 Date: 2026-09-21
-Status: accepted
+Status: accepted; superseded by [0058](0058-the-controller-drives-the-local-stages-and-a-person-merges.md)
 
 ## Context
 - [ADR 0029](0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md) checks in two driver steps, which a worker entering `/worker:review` directly skips.

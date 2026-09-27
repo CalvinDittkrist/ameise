@@ -1,7 +1,7 @@
 # 0017. Worker sessions run subagents in the foreground, and the agent never waits by polling
 
 Date: 2026-09-20
-Status: accepted
+Status: accepted; superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - In an interactive session Claude Code launches a subagent in the background, and its report arrives later as a notification.
