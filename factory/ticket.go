@@ -13,8 +13,8 @@ import (
 
 // A ticket run is a factory run of one ticket of a spec run, a first run as any other
 // (docs/glossary.md). Its branch is cut from the spec branch and not from the base, its gate merges
-// the spec branch, and its pull request targets it. On every poll the factory reads the sub-issues of the specs it holds, and the
-// tickets a run may take come before the routed issues in the line, the lowest number first. The
+// the spec branch, and its pull request targets it. On every poll the factory reads the sub-issues of the specs it holds.
+// The tickets a run may take come before the routed issues in the line, the lowest number first. The
 // base is merged into the spec branch before a ticket is claimed, when that merge is clean.
 
 // SpecTicket is one ticket of a spec run as its record lists it: the runs of the ticket, and when the

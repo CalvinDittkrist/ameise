@@ -171,8 +171,8 @@ var reviewers = map[string]reviewer{
 		"Focus: correctness, security and fit of the whole change, read by a model of another family than the other reviewers. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
 			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", runtimeCodex},
-	// The reviewer on the Fable model reads the whole change as the most capable Claude model does, which
-	// a ticket run of a spec run validates with beside the reviewer on Codex
+	// The reviewer on the Fable model reads the whole change as the most capable Claude model does, and it
+	// validates the pull request of a ticket run beside the reviewer on Codex
 	// (https://code.claude.com/docs/en/model-config.md, checked 2026-09-27: the fable alias names it).
 	"fable": {"Fresh-context review of the branch diff on the Fable model.", "fable",
 		"Focus: correctness, security and fit of the whole change, read on the most capable Claude model. " +

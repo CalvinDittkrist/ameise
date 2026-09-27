@@ -185,8 +185,8 @@ type source interface {
 	// ticket the pull request the merge stage merged.
 	commentOnIssue(ctx context.Context, repository string, issue int, body string) error
 	// mergePull squash-merges a ticket's pull request into the spec branch under its title, at the
-	// commit given when there is one, when the pull request still goes into that branch, and closeIssue closes the ticket: the calls of the merge stage
-	// (merge.go).
+	// commit given when there is one, when the pull request still goes into that branch. closeIssue
+	// closes the ticket. Both are calls of the merge stage (merge.go).
 	mergePull(ctx context.Context, repository string, pull int, base, head string) error
 	closeIssue(ctx context.Context, repository string, issue int) error
 	// replyToThread, resolveThread and commentOnPull carry what an address-reviews session answered to
