@@ -390,6 +390,12 @@ class ClaimSpecRunTests(ShimTest):
         # The worker diffs against the spec branch and opens its pull request into it.
         self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
 
+    def test_a_warning_of_gh_beside_the_parent_leaves_the_spec_branch_as_the_base(self):
+        env, _ = self.spec_run()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_PARENTS_WARN="1", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
     def test_a_base_given_on_the_claim_wins_over_the_spec_branch(self):
         env, _ = self.spec_run()
         self.git("push", "-q", "origin", "main:refs/heads/dev")

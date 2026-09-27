@@ -118,7 +118,9 @@ fi
 spec_note=""
 if [ -z "$given_base" ] && wf_issue_has_label "$json" ready-for-human; then
   nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
-  if [ -n "$nwo" ] && parent=$(gh api "repos/$nwo/issues/$issue/parent" 2>&1); then
+  # Only stdout is the parent's JSON; stderr is kept apart and read only to tell a missing parent from an error.
+  perr=$(mktemp)
+  if [ -n "$nwo" ] && parent=$(gh api "repos/$nwo/issues/$issue/parent" 2>"$perr"); then
     parent_number=$(printf '%s' "$parent" | jq -r '.number // empty' 2>/dev/null || true)
     if [ -n "$parent_number" ] && wf_issue_has_label "$parent" "$WF_SPEC_RUN_LABEL"; then
       if ! spec_branch=$(wf_remote_spec_branch "$parent_number"); then
@@ -131,8 +133,9 @@ if [ -z "$given_base" ] && wf_issue_has_label "$json" ready-for-human; then
       fi
     fi
   elif [ -n "$nwo" ]; then
-    case "$parent" in *"HTTP 404"*) ;; *) wf_warn "could not read the parent of issue #$issue; branching from $base. A ticket of a spec run names its spec branch with --base." ;; esac
+    case "$(cat "$perr")" in *"HTTP 404"*) ;; *) wf_warn "could not read the parent of issue #$issue; branching from $base. A ticket of a spec run names its spec branch with --base." ;; esac
   fi
+  rm -f "$perr"
 fi
 
 # A claim on the remote is the creation of the issue's branch there, so a remote branch of the contract's
