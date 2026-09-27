@@ -58,7 +58,7 @@ The spec is $ARGUMENTS, or the issue this session started on (the `issue:` line 
    - Stop here; do not close the spec.
 7. With nothing left open: write the closing comment, show it, ask for confirmation, then run the script below. The comment carries:
    - the counts per section from the report;
-   - the tickets with the pull requests that closed them, from the facts block;
+   - the tickets with their merged pull requests, from the facts block;
    - the accepted deviations, and the items the maintainer overruled with their reason.
 
    The script:

@@ -8,7 +8,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh)
 Queue:
 !`${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh`
 
-Labels. Category: `bug` or `enhancement`, exactly one. State: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` or `wontfix`, exactly one. Routing: `factory`, optional, only next to `ready-for-agent`. If an issue carries two states, say so and ask before doing anything else. Every comment you post starts with `> Written by an agent during triage.`
+Labels. Category: `bug` or `enhancement`, exactly one. State: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` or `wontfix`, exactly one. Routing: `factory`, optional, only next to `ready-for-agent`; for a ticket whose parent carries `factory:spec-run`, that label instead of `factory`. If an issue carries two states, say so and ask before doing anything else. Every comment you post starts with `> Written by an agent during triage.`
 
 Without an argument: show the three buckets above, one line each, and let the user pick. With an issue ($ARGUMENTS):
 
@@ -21,7 +21,8 @@ Without an argument: show the three buckets above, one line each, and let the us
 5. Apply the outcome with `"${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh"`:
    - `ready-for-agent`: post the brief from [brief.md](brief.md) with `comment`.
      - Then ask whether the issue is routed to the factory, following [../tickets/routing.md](../tickets/routing.md): your recommendation with its reason, for this one issue.
-     - Then `label <n> --add ready-for-agent --remove needs-triage`, with `--add factory` when the maintainer routed it.
+     - For a ticket whose parent carries `factory:spec-run` (`gh api repos/{owner}/{repo}/issues/<n>/parent`), offer that label instead: the ticket joins the spec run.
+     - Then `label <n> --add ready-for-agent --remove needs-triage`, with `--add factory` or `--add factory:spec-run` as the maintainer answered.
    - `ready-for-human`: the same brief plus one line on why it cannot be delegated. It is never routed; the script refuses that combination.
    - `needs-info`: post the notes template below, then `label <n> --add needs-info --remove needs-triage`.
    - `wontfix`: `close <n> --reason not-planned --comment-file <f>`.
