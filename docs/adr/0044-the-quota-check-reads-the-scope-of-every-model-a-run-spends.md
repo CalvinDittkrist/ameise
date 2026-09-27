@@ -3,6 +3,7 @@
 Date: 2026-09-24
 Status: accepted
 Amends: [0037](0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md): which scopes the check reads
+Amended by: [0053](0053-the-quota-check-reads-every-runtime-a-run-spends.md)
 
 ## Context
 - [ADR 0037](0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md) reads the `all_models` scope and the worker model's scope, because a run was one worker session.

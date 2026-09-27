@@ -95,6 +95,12 @@ The reviewers of the review stage read the same text and get the same bounds:
 - The gate on the final head is `make check` in the worktree, the command the gate stage ran. It runs the branch's code with the host user's rights.
 - Its output reaches a fix session as data.
 
+The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)):
+
+- It runs `codex exec` in Codex's read-only sandbox. It may run commands that read, and the sandbox refuses a write.
+- No part of `worker_args` reaches it. The host user's Codex configuration in `~/.codex` does.
+- Its last message is read with the checks of every reviewer, so a steered pass is read by its findings as well.
+
 Its HTTP interface is read-only and unauthenticated, and it serves live issue titles and repository names. It binds to one address, by default the loopback, and refuses a wildcard address. Reaching it from elsewhere is the tailnet's job. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
 
 ## Supply chain
