@@ -334,6 +334,53 @@ class IssueScriptTests(PlanWorktree):
         self.assertIn("gh issue edit 12 --add-label needs-info --remove-label ready-for-agent "
                       "--remove-label factory --remove-label -odd", self.calls())
 
+    def test_the_spec_run_label_goes_on_a_spec_and_on_the_tickets_of_a_spec_that_carries_it(self):
+        # A spec needs no ready-for-agent to become a spec run, and asks nobody for its parent.
+        r = self.run_script(PLANNER / "issue.sh", "label", "15", "--add", "factory:spec-run", SHIM_ISSUE_LABELS="spec")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gh issue edit 15 --add-label factory:spec-run", self.calls())
+        self.assertFalse([c for c in self.calls() if c.endswith("/parent --jq .number")])
+        # A ticket joins once its spec carries the label, when it is labelled or when it is created.
+        r = self.run_script(PLANNER / "issue.sh", "label", "12", "--add", "factory:spec-run",
+                            SHIM_PARENT="15", SHIM_PARENT_LABELS="spec,factory:spec-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("gh issue edit 12 --add-label factory:spec-run", self.calls())
+        r = self.run_script(PLANNER / "issue.sh", "create", "--title", "T", "--body-file", self.body(),
+                            "--label", "ready-for-agent", "--label", "factory:spec-run", "--parent", "15",
+                            SHIM_PARENT="15", SHIM_PARENT_LABELS="spec,factory:spec-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"gh issue create --title T --body-file {self.body()} --label ready-for-agent "
+                      "--label factory:spec-run", self.calls())
+
+    def test_the_spec_run_label_is_refused_where_a_spec_run_cannot_work_the_issue(self):
+        spec_run = {"SHIM_PARENT": "15", "SHIM_PARENT_LABELS": "spec,factory:spec-run"}
+        cases = (
+            (["--add", "factory:spec-run"], "spec,ready-for-agent,factory", spec_run,
+             "#12 would carry factory and factory:spec-run", "leave --add factory:spec-run off"),
+            (["--add", "factory"], "ready-for-agent,factory:spec-run", spec_run,
+             "#12 would carry factory and factory:spec-run", "--remove factory:spec-run"),
+            (["--add", "factory:spec-run"], "ready-for-human", spec_run,
+             "#12 would carry factory:spec-run and ready-for-human", "leave --add factory:spec-run off"),
+            (["--add", "factory:spec-run"], "ready-for-agent", {},
+             "#12 would carry factory:spec-run but is no spec and has no parent", "leave --add factory:spec-run off"),
+            (["--add", "factory:spec-run"], "ready-for-agent", {"SHIM_PARENT": "15"},
+             "#12 would carry factory:spec-run but its spec #15 does not", "issue.sh label 15 --add factory:spec-run"),
+            (["--add", "factory:spec-run"], "ready-for-agent", {"SHIM_PARENT_FAIL": "1"},
+             "could not read the parent of #12", ""),
+        )
+        for args, labels, env, text, fix in cases:
+            r = self.run_script(PLANNER / "issue.sh", "label", "12", *args, SHIM_ISSUE_LABELS=labels, **env)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn(f"error: {text}", r.stderr)
+            self.assertIn(fix, r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue edit")])
+        r = self.run_script(PLANNER / "issue.sh", "create", "--title", "T", "--body-file", self.body(),
+                            "--label", "ready-for-agent", "--label", "factory:spec-run")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("the new issue would carry factory:spec-run but is no spec and has no parent", r.stderr)
+        self.assertIn("leave --label factory:spec-run off", r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue create")])
+
     def test_labels_that_cannot_be_read_stop_the_call_instead_of_guessing(self):
         r = self.run_script(PLANNER / "issue.sh", "label", "99", "--add", "factory")
         self.assertNotEqual(r.returncode, 0)
