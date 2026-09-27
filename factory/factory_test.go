@@ -82,6 +82,7 @@ type apiRun struct {
 	Title        string     `json:"title"`
 	Branch       string     `json:"branch"`
 	Base         string     `json:"base"`
+	Spec         int        `json:"spec"`
 	Worktree     string     `json:"worktree"`
 	Holding      bool       `json:"holding"`
 	LetGoAt      *time.Time `json:"letGoAt"`

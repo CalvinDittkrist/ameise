@@ -21,17 +21,18 @@ const (
 
 // apiSpecRun is a spec run as the interface serves it.
 type apiSpecRun struct {
-	ID         int        `json:"id"`
-	Repository string     `json:"repository"`
-	Spec       int        `json:"spec"`
-	Branch     string     `json:"branch"`
-	Base       string     `json:"base"`
-	State      string     `json:"state"`
-	Idle       bool       `json:"idle"`
-	ClaimedAt  *time.Time `json:"claimedAt"`
-	LetGoAt    *time.Time `json:"letGoAt"`
-	Reason     string     `json:"reason"`
-	Events     []Event    `json:"events"`
+	ID         int          `json:"id"`
+	Repository string       `json:"repository"`
+	Spec       int          `json:"spec"`
+	Branch     string       `json:"branch"`
+	Base       string       `json:"base"`
+	State      string       `json:"state"`
+	Idle       bool         `json:"idle"`
+	ClaimedAt  *time.Time   `json:"claimedAt"`
+	LetGoAt    *time.Time   `json:"letGoAt"`
+	Reason     string       `json:"reason"`
+	Tickets    []SpecTicket `json:"tickets"`
+	Events     []Event      `json:"events"`
 }
 
 // routedSpecFixture is one repository with one spec routed to a spec run under the routing label, and
