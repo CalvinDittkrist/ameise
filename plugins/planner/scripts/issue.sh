@@ -11,7 +11,7 @@
 #        create with --parent and --milestone also attaches the parent to that milestone when it carries none
 #        create and label refuse the routing label factory without ready-for-agent, or next to ready-for-human
 #        create and label refuse factory:spec-run next to factory or ready-for-human, or on an issue that is
-#        no spec and whose parent does not carry it
+#        no spec and whose parent does not carry it, and create fails and drops it when no sub-issue can be made
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 wf_need gh; wf_need jq
@@ -66,6 +66,11 @@ case "$cmd" in
       id=$(wf_issue_db_id "$n")
       if [ -n "$id" ] && gh api --method POST "repos/$(wf_repo_nwo)/issues/$parent/sub_issues" -F sub_issue_id="$id" >/dev/null 2>&1; then
         wf_kv parent "#$parent (sub-issue)"
+      elif wf_labels_have "$WF_SPEC_RUN_LABEL" "${labels[@]+"${labels[@]}"}"; then
+        # A spec run finds its tickets through the sub-issues, so a ticket outside them loses the label.
+        gh issue edit "$n" --remove-label "$WF_SPEC_RUN_LABEL" >/dev/null \
+          || wf_warn "removing $WF_SPEC_RUN_LABEL from #$n failed; remove it on GitHub"
+        wf_die "#$n could not become a sub-issue of #$parent, so it cannot join the spec run and lost $WF_SPEC_RUN_LABEL. Attach it to #$parent on GitHub, then run issue.sh label $n --add $WF_SPEC_RUN_LABEL."
       else
         wf_kv parent "#$parent (body only; sub-issues unavailable here)"
       fi

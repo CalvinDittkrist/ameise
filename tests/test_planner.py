@@ -169,6 +169,15 @@ class IssueScriptTests(PlanWorktree):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("parent: #12 (body only", r.stdout)
 
+    def test_create_drops_the_spec_run_label_when_the_ticket_cannot_become_a_sub_issue(self):
+        r = self.run_script(PLANNER / "issue.sh", "create", "--title", "T", "--body-file", self.body(),
+                            "--label", "ready-for-agent", "--label", "factory:spec-run", "--parent", "15",
+                            SHIM_PARENT="15", SHIM_PARENT_LABELS="spec,factory:spec-run", SHIM_NO_SUBISSUES="1")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("error: #42 could not become a sub-issue of #15", r.stderr)
+        self.assertIn("issue.sh label 42 --add factory:spec-run", r.stderr)
+        self.assertIn("gh issue edit 42 --remove-label factory:spec-run", self.calls())
+
     def test_block_wires_native_dependencies_by_database_id(self):
         r = self.run_script(PLANNER / "issue.sh", "block", "42", "--by", "40,#41")
         self.assertEqual(r.returncode, 0, r.stderr)
