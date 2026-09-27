@@ -25,9 +25,15 @@ const (
 
 // codexModel is the model a Codex session runs on, named in the call (-m): no event of `codex exec
 // --json` names the model, so the record knows it from the call alone (the prototype of 2026-09-27 on
-// #230, with codex-cli 0.155.0). It is a Codex model whose scope quota-axi 0.1.49 reports, as
-// model:codex_bengalfox (scopeAliases), so the quota check reads the scope it spends.
-const codexModel = "gpt-5.3-codex"
+// #230, with codex-cli 0.155.0). GPT-6-Sol is the coding model of the catalog of codex-cli 0.155.0
+// that a ChatGPT login may run: on 2026-09-27 the host's login was refused gpt-5.3-codex ("not
+// supported when using Codex with a ChatGPT account"). quota-axi 0.1.55 reports no scope of its own for
+// it, so the check reads it on all_models.
+const codexModel = "gpt-6-sol"
+
+// codexReasoning is the reasoning effort a Codex session runs with, passed as a configuration override:
+// the catalog's default for the model is low, and a reviewer reads a whole change.
+const codexReasoning = "high"
 
 // codexLoginTimeout is how long `codex login status` may take before a run that needs Codex starts.
 const codexLoginTimeout = 30 * time.Second
@@ -53,6 +59,7 @@ func (s session) on() string {
 func codexCommand(ctx context.Context, s session, claim claimed) *exec.Cmd {
 	args := []string{"exec", "--sandbox", "read-only", "--cd", claim.worktree, "--ephemeral", "--skip-git-repo-check",
 		"--ignore-user-config", "--ignore-rules",
+		"-c", "model_reasoning_effort=\"" + codexReasoning + "\"",
 		"--output-schema", s.schemaFile, "--json", "-o", s.lastMessage, "-m", s.model, s.prompt}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = claim.worktree

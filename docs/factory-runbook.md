@@ -703,7 +703,8 @@ Every session runs on a runtime, `claude` or `codex` ([ADR 0052](adr/0052-sessio
 
 - It runs `codex exec` in the run's worktree, in the read-only sandbox, with `--json`, `--ephemeral` and its standard input closed.
 - It runs with `--ignore-user-config` and `--ignore-rules`: no MCP server, hook or rule of `~/.codex` or of the worktree reaches it. The login in `~/.codex` still holds.
-- Its model is `gpt-5.3-codex`, passed with `-m`. quota-axi reports its quota as the scope `model:codex_bengalfox`. The reviewer schema goes to `--output-schema` as a file.
+- Its model is `gpt-6-sol`, passed with `-m`, at the reasoning effort `high` (`-c model_reasoning_effort`). A ChatGPT login is refused `gpt-5.3-codex`.
+- quota-axi reports no scope of its own for that model, so the check reads its `all_models`. The reviewer schema goes to `--output-schema` as a file.
 - Its last message, written to the file of `-o`, is its result. The factory reads it with the checks of a Claude reviewer's result.
 - The run record lists every session under `sessions` with its stage, runtime and model. The log names them on each `worker started`.
 - Codex reports tokens and no cost, so the run's `costUsd` leaves a Codex session out.

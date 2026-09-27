@@ -261,10 +261,6 @@ func runtimesOf(spent map[string][]string) []string {
 	return out
 }
 
-// scopeAliases is the scope quota-axi 0.1.49 reports for a model whose scope carries another name than
-// the model's (its model-kb.js): gpt-5.3-codex is spent on model:codex_bengalfox.
-var scopeAliases = map[string]string{"gpt-5.3-codex": "codex_bengalfox"}
-
 // modelScope says whether a scope of quota-axi is the one of this model: model:opus is the scope of
 // opus, of claude-opus-4-1 and of opus[1m] alike, because a model is named by its family in every
 // spelling Claude Code takes.
@@ -275,9 +271,6 @@ func modelScope(name, model string) bool {
 	}
 	if strings.EqualFold(family, model) {
 		return true // a Codex model's scope carries its whole name, model:gpt-5.1-codex
-	}
-	if alias, ok := scopeAliases[strings.ToLower(model)]; ok && strings.EqualFold(family, alias) {
-		return true
 	}
 	words := strings.FieldsFunc(strings.ToLower(model), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)

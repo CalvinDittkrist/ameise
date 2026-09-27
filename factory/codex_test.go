@@ -175,8 +175,9 @@ func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 		if call.arg("--output-schema") == "" || call.schema != reviewSchema {
 			t.Errorf("Codex session %d was held to the schema file %q holding %q, want the reviewer's schema", i+1, call.arg("--output-schema"), call.schema)
 		}
-		if call.arg("-o") == "" || call.arg("-m") != codexModel {
-			t.Errorf("Codex session %d wrote its last message to %q on the model %q, want a file and %s", i+1, call.arg("-o"), call.arg("-m"), codexModel)
+		if call.arg("-o") == "" || call.arg("-m") != codexModel || call.arg("-c") != `model_reasoning_effort="`+codexReasoning+`"` {
+			t.Errorf("Codex session %d wrote its last message to %q on the model %q with the override %q, want a file, %s and the reasoning effort %s",
+				i+1, call.arg("-o"), call.arg("-m"), call.arg("-c"), codexModel, codexReasoning)
 		}
 		if call.stdin != "0" {
 			t.Errorf("Codex session %d read %s bytes on its standard input, want it closed", i+1, call.stdin)
@@ -330,7 +331,7 @@ func codexChecks(t *testing.T, q *quotaShim) []quotaCall {
 func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	t.Parallel()
 	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
-	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 codex_bengalfox=5 reset=+3", "all=80 codex_bengalfox=60 reset=+3600"})
+	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 gpt-6-sol=5 reset=+3", "all=80 gpt-6-sol=60 reset=+3600"})
 	until := f.waitsForQuota(t)
 	if !f.missing(t, 1) {
 		t.Fatalf("a run started while the factory waits for the Codex quota; the factory's log:\n%s", f.output(t))
@@ -343,8 +344,8 @@ func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	if checks := codexChecks(t, q); len(checks) != 2 {
 		t.Errorf("the factory asked quota-axi for Codex %d times, want twice: before the reset and after it", len(checks))
 	}
-	if !strings.Contains(f.output(t), "5 % of codex model:codex_bengalfox is left") {
-		t.Errorf("the factory's log does not say it waited for the Codex scope model:codex_bengalfox of %s:\n%s", codexModel, f.output(t))
+	if !strings.Contains(f.output(t), "5 % of codex model:gpt-6-sol is left") {
+		t.Errorf("the factory's log does not say it waited for the Codex scope model:gpt-6-sol of %s:\n%s", codexModel, f.output(t))
 	}
 	if len(codex.calls(t)) != 1 {
 		t.Errorf("the run started %d Codex sessions, want its one reviewer", len(codex.calls(t)))
@@ -436,7 +437,7 @@ func TestTheCodexQuotaHoldsBackAResumedReviewWhosePanelRecordedCodex(t *testing.
 
 	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 codex_bengalfox=5 reset=+3600\n")
+	writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 gpt-6-sol=5 reset=+3600\n")
 	c := ciConfig(data, nil)
 	c["quota_axi"] = q.path
 	f := launch(t, c, append(append(gh.env, q.env...), "QUOTA_SHIM_CODEX_PLAN="+filepath.Join(dir, "codex-plan")))
