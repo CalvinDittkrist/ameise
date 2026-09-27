@@ -74,9 +74,9 @@ else
   git worktree prune
   git branch -D "$branch" >/dev/null 2>&1 || true
 fi
-# GitHub closes the issues a pull request links only when it merges into the default branch, so a merge into
-# another branch, such as the spec branch of a spec run, closes the issue of the head branch here, with a comment
-# that names the pull request. The issue is the one of the branch contract; a fork's branch names none of ours.
+# GitHub closes the issues a pull request links only when it merges into the default branch. A merge into another
+# branch, such as the spec branch of a spec run, closes the issue of the head branch here. A comment names the
+# pull request. The issue is the one of the branch contract; a fork's branch names none of ours.
 closed=""
 basebr=$(printf '%s' "$json" | jq -r .baseRefName)
 issue=""

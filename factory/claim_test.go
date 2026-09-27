@@ -916,9 +916,9 @@ func TestTheCompactPinAgreesWithTheOrchestratorsClaim(t *testing.T) {
 // The spec branch is the branch contract with spec as its type: spec/<number>-<slug>. The factory
 // creates it (specBranchName) and finds it again on the remote (remoteSpecBranch); a local claim of a
 // developer's own ticket of a spec run finds it on the remote to take it as its base
-// (wf_remote_spec_branch in the orchestrator's lib.sh). This holds the name the factory creates to the
-// slug of the shell, and runs both lookups over one remote that carries spec branches and near misses
-// of them, so the ticket is cut from the branch the factory integrates on ([ADR 0022]).
+// (wf_remote_spec_branch in the orchestrator's lib.sh). This binds the name the factory creates to the
+// slug of the shell. It runs both lookups over one remote with spec branches and near misses of them.
+// So the ticket is cut from the branch the factory integrates on ([ADR 0022]).
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 func TestTheSpecBranchAgreesWithTheOrchestratorsShell(t *testing.T) {
