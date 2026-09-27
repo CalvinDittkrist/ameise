@@ -29,8 +29,8 @@
 # A request without an answer fails, so a call the factory makes and the test did not plan for is
 # seen rather than answered with nothing. The calls of the pr and ci stages are the exception:
 # unanswered, the issue has a text, the pull request is opened and it is green, because nearly every
-# run goes through those stages. So is the list of routed specs, which is empty unanswered, because
-# every poll reads it.
+# run goes through those stages. So are the list of routed specs and the sub-issues of a held spec,
+# which are empty unanswered, because every poll reads them.
 set -u
 
 request="$*"
@@ -185,8 +185,30 @@ case "$request" in
   # a test of a spec run answers them.
   "api repos/"*"/issues?labels=spec,"*"&state=open&per_page=100")
     echo '[]'; exit 0 ;;
+  # The sub-issues of a held spec, which every poll reads: none, unless a test of a ticket run
+  # answers them.
+  "api repos/"*"/issues/"*"/sub_issues?per_page=100")
+    echo '[]'; exit 0 ;;
   "api graphql --input -")
     echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'; exit 0 ;;
+  # The two calls of the merge stage. The squash merge is done on the local repository: the pull
+  # request of the branch of its number is merged into the base it was opened against, as one commit
+  # under the commit title the body names. The ticket's closing goes through.
+  "api --method PUT repos/"*"/pulls/"*"/merge --input -")
+    rest=${4#repos/}; repository=${rest%%/pulls/*}; number=${rest#*/pulls/}; number=${number%/merge}
+    remote="${GH_SHIM_REMOTES:-/nowhere}/${repository%%/*}-${repository#*/}"
+    branch=$(git -C "$remote" for-each-ref --format='%(refname:lstrip=2)' refs/heads 2>/dev/null | grep -m1 "^[a-z]*/$number-" || true)
+    opened="${GH_SHIM_BODIES:-/nowhere}/$(printf '%s' "api --method POST repos/$repository/pulls --input -" | tr -c 'A-Za-z0-9' '-')"
+    base=$(grep -h "\"head\":\"$branch\"" "$opened" 2>/dev/null | tail -1 | sed -n 's/.*"base":"\([^"]*\)".*/\1/p')
+    title=$(printf '%s' "$input" | sed -n 's/.*"commit_title":"\([^"]*\)".*/\1/p')
+    [ -n "$branch" ] && [ -n "$base" ] || { echo "gh: Pull Request #$number is not mergeable (HTTP 405)" >&2; exit 1; }
+    tree=$(git -C "$remote" merge-tree --write-tree "refs/heads/$base" "refs/heads/$branch" 2>/dev/null) || { echo "gh: Merge conflict (HTTP 405)" >&2; exit 1; }
+    squash=$(git -C "$remote" -c user.name=github -c user.email=github@example.com commit-tree "${tree%%$'\n'*}" -p "refs/heads/$base" -m "$title")
+    git -C "$remote" update-ref "refs/heads/$base" "$squash"
+    printf '{"sha":"%s","merged":true,"message":"Pull Request successfully merged"}\n' "$squash"
+    exit 0 ;;
+  "issue close "*" --repo "*)
+    exit 0 ;;
   # The two calls of the pr stage: the issue its author is briefed with, and the pull request it
   # opens, numbered after the issue of the branch it is opened from.
   "issue view "*" --repo "*" --json title,body")

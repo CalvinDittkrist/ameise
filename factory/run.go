@@ -20,7 +20,8 @@ import (
 // The outcomes of the vocabulary. A run in fake mode reaches ready, blocked, failed, timeout and
 // interrupted; lost is the race another claimer won ([ADR 0024]), cancelled is a run a decision on
 // GitHub ended (the routing label taken off its issue, or the issue closed, [ADR 0023]), and quota
-// a session that ended in an error on a used-up quota ([ADR 0037]).
+// a session that ended in an error on a used-up quota ([ADR 0037]). merged is a ticket run of a spec
+// run whose pull request the merge stage squash-merged into the spec branch (merge.go).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0024]: ../docs/adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md
@@ -34,6 +35,7 @@ const (
 	outcomeLost        = "lost"
 	outcomeCancelled   = "cancelled"
 	outcomeQuota       = "quota"
+	outcomeMerged      = "merged"
 )
 
 // What put a run in the line. routed is an issue taken from the queue of routed issues; the others
@@ -90,6 +92,9 @@ type Run struct {
 	// lost run carries the branch too: it is the one another claimer holds the issue by.
 	Branch string `json:"branch"`
 	Base   string `json:"base"`
+	// Spec is the spec whose spec run this run is a ticket run of, and zero for a run of a routed issue.
+	// A ticket run's base is the spec branch, and its spec run's record lists it (merge.go).
+	Spec int `json:"spec,omitempty"`
 	// Worktree is where the worker ran: the directory the claim made in this host's clone, and the
 	// one a resumed run of this issue continues in, on the commits that are there. Empty in fake
 	// mode, which claims nothing, and for a claim that never got that far.

@@ -225,12 +225,12 @@ func loginName(runtime string) string {
 // inheriting the worker's, and on Codex the model of every reviewer that runs there. A runtime no
 // session of the run starts on is not in it. A review the run resumes goes on with the reviewers its
 // panel recorded, which a changed configuration may no longer name, so they are in it as well.
-func (f *Factory) spends(repository string, recorded *Panel) map[string][]string {
+func (f *Factory) spends(repository string, spec int, recorded *Panel) map[string][]string {
 	models := map[string][]string{runtimeClaude: {f.settings.WorkerModel}}
 	// Which change class a run's change is of is known only once it is made, so every reviewer a class
 	// of the repository names may run, beside the panel and the validators.
 	knobs := f.reviewFor(repository)
-	names := append(slices.Clone(knobs.Reviewers), f.validateFor(repository).Validators...)
+	names := append(slices.Clone(knobs.Reviewers), f.validateFor(repository, spec).Validators...)
 	for _, class := range knobs.Classes {
 		names = append(names, class.Reviewers...)
 	}
@@ -301,7 +301,7 @@ func (f *Factory) quotaAllows(ctx context.Context, entry Entry) (bool, string) {
 	if f.settings.QuotaAxi == "" {
 		return true, ""
 	}
-	spent := f.spends(entry.Repository, entry.resume.Panel)
+	spent := f.spends(entry.Repository, entry.specOf(), entry.resume.Panel)
 	failures := []string{}
 	for _, runtime := range runtimesOf(spent) {
 		read, err := f.readQuota(ctx, runtime, spent[runtime])
@@ -340,11 +340,11 @@ func (f *Factory) quotaAllows(ctx context.Context, entry Entry) (bool, string) {
 // runtime of the session that failed is used up, and until when. Only then is the error the quota's rather than the issue's. A check
 // that cannot answer says no, and the run is failed like any other: fail open here means that the
 // run's outcome is what the factory knows, not what it guesses.
-func (f *Factory) quotaExhausted(ctx context.Context, repository string, recorded *Panel, runtime string) (bool, string, time.Time, error) {
+func (f *Factory) quotaExhausted(ctx context.Context, repository string, spec int, recorded *Panel, runtime string) (bool, string, time.Time, error) {
 	if f.settings.QuotaAxi == "" {
 		return false, "", time.Time{}, nil
 	}
-	read, err := f.readQuota(ctx, runtime, f.spends(repository, recorded)[runtime])
+	read, err := f.readQuota(ctx, runtime, f.spends(repository, spec, recorded)[runtime])
 	if err != nil {
 		return false, "", time.Time{}, err
 	}

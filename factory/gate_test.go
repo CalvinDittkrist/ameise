@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,6 +372,17 @@ func TestARestartEndsTheGateOfAResumeThatOutlivedTheFactory(t *testing.T) {
 		}
 		pid, err = strconv.Atoi(strings.TrimSpace(string(raw)))
 		return err == nil
+	})
+	// The gate writes its number as soon as it starts, which can be before the factory has recorded its
+	// group; a kill in between leaves the next start nothing to find, so the kill waits for the record.
+	first.eventually(t, 30*time.Second, "the run record to hold the gate's process group", func() bool {
+		raw, err := os.ReadFile(filepath.Join(data, "run-2.json"))
+		if err != nil {
+			return false
+		}
+		var run Run
+		group, err := syscall.Getpgid(pid)
+		return err == nil && json.Unmarshal(raw, &run) == nil && slices.Contains(survivorGroups(run), group)
 	})
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	first.stop(t, syscall.SIGKILL) // a kill of the factory alone, not of the host

@@ -69,6 +69,9 @@ type ghIssue struct {
 	// ParentIssueURL is the API address of the issue this one is a sub-issue of, and empty for an issue
 	// without a parent. A ticket whose parent is a spec run is that spec run's and never the line's.
 	ParentIssueURL string `json:"parent_issue_url"`
+	// RepositoryURL is the API address of the repository the issue is in. A sub-issue may be in
+	// another repository than its parent.
+	RepositoryURL string `json:"repository_url"`
 	// Dependencies is GitHub's summary of the issues that block this one; blocked_by counts the open
 	// ones, which is what "no open blocker" means.
 	Dependencies struct {
@@ -131,6 +134,12 @@ type ghPull struct {
 	State  string `json:"state"`
 	Merged bool   `json:"merged"`
 	Head   ghHead `json:"head"`
+	// Title is the pull request's title, which the merge stage squash-merges a ticket's pull request
+	// under (merge.go).
+	Title string `json:"title"`
+	// Base is the branch the pull request goes into, which the merge stage checks is the spec branch
+	// before it merges (merge.go).
+	Base ghHead `json:"base"`
 }
 
 // ghHead is what a pull request is of: the branch and the repository it was opened from. It is read
@@ -248,6 +257,9 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 		result.specs = append(result.specs, specs...)
 	}
 	g.readHeld(ctx, held, &result, seen)
+	for _, ticket := range result.tickets {
+		seen[ticket.key()] = true
+	}
 	g.settle(result.unreadable, read, seen)
 	return result
 }
@@ -323,6 +335,17 @@ func (g *gitHub) readHeldPass(ctx context.Context, held []Held, result *poll) {
 		}
 		g.readable(g.issueWarnings, key) // it answered, so the next failure is reported anew
 		switch {
+		case decision == "" && issue.Spec:
+			// A spec this factory goes on holding is where its tickets are read, on the budget of the specs.
+			tickets, err := g.specTickets(pass, issue)
+			if err != nil {
+				if ctx.Err() == nil {
+					g.warn(g.issueWarnings, specKey(key), "error: the tickets of the spec %s could not be read: %v; the spec run takes none of them until they can be", key, err)
+				}
+				continue
+			}
+			g.readable(g.issueWarnings, specKey(key))
+			result.tickets = append(result.tickets, tickets...)
 		case decision == "":
 		case issue.Spec:
 			result.letGoSpecs[key] = decision
@@ -376,11 +399,29 @@ func (g *gitHub) decided(ctx context.Context, held Held) (string, error) {
 		}
 		return "", nil
 	}
+	// A ticket of a spec run is routed by the spec-run label and not by the routing label, so that is
+	// the label whose removal takes it back.
+	label, which := g.label, "the routing label "
+	if held.Ticket {
+		label, which = specRunLabel(g.label), "the spec-run label "
+	}
 	switch {
+	case issue.State == "closed" && held.Ticket && held.PullRequest != "":
+		// A ticket closed after its pull request was merged into the spec branch is recorded on its spec
+		// run before it is let go, so the pull request is read for it.
+		// A pull request that cannot be read is asked again on the next poll rather than lost.
+		decision, err := g.decidedOnPull(ctx, held)
+		if err != nil {
+			return "", err
+		}
+		if decision == mergedDecision(held.PullRequest) {
+			return mergedClosedDecision(held.PullRequest), nil
+		}
+		return "the issue was closed", nil
 	case issue.State == "closed":
 		return "the issue was closed", nil
-	case !issue.hasLabel(g.label):
-		return "the routing label " + g.label + " was taken off the issue", nil
+	case !issue.hasLabel(label):
+		return which + label + " was taken off the issue", nil
 	case held.PullRequest == "":
 		return "", nil
 	}
@@ -413,8 +454,12 @@ func (g *gitHub) decidedOnPull(ctx context.Context, held Held) (string, error) {
 		return "", nil
 	}
 	switch {
+	case pull.Merged && held.Ticket && held.Base != "" && pull.Base.Ref != held.Base:
+		// A ticket's pull request a person turned to another branch and merged there never reached the
+		// spec branch: the ticket is let go and not recorded merged.
+		return "the pull request " + held.PullRequest + " was merged into " + pull.Base.Ref + " and not into the spec branch " + held.Base, nil
 	case pull.Merged:
-		return "the pull request " + held.PullRequest + " was merged", nil
+		return mergedDecision(held.PullRequest), nil
 	case pull.State == "closed":
 		return "the pull request " + held.PullRequest + " was closed", nil
 	}

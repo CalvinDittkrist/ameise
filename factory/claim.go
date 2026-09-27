@@ -69,6 +69,12 @@ func (f *Factory) claim(ctx context.Context, r *Run, entry Entry) (claimed, erro
 	if err != nil {
 		return claimed{}, err
 	}
+	// A ticket of a spec run is cut from the spec branch, which is its base from here on.
+	if issue.spec != 0 {
+		if base, err = f.ticketBase(ctx, r, clone, base, issue); err != nil {
+			return claimed{}, err
+		}
+	}
 	// A branch of this issue on the remote is a claim somebody has made already, whatever slug its
 	// title spelled at the time. GitHub refuses the second creation of one reference, not the second
 	// claim of one issue, so two claimers on opposite sides of an edited title (or of an edited
