@@ -75,7 +75,7 @@ WF_SPEC_RUN_LABEL=factory:spec-run
 # label, $3 the parent's number (empty for none, read only when the set carries no spec label), the rest is
 # the label set the call would leave behind.
 wf_require_spec_run() {
-  local subject="$1" drop="$2" parent="$3" plabels; shift 3
+  local subject="$1" drop="$2" parent="$3" plabels l; shift 3
   wf_labels_have "$WF_SPEC_RUN_LABEL" "$@" || return 0
   if wf_labels_have "$WF_ROUTING_LABEL" "$@"; then
     wf_die "$subject would carry $WF_ROUTING_LABEL and $WF_SPEC_RUN_LABEL: a spec run routes its tickets itself, so an issue carries one of the two. Drop one of them; $drop, or drop $WF_ROUTING_LABEL."
@@ -85,8 +85,10 @@ wf_require_spec_run() {
   fi
   wf_labels_have spec "$@" && return 0
   [ -n "$parent" ] || wf_die "$subject would carry $WF_SPEC_RUN_LABEL but is no spec and has no parent: the label marks a spec and the tickets of its spec run. Label the spec, or make the issue a ticket of a spec that carries it; $drop."
-  plabels=$(wf_issue_labels "$parent")
-  printf '%s\n' "$plabels" | grep -qxF -e "$WF_SPEC_RUN_LABEL" \
+  # The parent's labels, one per line, become the positional parameters, so each name reaches wf_labels_have whole.
+  plabels=$(wf_issue_labels "$parent"); set --
+  while IFS= read -r l; do set -- "$@" "$l"; done <<< "$plabels"
+  wf_labels_have "$WF_SPEC_RUN_LABEL" "$@" \
     || wf_die "$subject would carry $WF_SPEC_RUN_LABEL but its spec #$parent does not: a ticket joins a spec run only once its spec is one. Label #$parent first with issue.sh label $parent --add $WF_SPEC_RUN_LABEL, or $drop."
 }
 # The number of the parent of issue $1 (its spec), or empty when it has none. A failed read other than
