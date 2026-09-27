@@ -56,14 +56,30 @@ if [ -n "$nwo" ]; then
     | while read -r b; do wf_issue_from_branch "$b"; done | jq -R -s -c 'split("\n") | map(select(. != "") | tonumber)')
   ready_unreadable=0
   ready=$(gh api "repos/$nwo/issues?labels=ready-for-agent&state=open&per_page=100" 2>/dev/null) || { ready='[]'; ready_unreadable=1; }
-  # A routed issue is the factory's, and claim.sh refuses it, so the frontier does not offer it either.
-  printf '%s' "$ready" | jq -r --argjson claimed "$claimed" --arg routing "$WF_ROUTING_LABEL" '
+  # A routed issue is the factory's, and claim.sh refuses it, so the frontier does not offer it either. A ticket
+  # of a spec run is the factory's too: it carries the spec-run label, and its parent carries it as well.
+  free=$(printf '%s' "$ready" | jq -c --argjson claimed "$claimed" --arg routing "$WF_ROUTING_LABEL" --arg run "$WF_SPEC_RUN_LABEL" '
     [.[] | select(.pull_request == null)] as $all
-    | [$all[] | select((.assignees|length) == 0 and ((.issue_dependencies_summary.blocked_by // 0) == 0)
-        and ([.labels[]?.name] | index($routing) | not) and (.number as $n | $claimed | index($n) | not))] as $free
-    | "frontier[\($free|length)]{issue,milestone,title}:",
-      ($free[] | "  \(.number),\(.milestone.title // "-" | gsub("[[:cntrl:]\u2028\u2029]"; " ")),\(.title | gsub("[[:cntrl:]\u2028\u2029]"; " "))"),
-      (if ($all|length) > ($free|length) then "waiting: \(($all|length) - ($free|length)) ready-for-agent issue(s) blocked, assigned, routed to the factory or claimed" else empty end)'
+    | {all: ($all|length), free: [$all[] | select((.assignees|length) == 0 and ((.issue_dependencies_summary.blocked_by // 0) == 0)
+        and ([.labels[]?.name] | (index($routing) or index($run)) | not) and (.number as $n | $claimed | index($n) | not))]}')
+  # A free issue with a parent is a ticket of a spec run when its parent carries the spec-run label, the rule
+  # the factory applies to its line. A parent that cannot be read leaves the issue out, as it does there.
+  parent_unknown=0
+  for n in $(printf '%s' "$free" | jq -r '.free[] | select((.parent_issue_url // "") != "") | .number'); do
+    if parent=$(gh api "repos/$nwo/issues/$n/parent" 2>/dev/null) \
+      && in_run=$(printf '%s' "$parent" | jq -r --arg run "$WF_SPEC_RUN_LABEL" \
+        'if (.number // 0) > 0 then any(.labels[]?; .name == $run) else error("no issue") end' 2>/dev/null); then
+      [ "$in_run" = false ] && continue
+    else
+      parent_unknown=$((parent_unknown+1))
+    fi
+    free=$(printf '%s' "$free" | jq -c --argjson n "$n" '.free |= map(select(.number != $n))')
+  done
+  printf '%s' "$free" | jq -r '
+    "frontier[\(.free|length)]{issue,milestone,title}:",
+      (.free[] | "  \(.number),\(.milestone.title // "-" | gsub("[[:cntrl:]\u2028\u2029]"; " ")),\(.title | gsub("[[:cntrl:]\u2028\u2029]"; " "))"),
+      (if .all > (.free|length) then "waiting: \(.all - (.free|length)) ready-for-agent issue(s) blocked, assigned, routed to the factory, in a spec run or claimed" else empty end)'
+  if [ "$parent_unknown" != 0 ]; then printf 'note: could not read the parent of %s ready-for-agent issue(s); they are left out, since a ticket of a spec run is the factory'"'"'s.\n' "$parent_unknown"; fi
   if [ "$ready_unreadable" != 0 ]; then printf 'note: could not read the agent-ready issues; the frontier is empty, not idle.\n'; fi
 
   # Ready for acceptance: open specs with native sub-issues, all of them closed. Derived per run, no state.

@@ -103,6 +103,38 @@ if wf_issue_has_label "$json" "$WF_ROUTING_LABEL"; then
   fi
 fi
 
+# A ticket of a spec run is the factory's as well: it works the ticket on the spec branch and merges it there.
+if wf_issue_has_label "$json" "$WF_SPEC_RUN_LABEL"; then
+  if [ "$force" = 1 ]; then
+    wf_warn "issue #$issue is a ticket of a spec run (labels: $labels); claiming it locally anyway because --force was given. The factory may work it on the spec branch at the same time."
+  else
+    wf_die "issue #$issue is a ticket of a spec run (labels: $labels): the factory works it on the spec branch of its spec. Remove the label $WF_SPEC_RUN_LABEL from it to work on it locally, or claim it anyway with --force."
+  fi
+fi
+
+# A developer's own ticket of a spec run (ready-for-human, its parent carrying the spec-run label) belongs on
+# the spec branch the factory created for the spec, so that branch is its base unless --base names another.
+# A parent that cannot be read, and a spec run without a spec branch on origin yet, leave the usual base.
+spec_note=""
+if [ -z "$given_base" ] && wf_issue_has_label "$json" ready-for-human; then
+  nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
+  if [ -n "$nwo" ] && parent=$(gh api "repos/$nwo/issues/$issue/parent" 2>&1); then
+    parent_number=$(printf '%s' "$parent" | jq -r '.number // empty' 2>/dev/null || true)
+    if [ -n "$parent_number" ] && wf_issue_has_label "$parent" "$WF_SPEC_RUN_LABEL"; then
+      if ! spec_branch=$(wf_remote_spec_branch "$parent_number"); then
+        wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, and the branches of origin could not be read; branching from $base instead of its spec branch. Name the spec branch with --base."
+      elif [ -z "$spec_branch" ]; then
+        wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, which has no spec branch spec/$parent_number-<slug> on origin yet; branching from $base."
+      else
+        base="$spec_branch"; given_base="$spec_branch"
+        spec_note="the spec branch of the spec run of #$parent_number"
+      fi
+    fi
+  elif [ -n "$nwo" ]; then
+    case "$parent" in *"HTTP 404"*) ;; *) wf_warn "could not read the parent of issue #$issue; branching from $base. A ticket of a spec run names its spec branch with --base." ;; esac
+  fi
+fi
+
 # A claim on the remote is the creation of the issue's branch there, so a remote branch of the contract's
 # shape belongs to another claimer. Looked up by issue number like the worktree above, because the branch
 # type follows the labels and the other claimer may have seen different ones. Only read when there is an
@@ -141,7 +173,7 @@ fi
 
 wf_create_worktree "$branch" "$baseref" "#$issue $(wf_slug "$title" | cut -c1-24)"
 if [ "${WF_DRY_RUN:-0}" = 1 ]; then
-  wf_kv issue "#$issue"; wf_kv branch "$branch"; wf_kv base "$baseref"; wf_kv mode "$mode"; wf_kv sandbox "$sandbox"
+  wf_kv issue "#$issue"; wf_kv branch "$branch"; wf_kv base "$baseref${spec_note:+ ($spec_note)}"; wf_kv mode "$mode"; wf_kv sandbox "$sandbox"
   [ -n "$env_names" ] && wf_kv env "$env_names"
   wf_kv status "dry-run"; exit 0
 fi
@@ -157,6 +189,7 @@ wf_start_worker "$sandbox" "issue-$issue" "#$issue" "$settings" /worker:work
 
 wf_kv issue "#$issue $title"
 wf_kv branch "$branch"
+[ -n "$spec_note" ] && wf_kv base "$base ($spec_note)"
 wf_kv path "$path"
 wf_kv workspace "$ws"
 wf_kv pane "$pane"
