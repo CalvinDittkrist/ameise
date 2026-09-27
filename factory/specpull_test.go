@@ -235,3 +235,37 @@ func TestLettingASpecGoDuringATicketRunCancelsItAndLetsTheTicketGo(t *testing.T)
 		})
 	}
 }
+
+// Letting a spec go while its spec pull request is open and ready leaves that pull request open for a
+// person: the spec run ends let-go with the pull request still on it and says so, and the factory
+// closes nothing and cancels no run.
+func TestLettingASpecGoLeavesItsOpenSpecPullRequestOpen(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+	gh.specPullIs(t, false)
+	gh.unassigns(t, "acme/edge-sensors", specNumber, "factory-bot")
+	f := gh.work(t, ticketConfig(data, nil, nil))
+	run := f.ended(t, 1)
+	if run.Issue != specNumber || run.Signal != signalSpecPull || run.Outcome != outcomeReady || run.PullRequest != specPullURL {
+		t.Fatalf("run 1 worked #%d on %q and ended %q with %q (%s), want the spec pull request of #%d ready; the factory's log:\n%s",
+			run.Issue, run.Signal, run.Outcome, run.PullRequest, run.Reason, specNumber, f.output(t))
+	}
+
+	gh.heldSpec(t, func(i issueJSON) issueJSON {
+		i["labels"] = []any{map[string]any{"name": specLabel}}
+		return i
+	})
+	spec := f.specRunIn(t, specLetGo)
+	if spec.PullRequest != specPullURL || !strings.Contains(spec.Reason, specPullURL+" stays open") {
+		t.Errorf("the spec run was let go with the spec pull request %q for %q, want %s kept and said to stay open", spec.PullRequest, spec.Reason, specPullURL)
+	}
+	if now := f.runNow(t, 1); now.Outcome != outcomeReady || now.PullRequest != specPullURL {
+		t.Errorf("the run of the spec pull request is %q with %q after the letting-go, want it ready with %s", now.Outcome, now.PullRequest, specPullURL)
+	}
+	for _, call := range gh.calls(t) {
+		if strings.HasPrefix(call, "pr close") || strings.Contains(call, "state=closed") {
+			t.Errorf("the factory closed the spec pull request: %s", call)
+		}
+	}
+}
