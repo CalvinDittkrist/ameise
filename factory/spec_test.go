@@ -35,6 +35,7 @@ type apiSpecRun struct {
 	PullRequest string       `json:"pullRequest"`
 	DoneAt      *time.Time   `json:"doneAt"`
 	WaitingOn   []int        `json:"waitingOn"`
+	Waiting     []int        `json:"waiting"`
 	Events      []Event      `json:"events"`
 }
 
