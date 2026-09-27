@@ -635,7 +635,8 @@ Every session runs on a runtime, `claude` or `codex` ([ADR 0052](adr/0052-sessio
 - Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and that `codex login status` passes.
 - When either fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue. Install or log in ([Installation](#installation)), then release the issue.
 - A Codex turn that fails on its usage limit ends the run `quota` when quota-axi reads the Codex quota used up. The factory resumes it after the reset.
-- A resumed review goes on with the reviewers its panel recorded. The quota check reads the Codex quota for it when that panel names `codex`, even if the configuration no longer does.
+- A resumed review goes on with the reviewers its panel recorded.
+- The quota check reads the Codex quota for it when that panel names `codex`, even if the configuration no longer does.
 
 #### Change classes
 A repository may carry an ordered list of change classes under `review.classes` ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). Each class has:

@@ -98,7 +98,8 @@ The reviewers of the review stage read the same text and get the same bounds:
 The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)):
 
 - It runs `codex exec` in Codex's read-only sandbox. It may run commands that read, and the sandbox refuses a write.
-- The sandbox bounds only the shell commands. So the call drops the host user's Codex configuration and every execpolicy rule, of the user and of the worktree (`--ignore-user-config`, `--ignore-rules`). No MCP server or hook configured in `~/.codex` reaches it. Its login there still holds.
+- The sandbox bounds only the shell commands. So the call drops the host user's Codex configuration and every execpolicy rule, of the user and of the worktree (`--ignore-user-config`, `--ignore-rules`).
+- No MCP server or hook configured in `~/.codex` reaches it. Its login there still holds.
 - No part of `worker_args` reaches it.
 - Its last message is read with the checks of every reviewer. A verdict that passes a finding it rates S1 or S2 is read as `fix`.
 - That check reconciles the verdict with the findings the reviewer reports. It cannot see a finding a steered reviewer leaves out, so it is no defence against prompt injection.
