@@ -310,7 +310,7 @@ class LabelVocabularyTests(ShimTest):
 
     def test_the_acceptance_looks_up_a_ticket_branch_under_every_type_a_claim_gives_it(self):
         """accept-facts.sh finds a ticket's pull request by its head branch under each type in the planner's
-        WF_BRANCH_TYPES; a type wf_branch_type gains and the planner lacks hides that ticket's pull request.
+        WF_BRANCH_TYPES. A type wf_branch_type gains and the planner lacks hides that ticket's pull request.
         The types are the printf arms of wf_branch_type, so a new arm fails this test until the planner has it."""
         source = (ORCH / "lib.sh").read_text()
         body = re.search(r"^wf_branch_type\(\) \{\n(.*?)^\}", source, re.M | re.S)

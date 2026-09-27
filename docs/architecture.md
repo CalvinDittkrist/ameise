@@ -30,7 +30,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
-5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree or routing label. Then the specs ready for acceptance. It keeps no state.
+5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree or routing label. Then it lists the specs ready for acceptance. It keeps no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests (closing reference, else head branch), files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The facts a spec acceptance starts from: the spec, its tickets with their merged pull requests, the files
-# those pull requests changed, and the deviations accepted in earlier runs. A ticket's pull requests are the
+# The facts a spec acceptance starts from. They are the spec, its tickets with their merged pull requests,
+# the files those pull requests changed, and the deviations accepted in earlier runs. A ticket's pull requests are the
 # merged ones that closed it, or else the merged ones whose head is the ticket's branch, whatever their base.
 # GitHub links a pull request to an issue only for a merge into the default branch.
 # Usage: accept-facts.sh <spec> [<ticket>...]   (tickets only where native sub-issues are unavailable)

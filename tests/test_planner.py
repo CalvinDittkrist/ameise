@@ -546,7 +546,7 @@ class AcceptFactsTests(ShimTest):
         self.assertIn("warning: pull request(s) #25 changed more than 100 files", r.stderr)
 
     def test_a_ticket_merged_into_a_spec_branch_is_found_by_its_head_branch(self):
-        """GitHub links a pull request to an issue only for a merge into the default branch, so a ticket of a
+        """GitHub links a pull request to an issue only for a merge into the default branch. So a ticket of a
         spec run has no closing reference: its pull request is the merged one from the ticket's branch."""
         r = self.facts("50")
         self.assertEqual(r.returncode, 0, r.stderr)

@@ -67,13 +67,14 @@ wf_require_routable() {
     wf_die "$subject would carry $WF_ROUTING_LABEL without ready-for-agent: the factory takes only issues a worker can finish from the brief alone. Add ready-for-agent, or $drop."
   fi
 }
-# The spec-run label (labels.sh): the factory works the spec that carries it and the tickets of that spec
-# that carry it too, on a spec branch, and routes none of them one by one. So it never sits beside the
-# routing label, never on work a person does, and only on a spec or on a ticket whose spec carries it.
+# The spec-run label (labels.sh): the factory works the spec that carries it on a spec branch. It works the
+# tickets of that spec that carry it too, and routes none of them one by one. So it never sits beside the
+# routing label or on work a person does. It sits only on a spec or on a ticket whose spec carries it.
 WF_SPEC_RUN_LABEL=factory:spec-run
-# Refuse a label set the spec run cannot work. $1 names the issue, $2 is how this call drops the spec-run
-# label, $3 the parent's number (empty for none, read only when the set carries no spec label), the rest is
-# the label set the call would leave behind.
+# Refuse a label set the spec run cannot work.
+# $1 names the issue. $2 is how this call drops the spec-run label.
+# $3 is the parent's number: empty for none, read only when the set carries no spec label.
+# The rest is the label set the call would leave behind.
 wf_require_spec_run() {
   local subject="$1" drop="$2" parent="$3" plabels l; shift 3
   wf_labels_have "$WF_SPEC_RUN_LABEL" "$@" || return 0
@@ -108,8 +109,8 @@ wf_issue_labels() {
 
 # --- The acceptance of a spec (accept-facts.sh, accept-close.sh, accept-due.sh) ---
 
-# The branch types a claim gives an issue's branch (wf_branch_type in the orchestrator's lib.sh), which the
-# acceptance tries in turn to find a ticket's pull request by its head branch.
+# The branch types a claim gives an issue's branch (wf_branch_type in the orchestrator's lib.sh). The
+# acceptance tries them in turn to find a ticket's pull request by its head branch.
 # shellcheck disable=SC2034  # read by accept-facts.sh
 WF_BRANCH_TYPES="feat fix docs chore"
 

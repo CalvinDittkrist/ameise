@@ -4,7 +4,7 @@ The factory host works a routed issue unattended: a worker session on a machine 
 
 **Ask once first: a spec run or a normal run.** In a spec run the factory works the whole spec on a spec branch, its tickets in the order of their blocking edges. In a normal run it works the tickets routed to it one by one.
 
-**Judge the acceptance criteria, one ticket at a time.** Recommend routed (in a spec run: an agent works it) when every criterion can be met and checked by a worker with a checkout, a shell and the gate: code, tests, documentation, a script, a headless command.
+**Judge the acceptance criteria, one ticket at a time.** Recommend routed when every criterion can be met and checked by a worker with a checkout, a shell and the gate: code, tests, documentation, a script, a headless command. In a spec run that means an agent works it.
 
 Recommend not routed (in a spec run: a person works it), and name the reason, when a criterion needs:
 - Herdr: a workspace, a pane, a session or a notification the worker would have to create or see.
