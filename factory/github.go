@@ -65,6 +65,9 @@ type ghIssue struct {
 	PullRequest *struct {
 		URL string `json:"url"`
 	} `json:"pull_request"`
+	// ParentIssueURL is the API address of the issue this one is a sub-issue of, and empty for an issue
+	// without a parent. A ticket whose parent is a spec run is that spec run's and never the line's.
+	ParentIssueURL string `json:"parent_issue_url"`
 	// Dependencies is GitHub's summary of the issues that block this one; blocked_by counts the open
 	// ones, which is what "no open blocker" means.
 	Dependencies struct {
@@ -181,6 +184,9 @@ type gitHub struct {
 	// no failed reading (the issue answered), and it is said once and again when what it is about
 	// changes, because it stands for as long as that record does.
 	refused map[string]string
+	// specWarnings is the repositories whose routed specs could not be read, said once until they can
+	// be read again, like unreadable is for the routed issues.
+	specWarnings map[string]bool
 }
 
 // reading is one remembered reading of an issue's event list with the issue's updated_at it was made
@@ -206,11 +212,12 @@ type signals struct {
 // and left out of this poll: one unreachable repository must not empty the line of the others, and
 // the next poll asks again.
 func (g *gitHub) queue(ctx context.Context, held []Held) poll {
-	result := poll{issues: []Issue{}, unreadable: map[string]string{}, letGo: map[string]string{}}
+	result := poll{issues: []Issue{}, unreadable: map[string]string{}, letGo: map[string]string{},
+		specs: []Issue{}, letGoSpecs: map[string]string{}}
 	read, seen := map[string]bool{}, map[string]bool{}
 	for _, connected := range g.repositories {
 		repository := connected.Name
-		issues, err := g.routedIssues(ctx, repository)
+		issues, err := g.routedIssues(ctx, repository, seen)
 		if err != nil {
 			if ctx.Err() != nil {
 				return result // the factory is stopping; a cancelled request is no failure of GitHub
@@ -223,8 +230,23 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 			seen[issue.key()] = true
 		}
 		result.issues = append(result.issues, issues...)
+		specs, err := g.routedSpecs(ctx, repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return result
+			}
+			// The issues of the repository were read, so it is no unreadable repository: its routed specs
+			// wait for the next poll, and the log says once that they could not be read.
+			g.warn(g.specWarnings, repositoryKey(repository), "error: the routed specs of %s could not be read: %v; they wait for a poll that can read them", repository, err)
+			continue
+		}
+		g.readable(g.specWarnings, repositoryKey(repository))
+		for _, spec := range specs {
+			seen[specKey(spec.key())] = true
+		}
+		result.specs = append(result.specs, specs...)
 	}
-	g.readHeld(ctx, held, result.letGo, seen)
+	g.readHeld(ctx, held, &result, seen)
 	g.settle(result.unreadable, read, seen)
 	return result
 }
@@ -249,7 +271,7 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
-func (g *gitHub) readHeld(ctx context.Context, held []Held, letGo map[string]string, seen map[string]bool) {
+func (g *gitHub) readHeld(ctx context.Context, held []Held, result *poll, seen map[string]bool) {
 	for _, issue := range held {
 		// An issue this factory holds is one this poll knows about, answered or not, so what is
 		// remembered of it stays: an unreadable issue would otherwise be warned about anew on every
@@ -280,8 +302,12 @@ func (g *gitHub) readHeld(ctx context.Context, held []Held, letGo map[string]str
 			continue
 		}
 		g.readable(g.issueWarnings, key) // it answered, so the next failure is reported anew
-		if decision != "" {
-			letGo[key] = decision
+		switch {
+		case decision == "":
+		case issue.Spec:
+			result.letGoSpecs[key] = decision
+		default:
+			result.letGo[key] = decision
 		}
 	}
 }
@@ -318,6 +344,17 @@ func (g *gitHub) decided(ctx context.Context, held Held) (string, error) {
 	}
 	if issue.Number != held.Number {
 		return "", fmt.Errorf("the answer is issue #%d and not #%d", issue.Number, held.Number)
+	}
+	if held.Spec {
+		// A spec is held by its spec run for as long as it is open and carries the spec-run label: the
+		// two gestures that end a spec run are the maintainer's, as they are for an issue.
+		switch {
+		case issue.State == "closed":
+			return "the spec was closed", nil
+		case !issue.hasLabel(specRunLabel(g.label)):
+			return "the spec-run label " + specRunLabel(g.label) + " was taken off the spec", nil
+		}
+		return "", nil
 	}
 	switch {
 	case issue.State == "closed":
@@ -439,6 +476,7 @@ func newGitHub(repositories []Connected, label string) *gitHub {
 		writers:       map[string]bool{},
 		finished:      map[string]bool{},
 		refused:       map[string]string{},
+		specWarnings:  map[string]bool{},
 	}
 }
 
@@ -509,7 +547,13 @@ func (g *gitHub) remember(key string, updated time.Time, read signals) {
 // the frontier rule takes. The rule is applied to the answer and not left to the query, because a
 // query can only filter labels: assignees, blockers and pull requests are decided here, in the one
 // place the drift test reads.
-func (g *gitHub) routedIssues(ctx context.Context, repository string) ([]Issue, error) {
+//
+// A ticket of a spec run is never in the line, whatever labels it carries: a candidate the rule takes
+// and that has a parent is dropped when its parent carries the spec-run label. The parent is read
+// through the parent endpoint, one request per such candidate and poll, and a parent that cannot be
+// read leaves the issue out of this poll with a warning: taking it in would work a ticket of a spec
+// run outside it. seen is given the keys of the issues left out that way, so the warning is said once.
+func (g *gitHub) routedIssues(ctx context.Context, repository string, seen map[string]bool) ([]Issue, error) {
 	raw, err := gh(ctx, "api", issuesRequest(repository, g.label))
 	if err != nil {
 		return nil, err
@@ -523,7 +567,22 @@ func (g *gitHub) routedIssues(ctx context.Context, repository string) ([]Issue, 
 		if !routed(issue, g.label) {
 			continue
 		}
-		read := g.signalsOf(ctx, repository, issue)
+		key := Issue{Repository: repository, Number: issue.Number}.key()
+		if issue.ParentIssueURL != "" {
+			inSpecRun, err := g.parentRunsSpec(ctx, repository, issue.Number)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				seen[key] = true
+				g.warn(g.issueWarnings, key, "error: the parent of %s could not be read: %v; it stays out of the line until it can be, because a ticket of a spec run is never routed one by one", key, err)
+				continue
+			}
+			if inSpecRun {
+				continue
+			}
+		}
+		read := g.signalsOf(ctx, repository, issue, key, g.label)
 		out = append(out, Issue{
 			Repository:   repository,
 			Number:       issue.Number,
@@ -548,6 +607,77 @@ func issuesRequest(repository, routingLabel string) string {
 	return "repos/" + repository + "/issues?labels=" + labels + "&state=open&per_page=100"
 }
 
+// parentRunsSpec says whether the parent of an issue carries the spec-run label, which makes the issue
+// a ticket of a spec run. An issue without a parent answers 404 there, which the caller never asks
+// about: it reads the parent only of an issue whose parent_issue_url names one.
+func (g *gitHub) parentRunsSpec(ctx context.Context, repository string, number int) (bool, error) {
+	raw, err := gh(ctx, "api", parentRequest(repository, number))
+	if err != nil {
+		return false, err
+	}
+	var parent ghIssue
+	if err := json.Unmarshal(raw, &parent); err != nil || parent.Number == 0 {
+		return false, fmt.Errorf("the answer is no issue: %s", firstLine(string(raw)))
+	}
+	return parent.hasLabel(specRunLabel(g.label)), nil
+}
+
+func parentRequest(repository string, number int) string {
+	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/parent"
+}
+
+// routedSpecs asks GitHub for the specs of one repository that carry the spec-run label and keeps the
+// routed ones: open, no pull request, nobody assigned. A spec needs no ready-for-agent to be routed.
+// When the spec-run label was last set is read from the event list like the routing of an issue, and
+// it is the routing a spec run answers.
+func (g *gitHub) routedSpecs(ctx context.Context, repository string) ([]Issue, error) {
+	raw, err := gh(ctx, "api", specsRequest(repository, g.label))
+	if err != nil {
+		return nil, err
+	}
+	var issues []ghIssue
+	if err := json.Unmarshal(raw, &issues); err != nil {
+		return nil, fmt.Errorf("the spec list is not a list of issues: %w", err)
+	}
+	out := []Issue{}
+	for _, issue := range issues {
+		if !routedSpec(issue, g.label) {
+			continue
+		}
+		key := specKey(Issue{Repository: repository, Number: issue.Number}.key())
+		read := g.signalsOf(ctx, repository, issue, key, specRunLabel(g.label))
+		out = append(out, Issue{
+			Repository: repository,
+			Number:     issue.Number,
+			Title:      issue.Title,
+			Labels:     issue.labelNames(),
+			RoutedAt:   read.routedAt,
+		})
+	}
+	return out, nil
+}
+
+// routedSpec is the rule a spec is routed to a spec run by: open, a spec, carrying the spec-run label
+// derived from the routing label, and nobody assigned.
+func routedSpec(issue ghIssue, routingLabel string) bool {
+	return issue.PullRequest == nil &&
+		issue.State == "open" &&
+		issue.hasLabel(specLabel) &&
+		issue.hasLabel(specRunLabel(routingLabel)) &&
+		len(issue.Assignees) == 0
+}
+
+// specsRequest is the list of the open specs of one repository that carry the spec-run label, one
+// page of it as the issue list is.
+func specsRequest(repository, routingLabel string) string {
+	labels := url.QueryEscape(specLabel) + "," + url.QueryEscape(specRunLabel(routingLabel))
+	return "repos/" + repository + "/issues?labels=" + labels + "&state=open&per_page=100"
+}
+
+// specKey is the key what is remembered of a spec is kept under, apart from the issue of that number:
+// its event list is read for another label.
+func specKey(issueKey string) string { return issueKey + "/spec" }
+
 // signalsOf is when the routing label was last set and when the assignee was last removed, read from
 // the issue's event list. The routing time, and not the issue's age, is the order of the line:
 // routing is when the maintainer handed the issue over, so an old issue routed today stands behind
@@ -569,12 +699,14 @@ func issuesRequest(repository, routingLabel string) string {
 // that never had an assignee has no such event, and demanding one would read the event list of every
 // routed issue on every poll. A release whose event list is that much behind the issue list is read
 // on the next touch of the issue, and until then the issue stands where it stood.
-func (g *gitHub) signalsOf(ctx context.Context, repository string, issue ghIssue) signals {
-	key := Issue{Repository: repository, Number: issue.Number}.key()
+//
+// label is the label whose setting is the routing: the routing label for an issue, the spec-run label
+// for a spec, and key what the reading is remembered under.
+func (g *gitHub) signalsOf(ctx context.Context, repository string, issue ghIssue, key, label string) signals {
 	if read, ok := g.remembered(key, issue.UpdatedAt); ok {
 		return read
 	}
-	read, found := g.readSignals(ctx, key, repository, issue)
+	read, found := g.readSignals(ctx, key, repository, issue, label)
 	if found {
 		g.remember(key, issue.UpdatedAt, read)
 	}
@@ -584,7 +716,7 @@ func (g *gitHub) signalsOf(ctx context.Context, repository string, issue ghIssue
 // readSignals reads the issue's event list and says whether the routing label was in it. The
 // assignments are read in the same pass: an issue that is released has been touched, so its event
 // list is read again anyway, and a call of its own for them would double what a poll costs.
-func (g *gitHub) readSignals(ctx context.Context, key, repository string, issue ghIssue) (signals, bool) {
+func (g *gitHub) readSignals(ctx context.Context, key, repository string, issue ghIssue, label string) (signals, bool) {
 	read := signals{routedAt: issue.CreatedAt}
 	found := false
 	raw, err := gh(ctx, "api", "--paginate", eventsRequest(repository, issue.Number))
@@ -611,7 +743,7 @@ func (g *gitHub) readSignals(ctx context.Context, key, repository string, issue 
 			// the latest of the entries rather than the last one, so the order GitHub sends the
 			// timeline in is not part of the rule.
 			switch {
-			case event.Event == "labeled" && event.Label.Name == g.label:
+			case event.Event == "labeled" && event.Label.Name == label:
 				found = true
 				if event.CreatedAt.After(read.routedAt) {
 					read.routedAt = event.CreatedAt

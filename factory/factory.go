@@ -81,6 +81,7 @@ type Factory struct {
 	fake     bool
 	source   source
 	runs     *Store
+	specs    *SpecStore // the spec runs (spec.go)
 	started  time.Time
 	self     string        // this binary, which fake mode starts again as the scripted worker
 	wake     chan struct{} // a run ended: the next entry need not wait for the next poll
@@ -113,6 +114,9 @@ type Factory struct {
 
 	mu    sync.Mutex
 	queue []Issue
+	// specQueue is the routed specs the last poll read, which a spec run is claimed from (spec.go). Like
+	// the queue it is a reading of GitHub and never stored.
+	specQueue []Issue
 	// reviews is what the last poll found on the pull requests this factory holds open: what their
 	// reviews signal, by issue. Like the queue it is a reading of GitHub and never a state of the
 	// factory; what has been answered is read from the run records ([ADR 0025]).
@@ -193,6 +197,9 @@ type Held struct {
 	// the reading carries for it is a cancel, which must reach the worker while it is still working,
 	// and the issues that only wait to be cleaned up are of no hurry beside it.
 	Running bool
+	// Spec says this is a spec a spec run holds, whose decisions are the spec-run label taken off and
+	// the spec closed (spec.go).
+	Spec bool
 }
 
 func (h Held) key() string { return Issue{Repository: h.Repository, Number: h.Number}.key() }
@@ -210,6 +217,10 @@ type poll struct {
 	//
 	// [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 	letGo map[string]string // issue key -> the decision that ends this factory's part
+	// specs is the routed specs of the repositories the poll could read, and letGoSpecs the held specs
+	// whose reading says their spec run is over, with the decision that says so (spec.go).
+	specs      []Issue
+	letGoSpecs map[string]string
 }
 
 // New opens the data directory and takes the runs already in it. Nothing here starts a run and
@@ -220,11 +231,15 @@ func New(settings Settings, fake bool) (*Factory, error) {
 	if err != nil {
 		return nil, err
 	}
+	specs, err := OpenSpecStore(settings.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("the factory cannot find its own binary: %w", err)
 	}
-	f := &Factory{settings: settings, fake: fake, runs: runs, started: time.Now(), self: self,
+	f := &Factory{settings: settings, fake: fake, runs: runs, specs: specs, started: time.Now(), self: self,
 		wake: make(chan struct{}, 1), drain: make(chan struct{}), held: map[string]bool{}, cancelling: map[int]context.CancelCauseFunc{},
 		askedHeld: map[string]time.Time{}, delivered: map[int]bool{}}
 	f.paused.Store(settings.Paused)
@@ -266,6 +281,7 @@ func (f *Factory) Work(ctx context.Context) {
 		}
 		read := f.refreshQueue(ctx)
 		f.letIssuesGo(ctx, read.letGo)
+		f.letSpecsGo(ctx, read.letGoSpecs)
 		f.refreshReviews(ctx)
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
@@ -364,7 +380,11 @@ func (f *Factory) followConfig(ctx context.Context) {
 //
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
 func (f *Factory) refreshQueue(ctx context.Context) poll {
-	read := f.source.queue(ctx, f.heldIssuesDue())
+	held := f.heldIssuesDue()
+	if !f.Paused() {
+		held = append(held, f.heldSpecs()...)
+	}
+	read := f.source.queue(ctx, held)
 	queue := read.issues
 	sort.SliceStable(queue, func(a, b int) bool {
 		if !queue[a].RoutedAt.Equal(queue[b].RoutedAt) {
@@ -373,7 +393,7 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 		return queue[a].key() < queue[b].key()
 	})
 	f.mu.Lock()
-	f.queue, f.unreadable, f.polledAt = queue, read.unreadable, time.Now()
+	f.queue, f.specQueue, f.unreadable, f.polledAt = queue, read.specs, read.unreadable, time.Now()
 	f.mu.Unlock()
 	return read
 }
@@ -563,6 +583,12 @@ func (f *Factory) dispatch(ctx context.Context) {
 	f.mu.Unlock()
 	if early {
 		f.refreshReviews(ctx)
+	}
+	// A routed spec is claimed before anything starts: its claim starts no session, so it spends no
+	// quota and holds no worker.
+	f.claimSpecs(ctx)
+	if f.Paused() || f.Draining() || ctx.Err() != nil {
+		return
 	}
 	if _, waiting := f.waitingForQuota(time.Now()); waiting {
 		return

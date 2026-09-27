@@ -410,10 +410,6 @@ func OpenStore(dir string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) recordPath(id int) string {
-	return filepath.Join(s.dir, fmt.Sprintf("run-%d.json", id))
-}
-
 func (s *Store) eventsPath(id int) string {
 	return filepath.Join(s.dir, fmt.Sprintf("run-%d.events.jsonl", id))
 }
@@ -566,48 +562,44 @@ func (s *Store) finish(r *Run, outcome, reason string, exitCode *int, owed bool)
 // fails says so in the journal, with the fix, rather than leaving a service that looks healthy and
 // records nothing.
 func (s *Store) write(r *Run) {
-	failed := func(err error) {
+	raw, err := json.MarshalIndent(r, "", "  ")
+	if err == nil {
+		err = persist(s.dir, fmt.Sprintf("run-%d.json", r.ID), raw)
+	}
+	if err != nil {
 		log.Printf("error: the record of run %d could not be written: %v; is %s writable and has it space left?", r.ID, err, s.dir)
 	}
-	raw, err := json.MarshalIndent(r, "", "  ")
+}
+
+// persist writes one record of the data directory durably: the whole file beside its place, forced to
+// the disk, renamed into its place, and the rename forced to the disk too (Store.write).
+func persist(dir, name string, raw []byte) error {
+	file, err := os.CreateTemp(dir, "."+name+".*")
 	if err != nil {
-		failed(err)
-		return
-	}
-	file, err := os.CreateTemp(s.dir, fmt.Sprintf(".run-%d.json.*", r.ID))
-	if err != nil {
-		failed(err)
-		return
+		return err
 	}
 	defer os.Remove(file.Name())
 	if _, err := file.Write(append(raw, '\n')); err != nil {
 		file.Close()
-		failed(err)
-		return
+		return err
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()
-		failed(err)
-		return
+		return err
 	}
 	if err := file.Close(); err != nil {
-		failed(err)
-		return
+		return err
 	}
-	if err := os.Rename(file.Name(), s.recordPath(r.ID)); err != nil {
-		failed(err)
-		return
+	if err := os.Rename(file.Name(), filepath.Join(dir, name)); err != nil {
+		return err
 	}
 	// And the rename itself, so the record is under its name after a power cut and not only in it.
-	dir, err := os.Open(s.dir)
+	d, err := os.Open(dir)
 	if err != nil {
-		failed(err)
-		return
+		return err
 	}
-	if err := dir.Sync(); err != nil {
-		failed(err)
-	}
-	dir.Close()
+	defer d.Close()
+	return d.Sync()
 }
 
 // event appends to a run's log. The log is append-only: it is opened, written and closed per event,
@@ -616,28 +608,30 @@ func (s *Store) event(r *Run, e Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r.EventCount++
-	e.Seq, e.At = r.EventCount, time.Now()
+	if err := appendEvent(s.eventsPath(r.ID), r.EventCount, e); err != nil {
+		log.Printf("error: event %d of run %d could not be logged: %v; is %s writable and has it space left?", r.EventCount, r.ID, err, s.dir)
+	}
+}
+
+// appendEvent appends one event to an event log under its sequence number, the title cut to one line
+// and the body to maxEventBody.
+func appendEvent(path string, seq int, e Event) error {
+	e.Seq, e.At = seq, time.Now()
 	e.Title = firstLine(e.Title) // the title comes from the stream as well, and is one line by contract
 	if len(e.Body) > maxEventBody {
 		e.Body = cut(e.Body, maxEventBody) + "\n[truncated]"
 	}
-	failed := func(err error) {
-		log.Printf("error: event %d of run %d could not be logged: %v; is %s writable and has it space left?", e.Seq, r.ID, err, s.dir)
-	}
 	line, err := json.Marshal(e)
 	if err != nil {
-		failed(err)
-		return
+		return err
 	}
-	file, err := os.OpenFile(s.eventsPath(r.ID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		failed(err)
-		return
+		return err
 	}
 	defer file.Close()
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		failed(err)
-	}
+	_, err = file.Write(append(line, '\n'))
+	return err
 }
 
 // list is a copy of every run's record, oldest first.
@@ -682,7 +676,12 @@ func (s *Store) find(id int) (*Run, bool) {
 // not an event is skipped: the log is what the factory wrote last, and a half-written last line must
 // not lose the rest.
 func (s *Store) events(id, after int) ([]Event, error) {
-	file, err := os.Open(s.eventsPath(id))
+	return readEvents(s.eventsPath(id), after)
+}
+
+// readEvents reads the events of one log after the sequence number after (Store.events).
+func readEvents(path string, after int) ([]Event, error) {
+	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return []Event{}, nil
 	}
