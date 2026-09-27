@@ -18,13 +18,15 @@ import (
 // base is merged into the spec branch before a ticket is claimed, when that merge is clean.
 
 // SpecTicket is one ticket of a spec run as its record lists it: the runs of the ticket, and when the
-// merge stage or a person merged its pull request into the spec branch.
+// merge stage or a person merged its pull request into the spec branch, and whether the factory closed
+// the ticket after that.
 type SpecTicket struct {
 	Issue       int        `json:"issue"`
 	Title       string     `json:"title"`
 	Runs        []int      `json:"runs"`
 	PullRequest string     `json:"pullRequest,omitempty"`
 	MergedAt    *time.Time `json:"mergedAt,omitempty"`
+	Closed      bool       `json:"closed,omitempty"`
 }
 
 // ticketReady is the rule a ticket of a held spec is taken by: open, no pull request, carrying the
