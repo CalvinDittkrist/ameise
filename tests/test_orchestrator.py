@@ -957,6 +957,31 @@ class MergeTests(ShimTest):
         self.assertIn("fix/12-fix-login-timeout", self.git("branch", "--list"))
         self.assertIn("branch: fix/12-fix-login-timeout (fork) kept", r.stdout)
 
+    def test_a_merge_into_a_spec_branch_closes_the_issue_with_a_comment_naming_the_pull_request(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture(baseRefName="spec/100-offline-mode"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        close = [c for c in self.argv_calls() if c[1:3] == ["issue", "close"]]
+        self.assertEqual(len(close), 1, self.calls())
+        self.assertEqual(close[0][3], "12")
+        self.assertIn("#7", close[0][close[0].index("--comment") + 1])
+        self.assertIn("issue: #12 (the merge went into spec/100-offline-mode, not the default branch main) closed", r.stdout)
+
+    def test_a_merge_into_the_default_branch_leaves_the_closing_to_github(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue close")])
+        self.assertNotIn("issue:", r.stdout)
+
+    def test_an_unreadable_default_branch_closes_nothing_and_says_so(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture(baseRefName="spec/100-offline-mode"),
+                            SHIM_DEFAULT_ERROR="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("close issue #12 by hand", r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue close")])
+
     def test_allow_unstable_and_ignore_threads_flags(self):
         self.claimed()
         r = self.run_script(ORCH / "merge.sh", "7", "--allow-unstable", "--ignore-threads",
