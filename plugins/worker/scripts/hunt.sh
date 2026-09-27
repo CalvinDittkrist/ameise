@@ -58,7 +58,7 @@ EOF
   # repository tracks, exactly as the rule lists it, so a path through .. or from the root never passes; a
   # removal names the file its commit touched, which the removed command checks against that commit.
   [ -n "$(printf '%s\n' "$f_path" | wf_test_paths)" ] || { problem="$f_path is no test file by the hunt's conventions ($wf_test_file_rule)"; return 1; }
-  if [ "$want" = 5 ] && ! printf '%s\n' "$test_files" | grep -Fxq -- "$f_path"; then
+  if [ "$want" = 5 ] && ! grep -Fxq -- "$f_path" <<<"$test_files"; then
     problem="$f_path is no test file this repository tracks; name it exactly as the brief lists it"; return 1
   fi
   if [ "$want" = 5 ]; then
@@ -151,7 +151,7 @@ round_files() {
   found=$(found_in $(($1 - 1)))
   [ -n "$found" ] || return 0
   printf '%s\n' "$all" | while IFS= read -r f; do
-    if printf '%s\n' "$found" | grep -Fxq -- "$f"; then printf '%s\n' "$f"; fi
+    if grep -Fxq -- "$f" <<<"$found"; then printf '%s\n' "$f"; fi
   done
 }
 

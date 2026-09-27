@@ -90,7 +90,7 @@ if in_list workspace "$(categories "$answers" approve)" && has_findings workspac
   snap=$(mktemp "$dir/workspace-snapshot.XXXXXX")
   rc=0; out=$(bash "$here/workspace.sh" --apply --snapshot "$snap" 2>&1) || rc=$?
   printf '%s\n' "$out" | sed 's/^/workspace: /'
-  if printf '%s\n' "$out" | grep -qxF "snapshot: $snap"; then
+  if grep -qxF -e "snapshot: $snap" <<<"$out"; then
     { printf 'Snapshot of the GitHub workspace before `workspace.sh --apply` on %s, for undoing a change by hand.\n\nChanged:\n```\n%s\n```\n\n<details><summary>Previous state</summary>\n\n```json\n' \
         "$(date -u +%Y-%m-%d)" "$(printf '%s\n' "$out" | grep '^diff: ' || true)"
       jq . "$snap"; printf '```\n\n</details>\n'; } > "$tmp"

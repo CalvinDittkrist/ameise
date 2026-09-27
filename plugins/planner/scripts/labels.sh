@@ -8,7 +8,7 @@ created=""
 # name|color|description. bug and enhancement are GitHub defaults but not guaranteed to exist.
 while IFS='|' read -r name color desc; do
   [ -n "$name" ] || continue
-  if ! printf '%s\n' "$have" | grep -qx "$name"; then
+  if ! grep -qxF -e "$name" <<<"$have"; then
     gh label create "$name" --color "$color" --description "$desc" >/dev/null 2>&1 || wf_warn "could not create label $name"
     created="${created:+$created,}$name"
   fi

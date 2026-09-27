@@ -82,7 +82,7 @@ for p in $wanted; do
   [ "$(jq -r --arg p "$p" '.enabledPlugins[$p] // empty' "$s" 2>/dev/null)" = true ] || run install "$p"
 done
 for p in $(jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "$s"); do
-  printf '%s\n' "$wanted" | grep -qxF -- "$p" || run disable "$p"
+  grep -qxF -- "$p" <<<"$wanted" || run disable "$p"
 done
 jq --slurpfile t "$tpl/settings.json" '$t[0] as $t
   | .attribution = $t.attribution

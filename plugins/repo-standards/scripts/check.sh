@@ -87,9 +87,9 @@ if found=$(printf '%s\n' "$all" | bash "$(dirname "$0")/writing.sh" "$root"); th
 $found
 EOF
   groups=$(printf '%s\n' "$found" | cut -f1)
-  printf '%s\n' "$groups" | grep -qx dash || ok "no em dash"
-  printf '%s\n' "$groups" | grep -qx words || ok "paragraphs, bullets and glossary entries within their word caps"
-  printf '%s\n' "$groups" | grep -qx docs || ok "documents within their word caps"
+  grep -qx dash <<<"$groups" || ok "no em dash"
+  grep -qx words <<<"$groups" || ok "paragraphs, bullets and glossary entries within their word caps"
+  grep -qx docs <<<"$groups" || ok "documents within their word caps"
 else bad "the writing rules were not counted; fix the error above"; fi
 
 # Public repositories add a licence and a security policy. Visibility needs GitHub, so offline this is skipped.
