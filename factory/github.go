@@ -69,6 +69,9 @@ type ghIssue struct {
 	// ParentIssueURL is the API address of the issue this one is a sub-issue of, and empty for an issue
 	// without a parent. A ticket whose parent is a spec run is that spec run's and never the line's.
 	ParentIssueURL string `json:"parent_issue_url"`
+	// RepositoryURL is the API address of the repository the issue is in. A sub-issue may be in
+	// another repository than its parent.
+	RepositoryURL string `json:"repository_url"`
 	// Dependencies is GitHub's summary of the issues that block this one; blocked_by counts the open
 	// ones, which is what "no open blocker" means.
 	Dependencies struct {

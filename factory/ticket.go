@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// A ticket run is a factory run of one ticket of a spec run: a first run as any other, cut from the
-// spec branch and not from the base, whose gate merges the spec branch and whose pull request targets
-// it (docs/glossary.md). On every poll the factory reads the sub-issues of the specs it holds, and the
+// A ticket run is a factory run of one ticket of a spec run, a first run as any other
+// (docs/glossary.md). Its branch is cut from the spec branch and not from the base, its gate merges
+// the spec branch, and its pull request targets it. On every poll the factory reads the sub-issues of the specs it holds, and the
 // tickets a run may take come before the routed issues in the line, the lowest number first. The
 // base is merged into the spec branch before a ticket is claimed, when that merge is clean.
 
@@ -41,6 +41,13 @@ func ticketReady(issue ghIssue, routingLabel string) bool {
 		issue.Dependencies.BlockedBy == 0
 }
 
+// inRepository says whether the issue is in the repository. GitHub lets a sub-issue come from another
+// repository, and a ticket is read by its number in the spec's own, so one from elsewhere is no ticket
+// (https://docs.github.com/en/rest/issues/sub-issues, checked 2026-09-27).
+func (issue ghIssue) inRepository(repository string) bool {
+	return strings.HasSuffix(repositoryKey(issue.RepositoryURL), "/repos/"+repositoryKey(repository))
+}
+
 // subIssuesRequest is the list of the sub-issues of one issue, one page of it as the issue list is.
 func subIssuesRequest(repository string, number int) string {
 	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/sub_issues?per_page=100"
@@ -60,7 +67,7 @@ func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, error) {
 	}
 	out := []Issue{}
 	for _, issue := range issues {
-		if !ticketReady(issue, g.label) {
+		if !issue.inRepository(held.Repository) || !ticketReady(issue, g.label) {
 			continue
 		}
 		key := Issue{Repository: held.Repository, Number: issue.Number}.key()
