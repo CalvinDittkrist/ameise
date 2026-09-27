@@ -147,7 +147,7 @@ class FactsAndLabelsTests(PlanWorktree):
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [c for c in self.calls() if c.startswith("gh label create")]
         names = [c.split()[3] for c in created]
-        self.assertEqual(names, ["needs-triage", "needs-info", "ready-for-human", "wontfix", "spec", "factory"])
+        self.assertEqual(names, ["needs-triage", "needs-info", "ready-for-human", "wontfix", "spec", "factory", "factory:spec-run"])
         self.assertIn("created: needs-triage,needs-info,ready-for-human,wontfix,spec,factory", r.stdout)
 
 
