@@ -318,25 +318,17 @@ func (f *Factory) claimSpec(ctx context.Context, spec Issue) {
 
 	connected, _ := f.connected(spec.Repository)
 	clone := clonePath(f.settings.DataDir, connected.Name)
-	if _, err := gitWithin(ctx, clone, fetchTimeout, "fetch", "--quiet", "--prune", "origin"); err != nil {
-		failed(fmt.Errorf("%s could not be fetched into %s: %w; can this host reach the repository?", connected.Name, clone, err), false)
+	base, err := fetchBase(ctx, connected, clone)
+	if err != nil {
+		failed(err, false)
 		return
 	}
-	if _, err := git(ctx, clone, "remote", "set-head", "origin", "--auto"); err != nil {
-		log.Printf("error: the head %s points at could not be read into %s: %v; this claim uses what that clone last knew", connected.Name, clone, err)
-	}
-	base := baseBranch(ctx, connected, clone)
 	if held := remoteSpecBranch(ctx, clone, spec.Number); held != "" {
 		f.specs.update(r, func() { r.Branch, r.Base = held, base })
 		end(specLost, "the spec branch "+held+" stands on the remote already, so this spec run touched nothing; remove that branch and set the spec-run label again to claim the spec")
 		return
 	}
-	head, err := git(ctx, clone, "rev-parse", "refs/remotes/origin/"+base)
-	if err != nil {
-		failed(fmt.Errorf("the head of the base branch %s of %s could not be read: %w; is that branch on the remote?", base, connected.Name, err), false)
-		return
-	}
-	login, err := f.login(ctx)
+	head, login, err := f.branchPoint(ctx, connected, clone, base)
 	if err != nil {
 		failed(err, false)
 		return
