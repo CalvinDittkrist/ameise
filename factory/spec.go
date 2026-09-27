@@ -26,7 +26,7 @@ import (
 // [ADR 0024]: ../docs/adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md
 
 // specLabel marks a spec, the issue a planner cut into tickets. It is the workflow's label vocabulary
-// restated in Go, as readyLabel is, and a drift test holds it to the planner's copy.
+// restated in Go, as readyLabel is, and the contract fixture holds it to the planner's copy.
 const specLabel = "spec"
 
 // specRunLabel is the spec-run label, derived from the routing label: factory:spec-run for the default

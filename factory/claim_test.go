@@ -1,15 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -762,102 +759,9 @@ func TestTheNextRunStartsWhenTheOneBeforeItEndedAndNeverBesideIt(t *testing.T) {
 	}
 }
 
-// ---- the drift tests: the shell rules this Go restates ----
+// ---- the base branch beyond the contract fixture ----
 
-// The branch a claim creates is the workflow's branch contract, and the orchestrator's claim.sh
-// builds it as "$(wf_branch_type "$labels")/$issue-$(wf_slug "$title")". This runs that shell over
-// the titles and labels that make a slug hard and holds the Go against it ([ADR 0022]).
-//
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
-func TestTheBranchNameAgreesWithTheOrchestratorsShell(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		name  string
-		issue Issue
-	}{
-		{name: "a plain title", issue: Issue{Number: 104, Title: "Retry the upload when the broker drops"}},
-		{name: "umlauts", issue: Issue{Number: 9, Title: "Überwachung: Füllstand fällt unter den Schwellwert"}},
-		{name: "a sharp s", issue: Issue{Number: 12, Title: "Straße messen"}},
-		{name: "a URL", issue: Issue{Number: 21, Title: "Follow https://example.com/a/b?c=d in the docs"}},
-		{name: "punctuation only", issue: Issue{Number: 33, Title: "!!! ??? ..."}},
-		{name: "a title of leading punctuation", issue: Issue{Number: 34, Title: "-- fix the thing --"}},
-		{name: "a title far over the cut", issue: Issue{Number: 41, Title: "Rewrite the ingestion pipeline so that late events are folded into the window they belong to"}},
-		{name: "a title cut where a hyphen falls", issue: Issue{Number: 42, Title: "Rewrite the ingest pipeline for late a events"}},
-		{name: "a bug", issue: Issue{Number: 51, Title: "Crash on start", Labels: []string{readyLabel, "bug"}}},
-		{name: "a fix", issue: Issue{Number: 52, Title: "Crash on start", Labels: []string{"fix"}}},
-		{name: "docs", issue: Issue{Number: 53, Title: "Explain the gate", Labels: []string{"documentation"}}},
-		{name: "a chore", issue: Issue{Number: 54, Title: "Bump the pins", Labels: []string{"maintenance"}}},
-		{name: "a label that names none of them", issue: Issue{Number: 55, Title: "Add a knob", Labels: []string{"enhancement"}}},
-		{name: "bug and docs at once", issue: Issue{Number: 56, Title: "Wrong example", Labels: []string{"docs", "bug"}}},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			want := shellBranchName(t, c.issue)
-			if got := branchName(c.issue); got != want {
-				t.Errorf("the factory names the branch of %q %q; the orchestrator's shell names it %q", c.issue.Title, got, want)
-			}
-		})
-	}
-}
-
-// The base branch rule is wf_base_branch in the orchestrator's lib.sh: the explicit setting, then the
-// head the remote points at, then the repository's default branch on GitHub, then main. The explicit
-// setting is WF_BASE_BRANCH there, which a session is given by the repository's own settings file;
-// the factory reads that file out of the clone and takes the configuration of its host above it. The
-// rest is the same question asked of the same clone ([ADR 0022]).
-//
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
-func TestTheBaseBranchRuleAgreesWithTheOrchestratorsShell(t *testing.T) {
-	// Serial: inProcess sets this process's PATH, GH_SHIM_* and GIT_CONFIG_* to reach the shim.
-	for _, c := range []struct {
-		name string
-		// The explicit setting, as each side is given it: WF_BASE_BRANCH for the shell, and for the
-		// factory either the host's configuration or the settings file of the repository's checkout.
-		explicit   string
-		declared   bool
-		originHead string
-		onGitHub   string
-		want       string
-	}{
-		{name: "the explicit setting of the configuration wins", explicit: "dev", originHead: "trunk", onGitHub: "release", want: "dev"},
-		{name: "the explicit setting of the repository wins", explicit: "dev", declared: true, originHead: "trunk", onGitHub: "release", want: "dev"},
-		{name: "then the head of the remote", originHead: "trunk", onGitHub: "release", want: "trunk"},
-		{name: "then the default branch on GitHub", onGitHub: "release", want: "release"},
-		{name: "and main when nothing answers", want: "main"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			gh := newGhShim(t)
-			gh.remote(t, "acme/edge-sensors")
-			clone := gh.cloneInto(t, t.TempDir(), "acme/edge-sensors")
-			configured := c.explicit
-			if c.declared { // the repository says it in its own settings instead
-				configured = ""
-				declaresBase(t, gh, clone, "acme/edge-sensors", c.originHead, c.explicit)
-			}
-			if c.originHead != "" {
-				gh.git(t, clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+c.originHead)
-			} else {
-				gh.git(t, clone, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
-			}
-			if c.onGitHub != "" {
-				// The shell asks for the repository of its checkout, the factory for the one it is
-				// working; without an answer gh fails, which is the rule's last step.
-				gh.answer(t, "repo view --json defaultBranchRef -q .defaultBranchRef.name", c.onGitHub+"\n")
-				gh.answer(t, "repo view acme/edge-sensors --json defaultBranchRef --jq .defaultBranchRef.name", c.onGitHub+"\n")
-			}
-
-			want := shellBaseBranch(t, gh, clone, c.explicit)
-			if want != c.want {
-				t.Fatalf("the orchestrator's shell answers %q, want %q: the fixture does not set up the case it means", want, c.want)
-			}
-			inProcess(t, gh)
-			if got := baseBranch(context.Background(), Connected{Name: "acme/edge-sensors", Base: configured}, clone); got != want {
-				t.Errorf("the factory branches off %q; the orchestrator's shell branches off %q", got, want)
-			}
-		})
-	}
-}
-
-// The two explicit settings meet in one case the shell has no word for: a host that connects a
+// The two explicit settings meet in one case the contract fixture has no word for: a host that connects a
 // repository under a base of its own. The configuration is the operator's and wins, and a settings
 // file that names no branch name is read as if the repository had said nothing, because the value
 // reaches a ref and a command line.
@@ -883,132 +787,6 @@ func TestTheConfiguredBaseWinsOverWhatARepositoryDeclaresAndAnUnusableDeclaratio
 	if got := baseBranch(context.Background(), Connected{Name: "acme/edge-sensors"}, clone); got != "main" {
 		t.Errorf("a repository whose settings are not JSON is branched off %q, want main, the head of the remote", got)
 	}
-}
-
-// The compact pin is the workflow's, not the factory's: the local claim sets the window and the
-// percentage ([ADR 0031], [ADR 0034]) and this driver restates them, so a session it starts compacts
-// where the workflow says. The numbers are read out of the orchestrator's lib.sh, whose
-// wf_worker_settings the claim and the test hunt both use, so a change to one of them fails here
-// until the other copy follows ([ADR 0022]).
-//
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
-// [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
-// [ADR 0034]: ../docs/adr/0034-the-compact-trigger-is-raised-through-the-window.md
-func TestTheCompactPinAgreesWithTheOrchestratorsClaim(t *testing.T) {
-	t.Parallel()
-	script := readFile(t, abs(t, filepath.Join("..", "plugins", "orchestrator", "scripts", "lib.sh")))
-	pinned := func(name string) string {
-		t.Helper()
-		found := regexp.MustCompile(`(?m)^` + name + `=([0-9]+)$`).FindStringSubmatch(script)
-		if found == nil {
-			t.Fatalf("the orchestrator's lib.sh pins no %s; the factory restates that number and cannot be held to it", name)
-		}
-		return found[1]
-	}
-	if window := pinned("wf_compact_window"); window != strconv.Itoa(compactWindow) {
-		t.Errorf("a worker of the factory compacts at a window of %d, the local claim pins %s", compactWindow, window)
-	}
-	if percentage := pinned("wf_compact_pct"); percentage != compactPercentage {
-		t.Errorf("a worker of the factory compacts at %s%% of its window, the local claim pins %s%%", compactPercentage, percentage)
-	}
-}
-
-// The spec branch is the branch contract with spec as its type: spec/<number>-<slug>. The factory
-// creates it (specBranchName) and finds it again on the remote (remoteSpecBranch); a local claim of a
-// developer's own ticket of a spec run finds it on the remote to take it as its base
-// (wf_remote_spec_branch in the orchestrator's lib.sh). This binds the name the factory creates to the
-// slug of the shell. It runs both lookups over one remote with spec branches and near misses of them.
-// So the ticket is cut from the branch the factory integrates on ([ADR 0022]).
-//
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
-func TestTheSpecBranchAgreesWithTheOrchestratorsShell(t *testing.T) {
-	t.Parallel()
-	for _, spec := range []Issue{
-		{Number: 100, Title: "Offline mode"},
-		{Number: 9, Title: "Überwachung: Füllstand fällt unter den Schwellwert"},
-		{Number: 41, Title: "Rewrite the ingestion pipeline so that late events are folded into the window they belong to"},
-		{Number: 33, Title: "!!! ??? ..."},
-	} {
-		want := strings.TrimSpace(shell(t, "", `. "$1"; printf 'spec/%s-%s\n' "$2" "$(wf_slug "$3")"`,
-			nil, orchestratorLib(t), strconv.Itoa(spec.Number), spec.Title))
-		if got := specBranchName(spec); got != want {
-			t.Errorf("the factory names the spec branch of %q %q; the orchestrator's shell spells it %q", spec.Title, got, want)
-		}
-		if got := issueFromBranch(specBranchName(spec)); got != strconv.Itoa(spec.Number) {
-			t.Errorf("the factory reads the spec branch %q as the branch of issue %q, want %d", specBranchName(spec), got, spec.Number)
-		}
-	}
-
-	gh := newGhShim(t)
-	gh.remote(t, "acme/edge-sensors")
-	clone := gh.cloneInto(t, t.TempDir(), "acme/edge-sensors")
-	for _, branch := range []string{
-		"spec/100-offline-mode",
-		"spec/100-an-older-title", // the same spec under the title it had when another host claimed it
-		"spec/1000-another-spec",
-		"spec/10-a-shorter-number",
-		"feat/200-a-ticket",
-		"spec/200", // no slug and no hyphen: no spec branch of the contract
-		"specs/300-not-the-type",
-		"feat/spec/400-nested",
-	} {
-		gh.git(t, clone, "push", "-q", "origin", "HEAD:refs/heads/"+branch)
-	}
-	gh.git(t, clone, "fetch", "-q", "--prune", "origin")
-	for _, spec := range []int{100, 1000, 10, 1, 200, 300, 400, 500} {
-		t.Run(strconv.Itoa(spec), func(t *testing.T) {
-			want := strings.TrimSpace(shell(t, clone, `. "$1"; wf_remote_spec_branch "$2"`, nil, orchestratorLib(t), strconv.Itoa(spec)))
-			if got := remoteSpecBranch(context.Background(), clone, spec); got != want {
-				t.Errorf("the factory finds %q as the spec branch of #%d; the orchestrator's shell cuts its ticket from %q", got, spec, want)
-			}
-		})
-	}
-}
-
-// shellBranchName is the branch the orchestrator's claim.sh names for an issue, built by the shell
-// itself out of the helpers in its lib.sh.
-// Which issue a branch belongs to is wf_issue_from_branch in the orchestrator's lib.sh, the rule a
-// local claim asks the remote with (wf_remote_branch_for_issue) before it takes an issue somebody
-// else already holds. The factory asks it of the references it fetched, so both drivers have to read
-// the same branch names the same way ([ADR 0022]).
-//
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
-func TestTheIssueABranchBelongsToAgreesWithTheOrchestratorsShell(t *testing.T) {
-	t.Parallel()
-	for _, branch := range []string{
-		"feat/104-retry-the-upload-when-the-broker-drops",
-		"feat/104-retry-the-upload", // the same issue under the title it had two polls ago
-		"fix/9-crash-on-start",
-		"docs/12-explain-the-gate",
-		"chore/7-bump-the-pins",
-		"feat/104-", // a title that slugs to nothing
-		"feat/0104-retry",
-		"spec/104-a-spec-branch-is-the-branch-of-its-spec",
-		"spec/104",
-		"plan/104-a-plan-branch-carries-a-topic",
-		"plan/retry-the-upload",
-		"main",
-		"release/1.2",
-		"Feat/104-upper-case-is-no-branch-type",
-		"feat/retry-104-the-upload",
-		"feature-104-the-hyphen-is-no-slash",
-		"origin/HEAD",
-		"HEAD",
-	} {
-		t.Run(branch, func(t *testing.T) {
-			want := strings.TrimSpace(shell(t, "", `. "$1"; wf_issue_from_branch "$2"`, nil, orchestratorLib(t), branch))
-			if got := issueFromBranch(branch); got != want {
-				t.Errorf("the factory reads %q as the branch of issue %q; the orchestrator's shell reads it as %q", branch, got, want)
-			}
-		})
-	}
-}
-
-func shellBranchName(t *testing.T, issue Issue) string {
-	t.Helper()
-	return strings.TrimSpace(shell(t, "",
-		`. "$1"; printf '%s/%s-%s\n' "$(wf_branch_type "$3")" "$2" "$(wf_slug "$4")"`,
-		nil, orchestratorLib(t), strconv.Itoa(issue.Number), strings.Join(issue.Labels, ","), issue.Title))
 }
 
 // declaresBase puts the base a repository declares for itself on the branch of the shim's GitHub that
@@ -1041,36 +819,6 @@ func writeSettings(t *testing.T, clone, body string) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(clone, ".claude", "settings.json"), body)
-}
-
-// shellBaseBranch is what wf_base_branch answers in a checkout, with the gh shim on its PATH.
-func shellBaseBranch(t *testing.T, gh *ghShim, clone, explicit string) string {
-	t.Helper()
-	return strings.TrimSpace(shell(t, clone, `. "$1"; wf_base_branch`,
-		append(gh.env, "WF_BASE_BRANCH="+explicit), orchestratorLib(t)))
-}
-
-func orchestratorLib(t *testing.T) string {
-	t.Helper()
-	return abs(t, filepath.Join("..", "plugins", "orchestrator", "scripts", "lib.sh"))
-}
-
-// shell runs one bash script in a directory and answers with its output.
-func shell(t *testing.T, dir, script string, env []string, args ...string) string {
-	t.Helper()
-	bash := exec.Command("bash", append([]string{"-c", "set -eu; " + script, "shell"}, args...)...)
-	bash.Dir = dir
-	bash.Env = env
-	if env == nil {
-		bash.Env = gitIsolation()
-	}
-	var said bytes.Buffer
-	bash.Stderr = &said
-	out, err := bash.Output()
-	if err != nil {
-		t.Fatalf("the shell this rule is bound to failed: %v: %s", err, said.String())
-	}
-	return string(out)
 }
 
 // inProcess points this test process at the shim, so that a rule called as a function reaches the

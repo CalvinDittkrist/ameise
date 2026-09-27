@@ -299,45 +299,6 @@ func TestAHostWithAnotherRoutingLabelDerivesTheSpecRunLabelFromIt(t *testing.T) 
 	}
 }
 
-// The factory's copy of the label vocabulary is the labels it reads by name. Each of them is a label
-// of the workflow's vocabulary: one the planner's labels.sh creates in a repository that has none, and
-// one the repository standard's label_json can create. The Python suite holds those two to each other.
-func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
-	t.Parallel()
-	read := []string{readyLabel, humanLabel, defaultLabel, specLabel, specRunLabel(defaultLabel)}
-
-	// labels.sh against a gh that has no label yet and creates every one it is asked for.
-	bin := t.TempDir()
-	stub := "#!/bin/sh\ncase \"$1 $2\" in\n\"label list\") echo '[]' ;;\n\"label create\") ;;\n*) exit 1 ;;\nesac\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(stub), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	env := append(gitIsolation(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	planner := abs(t, filepath.Join("..", "plugins", "planner", "scripts", "labels.sh"))
-	created := map[string]bool{}
-	for _, line := range strings.Split(shell(t, t.TempDir(), `bash "$1"`, env, planner), "\n") {
-		if names, ok := strings.CutPrefix(line, "created: "); ok {
-			for _, name := range strings.Split(names, ",") {
-				created[name] = true
-			}
-		}
-	}
-	for _, label := range read {
-		if !created[label] {
-			t.Errorf("the factory reads the label %q, which the planner's labels.sh does not create; it created %v", label, created)
-		}
-	}
-
-	// label_json of the repository standard, asked for each label by name.
-	standard := abs(t, filepath.Join("..", "plugins", "repo-standards", "scripts", "lib.sh"))
-	for _, label := range read {
-		body := strings.TrimSpace(shell(t, t.TempDir(), `. "$1"; label_json "$2" | jq -r .name`, nil, standard, label))
-		if body != label {
-			t.Errorf("the factory reads the label %q, which label_json of the repository standard answers as %q", label, body)
-		}
-	}
-}
-
 // interruptedSpecRuns writes the records of two spec runs a factory left claiming when it stopped:
 // spec run 1 had named its spec branch and logged two events, but its record counts one, as a record
 // written before its last event does; spec run 2 had named nothing. Each carries the routing it

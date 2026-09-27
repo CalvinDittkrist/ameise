@@ -19,7 +19,7 @@ import (
 // The remote claim: the factory takes an issue by creating its branch on GitHub, and only the
 // claimer GitHub answers 201 to owns it ([ADR 0024]). Everything here is the workflow's shell
 // restated in Go (the branch contract, the base branch rule), and every restatement is bound to
-// its original by a drift test ([ADR 0022]).
+// its original through the contract fixture ([ADR 0022]).
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 // [ADR 0024]: ../docs/adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md
@@ -482,7 +482,7 @@ var exists = regexp.MustCompile(`(?i)reference already exists`)
 // baseBranch is the branch a run of this repository is cut from. It is the workflow's rule restated
 // in Go (wf_base_branch in plugins/orchestrator/scripts/lib.sh): the explicit setting first, then the
 // head the remote points at, then the repository's default branch on GitHub, and main when nothing
-// answers at all. A drift test binds the two ([ADR 0022]).
+// answers at all. The contract fixture binds the two ([ADR 0022]).
 //
 // The explicit setting is WF_BASE_BRANCH, which a local session is given by the repository's own
 // settings file; the factory reads that same file out of the repository's default branch, and the
@@ -554,7 +554,7 @@ func declaredBase(ctx context.Context, clone, branch string) string {
 
 // branchName is the branch contract of the workflow, restated in Go: <type>/<issue>-<slug>
 // ([ADR 0003]). It is what the worker's session start reads the issue number from, so the shape is
-// the pipeline's and not the factory's, and a drift test binds it to the shell ([ADR 0022]).
+// the pipeline's and not the factory's, and the contract fixture binds it to the shell ([ADR 0022]).
 //
 // [ADR 0003]: ../docs/adr/0003-herdr-worktree-per-issue.md
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
@@ -566,7 +566,7 @@ func branchName(issue Issue) string {
 // after the fetch, or empty when the remote has none and when it cannot be asked. It is
 // wf_remote_branch_for_issue of the orchestrator's lib.sh restated in Go, and like the shell it
 // reads the issue out of the branch name rather than out of the issue's labels or title: those are
-// edited, the number in the branch is not. A drift test binds the two ([ADR 0022]).
+// edited, the number in the branch is not. The contract fixture binds the two ([ADR 0022]).
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 func remoteBranchForIssue(ctx context.Context, clone string, issue int) string {
@@ -642,7 +642,7 @@ const slugLength = 40
 
 // slug is the branch-safe form of an issue title (wf_slug in plugins/orchestrator/scripts/lib.sh):
 // URLs dropped, German umlauts transliterated, ASCII lower case, every other run of characters one
-// hyphen, no hyphen at either end, at most 40 characters. A drift test binds it to that original.
+// hyphen, no hyphen at either end, at most 40 characters. The contract fixture binds it to that original.
 func slug(title string) string {
 	s := link.ReplaceAllString(title, "")
 	s = transliterated.Replace(s)

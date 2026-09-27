@@ -25,7 +25,7 @@ import (
 // it waits for.
 
 // humanLabel marks an issue a person implements. It is the workflow's label vocabulary restated in Go,
-// as readyLabel is, and a drift test holds it to the planner's copy.
+// as readyLabel is, and the contract fixture holds it to the planner's copy.
 const humanLabel = "ready-for-human"
 
 // signalSpecPull is what puts the spec pull request of a spec run in the line: every ticket of the

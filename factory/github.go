@@ -25,7 +25,7 @@ import (
 
 // readyLabel says that an issue is ready for an agent. It is the workflow's label vocabulary
 // restated in Go, and together with the routing label it is what makes an issue the factory's; the
-// drift test against the orchestrator's board holds the restatement to its original ([ADR 0022]).
+// contract fixture holds the restatement and its original to one vocabulary ([ADR 0022]).
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 const readyLabel = "ready-for-agent"
@@ -114,8 +114,8 @@ type ghEvent struct {
 //
 // It is the Go restatement of the rule the orchestrator's board applies to free agent-ready issues
 // (plugins/orchestrator/scripts/board.sh), which is the same rule with the routing label the other
-// way round: what the board leaves to the factory is exactly what the factory takes. A drift test
-// runs both programs over one set of issues and fails when they disagree ([ADR 0022]).
+// way round: what the board leaves to the factory is exactly what the factory takes. The contract
+// fixture states that split over one set of issues, and each side's test holds it there ([ADR 0022]).
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 func routed(issue ghIssue, routingLabel string) bool {
@@ -612,7 +612,7 @@ func (g *gitHub) remember(key string, updated time.Time, read signals) {
 // routedIssues asks GitHub for the issues of one repository that carry both labels and keeps those
 // the frontier rule takes. The rule is applied to the answer and not left to the query, because a
 // query can only filter labels: assignees, blockers and pull requests are decided here, in the one
-// place the drift test reads.
+// place the contract fixture's test reads.
 //
 // A ticket of a spec run is never in the line, whatever labels it carries: a candidate the rule takes
 // and that has a parent is dropped when its parent carries the spec-run label. The parent is read
