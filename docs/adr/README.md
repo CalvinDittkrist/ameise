@@ -58,3 +58,4 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0052](0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md) | Sessions run on a runtime, and Codex is one of them, as a reviewer first | accepted |
 | [0053](0053-the-quota-check-reads-every-runtime-a-run-spends.md) | The quota check reads every runtime a run spends | accepted |
 | [0054](0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md) | The validate stage is a second, budgeted review after a green ci | accepted |
+| [0055](0055-the-spec-pull-request-ends-the-spec-run.md) | The spec pull request ends the spec run | accepted |

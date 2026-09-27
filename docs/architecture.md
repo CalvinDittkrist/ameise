@@ -83,7 +83,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 11. Address-reviews: a session fixes or declines each point of writers and bots; the factory posts the replies.
 12. Validate: read-only validators review the green pull request. A `fix` gets a fix session and ci again ([ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)).
     - [Merge](factory-runbook.md#the-merge-stage): a passed ticket run is squash-merged into the spec branch.
-    - After the last ticket, the [spec pull request](factory-runbook.md#the-spec-pull-request) runs ci alone; merging it ends the spec run.
+    - The [spec pull request](factory-runbook.md#the-spec-pull-request) follows the last ticket; its merge ends the spec run ([ADR 0055](adr/0055-the-spec-pull-request-ends-the-spec-run.md)).
 13. Each run writes a JSON record and an event log; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
 14. An interrupted run resumes once, in its worktree. Taking the assignee off resumes it.
 15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.

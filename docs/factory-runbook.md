@@ -532,6 +532,7 @@ GitHub closes no linked issue on a merge into a branch other than the default on
 
 - A panel that did not pass merges nothing. The run ends `ready` with a review request, and a person merges or changes the pull request.
 - A pull request merged already, by a person or before a restart, is not merged again. The ticket is recorded and closed once.
+- A merge GitHub refuses ends the run `blocked` with its reason.
 
 #### The spec pull request
 A spec run ends with its spec pull request, once the spec has sub-issues and every one of them is closed.
@@ -549,7 +550,6 @@ A spec run waits when its open tickets all carry `ready-for-human` or are blocke
 - It takes no ticket and opens no spec pull request.
 - It comments once per such ticket on the spec, mentioning the `notify` logins and naming the ticket.
 - Close the ticket once its pull request is merged into the spec branch, and the spec run goes on at the next poll.
-- A merge GitHub refuses ends the run `blocked` with its reason.
 
 ### The implement stage
 A run starts with the version of Claude Code it is made with, written on the run. Then one implement session runs in the run's worktree ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
