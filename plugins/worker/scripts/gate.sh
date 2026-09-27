@@ -23,7 +23,7 @@ print_tail() {
   # A tail without text is stated, not shown as a bare key a reader would have to tell apart from a
   # truncation. It says what it knows: these lines carry nothing. Whether the gate printed anything at all
   # is a question for the log, because the record keeps the last lines only.
-  if ! wf_record_body "$record" | grep -q .; then
+  if [ -z "$(wf_record_body "$record")" ]; then
     wf_kv gate_output_tail "(blank: the last $tail_lines lines of the output carry no text; gate_log has all of it)"
     return
   fi

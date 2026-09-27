@@ -134,7 +134,7 @@ npm --prefix factory/ui run dev                   # the dashboard with hot reloa
 `factory/` is the factory, a Go service and no plugin. It is a peer of the local workflow and owns the delivery pipeline in Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
 - It claims the head of its line by creating the issue's branch on GitHub ([ADR 0024](docs/adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
-- It runs the stages implement, gate, review, pr, ci, validate and address-reviews in a worktree of its own clone, one headless session per step that needs judgement.
+- It runs the stages implement, gate, review, pr, ci, validate, merge and address-reviews in a worktree of its own clone, one headless session per step that needs judgement.
 - Its sessions run on its own prompts with the plugins off, so a host needs Claude Code, `git`, `gh` and the binary ([ADR 0042](docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 - Its read-only HTTP interface serves a dashboard built into the binary ([ADR 0033](docs/adr/0033-the-dashboard-is-built-into-the-factory-binary.md)).
 

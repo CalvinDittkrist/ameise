@@ -63,8 +63,7 @@ type SpecRun struct {
 	Branch string `json:"branch"`
 	Base   string `json:"base"`
 	State  string `json:"state"`
-	// Idle says no ticket run of the spec run is working. A spec run holds its spec between tickets,
-	// and this one starts none of them yet.
+	// Idle says no ticket run of the spec run is working. A spec run holds its spec between tickets.
 	Idle bool `json:"idle"`
 	// SignalAt is when the spec-run label was last set on the spec, the routing this spec run answers.
 	// A spec whose latest spec run did not hold it is claimed again only on a routing newer than that.
@@ -73,9 +72,12 @@ type SpecRun struct {
 	ClaimedAt *time.Time `json:"claimedAt"`
 	LetGoAt   *time.Time `json:"letGoAt"`
 	// Reason is why a spec run is lost, failed or let go.
-	Reason     string   `json:"reason"`
-	Warnings   []string `json:"warnings"`
-	EventCount int      `json:"eventCount"`
+	Reason   string   `json:"reason"`
+	Warnings []string `json:"warnings"`
+	// Tickets is the tickets whose runs this spec run took, in the order it took them, each with its
+	// runs and whether its pull request is merged into the spec branch (ticket.go).
+	Tickets    []SpecTicket `json:"tickets"`
+	EventCount int          `json:"eventCount"`
 }
 
 func (s SpecRun) key() string { return Issue{Repository: s.Repository, Number: s.Spec}.key() }
@@ -132,6 +134,11 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 			reason := "the factory stopped while this spec was being claimed" + specLeftBehind("")
 			s.event(r, Event{Kind: "error", Title: specFailed, Body: reason})
 			s.update(r, func() { r.State, r.Reason = specFailed, reason })
+		}
+		// No ticket run works before the factory starts one: a run the stop cut short is recorded
+		// interrupted by OpenStore and never ends through ticketEnded, so its spec run is idle again here.
+		if r.State == specHolding && !r.Idle {
+			s.update(r, func() { r.Idle = true })
 		}
 	}
 	return s, nil
@@ -273,21 +280,23 @@ func (f *Factory) heldSpecs() []Held {
 //
 // One pass claims one spec at most, and a claim the factory stopped in comes first. A claim fetches
 // the clone, which may wait as long as a clone does, and the line of issues behind it waits for it
-// too: one claim per dispatch keeps that wait to one, and the next spec is claimed a poll later.
-func (f *Factory) claimSpecs(ctx context.Context) {
+// too: one claim per dispatch keeps that wait to one, and the next spec is claimed a poll later. It
+// answers whether it made a claim, after which the dispatch starts nothing: the next poll reads the
+// tickets of the spec, which come before the routed issues.
+func (f *Factory) claimSpecs(ctx context.Context) bool {
 	if f.fake {
-		return // the canned line of fake mode holds no spec
+		return false // the canned line of fake mode holds no spec
 	}
 	for _, held := range f.specs.list() {
 		if ctx.Err() != nil || f.Paused() || f.Draining() {
-			return
+			return false
 		}
 		if _, ok := f.connected(held.Repository); held.State != specClaiming || !ok || !f.claimable(held.Repository) {
 			continue
 		}
 		if r, ok := f.specs.find(held.ID); ok {
 			f.resumeSpec(ctx, r)
-			return
+			return true
 		}
 	}
 	f.mu.Lock()
@@ -296,7 +305,7 @@ func (f *Factory) claimSpecs(ctx context.Context) {
 	latest := f.specs.latest()
 	for _, spec := range routed {
 		if ctx.Err() != nil || f.Paused() || f.Draining() {
-			return
+			return false
 		}
 		if _, ok := f.connected(spec.Repository); !ok {
 			continue
@@ -310,8 +319,9 @@ func (f *Factory) claimSpecs(ctx context.Context) {
 			continue
 		}
 		f.claimSpec(ctx, spec)
-		return
+		return true
 	}
+	return false
 }
 
 // claimSpec is the claim of one spec: the spec branch created through the API from the base the base

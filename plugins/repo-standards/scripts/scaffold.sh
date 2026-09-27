@@ -84,7 +84,7 @@ done
 # Membership without a pipe: under pipefail, a grep -q that exits on its match can kill the printf still
 # writing into it with SIGPIPE, and the failed pipeline then disabled a workflow plugin now and then.
 for p in $(jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "$s"); do
-  case $'\n'"$wanted"$'\n' in *$'\n'"$p"$'\n'*) ;; *) run disable "$p" ;; esac
+  grep -qxF -- "$p" <<<"$wanted" || run disable "$p"
 done
 jq --slurpfile t "$tpl/settings.json" '$t[0] as $t
   | .attribution = $t.attribution

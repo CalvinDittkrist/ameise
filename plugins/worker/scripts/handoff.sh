@@ -50,7 +50,7 @@ section_text() { awk -v h="$1" '
   inside && /[^[:space:]]/ { print }
 ' ; }
 for section in $sections; do
-  printf '%s\n' "$note" | section_text "$section" | grep -q . || wf_die "the note has no '## $section' section with text under it; a fresh context reads the note instead of this transcript, so it needs all of them ($(printf '%s' "$sections" | sed 's/ /, ## /g; s/^/## /')); write that section and hand over again"
+  [ -n "$(printf '%s\n' "$note" | section_text "$section")" ] || wf_die "the note has no '## $section' section with text under it; a fresh context reads the note instead of this transcript, so it needs all of them ($(printf '%s' "$sections" | sed 's/ /, ## /g; s/^/## /')); write that section and hand over again"
 done
 
 # The same range the reviewers read: the commits of this branch, whether or not they are pushed already, so

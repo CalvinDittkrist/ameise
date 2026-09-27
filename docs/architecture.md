@@ -1,7 +1,7 @@
 # Architecture
 
 ## Purpose
-This repository packages a way of working with coding agents as Claude Code plugins, beside the factory, a Go service for unattended delivery. It optimises for throughput, token economy, consistency and safety. The why is in the [vision](vision.md); its short form is `AGENTS.md` `Priorities`.
+This repository packages a way of working with coding agents as Claude Code plugins, beside the factory, a Go service for unattended delivery. It optimises for throughput, token economy, consistency and safety. The why is in the [vision](vision.md).
 
 ## Components
 | Component | Responsibility | Entry point |
@@ -71,7 +71,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 ### Factory
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
 2. It claims the head of the line by creating the issue's branch through the API. Meeting an existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
-   - A routed spec is held on its spec branch, its tickets out of the line ([spec runs](factory-runbook.md#spec-runs)).
+   - A routed spec is held on its spec branch for its [ticket runs](factory-runbook.md#ticket-runs).
 3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)). `WF_BASE_BRANCH` is read from the repository's settings.
 4. It assigns itself, makes a worktree and records the Claude Code version, updating nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
@@ -82,6 +82,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 10. Ci: a conflict or failed checks get a fix session, within a budget. Green ends the run `ready`, after validate when configured.
 11. Address-reviews: a session fixes or declines each point of writers and bots; the factory posts the replies.
 12. Validate: read-only validators review the green pull request. A `fix` gets a fix session and ci again ([ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)).
+    - [Merge](factory-runbook.md#the-merge-stage): a passed ticket run is squash-merged into the spec branch.
 13. Each run writes a JSON record and an event log; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
 14. An interrupted run resumes once, in its worktree. Taking the assignee off resumes it.
 15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
@@ -89,7 +90,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
 18. Before each run a quota-axi check waits below the minimum and fails open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
 19. Writing sessions run in auto permission mode, without Herdr or `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-20. The stages came over from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
+20. The stages came from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
 ### Release
 1. Tickets and their spec carry a `vX.Y.Z` milestone from `/planner:tickets`, so a release waits for the acceptance.

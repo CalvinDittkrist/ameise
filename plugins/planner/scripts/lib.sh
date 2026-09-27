@@ -51,7 +51,7 @@ wf_issue_db_id() { gh api "repos/$(wf_repo_nwo)/issues/$1" --jq .id 2>/dev/null;
 WF_ROUTING_LABEL=factory
 # True when the label set $2... contains the name $1. The names come from GitHub, so -e keeps one that opens
 # with a dash an operand instead of an option to grep.
-wf_labels_have() { local want="$1"; shift; printf '%s\n' "$@" | grep -qxF -e "$want"; }
+wf_labels_have() { local want="$1" have; shift; have=$(printf '%s\n' "$@"); grep -qxF -e "$want" <<<"$have"; }
 # Refuse a label set that routes an issue the factory cannot work: routing is only true next to
 # `ready-for-agent` (the factory takes no half-specified issue) and never next to `ready-for-human` (a person
 # implements that one). $1 names the issue in the message, $2 is how this call drops the routing label (the

@@ -91,7 +91,7 @@ fi
 me=$(gh api user -q .login 2>/dev/null || true)
 assigned=$(printf '%s' "$json" | jq -r '[.assignees[].login] | join(",")')
 assign_note="assigned to: ${assigned:-nobody}"
-if [ -n "$me" ] && ! printf ',%s,' "$assigned" | grep -q ",$me,"; then
+if [ -n "$me" ] && ! grep -qF -e ",$me," <<<",$assigned,"; then
   if gh issue edit "$issue" --add-assignee @me >/dev/null 2>&1; then assign_note="assigned to $me by this hook"; else assign_note="could not assign to $me (no permission?)"; fi
 fi
 

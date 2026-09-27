@@ -7,7 +7,8 @@ command -v jq >/dev/null 2>&1 || exit 0
 [ -z "$(printf '%s' "$input" | jq -r '.agent_id // empty')" ] || exit 0
 [ "$(printf '%s' "$input" | jq -r '.source // "startup"')" = "startup" ] || exit 0
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty'); if [ -n "$cwd" ]; then cd "$cwd" 2>/dev/null || exit 0; fi
-git remote get-url origin 2>/dev/null | grep -q github || exit 0
+origin=$(git remote get-url origin 2>/dev/null) || exit 0
+grep -q github <<<"$origin" || exit 0
 if command -v gh-axi >/dev/null 2>&1; then bin="gh-axi"; elif command -v npx >/dev/null 2>&1; then bin="npx -y gh-axi"; else exit 0; fi
 out=$($bin 2>/dev/null) || exit 0
 [ -n "$out" ] || exit 0

@@ -50,14 +50,16 @@ Terms the code, the issues and the docs use, one row each.
 | routed issue | An open issue with `ready-for-agent` and the routing label, no assignee and no open blocker. |
 | queue | The routed issues of all connected repositories in one line, derived from GitHub on every poll, never stored; held work first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)). |
 | factory run | The factory's answer to one signal, with its record and event log, across its stages. Kinds: first run, resumed run, follow-up run. |
-| stage | One step of the factory's pipeline in Go: implement, gate, review, pr, ci, validate, address-reviews ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md), [ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)). Not a stage of the local worker. |
+| stage | One step of the factory's pipeline in Go: implement, gate, review, pr, ci, validate, merge, address-reviews ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md), [ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)). Not a stage of the local worker. |
 | session | One non-interactive call of a runtime inside a stage, with a fresh context, the factory's prompt, a stage timeout and a structured result ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)). |
 | runtime | The program a session runs on: `claude` (Claude Code in print mode) or `codex` (`codex exec`). A reviewer definition names its runtime; every other session runs on `claude` ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)). |
 | validate | The factory's stage after a green ci stage: the validators review the pull request's diff. A `fix` gets a fix session and another ci pass, within `validate.rounds`. Off without validators ([ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)). |
-| validator | A reviewer of the panel, `codex` included, that a repository's `validate.validators` names to review the green pull request read-only. |
+| validator | A reviewer of the panel, `codex` and `fable` included, that a repository's `validate.validators` names to review the green pull request read-only. |
+| ticket run | A factory run of one ticket of a spec run: cut from the spec branch, its pull request against it, validated, then merged into it. |
+| merge | The factory's stage after validate in a ticket run: a pull request with green ci, a `ready` panel and a passed validation is squash-merged into the spec branch. |
 | change class | An ordered rule of a connected repository: name, path patterns, gate command, optional reviewers. `full` is built in ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). |
 | review finding | One structured finding of a reviewer session: severity, path, line, claim, why, fix. `finding` stays the auditor's line. |
-| outcome | How a factory run ended: `ready`, `blocked`, `failed`, `timeout`, `lost`, `interrupted`, `cancelled`, `quota`. |
+| outcome | How a factory run ended: `ready`, `merged`, `blocked`, `failed`, `timeout`, `lost`, `interrupted`, `cancelled`, `quota`. |
 | remote claim | Creating the issue's branch through the GitHub API, which exactly one claimer wins ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)). |
 | local claim | The orchestrator's claim of an issue into a Herdr worktree on a developer's machine (`/orchestrator:claim`). It refuses an issue the factory owns. |
 | release signal | Removing the assignee from an issue the factory holds, which queues a resumed run. |
