@@ -25,8 +25,8 @@ const (
 
 // codexModel is the model a Codex session runs on, named in the call (-m): no event of `codex exec
 // --json` names the model, so the record knows it from the call alone (the prototype of 2026-09-27 on
-// #230, with codex-cli 0.155.0). It is a Codex model whose scope quota-axi 0.1.49 reports, so the quota
-// check reads the scope it spends.
+// #230, with codex-cli 0.155.0). It is a Codex model whose scope quota-axi 0.1.49 reports, as
+// model:codex_bengalfox (scopeAliases), so the quota check reads the scope it spends.
 const codexModel = "gpt-5.3-codex"
 
 // codexLoginTimeout is how long `codex login status` may take before a run that needs Codex starts.
@@ -41,14 +41,18 @@ func (s session) on() string {
 }
 
 // codexCommand is the process of a Codex session: `codex exec` in the run's worktree, in the read-only
-// sandbox, without a session file of its own (--ephemeral), with the schema of its result as the output
+// sandbox, without a session file of its own (--ephemeral), without the host user's configuration and
+// without any execpolicy rules of the user or of the worktree (--ignore-user-config, --ignore-rules: the
+// sandbox bounds only the shell commands, while a configured MCP server or hook would reach the review
+// input past it; the login in CODEX_HOME still holds), with the schema of its result as the output
 // schema and its last message written to a file the factory reads as the structured result
-// (https://learn.chatgpt.com/docs/developer-commands?surface=cli and
-// https://learn.chatgpt.com/codex/non-interactive-mode, checked on 2026-09-27). Its standard input is
-// closed: with it open, Codex waits for more of the prompt before it starts. The configured worker
-// arguments are Claude Code's and go to no Codex call.
+// (https://learn.chatgpt.com/docs/developer-commands?surface=cli,
+// https://learn.chatgpt.com/codex/non-interactive-mode and codex-rs/exec/src/cli.rs of openai/codex,
+// checked on 2026-09-27). Its standard input is closed: with it open, Codex waits for more of the
+// prompt before it starts. The configured worker arguments are Claude Code's and go to no Codex call.
 func codexCommand(ctx context.Context, s session, claim claimed) *exec.Cmd {
 	args := []string{"exec", "--sandbox", "read-only", "--cd", claim.worktree, "--ephemeral", "--skip-git-repo-check",
+		"--ignore-user-config", "--ignore-rules",
 		"--output-schema", s.schemaFile, "--json", "-o", s.lastMessage, "-m", s.model, s.prompt}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = claim.worktree
@@ -80,9 +84,10 @@ type codexEvent struct {
 	ThreadID string `json:"thread_id"`
 	Message  string `json:"message"`
 	Usage    struct {
-		Input  int `json:"input_tokens"`
-		Cached int `json:"cached_input_tokens"`
-		Output int `json:"output_tokens"`
+		Input      int `json:"input_tokens"`
+		Cached     int `json:"cached_input_tokens"`
+		CacheWrite int `json:"cache_write_input_tokens"`
+		Output     int `json:"output_tokens"`
 	} `json:"usage"`
 	Error struct {
 		Message string `json:"message"`
@@ -97,8 +102,8 @@ type codexEvent struct {
 }
 
 // ingestCodex reads one event of a Codex session into the run and into the session's reading, as ingest
-// does for Claude Code's stream. The totals are the turn's usage: Codex counts the cached input within
-// the input, and reports no cost, so the run's cost leaves the session out.
+// does for Claude Code's stream. The totals are the turn's usage: Codex counts the cached input and
+// the input it wrote to the cache within the input, and reports no cost, so the run's cost leaves the session out.
 func (f *Factory) ingestCodex(r *Run, session *heard, line []byte) {
 	event := func(e Event) {
 		if session.label != "" {
@@ -137,7 +142,8 @@ func (f *Factory) ingestCodex(r *Run, session *heard, line []byte) {
 		}
 	case "turn.completed":
 		f.runs.update(r, func() {
-			r.report(session, 1, 0, Tokens{Input: max(m.Usage.Input-m.Usage.Cached, 0), Output: m.Usage.Output, CacheRead: m.Usage.Cached})
+			r.report(session, 1, 0, Tokens{Input: max(m.Usage.Input-m.Usage.Cached-m.Usage.CacheWrite, 0), Output: m.Usage.Output,
+				CacheCreation: m.Usage.CacheWrite, CacheRead: m.Usage.Cached})
 		})
 	case "turn.failed":
 		failed("turn failed", m.Error.Message)

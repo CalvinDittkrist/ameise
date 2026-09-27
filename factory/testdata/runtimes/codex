@@ -77,5 +77,5 @@ fi
 printf '%s' "$result" > "$out"
 text=$(printf '%s' "$result" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
 printf '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"%s"}}\n' "$text"
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":64000,"cached_input_tokens":51200,"cache_write_input_tokens":0,"output_tokens":900,"reasoning_output_tokens":400}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":64000,"cached_input_tokens":51200,"cache_write_input_tokens":1001,"output_tokens":900,"reasoning_output_tokens":400}}'
 exit 0

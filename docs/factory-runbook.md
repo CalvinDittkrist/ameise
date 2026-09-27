@@ -627,13 +627,15 @@ Every round, fix and gate is recorded on the run as it ends. A run resumed durin
 Every session runs on a runtime, `claude` or `codex` ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)). Every session runs on `claude` but the reviewer `codex`, which a repository adds by naming it in `reviewers`.
 
 - It runs `codex exec` in the run's worktree, in the read-only sandbox, with `--json`, `--ephemeral` and its standard input closed.
-- Its model is `gpt-5.3-codex`, passed with `-m`. The reviewer schema goes to `--output-schema` as a file.
+- It runs with `--ignore-user-config` and `--ignore-rules`: no MCP server, hook or rule of `~/.codex` or of the worktree reaches it. The login in `~/.codex` still holds.
+- Its model is `gpt-5.3-codex`, passed with `-m`. quota-axi reports its quota as the scope `model:codex_bengalfox`. The reviewer schema goes to `--output-schema` as a file.
 - Its last message, written to the file of `-o`, is its result. The factory reads it with the checks of a Claude reviewer's result.
 - The run record lists every session under `sessions` with its stage, runtime and model. The log names them on each `worker started`.
 - Codex reports tokens and no cost, so the run's `costUsd` leaves a Codex session out.
 - Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and that `codex login status` passes.
 - When either fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue. Install or log in ([Installation](#installation)), then release the issue.
 - A Codex turn that fails on its usage limit ends the run `quota` when quota-axi reads the Codex quota used up. The factory resumes it after the reset.
+- A resumed review goes on with the reviewers its panel recorded. The quota check reads the Codex quota for it when that panel names `codex`, even if the configuration no longer does.
 
 #### Change classes
 A repository may carry an ordered list of change classes under `review.classes` ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). Each class has:

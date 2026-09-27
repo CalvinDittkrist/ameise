@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A reviewer runs on a runtime, and the reviewer codex runs on Codex ([ADR 0052]): `codex exec` in the
@@ -133,8 +134,9 @@ func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 	worktree := resolved(t, run.Worktree)
 	for i, call := range calls {
 		if call.args[0] != "exec" || call.arg("--sandbox") != "read-only" || call.arg("--cd") != run.Worktree || call.cwd != worktree ||
-			!slices.Contains(call.args, "--json") || !slices.Contains(call.args, "--ephemeral") {
-			t.Errorf("Codex session %d ran in %s with %v, want codex exec --json in the read-only sandbox of the worktree %s", i+1, call.cwd, call.args, worktree)
+			!slices.Contains(call.args, "--json") || !slices.Contains(call.args, "--ephemeral") ||
+			!slices.Contains(call.args, "--ignore-user-config") || !slices.Contains(call.args, "--ignore-rules") {
+			t.Errorf("Codex session %d ran in %s with %v, want codex exec --json in the read-only sandbox of the worktree %s, without the user's configuration and rules", i+1, call.cwd, call.args, worktree)
 		}
 		if call.arg("--output-schema") == "" || call.schema != reviewSchema {
 			t.Errorf("Codex session %d was held to the schema file %q holding %q, want the reviewer's schema", i+1, call.arg("--output-schema"), call.schema)
@@ -179,6 +181,11 @@ func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 	}
 	if codexSessions != 2 || claudeSessions < 4 {
 		t.Errorf("the run records %d Codex and %d Claude sessions (%+v), want 2 Codex reviewers beside the implement, code reviewer, fix and author sessions", codexSessions, claudeSessions, run.Sessions)
+	}
+	// Every Claude Code session of the shim writes to the cache in hundreds, and each Codex session
+	// writes 1001 tokens, so the two Codex sessions leave 2 in the last two digits.
+	if run.Tokens.CacheCreation%100 != 2 {
+		t.Errorf("the run counts %d tokens written to the cache, want the 1001 of each of the 2 Codex sessions among them", run.Tokens.CacheCreation)
 	}
 	started := false
 	for _, e := range run.Events {
@@ -287,7 +294,7 @@ func codexChecks(t *testing.T, q *quotaShim) []quotaCall {
 func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	t.Parallel()
 	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
-	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 " + codexModel + "=5 reset=+3", "all=80 " + codexModel + "=60 reset=+3600"})
+	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 codex_bengalfox=5 reset=+3", "all=80 codex_bengalfox=60 reset=+3600"})
 	until := f.waitsForQuota(t)
 	if !f.missing(t, 1) {
 		t.Fatalf("a run started while the factory waits for the Codex quota; the factory's log:\n%s", f.output(t))
@@ -300,8 +307,8 @@ func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	if checks := codexChecks(t, q); len(checks) != 2 {
 		t.Errorf("the factory asked quota-axi for Codex %d times, want twice: before the reset and after it", len(checks))
 	}
-	if !strings.Contains(f.output(t), "5 % of codex model:"+codexModel+" is left") {
-		t.Errorf("the factory's log does not say it waited for the Codex scope of %s:\n%s", codexModel, f.output(t))
+	if !strings.Contains(f.output(t), "5 % of codex model:codex_bengalfox is left") {
+		t.Errorf("the factory's log does not say it waited for the Codex scope model:codex_bengalfox of %s:\n%s", codexModel, f.output(t))
 	}
 	if len(codex.calls(t)) != 1 {
 		t.Errorf("the run started %d Codex sessions, want its one reviewer", len(codex.calls(t)))
@@ -366,5 +373,42 @@ func TestTheClassFullAsksTheCodexReviewerThePanelNames(t *testing.T) {
 	}
 	if len(codex.calls(t)) != 1 {
 		t.Errorf("the class full started %d Codex reviewers, want the one the panel names", len(codex.calls(t)))
+	}
+}
+
+// A review the factory resumes goes on with the reviewers its panel recorded, so a Codex reviewer it
+// recorded is read in the quota check before the resume even when the configuration no longer names
+// codex, and its Codex scope below the minimum holds the resume back.
+func TestTheCodexQuotaHoldsBackAResumedReviewWhosePanelRecordedCodex(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	head := gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	interrupted := record(1, claimedIssue, claimedTitle, signalRouted, outcomeInterrupted, true, began, began.Add(30*time.Minute))
+	interrupted.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	interrupted.Stages = []string{"implement", "review"}
+	interrupted.Panel = &Panel{Gate: "gate_result: pass (exit 0) at " + head[:7], GatedAt: head, Head: head,
+		Classes: []Classed{{Class: "full", For: classForReview, Head: head, Reviewers: []string{"code", "codex"}}}}
+	records(t, data, interrupted)
+	gh.issues(t, "acme/edge-sensors")
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+
+	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 codex_bengalfox=5 reset=+3600\n")
+	c := ciConfig(data, nil)
+	c["quota_axi"] = q.path
+	f := launch(t, c, append(append(gh.env, q.env...), "QUOTA_SHIM_CODEX_PLAN="+filepath.Join(dir, "codex-plan")))
+	f.waitsForQuota(t)
+	if !f.missing(t, 2) {
+		t.Fatalf("the resume started while the Codex scope its recorded panel spends is below the minimum; the factory's log:\n%s", f.output(t))
+	}
+	if len(codexChecks(t, q)) == 0 {
+		t.Errorf("the factory did not ask quota-axi for Codex before resuming a review whose panel recorded codex")
 	}
 }
