@@ -143,6 +143,10 @@ type Run struct {
 	// Panel is what the review stage recorded: its rounds, the verdicts and fixes of each, and the gate
 	// on the final head. A resumed run goes on from it.
 	Panel *Panel `json:"panel,omitempty"`
+	// Validation is what the validate stage recorded: its rounds, the verdicts of each validator, the
+	// fixes and the commits they were pushed at, and whether the last round passed. A resumed run on the
+	// same pull request goes on from it.
+	Validation *Validation `json:"validation,omitempty"`
 	// Gates is every run of the gate, in the gate stage and on the final head: the commit, the exit
 	// status, the duration and the end of the output of each.
 	Gates []Gated `json:"gates,omitempty"`

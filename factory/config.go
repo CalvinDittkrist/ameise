@@ -43,9 +43,10 @@ type Config struct {
 	QuotaMinimum *int   `json:"quota_minimum"`
 	// CI is the knobs of the ci stage for every connected repository, and a repository's own ci
 	// object overrides them one knob at a time (ciKnobs).
-	CI     *ciKnobs     `json:"ci"`
-	Review *reviewKnobs `json:"review"`
-	Gate   *gateKnobs   `json:"gate"`
+	CI       *ciKnobs       `json:"ci"`
+	Review   *reviewKnobs   `json:"review"`
+	Gate     *gateKnobs     `json:"gate"`
+	Validate *validateKnobs `json:"validate"`
 }
 
 // Connected is one repository the factory works: its name on GitHub and, optionally, the branch a
@@ -55,17 +56,19 @@ type Config struct {
 //
 // [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
 type Connected struct {
-	Name   string       `json:"name"`
-	Base   string       `json:"base"`
-	CI     *ciKnobs     `json:"ci"`
-	Review *reviewKnobs `json:"review"`
-	Gate   *gateKnobs   `json:"gate"`
-	// wait is the ci stage's knobs for this repository, panel the review stage's and gate the gate
-	// stage's: the host's, with what the repository's own ci, review and gate objects name written over
-	// them. Load fills them in.
-	wait  ciSettings
-	panel reviewSettings
-	gate  gateSettings
+	Name     string         `json:"name"`
+	Base     string         `json:"base"`
+	CI       *ciKnobs       `json:"ci"`
+	Review   *reviewKnobs   `json:"review"`
+	Gate     *gateKnobs     `json:"gate"`
+	Validate *validateKnobs `json:"validate"`
+	// wait is the ci stage's knobs for this repository, panel the review stage's, gate the gate stage's
+	// and validate the validate stage's: the host's, with what the repository's own ci, review, gate and
+	// validate objects name written over them. Load fills them in.
+	wait     ciSettings
+	panel    reviewSettings
+	gate     gateSettings
+	validate validateSettings
 }
 
 // UnmarshalJSON takes a connected repository as the name alone or as an object with its settings, so
@@ -112,6 +115,8 @@ type Settings struct {
 	// Review is the host's knobs of the review stage, and Gate the gate stage's, resolved the same way.
 	Review reviewSettings
 	Gate   gateSettings
+	// Validate is the host's knobs of the validate stage, which is off unless they name validators.
+	Validate validateSettings
 	// WorkerModel is the model the worker runs on, one of those whose quota scope the check reads
 	// (Factory.spends): the worker agent's own unless worker_args names another with --model.
 	WorkerModel string
@@ -124,7 +129,7 @@ const (
 	defaultPoll         = 60 * time.Second
 	defaultQuotaMinimum = 12
 
-	configFields = "listen, label, deadline, poll, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate"
+	configFields = "listen, label, deadline, poll, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate, validate"
 )
 
 // A repository is named as owner/name; the factory never takes a URL or a local path, because the
@@ -333,6 +338,11 @@ func Load(path string) (Settings, error) {
 		return bad("gate: %v", err)
 	}
 	s.Gate = gate
+	validate, err := defaultValidate.over(c.Validate)
+	if err != nil {
+		return bad("validate: %v", err)
+	}
+	s.Validate = validate
 	if strings.TrimSpace(c.DataDir) == "" {
 		return bad("data_dir is missing; name the directory the runs are written to, such as \"/var/lib/factory\"")
 	}
@@ -370,6 +380,9 @@ func Load(path string) (Settings, error) {
 		}
 		if r.gate, err = gate.over(r.Gate); err != nil {
 			return bad("the gate of %s: %v", r.Name, err)
+		}
+		if r.validate, err = validate.over(r.Validate); err != nil {
+			return bad("the validate of %s: %v", r.Name, err)
 		}
 		s.Repositories = append(s.Repositories, r)
 	}

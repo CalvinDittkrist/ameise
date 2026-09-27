@@ -260,6 +260,8 @@ type Round struct {
 	Head     string    `json:"head"` // the commit its reviewers read
 	Verdicts []Verdict `json:"verdicts"`
 	Repair   *Repair   `json:"repair,omitempty"` // what its fix session reported, once it has
+	// Pushed is the commit the fix of a validation round was pushed at; the panel's rounds push nothing.
+	Pushed string `json:"pushed,omitempty"`
 }
 
 // Verdict is one reviewer's report in a round.
