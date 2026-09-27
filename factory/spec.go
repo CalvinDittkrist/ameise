@@ -107,8 +107,11 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 			return nil, fmt.Errorf("the spec run record %s cannot be read: %w; move it aside to start without it", file, err)
 		}
 		r := &SpecRun{}
-		if err := json.Unmarshal(raw, r); err != nil || r.ID <= 0 {
+		if err := json.Unmarshal(raw, r); err != nil {
 			return nil, fmt.Errorf("the spec run record %s is not a spec run: %v; move it aside to start without it", file, err)
+		}
+		if r.ID <= 0 {
+			return nil, fmt.Errorf("the spec run record %s has no id; move it aside to start without it", file)
 		}
 		s.specs = append(s.specs, r)
 	}
@@ -209,6 +212,20 @@ func (s *SpecStore) find(id int) (*SpecRun, bool) {
 	return nil, false
 }
 
+// get is a copy of the spec run of that id.
+func (s *SpecStore) get(id int) (SpecRun, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.specs {
+		if r.ID == id {
+			copied := *r
+			copied.Warnings = append([]string{}, r.Warnings...)
+			return copied, true
+		}
+	}
+	return SpecRun{}, false
+}
+
 // latest is the newest spec run of every spec, by its key.
 func (s *SpecStore) latest() map[string]SpecRun {
 	out := map[string]SpecRun{}
@@ -247,14 +264,8 @@ func (f *Factory) claimSpecs(ctx context.Context) {
 		return // the canned line of fake mode holds no spec
 	}
 	f.mu.Lock()
-	routed := append([]Issue{}, f.specQueue...)
+	routed := append([]Issue{}, f.specQueue...) // sorted by refreshQueue
 	f.mu.Unlock()
-	sort.SliceStable(routed, func(a, b int) bool {
-		if !routed[a].RoutedAt.Equal(routed[b].RoutedAt) {
-			return routed[a].RoutedAt.Before(routed[b].RoutedAt)
-		}
-		return routed[a].key() < routed[b].key()
-	})
 	latest := f.specs.latest()
 	for _, spec := range routed {
 		if ctx.Err() != nil || f.Paused() || f.Draining() {

@@ -176,13 +176,7 @@ func (f *Factory) specRun(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var record SpecRun
-	found := false
-	for _, spec := range f.specs.list() {
-		if spec.ID == id {
-			record, found = spec, true
-		}
-	}
+	record, found := f.specs.get(id)
 	if !found {
 		http.NotFound(w, r)
 		return

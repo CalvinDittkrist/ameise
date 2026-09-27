@@ -377,6 +377,16 @@ func (f *Factory) followConfig(ctx context.Context) {
 	f.deliverOwed(ctx)
 }
 
+// sortRouted puts issues in the order the maintainer routed them, the key breaking a tie.
+func sortRouted(issues []Issue) {
+	sort.SliceStable(issues, func(a, b int) bool {
+		if !issues[a].RoutedAt.Equal(issues[b].RoutedAt) {
+			return issues[a].RoutedAt.Before(issues[b].RoutedAt)
+		}
+		return issues[a].key() < issues[b].key()
+	})
+}
+
 // refreshQueue derives the line of routed issues of all connected repositories. It is asked from the
 // source on every poll and only held in memory: the queue is a view of GitHub, never a state of the
 // factory ([ADR 0025]).
@@ -389,12 +399,8 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	}
 	read := f.source.queue(ctx, held)
 	queue := read.issues
-	sort.SliceStable(queue, func(a, b int) bool {
-		if !queue[a].RoutedAt.Equal(queue[b].RoutedAt) {
-			return queue[a].RoutedAt.Before(queue[b].RoutedAt) // work in the order the maintainer routed
-		}
-		return queue[a].key() < queue[b].key()
-	})
+	sortRouted(queue)
+	sortRouted(read.specs)
 	f.mu.Lock()
 	f.queue, f.specQueue, f.unreadable, f.polledAt = queue, read.specs, read.unreadable, time.Now()
 	f.mu.Unlock()
