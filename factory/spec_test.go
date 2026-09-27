@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -324,6 +326,86 @@ func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
 		body := strings.TrimSpace(shell(t, t.TempDir(), `. "$1"; label_json "$2" | jq -r .name`, nil, standard, label))
 		if body != label {
 			t.Errorf("the factory reads the label %q, which label_json of the repository standard answers as %q", label, body)
+		}
+	}
+}
+
+// interruptedSpecRuns writes the records of two spec runs a factory left claiming when it stopped:
+// spec run 1 had created its spec branch and logged two events, spec run 2 had created nothing.
+func interruptedSpecRuns(t *testing.T) string {
+	t.Helper()
+	data := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []SpecRun{
+		{ID: 1, Repository: "acme/edge-sensors", Spec: specNumber, Title: specTitle, Branch: specBranch, Base: "main",
+			State: "claiming", Warnings: []string{}, EventCount: 2},
+		{ID: 2, Repository: "acme/edge-sensors", Spec: specNumber + 1, Title: "Another spec", State: "claiming", Warnings: []string{}},
+	} {
+		raw, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(data, "spec-"+strconv.Itoa(r.ID)+".json"), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for seq, title := range []string{"claiming " + specBranch, "the spec branch is on the remote"} {
+		if err := appendEvent(filepath.Join(data, "spec-1.events.jsonl"), seq+1, Event{Kind: "factory", Title: title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return data
+}
+
+func TestASpecRunTheFactoryStoppedInWhileClaimingIsFailedOnRestart(t *testing.T) {
+	t.Parallel()
+	f := start(t, config{"paused": true, "data_dir": interruptedSpecRuns(t)})
+
+	var created, untouched apiSpecRun
+	f.get(t, "/api/specs/1", &created)
+	f.get(t, "/api/specs/2", &untouched)
+	for _, c := range []struct {
+		spec apiSpecRun
+		says string
+	}{
+		{created, "the spec branch " + specBranch + " was created on the remote and is left behind"},
+		{untouched, "nothing was claimed on the remote"},
+	} {
+		if c.spec.State != "failed" || !strings.Contains(c.spec.Reason, "the factory stopped while this spec was being claimed") ||
+			!strings.Contains(c.spec.Reason, c.says) {
+			t.Errorf("spec run %d is %s for %q after a restart, want failed because the factory stopped mid-claim, saying %q",
+				c.spec.ID, c.spec.State, c.spec.Reason, c.says)
+		}
+		if n := len(c.spec.Events); n == 0 || c.spec.Events[n-1].Title != "failed" {
+			t.Errorf("spec run %d logged %q, want the failure last", c.spec.ID, titles(c.spec.Events))
+		}
+	}
+	if want := []string{"claiming " + specBranch, "the spec branch is on the remote", "failed"}; !equal(titles(created.Events), want) {
+		t.Errorf("spec run 1 logged %q, want %q", titles(created.Events), want)
+	}
+}
+
+func TestASpecRunIsServedWithTheEventsAfterTheOneAskedForAndAnUnknownOneIsNotFound(t *testing.T) {
+	t.Parallel()
+	f := start(t, config{"paused": true, "data_dir": interruptedSpecRuns(t)})
+
+	var tail apiSpecRun
+	f.get(t, "/api/specs/1?after=2", &tail)
+	if len(tail.Events) != 1 || tail.Events[0].Seq != 3 || tail.Events[0].Title != "failed" {
+		t.Errorf("after=2 served %+v, want only the third event, the failure", tail.Events)
+	}
+	var all apiSpecRun
+	f.get(t, "/api/specs/1?after=-5", &all)
+	if len(all.Events) != 3 {
+		t.Errorf("a negative after served %d events, want all 3", len(all.Events))
+	}
+	for _, path := range []string{"/api/specs/3", "/api/specs/one", "/api/specs/0"} {
+		response := f.do(t, "GET", path)
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s answered %d, want 404", path, response.StatusCode)
 		}
 	}
 }
