@@ -168,9 +168,9 @@ type source interface {
 	issueText(ctx context.Context, repository string, number int) (string, string, error)
 	createPull(ctx context.Context, repository string, p newPull) (string, error)
 	finishPull(ctx context.Context, repository string, pull int, title, body string) error
-	// appendToPull adds a section to the body of a pull request, which the validate stage writes a
-	// validation that did not pass into (validate.go).
-	appendToPull(ctx context.Context, repository string, pull int, section string) error
+	// markPull writes the validate stage's section into the body of a pull request in place of the one
+	// before it, or takes it out when the section is empty (validate.go).
+	markPull(ctx context.Context, repository string, pull int, section string) error
 	// commentOnIssue names on the issue a pull request of its branch that is not the run's.
 	commentOnIssue(ctx context.Context, repository string, issue int, body string) error
 	// replyToThread, resolveThread and commentOnPull carry what an address-reviews session answered to

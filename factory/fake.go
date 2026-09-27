@@ -269,8 +269,8 @@ func (c *canned) openPulls(context.Context, string, string) ([]branchPull, error
 func (c *canned) finishPull(context.Context, string, int, string, string) error { return nil }
 func (c *canned) commentOnIssue(context.Context, string, int, string) error     { return nil }
 
-// appendToPull takes the call: there is no pull request behind it.
-func (c *canned) appendToPull(context.Context, string, int, string) error { return nil }
+// markPull takes the call: there is no pull request behind it.
+func (c *canned) markPull(context.Context, string, int, string) error { return nil }
 
 // issueText answers the canned issue's title and a body of its own.
 func (c *canned) issueText(_ context.Context, _ string, number int) (string, string, error) {
