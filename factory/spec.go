@@ -42,13 +42,15 @@ func specBranchName(spec Issue) string {
 // The states of a spec run. claiming is the moment between the start of the claim and its end;
 // holding is a claim that stands (the spec branch on the remote, the spec assigned to this host); lost
 // is a claim that met a spec branch on the remote and touched nothing; failed is a claim that could
-// not be made; let-go is a holding the maintainer ended on GitHub.
+// not be made; let-go is a holding the maintainer ended on GitHub; done is a holding whose spec pull
+// request a person merged into the base (specpull.go).
 const (
 	specClaiming = "claiming"
 	specHolding  = "holding"
 	specLost     = "lost"
 	specFailed   = "failed"
 	specLetGo    = "let-go"
+	specDone     = "done"
 )
 
 // SpecRun is the record of one spec run: the file in the data directory and the body the HTTP
@@ -76,8 +78,15 @@ type SpecRun struct {
 	Warnings []string `json:"warnings"`
 	// Tickets is the tickets whose runs this spec run took, in the order it took them, each with its
 	// runs and whether its pull request is merged into the spec branch (ticket.go).
-	Tickets    []SpecTicket `json:"tickets"`
-	EventCount int          `json:"eventCount"`
+	Tickets []SpecTicket `json:"tickets"`
+	// PullRequest is the spec pull request, from the spec branch to the base, once it is opened, and
+	// DoneAt when the factory read it merged (specpull.go).
+	PullRequest string     `json:"pullRequest,omitempty"`
+	DoneAt      *time.Time `json:"doneAt,omitempty"`
+	// WaitingOn is the tickets of a person the spec run waits for, each named once in a comment on the
+	// spec (specpull.go).
+	WaitingOn  []int `json:"waitingOn,omitempty"`
+	EventCount int   `json:"eventCount"`
 }
 
 func (s SpecRun) key() string { return Issue{Repository: s.Repository, Number: s.Spec}.key() }
@@ -455,11 +464,14 @@ func (f *Factory) letSpecGo(ctx context.Context, r *SpecRun, decision string) {
 	if !ok {
 		return
 	}
-	login, err := f.login(ctx)
-	if err == nil {
-		_, err = gh(ctx, "issue", "edit", strconv.Itoa(r.Spec), "--repo", connected.Name, "--remove-assignee", login)
+	// A ticket run of the spec, or the run of its spec pull request, that is going ends cancelled, and a
+	// later poll lets its ticket go (ticketsOfSpecsLetGo).
+	for _, h := range holdings(f.runs.list()) {
+		if !h.idle && h.last.Spec == r.Spec && repositoryKey(h.last.Repository) == repositoryKey(r.Repository) {
+			f.cancel(h.last, decision+" (spec #"+strconv.Itoa(r.Spec)+")")
+		}
 	}
-	if err != nil {
+	if err := f.unassignSpec(ctx, connected, r); err != nil {
 		if ctx.Err() == nil {
 			f.specs.warn(r, "the spec could not be let go",
 				fmt.Sprintf("%s, and the assignee of spec #%d of %s could not be taken off: %v; the spec stays held and a later poll tries again", decision, r.Spec, connected.Name, err))
@@ -468,9 +480,21 @@ func (f *Factory) letSpecGo(ctx context.Context, r *SpecRun, decision string) {
 	}
 	now := time.Now()
 	reason := decision + "; the assignee was taken off and the spec branch " + r.Branch + " stays on the remote with everything on it"
+	if held, _ := f.specs.get(r.ID); held.PullRequest != "" {
+		reason += ", and the spec pull request " + held.PullRequest + " stays open for a person"
+	}
 	f.specs.event(r, Event{Kind: "factory", Title: "let go", Body: reason})
 	f.specs.update(r, func() { r.State, r.Idle, r.LetGoAt, r.Reason = specLetGo, true, &now, reason })
 	log.Printf("spec run %d (%s#%d) let go: %s", r.ID, r.Repository, r.Spec, decision)
+}
+
+// unassignSpec takes this host off the spec as its assignee.
+func (f *Factory) unassignSpec(ctx context.Context, connected Connected, r *SpecRun) error {
+	login, err := f.login(ctx)
+	if err == nil {
+		_, err = gh(ctx, "issue", "edit", strconv.Itoa(r.Spec), "--repo", connected.Name, "--remove-assignee", login)
+	}
+	return err
 }
 
 // remoteSpecBranch is the spec branch of a spec on the remote, as the clone knows it after the fetch,
