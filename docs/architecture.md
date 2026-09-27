@@ -71,6 +71,8 @@ This repository packages a way of working with coding agents as Claude Code plug
 ### Factory
 1. The factory clones each connected repository into its data directory. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
 2. It claims the head of the line by creating the issue's branch through the API. A claimer that meets a branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
+   - A ticket whose parent carries the spec-run label is never in that line. The factory reads the parent of each candidate that has one.
+   - A routed spec (`spec`, the spec-run label, no assignee) is claimed the same way, on its spec branch, and assigned to the factory. Its spec run is a record of its own, `spec-<n>.json`, and holds the spec until the label comes off or the spec is closed.
 3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)). `WF_BASE_BRANCH` is read from the repository's settings.
 4. It assigns itself, makes a worktree and records the Claude Code version. It updates nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
