@@ -45,7 +45,7 @@ func (g *ghShim) subIssues(t *testing.T, tickets ...issueJSON) {
 }
 
 // openTicketPull is the reading of a ticket's pull request the merge stage makes: open and unmerged,
-// under the title it is squash-merged with.
+// into the spec branch, under the title it is squash-merged with.
 func (g *ghShim) openTicketPull(t *testing.T, number int, branch string, merged bool) {
 	t.Helper()
 	state := "open"
@@ -54,7 +54,8 @@ func (g *ghShim) openTicketPull(t *testing.T, number int, branch string, merged 
 	}
 	g.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d", number), marshal(t, map[string]any{
 		"number": number, "state": state, "merged": merged, "title": "feat: ticket " + fmt.Sprint(number),
-		"head": map[string]any{"ref": branch, "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
+		"head": map[string]any{"ref": branch, "repo": map[string]any{"full_name": "acme/edge-sensors"}},
+		"base": map[string]any{"ref": specBranch, "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
 }
 
 // ticketClaim is a held spec with one ticket, #231, whose implement session commits worked.md. The
@@ -322,6 +323,30 @@ func TestATicketWhoseMergeIsRefusedEndsBlocked(t *testing.T) {
 	}
 	if spec := f.specRunNow(t); len(spec.Tickets) != 1 || spec.Tickets[0].MergedAt != nil {
 		t.Errorf("the spec run lists the tickets %+v, want #231 not merged", spec.Tickets)
+	}
+}
+
+// A ticket's pull request whose base was changed away from the spec branch after it was opened is not
+// merged: the run ends blocked at the merge, naming the base it found, and the ticket stays open.
+func TestATicketWhosePullRequestNoLongerGoesIntoTheSpecBranchIsNotMerged(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d", ticketIssue), marshal(t, map[string]any{
+		"number": ticketIssue, "state": "open", "merged": false, "title": "feat: ticket 231",
+		"head": map[string]any{"ref": ticketBranch, "repo": map[string]any{"full_name": "acme/edge-sensors"}},
+		"base": map[string]any{"ref": "main", "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
+	main := gh.head(t, "acme/edge-sensors", "main")
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeBlocked || run.Stage != stageMerge || !strings.Contains(run.Reason, `"main"`) {
+		t.Fatalf("run 1 ended %q in %q (%s), want blocked at merge naming the base main; the factory's log:\n%s",
+			run.Outcome, run.Stage, run.Reason, f.output(t))
+	}
+	if gh.asked(t, "api --method PUT") != 0 || gh.made(t, "issue close 231 --repo acme/edge-sensors") != 0 {
+		t.Errorf("the factory merged a pull request that goes into main, or closed its ticket")
+	}
+	if head := gh.head(t, "acme/edge-sensors", "main"); head != main {
+		t.Errorf("main moved from %s to %s", short(main), short(head))
 	}
 }
 

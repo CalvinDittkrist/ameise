@@ -137,6 +137,9 @@ type ghPull struct {
 	// Title is the pull request's title, which the merge stage squash-merges a ticket's pull request
 	// under (merge.go).
 	Title string `json:"title"`
+	// Base is the branch the pull request goes into, which the merge stage checks is the spec branch
+	// before it merges (merge.go).
+	Base ghHead `json:"base"`
 }
 
 // ghHead is what a pull request is of: the branch and the repository it was opened from. It is read

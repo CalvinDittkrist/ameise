@@ -57,7 +57,7 @@ func (f *Factory) panelOf(r Run, pull string) string {
 func (f *Factory) merge(parent, ctx context.Context, r *Run, entry Entry, pull, head string) {
 	f.runs.update(r, func() { r.stage(stageMerge) })
 	number, _ := pullNumber(pull)
-	if err := f.source.mergePull(ctx, entry.Repository, number, head); err != nil {
+	if err := f.source.mergePull(ctx, entry.Repository, number, r.Base, head); err != nil {
 		if !f.halted(parent, ctx, r, "merged the pull request") {
 			f.runs.update(r, func() {
 				r.Reason = fmt.Sprintf("the pull request %s passed and could not be merged into the spec branch %s: %v; merge it by hand, or take the assignee off the ticket to have the factory try again", pull, r.Base, err)
@@ -68,15 +68,15 @@ func (f *Factory) merge(parent, ctx context.Context, r *Run, entry Entry, pull, 
 	}
 	f.runs.event(r, Event{Kind: "factory", Title: "merged " + pull + " into " + r.Base,
 		Body: "ci is green, the panel summary is ready and the validation passed, so the pull request is squash-merged under its title"})
-	f.ticketMerged(ctx, r.Repository, r.Spec, entry.Number, pull, true)
+	f.ticketMerged(ctx, r.Repository, r.Spec, entry.Number, pull)
 	f.finish(r, outcomeMerged, "the pull request "+pull+" is squash-merged into the spec branch "+r.Base+" and the ticket is closed", nil)
 }
 
 // ticketMerged records a ticket whose pull request is merged into the spec branch on its spec run, and
-// closes the ticket with a comment that names the pull request when close says it is open. It is made
+// closes the ticket with a comment that names the pull request when the record says it is open. It is made
 // by the merge stage, and by the poll that reads a ticket's pull request merged: a person merged it,
 // or the factory stopped between its merge and this.
-func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, ticket int, pull string, close bool) {
+func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, ticket int, pull string) {
 	s, ok := f.specRunOf(repository, spec)
 	if !ok {
 		return
@@ -94,7 +94,7 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 		f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("ticket #%d merged", ticket),
 			Body: "its pull request " + pull + " is merged into the spec branch " + s.Branch})
 	}
-	if !close || closed {
+	if closed {
 		return // closed once already, by the merge stage or by the poll that read the merge
 	}
 	comment := "The pull request " + pull + " is merged into the spec branch " + s.Branch + " of the spec run of #" + strconv.Itoa(spec) +
@@ -122,8 +122,9 @@ type mergeRequest struct {
 
 // mergePull reads the pull request and squash-merges it under its title, at the commit given when
 // there is one, so a push after the validation is not merged unread. One that is merged already is
-// left as it is.
-func (g *gitHub) mergePull(ctx context.Context, repository string, pull int, head string) error {
+// left as it is. One whose base is no longer the branch given is refused: a base changed after the
+// validation would carry the ticket into a branch no person agreed to, such as the default one.
+func (g *gitHub) mergePull(ctx context.Context, repository string, pull int, base, head string) error {
 	raw, err := gh(ctx, "api", pullRequestRequest(repository, pull))
 	if err != nil {
 		return fmt.Errorf("the pull request could not be read: %w", err)
@@ -133,6 +134,8 @@ func (g *gitHub) mergePull(ctx context.Context, repository string, pull int, hea
 		return fmt.Errorf("the answer is no pull request: %w", err)
 	}
 	switch {
+	case read.Base.Ref != base:
+		return fmt.Errorf("the pull request goes into %q and not into %s", read.Base.Ref, base)
 	case read.Merged:
 		return nil
 	case read.State == "closed":

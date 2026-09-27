@@ -185,9 +185,9 @@ type source interface {
 	// ticket the pull request the merge stage merged.
 	commentOnIssue(ctx context.Context, repository string, issue int, body string) error
 	// mergePull squash-merges a ticket's pull request into the spec branch under its title, at the
-	// commit given when there is one, and closeIssue closes the ticket: the calls of the merge stage
+	// commit given when there is one, when the pull request still goes into that branch, and closeIssue closes the ticket: the calls of the merge stage
 	// (merge.go).
-	mergePull(ctx context.Context, repository string, pull int, head string) error
+	mergePull(ctx context.Context, repository string, pull int, base, head string) error
 	closeIssue(ctx context.Context, repository string, issue int) error
 	// replyToThread, resolveThread and commentOnPull carry what an address-reviews session answered to
 	// GitHub: a reply in one review thread, its resolution, and one comment on the pull request.
@@ -547,7 +547,7 @@ func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
 		// A ticket's pull request merged into the spec branch by a person, or by a merge stage the factory
 		// stopped in, is recorded on its spec run and its ticket closed, as the merge stage does.
 		if h := held[key]; h.run.Spec != 0 && letGo[key] == mergedDecision(h.pullRequest) {
-			f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, true)
+			f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest)
 		}
 		f.letGo(pass, held[key], letGo[key])
 	}
