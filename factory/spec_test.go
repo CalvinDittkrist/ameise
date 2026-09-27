@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -291,31 +290,40 @@ func TestAHostWithAnotherRoutingLabelDerivesTheSpecRunLabelFromIt(t *testing.T) 
 }
 
 // The factory's copy of the label vocabulary is the labels it reads by name. Each of them is a label
-// of the workflow's vocabulary, which the planner creates and the repository standard lists; the
-// Python suite holds those two copies to each other.
+// of the workflow's vocabulary: one the planner's labels.sh creates in a repository that has none, and
+// one the repository standard's label_json can create. The Python suite holds those two to each other.
 func TestTheFactorysLabelsAreInTheWorkflowsVocabulary(t *testing.T) {
 	t.Parallel()
-	for _, file := range []string{
-		filepath.Join("..", "plugins", "planner", "scripts", "labels.sh"),
-		filepath.Join("..", "plugins", "repo-standards", "scripts", "lib.sh"),
-	} {
-		defined := map[string]bool{}
-		source, err := os.Open(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		scanner := bufio.NewScanner(source)
-		for scanner.Scan() {
-			if name, _, ok := strings.Cut(strings.TrimSpace(scanner.Text()), "|"); ok {
-				// The first entry of the standard's list opens the variable that holds it.
-				defined[strings.TrimPrefix(name, "WF_LABELS='")] = true
+	read := []string{readyLabel, defaultLabel, specLabel, specRunLabel(defaultLabel)}
+
+	// labels.sh against a gh that has no label yet and creates every one it is asked for.
+	bin := t.TempDir()
+	stub := "#!/bin/sh\ncase \"$1 $2\" in\n\"label list\") echo '[]' ;;\n\"label create\") ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(stub), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := append(gitIsolation(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	planner := abs(t, filepath.Join("..", "plugins", "planner", "scripts", "labels.sh"))
+	created := map[string]bool{}
+	for _, line := range strings.Split(shell(t, t.TempDir(), `bash "$1"`, env, planner), "\n") {
+		if names, ok := strings.CutPrefix(line, "created: "); ok {
+			for _, name := range strings.Split(names, ",") {
+				created[name] = true
 			}
 		}
-		source.Close()
-		for _, label := range []string{readyLabel, defaultLabel, specLabel, specRunLabel(defaultLabel)} {
-			if !defined[label] {
-				t.Errorf("the factory reads the label %q, which %s does not define", label, file)
-			}
+	}
+	for _, label := range read {
+		if !created[label] {
+			t.Errorf("the factory reads the label %q, which the planner's labels.sh does not create; it created %v", label, created)
+		}
+	}
+
+	// label_json of the repository standard, asked for each label by name.
+	standard := abs(t, filepath.Join("..", "plugins", "repo-standards", "scripts", "lib.sh"))
+	for _, label := range read {
+		body := strings.TrimSpace(shell(t, t.TempDir(), `. "$1"; label_json "$2" | jq -r .name`, nil, standard, label))
+		if body != label {
+			t.Errorf("the factory reads the label %q, which label_json of the repository standard answers as %q", label, body)
 		}
 	}
 }
