@@ -91,8 +91,15 @@ func (f *Factory) takeSpecBranch(ctx context.Context, r *Run, entry Entry) (clai
 		return held, fmt.Errorf("%s is not a connected repository", entry.Repository)
 	}
 	clone := clonePath(f.settings.DataDir, connected.Name)
-	if _, err := fetchBase(ctx, connected, clone); err != nil {
+	// The base is read again, as a ticket's claim reads it: a repository that changed its base while
+	// the spec ran gets the spec pull request against the base it has now.
+	base, err := fetchBase(ctx, connected, clone)
+	if err != nil {
 		return held, err
+	}
+	held.base = base
+	if s.Base != base {
+		f.specs.update(s, func() { s.Base = base })
 	}
 	f.mergeIntoSpec(ctx, clone, held.base, s)
 	if _, err := os.Stat(held.worktree); err != nil {
@@ -277,11 +284,7 @@ func (f *Factory) waitOn(ctx context.Context, connected Connected, s *SpecRun, t
 	body := fmt.Sprintf("The spec run of this spec waits for #%d, a ticket for a person (`%s`): the factory takes no ticket behind it and opens no spec pull request while it is open. "+
 		"Merge its pull request into the spec branch `%s` and close it, and the spec run goes on at the next poll.\n", ticket, humanLabel, held.Branch)
 	if f.notifying() {
-		mentions := make([]string, 0, len(f.settings.Notify))
-		for _, who := range f.settings.Notify {
-			mentions = append(mentions, "@"+who)
-		}
-		if err := f.source.commentOnIssue(ctx, connected.Name, s.Spec, strings.Join(mentions, " ")+"\n\n"+body); err != nil {
+		if err := f.source.commentOnIssue(ctx, connected.Name, s.Spec, mentions(f.settings.Notify)+"\n\n"+body); err != nil {
 			if ctx.Err() == nil {
 				f.specs.warn(s, "the wait was not said", fmt.Sprintf("the comment on spec #%d that the spec run waits for #%d could not be made: %v; a later poll tries again", s.Spec, ticket, err))
 			}
