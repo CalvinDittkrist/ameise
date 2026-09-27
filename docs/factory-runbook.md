@@ -163,7 +163,7 @@ Run the following as root unless it says otherwise.
    - The `.sigstore.json` file is the attestation of both binaries: the release workflow signed their digests when it built them.
 
    ```sh
-   version=0.3.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
+   version=0.4.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
    cd "$(mktemp -d)" &&
      gh release download "factory/v$version" -R CalvinDittkrist/workflows \
