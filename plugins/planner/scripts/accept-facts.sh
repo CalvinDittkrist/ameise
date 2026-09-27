@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# The facts a spec acceptance starts from: the spec, its tickets with the merged pull requests that closed
-# them, the files those pull requests changed, and the deviations accepted in earlier runs.
+# The facts a spec acceptance starts from: the spec, its tickets with their merged pull requests, the files
+# those pull requests changed, and the deviations accepted in earlier runs. A ticket's pull requests are the
+# merged ones that closed it, or else the merged ones whose head is the ticket's branch, whatever base they
+# were merged into: GitHub links a pull request to an issue only for a merge into the default branch.
 # Usage: accept-facts.sh <spec> [<ticket>...]   (tickets only where native sub-issues are unavailable)
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -60,6 +62,24 @@ while IFS='	' read -r t state title; do
     [ -z "$truncated" ] || wf_warn "pull request(s) $truncated changed more than 100 files; the file list is incomplete"
   else
     wf_warn "could not read the pull requests that closed #$t; the pull requests and files below are incomplete"
+  fi
+  # The second lookup, by the branch contract: <type>/<ticket>-<slug of the title>, for every type the
+  # claim can give it (wf_branch_type in the orchestrator), so a ticket relabelled since is still found.
+  if [ "$prs" = - ]; then
+    slug=$(wf_slug "$title"); heads=""
+    for type in $WF_BRANCH_TYPES; do
+      heads="$heads $type: pullRequests(headRefName: \"$type/$t-$slug\", states: MERGED, first: $pr_page){nodes{number files(first:100){totalCount nodes{path}}}}"
+    done
+    if hj=$(gh api graphql -f query="query(\$o:String!,\$r:String!){repository(owner:\$o,name:\$r){$heads }}" -F o="${nwo%%/*}" -F r="${nwo#*/}" 2>/dev/null); then
+      merged=$(printf '%s' "$hj" | jq -c '[.data.repository[]?.nodes[]?]')
+      prs=$(printf '%s' "$merged" | jq -r '[.[] | "#\(.number)"] | join(" ")')
+      [ -n "$prs" ] || prs="-"
+      printf '%s' "$merged" | jq -r '.[].files.nodes[]?.path | gsub("[[:cntrl:]\u2028\u2029]"; " ")' >> "$files"
+      truncated=$(printf '%s' "$merged" | jq -r '[.[] | select(.files.totalCount > (.files.nodes | length)) | "#\(.number)"] | join(" ")')
+      [ -z "$truncated" ] || wf_warn "pull request(s) $truncated changed more than 100 files; the file list is incomplete"
+    else
+      wf_warn "could not read the pull requests from the branch of #$t; the pull requests and files below are incomplete"
+    fi
   fi
   ticket_rows="$ticket_rows  $t,$state,$prs,$title
 "

@@ -309,6 +309,20 @@ class LabelVocabularyTests(ShimTest):
                           f"claim.sh refuses the label {routing}, which {file} does not define")
 
 
+    def test_the_acceptance_looks_up_a_ticket_branch_under_every_type_a_claim_gives_it(self):
+        """accept-facts.sh finds a ticket's pull request by its head branch under each type in the planner's
+        WF_BRANCH_TYPES; a type wf_branch_type gains and the planner lacks hides that ticket's pull request."""
+        label_sets = ["", "bug", "fix", "docs", "documentation", "chore", "maintenance", "enhancement"]
+        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; shift; for l; do wf_branch_type "$l"; done',
+                            "_", str(ORCH), *label_sets], cwd=self.base, text=True, capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        claimed = set(r.stdout.split())
+        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_BRANCH_TYPES"', "_", str(PLANNER)],
+                           cwd=self.base, text=True, capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(claimed, set(r.stdout.split()),
+                         "the orchestrator's wf_branch_type and the planner's WF_BRANCH_TYPES name different types")
+
 class WorkerKnobTests(ShimTest):
     """A claim sets a worker knob for the one session it starts (`--env NAME=VALUE`). The names it accepts are
     the worker knobs the README's configuration table documents, so the two must not drift: a knob the README

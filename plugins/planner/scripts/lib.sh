@@ -106,6 +106,11 @@ wf_issue_labels() {
 
 # --- The acceptance of a spec (accept-facts.sh, accept-close.sh, accept-due.sh) ---
 
+# The branch types a claim gives an issue's branch (wf_branch_type in the orchestrator's lib.sh), which the
+# acceptance tries in turn to find a ticket's pull request by its head branch.
+# shellcheck disable=SC2034  # read by accept-facts.sh
+WF_BRANCH_TYPES="feat fix docs chore"
+
 # Issue $2 of repository $1 as JSON, or a refusal naming it.
 wf_issue_json() { gh api "repos/$1/issues/$2" 2>/dev/null || wf_die "could not read issue #$2 in $1; does it exist, and is gh authenticated for this repository?"; }
 # The native sub-issues of issue $2 of repository $1 as one JSON array, empty where there are none.
