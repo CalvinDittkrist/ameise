@@ -448,6 +448,12 @@ func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim cla
 		}
 		switch verdict {
 		case ciGreen:
+			if r.specPull() {
+				// A spec pull request goes through the ci stage only: its tickets were reviewed and
+				// validated one by one, and a person squash-merges it.
+				f.finish(r, outcomeReady, "the spec pull request "+pull+" is green and waits for a person to squash-merge it into "+claim.base, nil)
+				return
+			}
 			pushed, again := f.validate(parent, ctx, r, entry, claim, pull, read.Head)
 			if !again {
 				return

@@ -29,6 +29,7 @@ Terms the code, the issues and the docs use, one row each.
 | spec run | A spec the factory works as one unit: its agent tickets on a spec branch, none of them routed one by one. The planner asks once per spec: spec run or normal run. |
 | spec-run label | The label `<routing label>:spec-run`, `factory:spec-run` by default, on a spec and its agent tickets. `issue.sh` refuses it beside the routing label or `ready-for-human`, and on a ticket whose spec lacks it. |
 | spec branch | The branch `spec/<number>-<slug>` a spec run integrates its tickets on. The factory creates it through the API from the base, and that creation is the claim of the spec. |
+| spec pull request | The pull request from the spec branch to the base that ends a spec run once its tickets are closed. It is part of the spec, goes through the ci stage alone, and a person squash-merges it. |
 | label vocabulary | The fixed set of GitHub labels the workflow uses. Each plugin that creates labels defines it; a test in `tests/test_plugins.py` keeps the copies identical. |
 | round record | What one review round leaves: each reviewer's verdict, the fixes by severity, the `disputed:` lines and the commit, recorded by `panel.sh round` ([ADR 0018](adr/0018-worker-stages-hand-facts-over-through-the-worktree-git-dir.md)). |
 | panel summary | The block the pull request stage reads (`review_rounds`, `panel`, `fixed`, `disputed`), derived by `panel.sh record` from the round records. It is a draft when a reviewer's last verdict is not PASS. |

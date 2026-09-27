@@ -51,6 +51,14 @@ func (issue ghIssue) inRepository(repository string) bool {
 	return strings.HasSuffix(repositoryKey(issue.RepositoryURL), "/repos/"+repositoryKey(repository))
 }
 
+// repositoryName is the owner/name of the repository the issue is in, read from its API address.
+func (issue ghIssue) repositoryName() string {
+	if _, name, ok := strings.Cut(issue.RepositoryURL, "/repos/"); ok {
+		return name
+	}
+	return issue.RepositoryURL
+}
+
 // subIssuesRequest is the list of the sub-issues of one issue, one page of it as the issue list is.
 func subIssuesRequest(repository string, number int) string {
 	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/sub_issues?per_page=100"
@@ -58,19 +66,31 @@ func subIssuesRequest(repository string, number int) string {
 
 // specTickets reads the sub-issues of a held spec and keeps the tickets a ticket run may take. When
 // the spec-run label was last set on a ticket is read from its event list, as the routing of an issue
-// is, together with its assignments, which carry the release of a ticket this factory holds.
-func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, error) {
+// is, together with its assignments, which carry the release of a ticket this factory holds. It
+// answers with every sub-issue as well, open or closed, which the end of the spec run is decided from
+// (specpull.go): one from another repository is kept there, since the spec is not done while it is
+// open, and is never a ticket.
+func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, []subIssue, error) {
 	raw, err := gh(ctx, "api", subIssuesRequest(held.Repository, held.Number))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var issues []ghIssue
 	if err := json.Unmarshal(raw, &issues); err != nil {
-		return nil, fmt.Errorf("the sub-issue list is not a list of issues: %w", err)
+		return nil, nil, fmt.Errorf("the sub-issue list is not a list of issues: %w", err)
 	}
-	out := []Issue{}
+	out, subs := []Issue{}, []subIssue{}
 	for _, issue := range issues {
-		if !issue.inRepository(held.Repository) || !ticketReady(issue, g.label) {
+		if issue.PullRequest != nil {
+			continue
+		}
+		if !issue.inRepository(held.Repository) {
+			subs = append(subs, subIssue{Number: issue.Number, Title: issue.Title, Open: issue.State == "open", Elsewhere: issue.repositoryName()})
+			continue
+		}
+		subs = append(subs, subIssue{Number: issue.Number, Title: issue.Title, Open: issue.State == "open",
+			Human: issue.hasLabel(humanLabel), Blocked: issue.Dependencies.BlockedBy > 0})
+		if !ticketReady(issue, g.label) {
 			continue
 		}
 		key := Issue{Repository: held.Repository, Number: issue.Number}.key()
@@ -79,7 +99,7 @@ func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, error) {
 			Labels: issue.labelNames(), RoutedAt: read.routedAt, assignedAt: read.assignedAt,
 			unassignedAt: read.unassignedAt, spec: held.Number})
 	}
-	return out, nil
+	return out, subs, nil
 }
 
 // specOf is the spec an entry's run is a ticket run of: the spec of the ticket the line carries, or
@@ -184,6 +204,12 @@ func (f *Factory) ticketStarted(r Run) {
 	if r.Spec == 0 || !ok {
 		return
 	}
+	if r.specPull() {
+		f.specs.update(s, func() { s.Idle = false })
+		f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("spec pull request: run %d", r.ID),
+			Body: fmt.Sprintf("a %s run of the spec pull request started", r.Kind)})
+		return
+	}
 	f.specs.update(s, func() {
 		s.Idle = false
 		i := s.ticket(r.Issue, r.Title)
@@ -200,8 +226,12 @@ func (f *Factory) ticketEnded(r Run) {
 		return
 	}
 	ended, _ := f.runs.get(r.ID)
+	title := fmt.Sprintf("ticket #%d: run %d %s", r.Issue, r.ID, ended.Outcome)
+	if r.specPull() {
+		title = fmt.Sprintf("spec pull request: run %d %s", r.ID, ended.Outcome)
+	}
 	f.specs.update(s, func() { s.Idle = true })
-	f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("ticket #%d: run %d %s", r.Issue, r.ID, ended.Outcome), Body: ended.Reason})
+	f.specs.event(s, Event{Kind: "factory", Title: title, Body: ended.Reason})
 }
 
 // ticket is the index of a ticket in the spec run's list, which it is added to when it is not in it

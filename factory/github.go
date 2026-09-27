@@ -223,7 +223,7 @@ type signals struct {
 // the next poll asks again.
 func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 	result := poll{issues: []Issue{}, unreadable: map[string]string{}, letGo: map[string]string{},
-		specs: []Issue{}, letGoSpecs: map[string]string{}}
+		specs: []Issue{}, letGoSpecs: map[string]string{}, subIssues: map[string][]subIssue{}}
 	read, seen := map[string]bool{}, map[string]bool{}
 	for _, connected := range g.repositories {
 		repository := connected.Name
@@ -337,7 +337,7 @@ func (g *gitHub) readHeldPass(ctx context.Context, held []Held, result *poll) {
 		switch {
 		case decision == "" && issue.Spec:
 			// A spec this factory goes on holding is where its tickets are read, on the budget of the specs.
-			tickets, err := g.specTickets(pass, issue)
+			tickets, subs, err := g.specTickets(pass, issue)
 			if err != nil {
 				if ctx.Err() == nil {
 					g.warn(g.issueWarnings, specKey(key), "error: the tickets of the spec %s could not be read: %v; the spec run takes none of them until they can be", key, err)
@@ -346,6 +346,7 @@ func (g *gitHub) readHeldPass(ctx context.Context, held []Held, result *poll) {
 			}
 			g.readable(g.issueWarnings, specKey(key))
 			result.tickets = append(result.tickets, tickets...)
+			result.subIssues[key] = subs
 		case decision == "":
 		case issue.Spec:
 			result.letGoSpecs[key] = decision

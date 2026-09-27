@@ -220,6 +220,15 @@ func (f *Factory) deliverTo(r *Run) error {
 	return nil
 }
 
+// mentions is the line that mentions every login.
+func mentions(logins []string) string {
+	said := make([]string, 0, len(logins))
+	for _, who := range logins {
+		said = append(said, "@"+who)
+	}
+	return strings.Join(said, " ")
+}
+
 // notifyBody is the comment on the issue: who it is for, what became of the run, why, and what the
 // maintainer can do about it. The gesture is the one [ADR 0026] gives them (the assignee off the
 // issue hands it back to the factory), and it is worth saying, because an unattended run is read
@@ -239,12 +248,8 @@ func (f *Factory) deliverTo(r *Run) error {
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 func notifyBody(r Run, held holding, logins []string) string {
-	mentions := make([]string, 0, len(logins))
-	for _, who := range logins {
-		mentions = append(mentions, "@"+who)
-	}
 	said := []string{
-		strings.Join(mentions, " "),
+		mentions(logins),
 		fmt.Sprintf("The factory ended run %d of this issue as `%s`, and will not take the issue up again by itself.", r.ID, r.Outcome),
 	}
 	if reason := verbatim(r.Reason); reason != "" {

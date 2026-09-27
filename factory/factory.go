@@ -123,6 +123,8 @@ type Factory struct {
 	// tickets is the tickets of the held specs the last poll read, in the order they are taken
 	// (ticket.go). Like the queue it is a reading of GitHub and never stored.
 	tickets []Issue
+	// subIssues is the sub-issues of the held specs the last poll read (specpull.go), read the same way.
+	subIssues map[string][]subIssue
 	// reviews is what the last poll found on the pull requests this factory holds open: what their
 	// reviews signal, by issue. Like the queue it is a reading of GitHub and never a state of the
 	// factory; what has been answered is read from the run records ([ADR 0025]).
@@ -245,6 +247,9 @@ type poll struct {
 	// tickets is the tickets of the held specs that a ticket run may take: open, carrying the spec-run
 	// label and ready-for-agent, unassigned and with no open blocker (ticket.go).
 	tickets []Issue
+	// subIssues is every sub-issue of each held spec the poll could read, by the key of the spec: what
+	// a spec run's end is decided from (specpull.go). A spec whose sub-issues were not read is not in it.
+	subIssues map[string][]subIssue
 }
 
 // New opens the data directory and takes the runs already in it. Nothing here starts a run and
@@ -306,6 +311,7 @@ func (f *Factory) Work(ctx context.Context) {
 		read := f.refreshQueue(ctx)
 		f.letIssuesGo(ctx, read.letGo)
 		f.letSpecsGo(ctx, read.letGoSpecs)
+		f.waitForPeople(ctx)
 		f.refreshReviews(ctx)
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
@@ -425,6 +431,7 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	sortTickets(read.tickets)
 	f.mu.Lock()
 	f.queue, f.specQueue, f.tickets, f.unreadable, f.polledAt = queue, read.specs, read.tickets, read.unreadable, time.Now()
+	f.subIssues = read.subIssues
 	f.mu.Unlock()
 	return read
 }
@@ -527,10 +534,14 @@ func (f *Factory) heldIssuesDue() []Held {
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
-	if len(letGo) == 0 || f.Paused() || ctx.Err() != nil {
+	if f.Paused() || ctx.Err() != nil {
 		return
 	}
 	held := holdings(f.runs.list())
+	letGo = f.ticketsOfSpecsLetGo(held, letGo)
+	if len(letGo) == 0 {
+		return
+	}
 	handovers := []string{}
 	for key, h := range held {
 		decision, ends := letGo[key]
@@ -553,7 +564,16 @@ func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
 		// A ticket's pull request merged into the spec branch by a person, or by a merge stage the factory
 		// stopped in, is recorded on its spec run and its ticket closed, as the merge stage does. A ticket
 		// that could not be closed stays held, and the next poll that reads the merge closes it again.
-		if h := held[key]; h.run.Spec != 0 {
+		// A spec pull request merged into the base ends the spec run done (specpull.go). A spec run whose
+		// assignee could not be taken off keeps the run held, and the next poll that reads the merge tries again.
+		if h := held[key]; h.run.specPull() {
+			switch letGo[key] {
+			case mergedDecision(h.pullRequest), mergedClosedDecision(h.pullRequest):
+				if !f.specPullMerged(pass, h) {
+					continue
+				}
+			}
+		} else if h.run.Spec != 0 {
 			switch letGo[key] {
 			case mergedDecision(h.pullRequest):
 				if !f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, false) {
@@ -777,8 +797,10 @@ func (f *Factory) waiting() []Entry {
 		}
 		return out[a].key() < out[b].key()
 	})
-	// The tickets of the spec runs this factory holds come next, before the routed issues, and each
-	// is taken by the rule a routed issue is (ticket.go).
+	// The spec pull requests of the spec runs whose tickets are all closed come next (specpull.go), then
+	// the tickets of the spec runs this factory holds, before the routed issues, and each ticket is taken
+	// by the rule a routed issue is (ticket.go).
+	out = append(out, f.specPullsDue(records)...)
 	for _, issue := range append(tickets, queue...) {
 		gone := kept[issue.key()]
 		switch {
@@ -962,6 +984,13 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 			return
 		}
 		f.ci(parent, ctx, r, entry, claim, pull, true)
+		return
+	}
+
+	// The run of a spec pull request opens it and goes on into the ci stage, and a resumed one that
+	// has none open yet does the same (specpull.go).
+	if r.specPull() {
+		f.openSpecPull(parent, ctx, r, entry, claim)
 		return
 	}
 
@@ -1398,6 +1427,9 @@ func taken(claim claimed) string {
 // queue is canned and there is no remote behind it, so its scripted worker runs where the factory
 // itself does, and it says it holds the issue all the same, because its runs stand in for held ones.
 func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error) {
+	if entry.Signal == signalSpecPull {
+		return f.takeSpecBranch(ctx, r, entry)
+	}
 	if entry.Signal != signalRouted {
 		return f.resume(ctx, r, entry)
 	}
