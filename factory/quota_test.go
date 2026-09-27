@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -246,6 +248,55 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 				t.Errorf("the factory asked quota-axi %d times, want once: a panel on opus alone has no sonnet to wait for", len(calls))
 			}
 		})
+	}
+}
+
+// The log explains what the interface shows: once /api/status says the factory waits for quota, its
+// log already says why and until when. The status is asked as fast as the factory answers, and the log
+// is read the moment the wait shows, so a line written after the state it explains is found missing.
+func TestTheQuotaWaitIsLoggedBeforeTheInterfaceShowsIt(t *testing.T) {
+	t.Parallel()
+	q := newQuotaShim(t, "all=80 opus=5 reset=+3600")
+	f, _ := claimsWithQuota(t, q, config{})
+	// Several readers at once narrow the time between the wait showing and the first reader seeing it.
+	const readers = 16
+	seen := make(chan string, readers)
+	stop := make(chan struct{})
+	for range readers {
+		go func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				var status apiStatus
+				response, err := http.Get("http://" + f.address + "/api/status")
+				if err != nil {
+					continue
+				}
+				err = json.NewDecoder(response.Body).Decode(&status)
+				response.Body.Close()
+				if err == nil && status.State == "waiting-for-quota" {
+					seen <- f.output(t)
+					return
+				}
+			}
+		}()
+	}
+	var logged string
+	select {
+	case logged = <-seen:
+	case <-time.After(30 * time.Second):
+		close(stop)
+		t.Fatalf("waited 30s for the factory to wait for quota; the factory's log:\n%s", f.output(t))
+	}
+	close(stop)
+	if !strings.Contains(logged, "waiting for quota: 5 % of model:opus is left") {
+		t.Fatalf("the interface says the factory waits for quota and its log does not say why:\n%s", logged)
+	}
+	if n := strings.Count(logged, "waiting for quota:"); n != 1 {
+		t.Errorf("the factory logged the wait %d times, want once:\n%s", n, logged)
 	}
 }
 

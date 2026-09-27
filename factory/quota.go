@@ -362,15 +362,17 @@ func (f *Factory) quotaExhausted(ctx context.Context, repository string, spec in
 const quotaEmpty = 1
 
 // waitForQuota makes the factory wait until the reset: the interface says it waits for quota and
-// until when, nothing starts before then, and the check runs again once it has passed.
+// until when, nothing starts before then, and the check runs again once it has passed. The log says
+// so before the interface does: the line is written under the lock, before the wait becomes visible,
+// so a reader who sees the wait finds it explained in the log. A repeated check for the same reset
+// logs nothing new.
 func (f *Factory) waitForQuota(until time.Time, why string) {
 	f.mu.Lock()
-	already := f.quotaUntil != nil && f.quotaUntil.Equal(until)
-	f.quotaUntil = &until
-	f.mu.Unlock()
-	if !already {
+	defer f.mu.Unlock()
+	if f.quotaUntil == nil || !f.quotaUntil.Equal(until) {
 		log.Printf("waiting for quota: %s; nothing starts before the reset at %s", why, until.Format(time.RFC3339))
 	}
+	f.quotaUntil = &until
 }
 
 // waitingForQuota says until when the factory waits for quota, and whether it still does. A wait
