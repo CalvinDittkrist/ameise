@@ -476,3 +476,99 @@ func TestABlockedTicketWaitsWhileASiblingIsWorked(t *testing.T) {
 		}
 	}
 }
+
+// A ticket's pull request a person turned to main and merged there never reached the spec branch: the
+// ticket is not recorded merged on the spec run and the factory does not close it.
+func TestATicketMergedIntoAnotherBranchIsNotRecordedMerged(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d", ticketIssue), marshal(t, map[string]any{
+		"number": ticketIssue, "state": "closed", "merged": true, "title": "feat: ticket 231",
+		"head": map[string]any{"ref": ticketBranch, "repo": map[string]any{"full_name": "acme/edge-sensors"}},
+		"base": map[string]any{"ref": "main", "repo": map[string]any{"full_name": "acme/edge-sensors"}}}))
+	gh.unassigns(t, "acme/edge-sensors", ticketIssue, "factory-bot")
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	f.ended(t, 1)
+	reading := "api " + subIssuesRequest("acme/edge-sensors", specNumber)
+	before := gh.made(t, reading)
+	f.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, reading) >= before+5 })
+	if gh.made(t, "issue close 231 --repo acme/edge-sensors") != 0 {
+		t.Errorf("the factory closed a ticket whose pull request was merged into main")
+	}
+	if spec := f.specRunNow(t); len(spec.Tickets) != 1 || spec.Tickets[0].MergedAt != nil {
+		t.Errorf("the spec run lists the tickets %+v, want #231 not merged", spec.Tickets)
+	}
+}
+
+// A ticket whose pull request a person merged and which they closed before the next poll is recorded
+// merged and closed on the spec run, and the factory neither comments on it nor closes it again.
+func TestATicketMergedAndClosedByAPersonIsRecorded(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.unassigns(t, "acme/edge-sensors", ticketIssue, "factory-bot")
+	gh.stall(t, "api --method PUT *") // the merge stage waits, so the poll is what reads the merge
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	f.eventually(t, 90*time.Second, "the merge asked for", func() bool { return gh.asked(t, "api --method PUT") == 1 })
+	gh.openTicketPull(t, ticketIssue, ticketBranch, true)
+	gh.issue(t, "acme/edge-sensors", closedIssue(assignedTo(
+		openIssue(ticketIssue, ticketTitle, time.Now().UTC().Add(-48*time.Hour), readyLabel, specRunLabel("factory")), "factory-bot")))
+	f.eventually(t, 90*time.Second, "the ticket recorded merged and closed", func() bool {
+		spec := f.specRunNow(t)
+		return len(spec.Tickets) == 1 && spec.Tickets[0].MergedAt != nil && spec.Tickets[0].Closed
+	})
+	if gh.made(t, "issue close 231 --repo acme/edge-sensors") != 0 || gh.asked(t, "issue comment 231 ") != 0 {
+		t.Errorf("the factory commented on or closed a ticket a person had closed")
+	}
+}
+
+// A merged ticket whose close fails stays held, and a later poll closes it once GitHub answers.
+func TestAMergedTicketIsHeldUntilItIsClosed(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.openTicketPull(t, ticketIssue, ticketBranch, true)
+	gh.unassigns(t, "acme/edge-sensors", ticketIssue, "factory-bot")
+	gh.fail(t, "issue close 231 *")
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	f.ended(t, 1)
+	closing := "issue close 231 --repo acme/edge-sensors"
+	f.eventually(t, 30*time.Second, "a failed close", func() bool { return gh.asked(t, closing) >= 1 })
+	reading := "api " + subIssuesRequest("acme/edge-sensors", specNumber)
+	before := gh.made(t, reading)
+	f.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, reading) >= before+3 })
+	var run apiRun
+	f.get(t, "/api/runs/1", &run)
+	if run.LetGoAt != nil {
+		t.Fatalf("the ticket was let go while it is still open; the factory's log:\n%s", f.output(t))
+	}
+	gh.fail(t, "")
+	f.eventually(t, 30*time.Second, "the ticket closed and let go", func() bool {
+		run = apiRun{}
+		f.get(t, "/api/runs/1", &run)
+		return run.LetGoAt != nil
+	})
+	if spec := f.specRunNow(t); len(spec.Tickets) != 1 || !spec.Tickets[0].Closed {
+		t.Errorf("the spec run lists the tickets %+v, want #231 closed", spec.Tickets)
+	}
+}
+
+// A spec run whose ticket run the factory was killed in is idle after the restart, paused as it is:
+// the run is recorded interrupted, and nothing works on the spec.
+func TestASpecRunIsIdleAfterARestartThatEndedItsTicketRun(t *testing.T) {
+	t.Parallel()
+	data := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(SpecRun{ID: 1, Repository: "acme/edge-sensors", Spec: specNumber, Title: "A spec", Branch: specBranch,
+		Base: "main", State: specHolding, Idle: false, Warnings: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "spec-1.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := start(t, config{"paused": true, "data_dir": data})
+	if spec := f.specRunNow(t); spec.State != specHolding || !spec.Idle {
+		t.Errorf("spec run 1 is %s with idle=%v after a restart, want holding and idle", spec.State, spec.Idle)
+	}
+}

@@ -135,6 +135,11 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 			s.event(r, Event{Kind: "error", Title: specFailed, Body: reason})
 			s.update(r, func() { r.State, r.Reason = specFailed, reason })
 		}
+		// No ticket run works before the factory starts one: a run the stop cut short is recorded
+		// interrupted by OpenStore and never ends through ticketEnded, so its spec run is idle again here.
+		if r.State == specHolding && !r.Idle {
+			s.update(r, func() { r.Idle = true })
+		}
 	}
 	return s, nil
 }
