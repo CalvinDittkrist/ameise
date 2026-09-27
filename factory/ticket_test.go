@@ -326,6 +326,53 @@ func TestATicketWhoseMergeIsRefusedEndsBlocked(t *testing.T) {
 	}
 }
 
+// A held ticket is let go on the spec-run label taken off it or on the ticket closed, and not on the
+// routing label, which a ticket never carries.
+func TestTakingTheSpecRunLabelOffOrClosingATicketLetsItGo(t *testing.T) {
+	t.Parallel()
+	for _, gesture := range []struct {
+		name     string
+		decision string
+		change   func(issueJSON) issueJSON
+	}{
+		{"the label taken off", "the spec-run label factory:spec-run was taken off the issue", func(i issueJSON) issueJSON {
+			i["labels"] = []any{map[string]any{"name": readyLabel}}
+			return i
+		}},
+		{"the ticket closed", "the issue was closed", closedIssue},
+	} {
+		t.Run(gesture.name, func(t *testing.T) {
+			t.Parallel()
+			gh, data := ticketClaim(t)
+			gh.unassigns(t, "acme/edge-sensors", ticketIssue, "factory-bot")
+			gh.workerReportsBlocked(t, "the spec leaves the retry count open")
+			f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+			run := f.ended(t, 1)
+			if run.Issue != ticketIssue || run.Outcome != outcomeBlocked || !run.Holding {
+				t.Fatalf("run 1 worked #%d and ended %q holding=%v, want ticket #%d blocked and held; the factory's log:\n%s",
+					run.Issue, run.Outcome, run.Holding, ticketIssue, f.output(t))
+			}
+			gh.issue(t, "acme/edge-sensors", gesture.change(assignedTo(
+				openIssue(ticketIssue, ticketTitle, time.Now().UTC().Add(-48*time.Hour), readyLabel, specRunLabel("factory")), "factory-bot")))
+			var let apiRun
+			f.eventually(t, 30*time.Second, "the ticket to be let go", func() bool {
+				let = apiRun{}
+				f.get(t, "/api/runs/1", &let)
+				return let.LetGoAt != nil
+			})
+			said := ""
+			for _, e := range let.Events {
+				if e.Title == "letting "+ticketBranch+" go" {
+					said = e.Body
+				}
+			}
+			if said != gesture.decision {
+				t.Errorf("the ticket was let go on %q, want the decision %q", said, gesture.decision)
+			}
+		})
+	}
+}
+
 // A ticket's pull request whose base was changed away from the spec branch after it was opened is not
 // merged: the run ends blocked at the merge, naming the base it found, and the ticket stays open.
 func TestATicketWhosePullRequestNoLongerGoesIntoTheSpecBranchIsNotMerged(t *testing.T) {
