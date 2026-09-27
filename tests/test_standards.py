@@ -60,6 +60,24 @@ class StandardsTests(ShimTest):
         self.assertIn("kept: .claude/settings.json", r.stdout)
         self.assertEqual([c for c in self.calls() if not c.startswith("claude plugin marketplace add")], [])
 
+    def test_a_pipeline_that_dies_of_sigpipe_never_disables_a_workflow_plugin(self):
+        """The scaffold once piped printf into `grep -q` to test membership. Under pipefail a SIGPIPE of the
+        printf read as a miss, and a workflow plugin was disabled. A second run then opened a cleanup pull
+        request. This grep fails every `-q` that reads a pipe, so the plugins stay enabled only if the check
+        needs no pipe."""
+        real = subprocess.run(["bash", "-c", "command -v grep"], capture_output=True, text=True, check=True).stdout.strip()
+        bin_dir = self.base / "sigpipe-bin"
+        bin_dir.mkdir()
+        grep = bin_dir / "grep"
+        grep.write_text(f'#!/usr/bin/env bash\ncase "$1" in -q*) [ ! -p /dev/stdin ] || exit 141 ;; esac\nexec {real} "$@"\n')
+        grep.chmod(0o755)
+        self.write(".claude/settings.json", json.dumps({"enabledPlugins": {"foo@bar": True}}))
+        r = self.run_script(STANDARDS / "scaffold.sh", PATH=f"{bin_dir}:{self.env()['PATH']}")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        settings = json.loads((self.repo / ".claude/settings.json").read_text())
+        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@workflows": True, "planner@workflows": True,
+                                                      "repo-standards@workflows": True, "worker@workflows": True})
+
     def test_the_scaffolded_categories_are_the_ones_the_report_names(self):
         """WF_SCAFFOLD_CATEGORIES (lib.sh) is what report.sh promises; scaffold.sh is what really writes files.
         One run per category, everything else skipped, so a put call added or moved shows up here."""

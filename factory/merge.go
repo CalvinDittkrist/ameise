@@ -76,7 +76,9 @@ func (f *Factory) merge(parent, ctx context.Context, r *Run, entry Entry, pull, 
 	f.runs.event(r, Event{Kind: "factory", Title: "merged " + pull + " into " + r.Base,
 		Body: "ci is green, the panel summary is ready and the validation passed, so the pull request is squash-merged under its title"})
 	reason := "the pull request " + pull + " is squash-merged into the spec branch " + r.Base + " and the ticket is closed"
-	if !f.ticketMerged(ctx, r.Repository, r.Spec, entry.Number, pull, false) {
+	// The ticket is closed on the factory's context and not on the run's: the poll that reads the merge
+	// cancels the run, and a close cut by that cancel would leave the ticket for the poll to close again.
+	if !f.ticketMerged(parent, r.Repository, r.Spec, entry.Number, pull, false) {
 		reason = "the pull request " + pull + " is squash-merged into the spec branch " + r.Base + "; the ticket is not closed yet, and the poll that reads the merge closes it"
 	}
 	f.finish(r, outcomeMerged, reason, nil)
@@ -94,7 +96,7 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 		return true
 	}
 	alreadyClosed := closed
-	marked := false
+	marked, closing := false, false
 	f.specs.update(s, func() {
 		i := s.ticket(ticket, "")
 		if s.Tickets[i].MergedAt == nil {
@@ -103,6 +105,10 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 		}
 		closed = s.Tickets[i].Closed || alreadyClosed
 		s.Tickets[i].Closed = closed
+		closing = s.Tickets[i].closing
+		if !closed && !closing {
+			s.Tickets[i].closing = true
+		}
 	})
 	if marked {
 		f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("ticket #%d merged", ticket),
@@ -111,6 +117,9 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 	if closed {
 		return true // closed once already, by the merge stage, by the poll that read the merge or by a person
 	}
+	if closing {
+		return false // the other caller closes it now; a later poll reads it closed, or closes it when that one failed
+	}
 	comment := "The pull request " + pull + " is merged into the spec branch " + s.Branch + " of the spec run of #" + strconv.Itoa(spec) +
 		". GitHub closes no issue on a merge into a branch other than the default one, so the factory closes this ticket.\n"
 	err := f.source.commentOnIssue(ctx, repository, ticket, comment)
@@ -118,12 +127,16 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 		err = f.source.closeIssue(ctx, repository, ticket)
 	}
 	if err != nil {
+		f.specs.update(s, func() { s.Tickets[s.ticket(ticket, "")].closing = false })
 		if ctx.Err() == nil {
 			f.specs.warn(s, "ticket not closed", fmt.Sprintf("ticket #%d of %s is merged by %s and could not be closed: %v; close it by hand", ticket, repository, pull, err))
 		}
 		return false // the record says open, as the ticket is
 	}
-	f.specs.update(s, func() { s.Tickets[s.ticket(ticket, "")].Closed = true })
+	f.specs.update(s, func() {
+		i := s.ticket(ticket, "")
+		s.Tickets[i].Closed, s.Tickets[i].closing = true, false
+	})
 	log.Printf("spec run %d (%s#%d): ticket #%d is merged by %s and closed", s.ID, repository, spec, ticket, pull)
 	return true
 }
