@@ -14,11 +14,11 @@ This repository packages a way of working with coding agents as Claude Code plug
 | `pr-author` agent | Opens the pull request from a fresh context, so the description matches the diff. | `plugins/worker/skills/pr` (forked skill) |
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `spec-checker` agent | Judges every checkable statement of a spec against the code during an acceptance. | `plugins/planner/agents/spec-checker.md` |
-| `factory` service | Works routed issues unattended on a host of its own and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
+| `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | Herdr | Terminal workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |
-| GitHub | Issues are the unit of work, pull requests the unit of delivery; CI (the job `check` running `make check`) and Codex review are the external gates. | `gh` or `npx gh-axi` |
+| GitHub | Issues are the unit of work, pull requests of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | Docker Sandboxes (optional) | A container per worktree for workers that should not touch the host. | `plugins/orchestrator/scripts/sbx-worker.sh` |
 | Python suite | Unittest classes that run the real plugin scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
 
@@ -30,16 +30,17 @@ This repository packages a way of working with coding agents as Claude Code plug
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
-5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree or routing label. Then it lists the specs ready for acceptance. It keeps no state.
+5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing label or spec run. Then it lists the specs ready for acceptance. It keeps no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests (closing reference, else head branch) and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
-1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), with the routing label, or with its branch on origin. `--force` overrides each.
+1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), with the routing or spec-run label, or with its branch on origin. `--force` overrides each.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
+   - A `ready-for-human` ticket of a spec run is cut from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
 4. The pane's status line writes the context size to `<worktree git dir>/worker/context`, the only thing the two plugins share ([ADR 0020](adr/0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md)).
-5. Worker knobs given to the claim, such as `--env WF_HANDOFF_TOKENS=5000`, reach that session alone. Only names of the [configuration table](../README.md#configuration) pass.
+5. Worker knobs given to the claim with `--env` reach that session alone. Only names of the [configuration table](../README.md#configuration) pass.
 6. The worker's SessionStart hook assigns the issue and injects it as untrusted data. It injects a waiting handoff note once ([ADR 0029](adr/0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)).
 7. `/worker:work` first merges the base with `base-sync.sh`, never rebasing; a conflict stops the worker with `blocked:`. Then it implements and verifies.
 8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. A record of another commit or a dirty tree reads as none.
@@ -52,6 +53,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 15. `/worker:address-reviews` fixes what reviewers still ask for, replies to and resolves each thread, and answers each review summary with one comment (`pr-answer.sh`).
 16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE`, set by a driver for a maintainer's review, restarts the count once.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
+    - A merge outside the default branch closes the issue with a comment; GitHub does not.
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.
 
 ### Test hunt
@@ -72,7 +74,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
 2. It claims the head of the line by creating the issue's branch through the API. Meeting an existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
    - A routed spec is held on its spec branch for its [ticket runs](factory-runbook.md#ticket-runs).
-3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)). `WF_BASE_BRANCH` is read from the repository's settings.
+3. The branch contract, the base branch rule and the frontier rule restate the orchestrator's shell in Go, bound by drift tests ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)).
 4. It assigns itself, makes a worktree and records the Claude Code version, updating nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
 6. Implement: one session commits the change and pushes nothing.
@@ -113,7 +115,6 @@ This repository packages a way of working with coding agents as Claude Code plug
 - Claude Code facts are verified against the current documentation. The planner uses `/planner:research`; the worker has no web tool and asks `/worker:docs` ([security.md](security.md)).
 - Every repository follows the [standard](repo-standard.md): `AGENTS.md` through the `CLAUDE.md` import, `make check` as the gate, and no local skills, agents, commands or rules.
 - The factory shares nothing with a developer's machine but GitHub. Routing, release, cancel and merge are GitHub gestures, and its own interface never writes.
-- The factory restates the branch contract, the base branch rule and the frontier rule in Go. A drift test binds each to its shell original.
 - Worktrees live under `.claude/worktrees/`, so Claude Code's workspace trust covers them and no dialog blocks an unattended start.
 
 ## Decisions
