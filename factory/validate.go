@@ -90,13 +90,22 @@ func (base validateSettings) over(k *validateKnobs) (validateSettings, error) {
 }
 
 // validateFor is the validate settings of a connected repository, and the host's for one that is no
-// longer connected.
-func (f *Factory) validateFor(repository string) validateSettings {
+// longer connected. A ticket run of a spec run (spec is its spec) validates whatever they say: with the
+// validators they name, and with ticketValidators when they name none.
+func (f *Factory) validateFor(repository string, spec int) validateSettings {
+	out := f.settings.Validate
 	if connected, ok := f.connected(repository); ok {
-		return connected.validate
+		out = connected.validate
 	}
-	return f.settings.Validate
+	if spec != 0 && !out.on() {
+		out.Validators = slices.Clone(ticketValidators)
+	}
+	return out
 }
+
+// ticketValidators is the validators of a ticket run whose repository names none: the reviewer on
+// Codex and the Claude reviewer on the Fable model.
+var ticketValidators = []string{"codex", "fable"}
 
 // Validation is what the validate stage recorded of a run: every round of the validators, each with
 // its verdicts, the report of its fix session and the commit that fix was pushed at, and whether the
@@ -156,7 +165,7 @@ func (f *Factory) carryOn(r *Run, entry Entry, pull string) {
 // green. It ends the run, or answers with the commit a fix round pushed and true, and the ci stage
 // waits on the pull request again.
 func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, claim claimed, pull, green string) (string, bool) {
-	knobs := f.validateFor(entry.Repository)
+	knobs := f.validateFor(entry.Repository, r.Spec)
 	if !knobs.on() {
 		f.finish(r, outcomeReady, "", nil)
 		return "", false
@@ -203,7 +212,7 @@ func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, cla
 	case last != nil && last.Head == head && v.Passed:
 		f.runs.event(r, Event{Kind: "factory", Title: "validated already at " + short(head),
 			Body: fmt.Sprintf("round %d of the validation passed on this commit, so it is not validated again", last.Number)})
-		f.finish(r, outcomeReady, "", nil)
+		f.passed(parent, ctx, r, entry, pull, head)
 		return "", false
 	case last != nil && last.Head == head && last.Repair == nil:
 		f.runs.event(r, Event{Kind: "factory", Title: fmt.Sprintf("resuming at the fix of validation round %d", last.Number),
@@ -224,7 +233,7 @@ func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, cla
 				v.Marked = false
 				record()
 			}
-			f.finish(r, outcomeReady, "", nil)
+			f.passed(parent, ctx, r, entry, pull, head)
 			return "", false
 		}
 		last = &v.Rounds[len(v.Rounds)-1]

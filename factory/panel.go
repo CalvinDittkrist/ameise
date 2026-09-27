@@ -128,8 +128,9 @@ func (r reviewer) on() string {
 }
 
 // knownReviewers is every reviewer the review knobs may name, in the order an error lists them: the
-// default panel, then the reviewer on Codex, which a repository adds by naming it.
-var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex")
+// default panel, then the reviewer on Codex and the one on the Fable model, which a repository adds by
+// naming them.
+var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex", "fable")
 
 // reviewers are the factory's own reviewer prompts, by the name the panel knows them by. Their focus is
 // the worker plugin's reviewers' ([ADR 0042]): the factory carries its own copy, written for a session
@@ -170,6 +171,13 @@ var reviewers = map[string]reviewer{
 		"Focus: correctness, security and fit of the whole change, read by a model of another family than the other reviewers. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
 			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", runtimeCodex},
+	// The reviewer on the Fable model reads the whole change as the most capable Claude model does, which
+	// a ticket run of a spec run validates with beside the reviewer on Codex
+	// (https://code.claude.com/docs/en/model-config.md, checked 2026-09-27: the fable alias names it).
+	"fable": {"Fresh-context review of the branch diff on the Fable model.", "fable",
+		"Focus: correctness, security and fit of the whole change, read on the most capable Claude model. " +
+			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
+			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", ""},
 }
 
 // reviewerPrompt is the system prompt of a reviewer: what every reviewer is, and its focus.

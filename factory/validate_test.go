@@ -242,7 +242,7 @@ func TestAValidationThatFailsPastItsRoundsEndsReadyNamingIt(t *testing.T) {
 func TestAnInvalidValidateObjectIsRefusedWithTheFix(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct{ config, want string }{
-		"unknown validator":              {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex","style"]}}`, `validate: validators carries "style", which is no reviewer; the validators are any of code, security, docs, tests, senior, codex`},
+		"unknown validator":              {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex","style"]}}`, `validate: validators carries "style", which is no reviewer; the validators are any of code, security, docs, tests, senior, codex, fable`},
 		"unknown validator of a repo":    {`{"data_dir":"data","repositories":[{"name":"a/b","validate":{"validators":["lint"]}}]}`, `the validate of a/b: validators carries "lint"`},
 		"no fix round":                   {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex"],"rounds":0}}`, `validate: rounds 0 is not a positive number of fix rounds; write it as 2`},
 		"negative rounds of a repo":      {`{"data_dir":"data","repositories":[{"name":"a/b","validate":{"rounds":-1}}]}`, `the validate of a/b: rounds -1 is not a positive number`},

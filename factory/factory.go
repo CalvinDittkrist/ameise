@@ -37,6 +37,9 @@ type Issue struct {
 	assignedAt   time.Time
 	unassignedAt time.Time
 	scenario     string // fake mode only: which scripted worker works this entry
+	// spec is the spec whose sub-issue this is, for a ticket of a spec run the factory holds, and zero
+	// for an issue routed on its own. A ticket is worked on the spec branch (ticket.go).
+	spec int
 }
 
 func (i Issue) key() string { return fmt.Sprintf("%s#%d", repositoryKey(i.Repository), i.Number) }
@@ -117,6 +120,9 @@ type Factory struct {
 	// specQueue is the routed specs the last poll read, which a spec run is claimed from (spec.go). Like
 	// the queue it is a reading of GitHub and never stored.
 	specQueue []Issue
+	// tickets is the tickets of the held specs the last poll read, in the order they are taken
+	// (ticket.go). Like the queue it is a reading of GitHub and never stored.
+	tickets []Issue
 	// reviews is what the last poll found on the pull requests this factory holds open: what their
 	// reviews signal, by issue. Like the queue it is a reading of GitHub and never a state of the
 	// factory; what has been answered is read from the run records ([ADR 0025]).
@@ -175,8 +181,14 @@ type source interface {
 	// markPull writes the validate stage's section into the body of a pull request in place of the one
 	// before it, or takes it out when the section is empty (validate.go).
 	markPull(ctx context.Context, repository string, pull int, section string) error
-	// commentOnIssue names on the issue a pull request of its branch that is not the run's.
+	// commentOnIssue names on the issue a pull request of its branch that is not the run's, and on a
+	// ticket the pull request the merge stage merged.
 	commentOnIssue(ctx context.Context, repository string, issue int, body string) error
+	// mergePull squash-merges a ticket's pull request into the spec branch under its title, at the
+	// commit given when there is one, and closeIssue closes the ticket: the calls of the merge stage
+	// (merge.go).
+	mergePull(ctx context.Context, repository string, pull int, head string) error
+	closeIssue(ctx context.Context, repository string, issue int) error
 	// replyToThread, resolveThread and commentOnPull carry what an address-reviews session answered to
 	// GitHub: a reply in one review thread, its resolution, and one comment on the pull request.
 	replyToThread(ctx context.Context, id, body string) error
@@ -203,6 +215,9 @@ type Held struct {
 	// Spec says this is a spec a spec run holds, whose decisions are the spec-run label taken off and
 	// the spec closed (spec.go).
 	Spec bool
+	// Ticket says this is a ticket of a spec run, which is held by the spec-run label and not by the
+	// routing label (ticket.go).
+	Ticket bool
 }
 
 func (h Held) key() string { return Issue{Repository: h.Repository, Number: h.Number}.key() }
@@ -224,6 +239,9 @@ type poll struct {
 	// whose reading says their spec run is over, with the decision that says so (spec.go).
 	specs      []Issue
 	letGoSpecs map[string]string
+	// tickets is the tickets of the held specs that a ticket run may take: open, carrying the spec-run
+	// label and ready-for-agent, unassigned and with no open blocker (ticket.go).
+	tickets []Issue
 }
 
 // New opens the data directory and takes the runs already in it. Nothing here starts a run and
@@ -401,8 +419,9 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	queue := read.issues
 	sortRouted(queue)
 	sortRouted(read.specs)
+	sortTickets(read.tickets)
 	f.mu.Lock()
-	f.queue, f.specQueue, f.unreadable, f.polledAt = queue, read.specs, read.unreadable, time.Now()
+	f.queue, f.specQueue, f.tickets, f.unreadable, f.polledAt = queue, read.specs, read.tickets, read.unreadable, time.Now()
 	f.mu.Unlock()
 	return read
 }
@@ -459,7 +478,7 @@ func (f *Factory) heldIssuesDue() []Held {
 			continue
 		}
 		issue := Held{Repository: connected.Name, Number: h.run.Issue, Branch: h.run.Branch,
-			PullRequest: h.pullRequest, Running: !h.idle}
+			PullRequest: h.pullRequest, Running: !h.idle, Ticket: h.run.Spec != 0}
 		state := fmt.Sprintf("%s|%t|%s", issue.key(), h.idle, h.pullRequest)
 		last, known := f.askedHeld[state]
 		if h.idle && known && now.Sub(last) < time.Duration(heldPolls)*f.settings.Poll {
@@ -524,6 +543,11 @@ func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
 	for _, key := range handovers {
 		if pass.Err() != nil {
 			return // the deadline is spent; what is left is still held and is let go from a later poll
+		}
+		// A ticket's pull request merged into the spec branch by a person, or by a merge stage the factory
+		// stopped in, is recorded on its spec run and its ticket closed, as the merge stage does.
+		if h := held[key]; h.run.Spec != 0 && letGo[key] == mergedDecision(h.pullRequest) {
+			f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, true)
 		}
 		f.letGo(pass, held[key], letGo[key])
 	}
@@ -594,9 +618,9 @@ func (f *Factory) dispatch(ctx context.Context) {
 		f.refreshReviews(ctx)
 	}
 	// A routed spec is claimed before anything starts: its claim starts no session, so it spends no
-	// quota and holds no worker.
-	f.claimSpecs(ctx)
-	if f.Paused() || f.Draining() || ctx.Err() != nil {
+	// quota and holds no worker. A dispatch that claimed one starts nothing, so the tickets of the spec
+	// the next poll reads come before the routed issues.
+	if f.claimSpecs(ctx) || f.Paused() || f.Draining() || ctx.Err() != nil {
 		return
 	}
 	if _, waiting := f.waitingForQuota(time.Now()); waiting {
@@ -696,10 +720,10 @@ func (f *Factory) waiting() []Entry {
 		worked[run.key()] = true
 	}
 	f.mu.Lock()
-	queue, reviews := f.queue, f.reviews
+	queue, tickets, reviews := f.queue, f.openTickets(f.tickets), f.reviews
 	f.mu.Unlock()
 	routedNow := map[string]Issue{}
-	for _, issue := range queue {
+	for _, issue := range append(slices.Clone(tickets), queue...) {
 		routedNow[issue.key()] = issue
 	}
 
@@ -739,7 +763,9 @@ func (f *Factory) waiting() []Entry {
 		}
 		return out[a].key() < out[b].key()
 	})
-	for _, issue := range queue {
+	// The tickets of the spec runs this factory holds come next, before the routed issues, and each
+	// is taken by the rule a routed issue is (ticket.go).
+	for _, issue := range append(tickets, queue...) {
 		gone := kept[issue.key()]
 		switch {
 		case !worked[issue.key()]:
@@ -765,6 +791,7 @@ func (f *Factory) start(ctx context.Context, entry Entry, warning string) {
 	r := &Run{
 		Repository: entry.Repository,
 		Issue:      entry.Number,
+		Spec:       entry.specOf(),
 		Title:      entry.Title,
 		Signal:     entry.Signal,
 		SignalAt:   entry.SignalAt,
@@ -787,12 +814,14 @@ func (f *Factory) start(ctx context.Context, entry Entry, warning string) {
 	f.runs.add(r)
 	f.active.Add(1)
 	f.admission.Unlock()
+	f.ticketStarted(*r)
 	if warning != "" {
 		f.warn(r, "quota not checked", warning)
 	}
 	go func() {
 		defer f.active.Done()
 		f.execute(ctx, r, entry)
+		f.ticketEnded(*r)
 		select { // the next entry starts now, not at the next poll
 		case f.wake <- struct{}{}:
 		default:
@@ -1300,7 +1329,7 @@ func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCod
 		runtime = runtimeClaude
 	}
 	held, _ := f.runs.get(r.ID)
-	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository, held.Panel, runtime)
+	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository, r.Spec, held.Panel, runtime)
 	if err != nil {
 		f.warn(r, "quota not checked after the error",
 			"the quota could not be checked after the session's error, so the run is failed rather than resumed after a reset: "+err.Error())

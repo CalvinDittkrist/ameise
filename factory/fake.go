@@ -272,6 +272,10 @@ func (c *canned) commentOnIssue(context.Context, string, int, string) error     
 // markPull takes the call: there is no pull request behind it.
 func (c *canned) markPull(context.Context, string, int, string) error { return nil }
 
+// mergePull and closeIssue take the call: fake mode holds no spec run, so no ticket reaches them.
+func (c *canned) mergePull(context.Context, string, int, string) error { return nil }
+func (c *canned) closeIssue(context.Context, string, int) error        { return nil }
+
 // issueText answers the canned issue's title and a body of its own.
 func (c *canned) issueText(_ context.Context, _ string, number int) (string, string, error) {
 	for _, issue := range cannedIssues {

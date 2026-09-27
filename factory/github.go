@@ -131,6 +131,9 @@ type ghPull struct {
 	State  string `json:"state"`
 	Merged bool   `json:"merged"`
 	Head   ghHead `json:"head"`
+	// Title is the pull request's title, which the merge stage squash-merges a ticket's pull request
+	// under (merge.go).
+	Title string `json:"title"`
 }
 
 // ghHead is what a pull request is of: the branch and the repository it was opened from. It is read
@@ -248,6 +251,9 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 		result.specs = append(result.specs, specs...)
 	}
 	g.readHeld(ctx, held, &result, seen)
+	for _, ticket := range result.tickets {
+		seen[ticket.key()] = true
+	}
 	g.settle(result.unreadable, read, seen)
 	return result
 }
@@ -323,6 +329,17 @@ func (g *gitHub) readHeldPass(ctx context.Context, held []Held, result *poll) {
 		}
 		g.readable(g.issueWarnings, key) // it answered, so the next failure is reported anew
 		switch {
+		case decision == "" && issue.Spec:
+			// A spec this factory goes on holding is where its tickets are read, on the budget of the specs.
+			tickets, err := g.specTickets(pass, issue)
+			if err != nil {
+				if ctx.Err() == nil {
+					g.warn(g.issueWarnings, specKey(key), "error: the tickets of the spec %s could not be read: %v; the spec run takes none of them until they can be", key, err)
+				}
+				continue
+			}
+			g.readable(g.issueWarnings, specKey(key))
+			result.tickets = append(result.tickets, tickets...)
 		case decision == "":
 		case issue.Spec:
 			result.letGoSpecs[key] = decision
@@ -376,11 +393,17 @@ func (g *gitHub) decided(ctx context.Context, held Held) (string, error) {
 		}
 		return "", nil
 	}
+	// A ticket of a spec run is routed by the spec-run label and not by the routing label, so that is
+	// the label whose removal takes it back.
+	label, which := g.label, "the routing label "
+	if held.Ticket {
+		label, which = specRunLabel(g.label), "the spec-run label "
+	}
 	switch {
 	case issue.State == "closed":
 		return "the issue was closed", nil
-	case !issue.hasLabel(g.label):
-		return "the routing label " + g.label + " was taken off the issue", nil
+	case !issue.hasLabel(label):
+		return which + label + " was taken off the issue", nil
 	case held.PullRequest == "":
 		return "", nil
 	}
@@ -414,7 +437,7 @@ func (g *gitHub) decidedOnPull(ctx context.Context, held Held) (string, error) {
 	}
 	switch {
 	case pull.Merged:
-		return "the pull request " + held.PullRequest + " was merged", nil
+		return mergedDecision(held.PullRequest), nil
 	case pull.State == "closed":
 		return "the pull request " + held.PullRequest + " was closed", nil
 	}
