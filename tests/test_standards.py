@@ -61,10 +61,10 @@ class StandardsTests(ShimTest):
         self.assertEqual([c for c in self.calls() if not c.startswith("claude plugin marketplace add")], [])
 
     def test_a_pipeline_that_dies_of_sigpipe_never_disables_a_workflow_plugin(self):
-        """On a busy machine a `grep -q` exits on its match while the printf before it still writes, the
-        printf dies of SIGPIPE, and under pipefail the pipeline fails as a miss does. A second run then found a
-        workflow plugin disabled and opened a cleanup pull request for it. This grep fails every `-q` read
-        from a pipe, as that pipeline did, so the plugins stay enabled only if their membership needs no pipe."""
+        """The scaffold once piped printf into `grep -q` to test membership. Under pipefail a SIGPIPE of the
+        printf read as a miss, and a workflow plugin was disabled. A second run then opened a cleanup pull
+        request. This grep fails every `-q` that reads a pipe, so the plugins stay enabled only if the check
+        needs no pipe."""
         real = subprocess.run(["bash", "-c", "command -v grep"], capture_output=True, text=True, check=True).stdout.strip()
         bin_dir = self.base / "sigpipe-bin"
         bin_dir.mkdir()

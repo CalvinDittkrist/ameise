@@ -81,10 +81,9 @@ wanted=$(jq -r '.enabledPlugins | keys[]' "$tpl/settings.json")
 for p in $wanted; do
   [ "$(jq -r --arg p "$p" '.enabledPlugins[$p] // empty' "$s" 2>/dev/null)" = true ] || run install "$p"
 done
-# Membership without a pipe: under pipefail, a grep -q that exits on its match can kill the printf still
-# writing into it with SIGPIPE, and the failed pipeline then disabled a workflow plugin now and then.
+# Membership in one shell function, with no pipe or other process whose failure could read as a miss.
 for p in $(jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "$s"); do
-  case $'\n'"$wanted"$'\n' in *$'\n'"$p"$'\n'*) ;; *) run disable "$p" ;; esac
+  in_list "$p" "$wanted" || run disable "$p"
 done
 jq --slurpfile t "$tpl/settings.json" '$t[0] as $t
   | .attribution = $t.attribution
