@@ -448,7 +448,7 @@ func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim cla
 		}
 		switch verdict {
 		case ciGreen:
-			pushed, again := f.validate(parent, ctx, r, entry, claim, pull)
+			pushed, again := f.validate(parent, ctx, r, entry, claim, pull, read.Head)
 			if !again {
 				return
 			}

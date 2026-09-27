@@ -120,6 +120,31 @@ func TestTwoValidatorsReadTheGreenPullRequestBesideEachOther(t *testing.T) {
 	}
 }
 
+// A branch that moves on the remote while the run waits on CI is validated at the commit CI passed: the
+// worktree follows the pull request to it before the validators read it.
+func TestTheValidatorsReadTheCommitCIPassed(t *testing.T) {
+	t.Parallel()
+	gh, data := validateClaim(t)
+	gh.checksAre(t, claimedIssue, "", pending("gate"))
+	f := gh.work(t, validateConfig(data, []string{"senior"}, nil))
+	f.saw(t, "ci: "+ciWaiting)
+	moved := gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+	gh.checksAre(t, claimedIssue, moved, passed("gate"))
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeReady {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	if v := run.Validation; v == nil || !v.Passed || len(v.Rounds) != 1 || v.Rounds[0].Head != moved {
+		t.Fatalf("the run recorded the validation %+v, want one round that passed at %s", v, short(moved))
+	}
+	if len(factoryTitles(run, "followed the branch to "+short(moved))) != 1 {
+		t.Errorf("the run did not follow the branch to %s; the run's events: %v", short(moved), factoryTitles(run, ""))
+	}
+	if brief := strings.Join(factoryBodies(run, "briefed the validators"), "\n"); !strings.Contains(brief, "at "+short(moved)) {
+		t.Errorf("the validators' brief does not name the commit CI passed, %s:\n%s", short(moved), brief)
+	}
+}
+
 // pullPatched is the call that writes the body of the claim's pull request.
 var pullPatched = fmt.Sprintf("api --method PATCH repos/acme/edge-sensors/pulls/%d --input -", claimedIssue)
 
@@ -169,14 +194,16 @@ func TestAFixVerdictTakesOneFixSessionAndTheRunValidatesAgainAfterCI(t *testing.
 }
 
 // With validate.rounds at two, the third validation that fails ends the run ready with a review request
-// and a pull request body that names the failed validation; no fourth validation and no third fix start.
+// and a pull request body that names the failed validation in place of the one an earlier run wrote; no
+// fourth validation and no third fix start.
 func TestAValidationThatFailsPastItsRoundsEndsReadyNamingIt(t *testing.T) {
 	t.Parallel()
 	gh, data := validateClaim(t)
 	gh.verdict(t, "senior", 0, findings(t, Finding{Severity: "S2", Path: "worked.md", Line: 1, Claim: "The retry is unbounded.", Why: "It never gives up.", Fix: "Bound it."}))
 	gh.env = append(gh.env, "CLAUDE_SHIM_THEN_COMMIT=validated.md")
 	gh.repairs(t, map[string]any{"outcome": "complete", "fixed": []string{"F1"}, "disputed": []any{}, "skipped": []any{}, "summary": "bounded"})
-	gh.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d --jq .body", claimedIssue), "Closes #104\n\nThe body the author wrote.\n")
+	gh.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d --jq .body", claimedIssue),
+		"Closes #104\n\nThe body the author wrote.\n\n"+validationStart+"\n## Validation\n\nThe failure of an earlier run.\n"+validationEnd+"\n")
 	gh.reviewRequests(t, pullOfTheClaim, maintainers...)
 	gh.comments(t, "acme/edge-sensors", claimedIssue)
 	c := validateConfig(data, []string{"senior"}, map[string]any{"rounds": 2})
@@ -199,8 +226,8 @@ func TestAValidationThatFailsPastItsRoundsEndsReadyNamingIt(t *testing.T) {
 		t.Fatalf("the factory wrote %q to the pull request, want its body: %v", gh.wrote(t, pullPatched), err)
 	}
 	if !strings.HasPrefix(edit.Body, "Closes #104\n\nThe body the author wrote.") || !strings.Contains(edit.Body, "**The validation did not pass:**") ||
-		!strings.Contains(edit.Body, "The retry is unbounded.") {
-		t.Errorf("the pull request's body became %q, want the author's body with the failed validation and its findings after it", edit.Body)
+		!strings.Contains(edit.Body, "The retry is unbounded.") || strings.Count(edit.Body, "## Validation") != 1 || strings.Contains(edit.Body, "an earlier run") {
+		t.Errorf("the pull request's body became %q, want the author's body with the failed validation and its findings after it, in place of the earlier one", edit.Body)
 	}
 	f.notified(t, 1)
 	for _, who := range maintainers {
@@ -257,9 +284,10 @@ func TestAValidatorOnCodexOnAHostWithoutItBlocksTheRun(t *testing.T) {
 // A factory restarted while a run validated resumes it at the validate stage; one restarted after the
 // run recorded a pass on the commit the branch is at does not validate it again; one restarted after a
 // round that did not pass on that commit, and before its fix reported, runs the fix before validating.
+// One that resumes after a run wrote a failed validation into the pull request takes it out on a pass.
 func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 	t.Parallel()
-	for _, at := range []string{"during the validation", "after a pass", "at the fix"} {
+	for _, at := range []string{"during the validation", "after a pass", "at the fix", "after a failure was written"} {
 		t.Run(at, func(t *testing.T) {
 			t.Parallel()
 			gh := newGhShim(t)
@@ -284,6 +312,11 @@ func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 				gh.env = append(gh.env, "GIT_AUTHOR_NAME=factory", "GIT_AUTHOR_EMAIL=factory@example.com",
 					"GIT_COMMITTER_NAME=factory", "GIT_COMMITTER_EMAIL=factory@example.com", "CLAUDE_SHIM_THEN_COMMIT=validated.md")
 				gh.repairs(t, map[string]any{"outcome": "complete", "fixed": []string{"F1"}, "disputed": []any{}, "skipped": []any{}, "summary": "bounded"})
+			case "after a failure was written":
+				interrupted.Validation = &Validation{Marked: true, Rounds: []Round{{Number: 1, Head: "0ld", Verdicts: []Verdict{{Reviewer: "senior", Verdict: verdictFix,
+					Findings: []Finding{{ID: "F1", Severity: "S2", Path: "worked.md", Line: 1, Claim: "The retry is unbounded.", Why: "It never gives up.", Fix: "Bound it."}}}}}}}
+				gh.answer(t, fmt.Sprintf("api repos/acme/edge-sensors/pulls/%d --jq .body", claimedIssue),
+					"Closes #104\n\n"+validationStart+"\n## Validation\n\n**The validation did not pass:** it failed.\n"+validationEnd+"\n")
 			}
 			records(t, data, interrupted)
 			gh.issues(t, "acme/edge-sensors")
@@ -302,6 +335,14 @@ func TestAResumedRunValidatesUnlessItsRecordCarriesAPass(t *testing.T) {
 			case "after a pass":
 				if len(senior) != 0 || len(factoryTitles(resumed, "validated already at "+short(head))) != 1 {
 					t.Errorf("the resume started the senior validator %d times, want none and an event that the pass stands", len(senior))
+				}
+			case "after a failure was written":
+				v := resumed.Validation
+				if len(senior) != 1 || v == nil || !v.Passed || v.Marked || len(v.Rounds) != 2 {
+					t.Errorf("the resume started the senior validator %d times and recorded %+v, want a second round that passed and no mark", len(senior), v)
+				}
+				if body := gh.wrote(t, pullPatched); body != marshal(t, map[string]string{"body": "Closes #104"})+"\n" {
+					t.Errorf("the factory wrote %q to the pull request, want the body without the failed validation", body)
 				}
 			case "during the validation":
 				if len(senior) != 1 || resumed.Validation == nil || !resumed.Validation.Passed || resumed.Validation.Rounds[0].Head != head {

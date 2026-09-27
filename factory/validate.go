@@ -105,6 +105,9 @@ func (f *Factory) validateFor(repository string) validateSettings {
 type Validation struct {
 	Rounds []Round `json:"rounds"`
 	Passed bool    `json:"passed"`
+	// Marked says the pull request's body carries the section of a validation that did not pass, which
+	// a later pass takes out again.
+	Marked bool `json:"marked,omitempty"`
 }
 
 // fixes is how many fix sessions the validation has taken, which the budget is held against.
@@ -149,10 +152,10 @@ func (f *Factory) carryOn(r *Run, entry Entry, pull string) {
 	})
 }
 
-// validate is the validate stage of a run whose pull request the ci stage read green. It ends the run,
-// or answers with the commit a fix round pushed and true, and the ci stage waits on the pull request
-// again.
-func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, claim claimed, pull string) (string, bool) {
+// validate is the validate stage of a run whose pull request the ci stage read green at the commit
+// green. It ends the run, or answers with the commit a fix round pushed and true, and the ci stage
+// waits on the pull request again.
+func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, claim claimed, pull, green string) (string, bool) {
 	knobs := f.validateFor(entry.Repository)
 	if !knobs.on() {
 		f.finish(r, outcomeReady, "", nil)
@@ -175,6 +178,22 @@ func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, cla
 			f.finish(r, outcomeFailed, "the commit to validate could not be read: "+err.Error()+leftBehind(claim), nil)
 		}
 		return "", false
+	}
+	if !f.fake && green != "" && head != green {
+		// The branch moved on the remote while the run waited on CI: the validators read the commit CI
+		// passed, so the worktree follows it, and one that cannot is no validation of that commit.
+		was := head
+		if head, err = f.follow(ctx, claim, green); err != nil {
+			if !f.halted(parent, ctx, r, "follow the branch to the commit CI passed") {
+				f.runs.update(r, func() {
+					r.Reason = fmt.Sprintf("the pull request %s passed CI at %s, and the worktree at %s could not follow it: %v", pull, short(green), short(was), err)
+				})
+				f.finish(r, outcomeBlocked, "", nil)
+			}
+			return "", false
+		}
+		f.runs.event(r, Event{Kind: "factory", Title: "followed the branch to " + short(green),
+			Body: "the pull request passed CI at a commit the worktree did not have, so the worktree was brought to it before the validation"})
 	}
 	var last *Round
 	if n := len(v.Rounds); n > 0 {
@@ -200,13 +219,21 @@ func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, cla
 		if v.Passed {
 			f.runs.event(r, Event{Kind: "factory", Title: fmt.Sprintf("validation round %d passed", round.Number),
 				Body: "the validators " + strings.Join(knobs.Validators, ", ") + " passed at " + short(head)})
+			if v.Marked {
+				f.markPull(ctx, r, entry, pull, "")
+				v.Marked = false
+				record()
+			}
 			f.finish(r, outcomeReady, "", nil)
 			return "", false
 		}
 		last = &v.Rounds[len(v.Rounds)-1]
 	}
 	if v.fixes() >= knobs.Rounds {
-		f.unvalidated(ctx, r, entry, pull, v, knobs)
+		why, marked := f.unvalidated(ctx, r, entry, pull, v, knobs)
+		v.Marked = marked || v.Marked
+		record()
+		f.finish(r, outcomeReady, why, nil)
 		return "", false
 	}
 	s := validateFixSession(validateFixBrief(entry, claim, pull, *last, v.fixes()+1, knobs.Rounds), last.Number, findingsOf(*last))
@@ -281,36 +308,98 @@ func validateFixBrief(entry Entry, claim claimed, pull string, round Round, fix,
 		fixRules("the factory pushes the branch, waits for CI and validates again itself"))
 }
 
-// unvalidated ends a run whose validation still fails with the fix rounds spent: ready, so the
-// maintainer is asked for a review, with a section on the pull request's body that says the validation
-// did not pass and names the validators that did not.
-func (f *Factory) unvalidated(ctx context.Context, r *Run, entry Entry, pull string, v Validation, knobs validateSettings) {
+// follow brings the worktree to the commit the branch's pull request is at: the branch is fetched and
+// the worktree fast-forwarded to it. It answers with the commit the worktree is at then, and an error
+// when that is not the one asked for.
+func (f *Factory) follow(ctx context.Context, claim claimed, want string) (string, error) {
+	if _, err := gitWithin(ctx, claim.worktree, fetchTimeout, "fetch", "--quiet", "origin", "refs/heads/"+claim.branch); err != nil {
+		return "", fmt.Errorf("the branch could not be fetched: %w", err)
+	}
+	if _, err := git(ctx, claim.worktree, "merge", "--quiet", "--ff-only", want); err != nil {
+		head, _ := f.head(ctx, claim)
+		return head, fmt.Errorf("the worktree does not fast-forward to it: %w", err)
+	}
+	head, err := f.head(ctx, claim)
+	if err == nil && head != want {
+		err = fmt.Errorf("the worktree is at %s after the fast-forward", short(head))
+	}
+	return head, err
+}
+
+// unvalidated says why a run whose validation still fails with the fix rounds spent ends ready, so
+// the maintainer is asked for a review, and writes the section into the pull request's body that says
+// the validation did not pass and names the validators that did not. It answers whether the section
+// was written.
+func (f *Factory) unvalidated(ctx context.Context, r *Run, entry Entry, pull string, v Validation, knobs validateSettings) (string, bool) {
 	last := v.Rounds[len(v.Rounds)-1]
 	failing := fixing(last)
 	why := fmt.Sprintf("the validation did not pass after %d of %d fix rounds (validate.rounds): the validators that did not pass are %s",
 		v.fixes(), knobs.Rounds, strings.Join(failing, ", "))
 	section := "## Validation\n\n**The validation did not pass:** " + why + ".\n\nThe findings of validation round " + fmt.Sprint(last.Number) + ":\n\n" +
-		fenced(findingLines(last)) + "\n"
+		fenced(findingLines(last))
+	return why, f.markPull(ctx, r, entry, pull, section)
+}
+
+// markPull writes the validate stage's section into the body of the pull request in place of the one
+// it wrote before, or takes that one out when the section is empty. It answers whether the body was
+// written.
+func (f *Factory) markPull(ctx context.Context, r *Run, entry Entry, pull, section string) bool {
 	number, _ := pullNumber(pull)
-	if err := f.source.appendToPull(ctx, entry.Repository, number, section); err != nil {
+	if err := f.source.markPull(ctx, entry.Repository, number, section); err != nil {
 		if ctx.Err() == nil {
-			f.warn(r, "pull request not marked", "the body of "+pull+" could not be given the failed validation: "+err.Error())
+			f.warn(r, "pull request not marked", "the body of "+pull+" could not be given the state of the validation: "+err.Error())
 		}
+		return false
+	}
+	if section == "" {
+		f.runs.event(r, Event{Kind: "factory", Title: "took the failed validation out of " + pull,
+			Body: "the validation passed, so the section of the one that did not is gone from the body"})
 	} else {
 		f.runs.event(r, Event{Kind: "factory", Title: "wrote the failed validation into " + pull, Body: section})
 	}
-	f.finish(r, outcomeReady, why, nil)
+	return true
 }
 
-// appendToPull adds a section to the end of a pull request's body: the body is read and written back
-// with the section after it.
-func (g *gitHub) appendToPull(ctx context.Context, repository string, pull int, section string) error {
+// The marks around the validate stage's section of a pull request's body, which let a later validation
+// find it again.
+const (
+	validationStart = "<!-- factory:validation -->"
+	validationEnd   = "<!-- /factory:validation -->"
+)
+
+// withValidation is a body with its validation section, between the marks, replaced by the one given,
+// or taken out when that is empty. A body without the section gets it at the end.
+func withValidation(body, section string) string {
+	if start := strings.Index(body, validationStart); start >= 0 {
+		rest := body[start:]
+		end := strings.Index(rest, validationEnd)
+		if end < 0 {
+			end = len(rest)
+		} else {
+			end += len(validationEnd)
+		}
+		body = body[:start] + rest[end:]
+	}
+	body = strings.TrimSpace(body)
+	if section == "" {
+		return body
+	}
+	return strings.TrimSpace(body + "\n\n" + validationStart + "\n" + section + "\n" + validationEnd)
+}
+
+// markPull reads a pull request's body and writes it back with its validation section replaced, or
+// taken out when the section is empty. A body that would not change is not written.
+func (g *gitHub) markPull(ctx context.Context, repository string, pull int, section string) error {
 	raw, err := gh(ctx, "api", pullRequestRequest(repository, pull), "--jq", ".body")
 	if err != nil {
 		return fmt.Errorf("the body could not be read: %w", err)
 	}
-	body := strings.TrimRight(string(raw), "\n")
-	edit, err := json.Marshal(map[string]string{"body": strings.TrimSpace(body + "\n\n" + section)})
+	body := string(raw)
+	next := withValidation(body, section)
+	if next == strings.TrimSpace(body) {
+		return nil
+	}
+	edit, err := json.Marshal(map[string]string{"body": next})
 	if err != nil {
 		return err
 	}
