@@ -74,9 +74,26 @@ else
   git worktree prune
   git branch -D "$branch" >/dev/null 2>&1 || true
 fi
+# GitHub closes the issues a pull request links only when it merges into the default branch. A merge into another
+# branch, such as the spec branch of a spec run, closes the issue of the head branch here. A comment names the
+# pull request. The issue is the one of the branch contract; a fork's branch names none of ours.
+closed=""
+basebr=$(printf '%s' "$json" | jq -r .baseRefName)
+issue=""
+[ "$(printf '%s' "$json" | jq -r .isCrossRepository)" = true ] || issue=$(wf_issue_from_branch "$branch")
+if [ -n "$issue" ]; then
+  if ! default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null) || [ -z "$default" ]; then
+    wf_warn "could not read the default branch of the repository; if $basebr is not it, close issue #$issue by hand"
+  elif [ "$basebr" != "$default" ]; then
+    if wf_run gh issue close "$issue" --comment "Merged in #$pr into $basebr. GitHub closes a linked issue only for a merge into the default branch $default, so the merge closes it here." >/dev/null; then
+      closed="#$issue (the merge went into $basebr, not the default branch $default)"
+    else
+      wf_warn "PR #$pr is merged into $basebr, but issue #$issue could not be closed; close it by hand"
+    fi
+  fi
+fi
 git fetch -q --prune origin || true
 current=$(git rev-parse --abbrev-ref HEAD)
-basebr=$(printf '%s' "$json" | jq -r .baseRefName)
 # Untracked files (notes, scratch) never block a fast-forward; only modified tracked files do.
 if [ "$current" = "$basebr" ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
   git pull -q --ff-only origin "$basebr" 2>/dev/null || wf_warn "could not fast-forward $basebr"
@@ -87,4 +104,5 @@ wf_kv merged "$method into $basebr"
 if [ -n "$keep" ]; then wf_kv branch "$keep kept"; else wf_kv branch "$branch deleted (remote + local)"; fi
 wf_kv worktree "${path:-none} removed"
 wf_kv workspace "${ws:-none} closed"
+[ -z "$closed" ] || wf_kv issue "$closed closed"
 wf_notify "Merged #$pr" "$branch → $basebr"

@@ -337,6 +337,146 @@ class ClaimBaseTests(ShimTest):
         self.assertEqual(settings["env"]["WF_BASE_BRANCH"], "dev")
 
 
+class ClaimSpecRunTests(ShimTest):
+    """A ticket of a spec run: the factory's when it carries the spec-run label, and a developer's own when it is
+    ready-for-human, which is then cut from the spec branch of its spec."""
+
+    def spec_run(self, *, branch="spec/100-offline-mode", parent_labels=("spec", "factory:spec-run"), parent_repo="o/r"):
+        """An origin whose spec branch carries work main does not have, and #12 as a ticket of spec #100.
+        Returns the environment of the claim and the commit of the spec branch."""
+        remote = self.base / "remote.git"
+        self.git("init", "-q", "--bare", str(remote), cwd=self.base)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "integration")
+        (self.repo / "merged-ticket.md").write_text("a ticket the factory merged into the spec branch\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "a merged ticket")
+        sha = self.git("rev-parse", "HEAD").strip()
+        if branch:
+            self.git("push", "-q", "origin", f"integration:refs/heads/{branch}")
+            self.git("push", "-q", "origin", "main:refs/heads/spec/1000-another-spec")
+        self.git("checkout", "-q", "main")
+        self.git("branch", "-qD", "integration")
+        parents = self.base / "parents.json"
+        parents.write_text(json.dumps({"12": {"number": 100, "title": "Offline mode",
+                                              "repository_url": f"https://api.github.com/repos/{parent_repo}",
+                                              "labels": [{"name": n} for n in parent_labels]}}))
+        return {"SHIM_ISSUE_12_LABELS": "ready-for-human", "SHIM_PARENTS_FIXTURE": str(parents)}, sha
+
+    def worker_env(self):
+        start = [c for c in self.argv_calls() if c[1:3] == ["agent", "start"]][0]
+        return json.loads(start[start.index("--settings") + 1])["env"]
+
+    def test_a_ticket_with_the_spec_run_label_is_refused_and_force_claims_it(self):
+        r = self.run_script(ORCH / "claim.sh", "12", SHIM_ISSUE_12_LABELS="ready-for-agent,factory:spec-run")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("error: issue #12 is a ticket of a spec run (labels: ready-for-agent,factory:spec-run)", r.stderr)
+        self.assertIn("--force", r.stderr)
+        self.assertEqual(self.git("worktree", "list").count("\n"), 1)
+        self.assertFalse([c for c in self.calls() if "worktree create" in c or "agent start" in c])
+
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_ISSUE_12_LABELS="ready-for-agent,factory:spec-run")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("a ticket of a spec run", r.stderr)
+        self.assertEqual(len([c for c in self.calls() if c.startswith("herdr agent start")]), 1)
+
+    def test_a_human_ticket_of_a_spec_run_is_cut_from_its_spec_branch(self):
+        env, sha = self.spec_run()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("base: spec/100-offline-mode (the spec branch of the spec run of #100)", r.stdout)
+        wt = self.repo / ".claude/worktrees/feat-12-fix-login-timeout"
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=wt).strip(), sha)
+        # The worker diffs against the spec branch and opens its pull request into it.
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_a_warning_of_gh_beside_the_parent_leaves_the_spec_branch_as_the_base(self):
+        env, _ = self.spec_run()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_PARENTS_WARN="1", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_a_base_given_on_the_claim_wins_over_the_spec_branch(self):
+        env, _ = self.spec_run()
+        self.git("push", "-q", "origin", "main:refs/heads/dev")
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", "--base", "dev", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "dev")
+        self.assertFalse([c for c in self.calls() if c.endswith("/parent")], "a named base needs no parent")
+
+    def test_a_spec_run_without_its_spec_branch_leaves_the_usual_base(self):
+        env, _ = self.spec_run(branch=None)
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("has no spec branch spec/100-<slug> on origin yet; branching from main", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_a_human_ticket_of_a_normal_run_or_without_a_parent_keeps_the_usual_base(self):
+        env, _ = self.spec_run(parent_labels=("spec",))
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+        self.assertNotIn("warning: could not read the parent", r.stderr)
+        self.run_script(ORCH / "abandon.sh", "12", "--force")
+        self.reset_calls()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_ISSUE_12_LABELS="ready-for-human")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("parent", r.stderr, "an issue without a parent answers 404, which is no failure")
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_an_unreadable_parent_warns_and_claims_from_the_usual_base(self):
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_ISSUE_12_LABELS="ready-for-human", SHIM_PARENTS_FAIL="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("could not read the parent of issue #12; branching from main", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+
+    def test_an_unreadable_repository_name_warns_and_claims_from_the_usual_base(self):
+        env, _ = self.spec_run()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_NWO_FAIL="1", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("warning: could not read the name of this repository", r.stderr)
+        self.assertIn("--base", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_a_forced_agent_ticket_of_a_spec_run_is_cut_from_its_spec_branch(self):
+        env, sha = self.spec_run()
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent,factory:spec-run"
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        wt = self.repo / ".claude/worktrees/feat-12-fix-login-timeout"
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=wt).strip(), sha)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_an_agent_ticket_whose_parent_runs_a_spec_is_refused_without_its_own_label(self):
+        env, sha = self.spec_run()
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent"
+        r = self.run_script(ORCH / "claim.sh", "12", **env)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("error: issue #12 is a ticket of the spec run of #100", r.stderr)
+        self.assertFalse([c for c in self.calls() if "worktree create" in c or "agent start" in c])
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("warning: issue #12 is a ticket of the spec run of #100", r.stderr)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_an_agent_ticket_of_a_normal_run_is_claimed_without_force(self):
+        env, _ = self.spec_run(parent_labels=("spec",))
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent"
+        r = self.run_script(ORCH / "claim.sh", "12", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_a_parent_of_another_repository_leaves_the_usual_base(self):
+        # This origin has spec/100-offline-mode, which belongs to its own #100, not to the parent elsewhere.
+        env, _ = self.spec_run(parent_repo="other/repo")
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("in another repository (https://api.github.com/repos/other/repo)", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+
 class ClaimEnvTests(ShimTest):
     """`--env NAME=VALUE` sets a worker knob for the one session a claim starts. It rides in the env block of
     the --settings object the claim builds, so the session keeps the status line, the compact trigger and the
@@ -869,6 +1009,31 @@ class MergeTests(ShimTest):
         self.assertIn("fix/12-fix-login-timeout", self.git("branch", "--list"))
         self.assertIn("branch: fix/12-fix-login-timeout (fork) kept", r.stdout)
 
+    def test_a_merge_into_a_spec_branch_closes_the_issue_with_a_comment_naming_the_pull_request(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture(baseRefName="spec/100-offline-mode"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        close = [c for c in self.argv_calls() if c[1:3] == ["issue", "close"]]
+        self.assertEqual(len(close), 1, self.calls())
+        self.assertEqual(close[0][3], "12")
+        self.assertIn("#7", close[0][close[0].index("--comment") + 1])
+        self.assertIn("issue: #12 (the merge went into spec/100-offline-mode, not the default branch main) closed", r.stdout)
+
+    def test_a_merge_into_the_default_branch_leaves_the_closing_to_github(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue close")])
+        self.assertNotIn("issue:", r.stdout)
+
+    def test_an_unreadable_default_branch_closes_nothing_and_says_so(self):
+        self.claimed()
+        r = self.run_script(ORCH / "merge.sh", "7", SHIM_PR_FIXTURE=self.pr_fixture(baseRefName="spec/100-offline-mode"),
+                            SHIM_DEFAULT_ERROR="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("close issue #12 by hand", r.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith("gh issue close")])
+
     def test_allow_unstable_and_ignore_threads_flags(self):
         self.claimed()
         r = self.run_script(ORCH / "merge.sh", "7", "--allow-unstable", "--ignore-threads",
@@ -1055,7 +1220,43 @@ class BoardAndAbandonTests(ShimTest):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("frontier[1]{issue,milestone,title}:\n  40,-,Expand schema\n", r.stdout)
         self.assertNotIn("45,", r.stdout, "the factory works a routed issue; a local claim of it is refused")
-        self.assertIn("waiting: 1 ready-for-agent issue(s) blocked, assigned, routed to the factory or claimed", r.stdout)
+        self.assertIn("waiting: 1 ready-for-agent issue(s) blocked, assigned, routed to the factory, in a spec run or claimed", r.stdout)
+
+    def test_the_frontier_leaves_out_the_tickets_of_a_spec_run(self):
+        def issue(number, title, *labels, parent=False):
+            i = {"number": number, "title": title, "assignees": [], "issue_dependencies_summary": {"blocked_by": 0},
+                 "milestone": None, "labels": [{"name": n} for n in ("ready-for-agent",) + labels]}
+            if parent:
+                i["parent_issue_url"] = f"https://api.github.com/repos/o/r/issues/{number + 100}"
+            return i
+        fixture = self.base / "ready.json"
+        fixture.write_text(json.dumps([
+            issue(40, "Expand schema"),
+            issue(46, "A ticket of a normal run", parent=True),
+            issue(47, "Carries the spec-run label", "factory:spec-run", parent=True),
+            issue(48, "Its parent runs a spec", parent=True),
+            issue(49, "Its parent cannot be read", parent=True),
+        ]))
+        parents = self.base / "parents.json"
+        spec = lambda n, *labels: {"number": n, "title": f"Spec {n}", "labels": [{"name": l} for l in ("spec",) + labels]}
+        parents.write_text(json.dumps({"46": spec(146), "47": spec(147, "factory:spec-run"), "48": spec(148, "factory:spec-run")}))
+        r = self.run_script(ORCH / "board.sh", SHIM_FRONTIER_FIXTURE=str(fixture), SHIM_PARENTS_FIXTURE=str(parents))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("frontier[2]{issue,milestone,title}:\n  40,-,Expand schema\n  46,-,A ticket of a normal run\n", r.stdout)
+        self.assertIn("waiting: 3 ready-for-agent issue(s)", r.stdout)
+        self.assertIn("note: could not read the parent of 1 ready-for-agent issue(s)", r.stdout)
+        self.assertNotIn("repos/o/r/issues/40/parent", "\n".join(self.calls()), "an issue without a parent has none to read")
+
+    def test_a_claimed_human_ticket_of_a_spec_run_is_listed_like_any_other_claim(self):
+        parents = self.base / "parents.json"
+        parents.write_text(json.dumps({"12": {"number": 100, "title": "Offline mode",
+                                              "labels": [{"name": "spec"}, {"name": "factory:spec-run"}]}}))
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_ISSUE_12_LABELS="ready-for-human",
+                            SHIM_PARENTS_FIXTURE=str(parents))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_script(ORCH / "board.sh", SHIM_PARENTS_FIXTURE=str(parents))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("worktrees[1]{issue,branch,agent,pr,checks,review,workspace}:\n  12,feat/12-fix-login-timeout,", r.stdout)
 
     def specs(self):
         """Four open specs on the shim: one accepted-ready, one with an open ticket, one without sub-issues, one closed."""

@@ -496,17 +496,22 @@ func TestTheCommandLinePausesAFactoryWhoseConfigurationSaysOtherwise(t *testing.
 //
 // Both read GitHub through a query that already says `state=open` and `labels=ready-for-agent`, so
 // those two conditions are the query's and cannot be varied here; what the fixture varies is what
-// each rule decides for itself: assignees, open blockers and pull requests.
+// each rule decides for itself: assignees, open blockers, pull requests, and parents, of which one
+// carries the spec-run label and one cannot be read.
 func TestTheFrontierRuleAgreesWithTheOrchestratorBoard(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	free := []int{40, 44}
+	free := []int{40, 44, 46}
 	fixture := func(routed bool) []issueJSON {
 		labels := []string{readyLabel}
 		if routed {
 			labels = append(labels, "factory")
 		}
 		with := func(i issueJSON, change func(issueJSON)) issueJSON { change(i); return i }
+		withParent := func(i issueJSON) issueJSON {
+			i["parent_issue_url"] = "https://api.github.com/repos/o/r/issues/" + strconv.Itoa(i["number"].(int)+100)
+			return i
+		}
 		return []issueJSON{
 			openIssue(40, "Expand schema", now, labels...),
 			openIssue(44, "Loose end", now, labels...),
@@ -519,22 +524,30 @@ func TestTheFrontierRuleAgreesWithTheOrchestratorBoard(t *testing.T) {
 			with(openIssue(50, "A pull request", now, labels...), func(i issueJSON) {
 				i["pull_request"] = map[string]any{"url": "https://api.github.com/repos/o/r/pulls/50"}
 			}),
+			// Tickets: of a normal run, of a spec run, and one whose parent cannot be read.
+			withParent(openIssue(46, "A ticket of a normal run", now, labels...)),
+			withParent(openIssue(47, "A ticket of a spec run", now, labels...)),
+			withParent(openIssue(48, "A ticket whose parent cannot be read", now, labels...)),
 		}
 	}
+	parents := map[int]issueJSON{
+		46: openIssue(146, "A spec", now, specLabel),
+		47: openIssue(147, "A spec run", now, specLabel, specRunLabel("factory")),
+	}
 
-	routedIssues, factoryRequest := factoryQueueOf(t, fixture(true), len(free))
+	routedIssues, factoryRequest := factoryQueueOf(t, fixture(true), parents, len(free))
 	if !equal(routedIssues, free) {
 		t.Errorf("the factory takes %v of the routed issues, want the free ones %v", routedIssues, free)
 	}
-	if unrouted, _ := factoryQueueOf(t, fixture(false), 0); len(unrouted) != 0 {
+	if unrouted, _ := factoryQueueOf(t, fixture(false), parents, 0); len(unrouted) != 0 {
 		t.Errorf("the factory takes %v without the routing label, want nothing: an unrouted issue is the maintainer's", unrouted)
 	}
 
-	boardOfRouted, _ := boardFrontierOf(t, fixture(true))
+	boardOfRouted, _ := boardFrontierOf(t, fixture(true), parents)
 	if len(boardOfRouted) != 0 {
 		t.Errorf("the board offers %v of the routed issues, want none: they are the factory's", boardOfRouted)
 	}
-	boardOfUnrouted, boardRequest := boardFrontierOf(t, fixture(false))
+	boardOfUnrouted, boardRequest := boardFrontierOf(t, fixture(false), parents)
 	if !equal(boardOfUnrouted, free) {
 		t.Errorf("the board offers %v, want the free ones %v; the two rules disagree on the same issues", boardOfUnrouted, free)
 	}
@@ -548,13 +561,16 @@ func TestTheFrontierRuleAgreesWithTheOrchestratorBoard(t *testing.T) {
 
 // factoryQueueOf starts the real binary against the gh shim and answers with the issues it takes into
 // its line, and with the request it asked GitHub for them.
-func factoryQueueOf(t *testing.T, issues []issueJSON, want int) ([]int, string) {
+func factoryQueueOf(t *testing.T, issues []issueJSON, parents map[int]issueJSON, want int) ([]int, string) {
 	t.Helper()
 	gh := newGhShim(t)
 	gh.remote(t, "o/r")
 	gh.issues(t, "o/r", issues...)
 	for _, issue := range issues {
 		gh.timeline(t, "o/r", issue["number"].(int))
+	}
+	for number, parent := range parents { // an issue named nowhere here has a parent nobody answers for
+		gh.answer(t, "api "+parentRequest("o/r", number), marshal(t, parent))
 	}
 	f := gh.start(t, config{"poll": "50ms", "repositories": []string{"o/r"}})
 	numbers := []int{}
@@ -575,7 +591,7 @@ func factoryQueueOf(t *testing.T, issues []issueJSON, want int) ([]int, string) 
 
 // boardFrontierOf runs the real board.sh of the orchestrator plugin against the plugins' gh shim and
 // answers with the issues it offers, and with the request it asked GitHub for them.
-func boardFrontierOf(t *testing.T, issues []issueJSON) ([]int, string) {
+func boardFrontierOf(t *testing.T, issues []issueJSON, parents map[int]issueJSON) ([]int, string) {
 	t.Helper()
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -591,13 +607,19 @@ func boardFrontierOf(t *testing.T, issues []issueJSON) ([]int, string) {
 	}
 	fixture := filepath.Join(dir, "ready.json")
 	writeFile(t, fixture, marshal(t, issues))
+	byNumber := map[string]issueJSON{}
+	for number, parent := range parents {
+		byNumber[strconv.Itoa(number)] = parent
+	}
+	parentsFixture := filepath.Join(dir, "parents.json")
+	writeFile(t, parentsFixture, marshal(t, byNumber))
 	calls := filepath.Join(dir, "calls.log")
 
 	board := exec.Command("bash", abs(t, filepath.Join("..", "plugins", "orchestrator", "scripts", "board.sh")))
 	board.Dir = repo
 	board.Env = append(gitIsolation(),
 		"PATH="+abs(t, filepath.Join("..", "tests", "shims"))+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SHIM_FRONTIER_FIXTURE="+fixture, "SHIM_LOG="+calls, "HOME="+dir)
+		"SHIM_FRONTIER_FIXTURE="+fixture, "SHIM_PARENTS_FIXTURE="+parentsFixture, "SHIM_LOG="+calls, "HOME="+dir)
 	var said bytes.Buffer
 	board.Stderr = &said
 	out, err := board.Output()

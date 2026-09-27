@@ -13,6 +13,10 @@ wf_need() { command -v "$1" >/dev/null 2>&1 || wf_die "$1 is required but not on
 # that carries it belongs to the factory host, which claims it on GitHub, so a local claim leaves it alone.
 # shellcheck disable=SC2034  # read by the scripts that source this file
 WF_ROUTING_LABEL=factory
+# The spec-run label, derived from the routing label: a spec the factory works as one unit carries it, and so
+# does every agent ticket of that spec.
+# shellcheck disable=SC2034  # read by the scripts that source this file
+WF_SPEC_RUN_LABEL="$WF_ROUTING_LABEL:spec-run"
 
 # Root of the main checkout, even when called from a linked worktree.
 wf_main_root() {
@@ -86,8 +90,34 @@ wf_branch_for_issue() {
 # machine, an earlier claim of this one) owns the issue.
 wf_remote_branch_for_issue() {
   local heads
+  heads=$(wf_remote_heads) || return 1
+  printf '%s\n' "$heads" | wf_first_issue_branch "$1"
+}
+
+# The branch names on origin, one per line; returns 1 when origin cannot be read.
+wf_remote_heads() {
+  local heads
   heads=$(git ls-remote --heads origin 2>/dev/null) || return 1
-  printf '%s\n' "$heads" | sed -nE 's#^[^[:space:]]+[[:space:]]+refs/heads/##p' | wf_first_issue_branch "$1"
+  printf '%s\n' "$heads" | sed -nE 's#^[^[:space:]]+[[:space:]]+refs/heads/##p'
+}
+
+# The spec branch of spec $1 among the branches on stdin (one name per line), or empty: spec/<number>-<slug>,
+# whatever slug the spec's title spelled when the factory created it. The first in the order given, which for
+# ls-remote is the order of the names, as the factory reads its own references.
+wf_first_spec_branch() {
+  local b found=""
+  while read -r b; do
+    case "$b" in "spec/$1-"*) [ -n "$found" ] || found="$b" ;; esac
+  done
+  printf '%s\n' "$found"
+}
+
+# The spec branch of spec $1 on origin, or empty; returns 1 when origin cannot be read. The factory creates it
+# when it claims a spec run, and a ticket of that run is cut from it and merged back into it.
+wf_remote_spec_branch() {
+  local heads
+  heads=$(wf_remote_heads) || return 1
+  printf '%s\n' "$heads" | wf_first_spec_branch "$1"
 }
 
 # Path of the linked worktree checked out on branch $1 (from the main root), or empty.
