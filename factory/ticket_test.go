@@ -109,7 +109,6 @@ func TestTheTicketsOfAHeldSpecAreWorkedOnTheSpecBranchAndMergedIntoIt(t *testing
 	now := time.Now().UTC()
 	// A routed issue waits beside the spec, a ticket with a higher number comes first in the list, and
 	// a blocked one is lower still: neither of those is taken before #231.
-	gh.issues(t, "acme/edge-sensors", openIssue(claimedIssue, claimedTitle, now.Add(-96*time.Hour)))
 	gh.timeline(t, "acme/edge-sensors", claimedIssue, labeled("factory", now.Add(-6*time.Hour)))
 	gh.assigns(t, "acme/edge-sensors", claimedIssue, "factory-bot")
 	blocked := gh.ticketOf(t, 229, "A blocked ticket")
@@ -122,6 +121,9 @@ func TestTheTicketsOfAHeldSpecAreWorkedOnTheSpecBranchAndMergedIntoIt(t *testing
 	f.specRunIn(t, "holding")
 	moved := gh.commitOn(t, "acme/edge-sensors", "main")
 	gh.subIssues(t, gh.ticketOf(t, 233, "Close the ticket after"), blocked, gh.ticketOf(t, ticketIssue, ticketTitle))
+	// The routed issue is listed once the tickets are: before, the factory would take it in the moment
+	// the spec is held and its sub-issues are still none.
+	gh.issues(t, "acme/edge-sensors", openIssue(claimedIssue, claimedTitle, now.Add(-96*time.Hour)))
 
 	run := f.ended(t, 1)
 	if run.Issue != ticketIssue || run.Outcome != outcomeMerged {
