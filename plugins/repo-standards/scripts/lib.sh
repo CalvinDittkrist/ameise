@@ -64,7 +64,7 @@ workflow_jobs() {
   ' "$1"
 }
 # is_check_job: the workflow_jobs output on stdin has a job GitHub reports as the check `check`.
-is_check_job() { tr ',' '\n' | sed -E 's/^ +//' | grep -Eq '^check$|\("check"\)$'; }
+is_check_job() { local jobs; jobs=$(tr ',' '\n' | sed -E 's/^ +//'); grep -Eq '^check$|\("check"\)$' <<<"$jobs"; }
 # ci_check_workflow <root>: the first workflow, relative to root, with the job check; empty when none has one.
 # It reads the file system, like the other baseline lookups, so an ignored workflow counts too.
 ci_check_workflow() {

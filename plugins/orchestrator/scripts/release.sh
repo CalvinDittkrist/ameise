@@ -30,7 +30,7 @@ open=$(printf '%s' "$ms" | jq -r .open_issues)
 # Only a 404 means the tag is free; any other failure must not let gh release create reuse an existing tag.
 if out=$(gh api "repos/$nwo/git/ref/tags/$v" 2>&1); then
   wf_die "tag $v already exists; if release $v is already published, close the milestone on GitHub, otherwise release a new version"
-elif ! printf '%s' "$out" | grep -q 'HTTP 404'; then
+elif ! grep -q 'HTTP 404' <<<"$out"; then
   wf_die "cannot check whether tag $v exists: $out"
 fi
 
@@ -38,7 +38,7 @@ fi
 branch_sha() {
   local out
   if out=$(gh api "repos/$nwo/branches/$1" --jq .commit.sha 2>&1); then printf '%s' "$out"
-  elif printf '%s' "$out" | grep -q 'HTTP 404'; then return 0
+  elif grep -q 'HTTP 404' <<<"$out"; then return 0
   else wf_die "cannot read branch $1 of $nwo: $out"; fi
 }
 # The default branch decides the model, as everywhere in the standard; a stray dev beside main changes nothing.
