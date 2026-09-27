@@ -228,9 +228,9 @@ func loginName(runtime string) string {
 func (f *Factory) spends(repository string, recorded *Panel) map[string][]string {
 	models := map[string][]string{runtimeClaude: {f.settings.WorkerModel}}
 	// Which change class a run's change is of is known only once it is made, so every reviewer a class
-	// of the repository names may run, beside the panel.
+	// of the repository names may run, beside the panel and the validators.
 	knobs := f.reviewFor(repository)
-	names := slices.Clone(knobs.Reviewers)
+	names := append(slices.Clone(knobs.Reviewers), f.validateFor(repository).Validators...)
 	for _, class := range knobs.Classes {
 		names = append(names, class.Reviewers...)
 	}

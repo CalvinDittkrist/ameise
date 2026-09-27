@@ -203,14 +203,18 @@ func TestTooLittleQuotaWaitsForTheResetAndStartsAfterIt(t *testing.T) {
 func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
-		review map[string]any
-		waits  bool
+		review   map[string]any
+		validate map[string]any
+		waits    bool
 	}{
-		"the default panel":                 {nil, true},
-		"a panel that inherits every model": {map[string]any{"reviewers": []string{"security", "senior"}}, false},
+		"the default panel":                 {nil, nil, true},
+		"a panel that inherits every model": {map[string]any{"reviewers": []string{"security", "senior"}}, nil, false},
 		// A change class may ask a reviewer the panel does not have.
 		"a change class with a reviewer on sonnet": {map[string]any{"reviewers": []string{"security", "senior"},
-			"classes": []map[string]any{{"name": "code", "paths": []string{"src/**"}, "gate": []string{}, "reviewers": []string{"code"}}}}, true},
+			"classes": []map[string]any{{"name": "code", "paths": []string{"src/**"}, "gate": []string{}, "reviewers": []string{"code"}}}}, nil, true},
+		// A validator runs after ci, and its model is spent all the same.
+		"a validator on sonnet": {map[string]any{"reviewers": []string{"security", "senior"}},
+			map[string]any{"validators": []string{"code"}}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -218,6 +222,9 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 			settings := config{}
 			if c.review != nil {
 				settings["review"] = c.review
+			}
+			if c.validate != nil {
+				settings["validate"] = c.validate
 			}
 			f, _ := claimsWithQuota(t, q, settings)
 			if c.waits {

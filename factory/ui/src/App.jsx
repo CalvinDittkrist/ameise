@@ -5,8 +5,10 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 
 // The stages of the pipeline in the order a run moves through them, every one of them the factory's. A
 // run moves between ci and address-reviews as the reviewers ask for changes; this is the line those
-// stages are shown on.
+// stages are shown on. The validate stage runs only in a repository that names validators, so it is on
+// the line of a run that went through it and of no other.
 const STAGES = ['implement', 'gate', 'review', 'pr', 'ci', 'address-reviews']
+const stagesOf = (run) => (run.stages?.includes('validate') ? [...STAGES, 'validate'] : STAGES)
 
 // A stage as a run shows it: the review with the round of its panel the run is in or ended at, and the
 // change class that applied, each class the determinations moved to after a chevron. It is a chevron
@@ -433,7 +435,7 @@ function Run({ id, now }) {
         <Facts className="facts versions" items={versions.map(([name, version]) => `${name} ${version}`)} />
       )}
       <ol className="steps">
-        {STAGES.map((stage) => (
+        {stagesOf(run).map((stage) => (
           <li key={stage} className={stage === run.stage ? `at state-${state}` : reached.has(stage) ? 'done' : ''}>
             {stageOf(run, stage)}
           </li>

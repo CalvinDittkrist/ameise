@@ -63,6 +63,8 @@
 # how-manieth time it runs, code.2 for the code reviewer's second round, then from one named after it
 # alone, and passes with no finding when there is neither. A file that holds FAIL ends it on exit 1
 # with that on its error output, and one whose first line is SLEEP <seconds> waits that long first.
+# One whose first line is AWAIT <path> waits until that path exists, and fails when it does not within
+# 20 seconds, so a test can prove a session of another runtime ran beside it.
 # With CLAUDE_SHIM_REVIEW_BARRIER set, a reviewer waits until that many reviewers have started before
 # it reports, and fails when they do not within 20 seconds: reviewers run one after the other never
 # get past it. With CLAUDE_SHIM_REVIEW_LINGER set, a reviewer stays that many seconds after its result
@@ -169,6 +171,21 @@ if [ -n "$reviewer" ]; then
       SLEEP\ *)
         sleep "$(printf '%s' "$output" | sed -n '1s/^SLEEP //p')" &
         wait
+        output=$(printf '%s' "$output" | sed '1d')
+        ;;
+    esac
+    case "$output" in
+      AWAIT\ *)
+        awaited=$(printf '%s' "$output" | sed -n '1s/^AWAIT //p')
+        waited=0
+        while [ ! -e "$awaited" ]; do
+          waited=$((waited + 1))
+          if [ "$waited" -gt 200 ]; then
+            echo "the $reviewer reviewer waited for $awaited, and it never came" >&2
+            exit 1
+          fi
+          sleep 0.1
+        done
         output=$(printf '%s' "$output" | sed '1d')
         ;;
     esac

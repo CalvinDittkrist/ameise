@@ -23,7 +23,7 @@ import (
 // the gate stage a fix session per conflicting merge and per failing gate, the review stage the
 // reviewers and their fix sessions, the pr stage a read-only session that writes the pull request's
 // title and body, the ci stage a fix session per repair round and an address-reviews session per round
-// of review comments.
+// of review comments, and the validate stage its validators and a fix session per round they fail.
 //
 // [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
 // [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md

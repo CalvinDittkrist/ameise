@@ -86,9 +86,7 @@ func (f *Factory) pr(parent, ctx context.Context, r *Run, entry Entry, claim cla
 	if pull := r.PullRequest; pull != "" && !r.Draft {
 		f.runs.event(r, Event{Kind: "factory", Title: "going on with " + pull,
 			Body: "the branch " + claim.branch + " has this pull request of the run's open already, so the pr stage opens none"})
-		if pullOf(entry.resume.PullRequest) == pullOf(pull) {
-			f.runs.update(r, func() { r.RepairRounds = entry.resume.RepairRounds })
-		}
+		f.carryOn(r, entry, pull)
 		f.ci(parent, ctx, r, entry, claim, pull, false)
 		return
 	}
