@@ -238,13 +238,18 @@ func (f *Factory) deliverTo(r *Run) error {
 // opposite of it.
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
-func notifyBody(r Run, held holding, logins []string) string {
-	mentions := make([]string, 0, len(logins))
+// mentions is the line that mentions every login.
+func mentions(logins []string) string {
+	said := make([]string, 0, len(logins))
 	for _, who := range logins {
-		mentions = append(mentions, "@"+who)
+		said = append(said, "@"+who)
 	}
+	return strings.Join(said, " ")
+}
+
+func notifyBody(r Run, held holding, logins []string) string {
 	said := []string{
-		strings.Join(mentions, " "),
+		mentions(logins),
 		fmt.Sprintf("The factory ended run %d of this issue as `%s`, and will not take the issue up again by itself.", r.ID, r.Outcome),
 	}
 	if reason := verbatim(r.Reason); reason != "" {
