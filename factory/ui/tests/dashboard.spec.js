@@ -4,26 +4,33 @@ import { configuration, paused, working } from './where.js'
 
 // The dashboard read the way the maintainer reads it: in a browser, against the real binary in fake
 // mode. The canned queue is worked before the tests start (tests/factory.js), so the runs below are
-// the scripted ones: 1 ready, 2 blocked, 3 failed, 4 failed, 5 ready with a warning, 6 the follow-up
-// run a review of 5 asked for, ready, 7 the follow-up run of a bot's review after 6, ready, 8 still
-// running.
+// the scripted ones. The canned spec run goes first: 1, 2 and 3 are its tickets, each merged into the
+// spec branch, 2 validated twice, and 4 its spec pull request, ready. Then 5 ready, 6 blocked, 7
+// failed, 8 failed, 9 ready with a warning, 10 the follow-up run a review of 9 asked for, ready, 11 the
+// follow-up run of a bot's review after 10, ready, 12 still running.
 
-const READY_RUN = 1
-const BLOCKED_RUN = 2
-const WARNED_RUN = 5
-const FOLLOW_UP_RUN = 6
-const BOT_REVIEW_RUN = 7
-const RUNNING_RUN = 8
+const SPEC_RUN = 1 // the id of the spec run, which spec runs count apart from runs
+const FIRST_TICKET_RUN = 1
+const REVALIDATED_RUN = 2
+const READY_RUN = 5
+const BLOCKED_RUN = 6
+const WARNED_RUN = 9
+const FOLLOW_UP_RUN = 10
+const BOT_REVIEW_RUN = 11
+const RUNNING_RUN = 12
 
 const detail = (page) => page.locator('.detail')
+// The runs that are done, in their own section of the line: the rows of a spec run are buttons too.
+const doneRows = (page) => page.locator('#done-runs button.row')
 
 test('the three areas render from the canned data', async ({ page }) => {
   await page.goto(working('/'))
 
   const repositories = page.locator('.repos li')
-  await expect(repositories).toHaveCount(2)
+  await expect(repositories).toHaveCount(3)
   await expect(repositories.first()).toContainText('acme/edge-sensors')
-  await expect(repositories.last()).toContainText('acme/backtest')
+  await expect(repositories.nth(1)).toContainText('acme/backtest')
+  await expect(repositories.last()).toContainText('acme/firmware')
 
   const now = page.locator('.row.now')
   await expect(now).toContainText('#118')
@@ -33,16 +40,19 @@ test('the three areas render from the canned data', async ({ page }) => {
   await expect(page.locator('.line')).toContainText('Queue0')
   await expect(page.locator('.line .none')).toHaveText('empty')
 
-  const done = page.locator('.line button.row:not(.now)')
-  await expect(done).toHaveCount(7)
-  // Newest first, each with how it ended: the two follow-up runs of #121 before the run they answered.
+  const done = doneRows(page)
+  await expect(done).toHaveCount(11)
+  // Newest first, each with how it ended: the two follow-up runs of #121 before the run they answered,
+  // and the runs of the spec run before everything else.
   await expect(done.first()).toContainText('#121')
   await expect(done.first()).toContainText('ready')
   await expect(done.nth(1)).toContainText('#121')
   await expect(done.nth(2)).toContainText('#121')
-  await expect(done.last()).toContainText('#104')
-  await expect(done.last()).toContainText('ready')
+  await expect(done.nth(6)).toContainText('#104')
+  await expect(done.nth(6)).toContainText('ready')
   await expect(done.nth(5)).toContainText('blocked')
+  await expect(done.last()).toContainText('#131')
+  await expect(done.last()).toContainText('merged')
 })
 
 test('the whole queue is shown in its order while the factory is paused', async ({ page }) => {
@@ -51,7 +61,10 @@ test('the whole queue is shown in its order while the factory is paused', async 
   await expect(page.locator('.mode')).toHaveText('paused')
   // What waits per repository, which is the only number on that line.
   await expect(page.locator('.repos li').first().locator('b')).toHaveText('4')
-  await expect(page.locator('.repos li').last().locator('b')).toHaveText('2')
+  await expect(page.locator('.repos li').nth(1).locator('b')).toHaveText('2')
+  // A spec is claimed and not queued, and a paused factory claims none.
+  await expect(page.locator('.repos li').last().locator('b')).toHaveText('0')
+  await expect(page.locator('.specs')).toHaveCount(0)
 
   const queue = page.locator('.line ol .row')
   await expect(queue).toHaveCount(6)
@@ -109,14 +122,14 @@ test('a run is selected through the URL and the selection survives a reload', as
 test('the done section folds to its heading, and the browser keeps it folded', async ({ page }) => {
   await page.goto(working('/'))
   const heading = page.getByRole('button', { name: /^Done/ })
-  const done = page.locator('.line button.row:not(.now)')
+  const done = doneRows(page)
 
   // A first visit finds it open, and the heading says how many runs are done in either state.
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
-  await expect(done).toHaveCount(7)
+  await expect(done).toHaveCount(11)
   await heading.click()
   await expect(heading).toHaveAttribute('aria-expanded', 'false')
-  await expect(heading).toHaveText('Done7')
+  await expect(heading).toHaveText('Done11')
   for (const row of await done.all()) await expect(row).toBeHidden()
 
   await page.reload()
@@ -127,7 +140,7 @@ test('the done section folds to its heading, and the browser keeps it folded', a
   await expect(done.first()).toBeVisible()
   await page.reload()
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
-  await expect(done).toHaveCount(7)
+  await expect(done).toHaveCount(11)
   for (const row of await done.all()) await expect(row).toBeVisible()
 })
 
@@ -173,7 +186,7 @@ test('a browser that stores nothing folds for the page and shows no error', asyn
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
   await heading.click()
   await expect(heading).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.locator('.line button.row:not(.now)').first()).toBeHidden()
+  await expect(doneRows(page).first()).toBeHidden()
   await expect(page.locator('.banner')).toHaveCount(0)
   expect(failures).toEqual([])
 })
@@ -233,6 +246,117 @@ test('the stage line and the outcome box show the scripted states', async ({ pag
   await expect(detail(page).locator('.state')).toHaveText('running')
   await expect(detail(page).locator('.steps .at')).toHaveText('implement')
   await expect(detail(page).locator('.outcome')).toHaveCount(0)
+})
+
+test('a spec run stands in the line with its ticket runs and their outcomes', async ({ page }) => {
+  await page.goto(working('/'))
+
+  const spec = page.locator('.specs > li')
+  await expect(page.locator('.line')).toContainText('Specs1')
+  await expect(spec).toHaveCount(1)
+  // The spec run holds its spec with nothing going: its tickets are merged and its spec pull request
+  // is open, waiting for a person.
+  const head = spec.locator('> button.row')
+  await expect(head).toContainText('#130')
+  await expect(head).toContainText('Remote firmware updates')
+  await expect(head).toContainText('spec pull request open')
+  await expect(head).toContainText('acme/firmware')
+
+  // Its tickets beneath it in the order it took them, each with its runs and how the last one ended,
+  // and the run of its spec pull request after them.
+  const tickets = spec.locator('.tickets li')
+  await expect(tickets).toHaveCount(4)
+  for (const [i, [issue, outcome, run]] of [
+    ['#131', 'merged', 'run 1'],
+    ['#132', 'merged', 'run 2'],
+    ['#133', 'merged', 'run 3'],
+    ['#130', 'ready', 'run 4'],
+  ].entries()) {
+    await expect(tickets.nth(i)).toContainText(issue)
+    await expect(tickets.nth(i).locator('.outcome-word')).toHaveText(outcome)
+    await expect(tickets.nth(i)).toContainText(run)
+  }
+  await expect(tickets.last()).toContainText('spec pull request')
+
+  // A ticket selects its run.
+  await tickets.nth(1).getByRole('button').click()
+  await expect(page).toHaveURL(new RegExp(`#run=${REVALIDATED_RUN}$`))
+  await expect(detail(page).locator('h3')).toContainText('#132')
+})
+
+test('a spec run is selected through the URL with its record and its events', async ({ page }) => {
+  await page.goto(working(`/#spec=${SPEC_RUN}`))
+  await expect(detail(page).locator('h3')).toContainText('#130')
+  await expect(detail(page).locator('h3')).toContainText('Remote firmware updates')
+  await expect(detail(page).locator('.head .state')).toHaveText('spec pull request open')
+  const facts = detail(page).locator('.facts').first()
+  await expect(facts).toContainText('acme/firmware')
+  await expect(facts).toContainText('spec/130-remote-firmware-updates from main')
+  await expect(facts).toContainText('3 tickets')
+  await expect(detail(page).locator('.tickets li')).toHaveCount(4)
+  await expect(detail(page).locator('.outcome').getByRole('link')).toHaveAttribute(
+    'href',
+    'https://github.com/acme/firmware/pull/230',
+  )
+  const log = detail(page).locator('.log')
+  await expect(log).toContainText('claimed spec/130-remote-firmware-updates')
+  await expect(log).toContainText('opened the spec pull request')
+  // The spec run is the one lit in the line, and the selection survives a reload.
+  await expect(page.locator('.specs > li > button.row')).toHaveClass(/\bon\b/)
+  await page.reload()
+  await expect(detail(page).locator('h3')).toContainText('#130')
+
+  // A ticket of it selects its run from the detail as from the line.
+  await detail(page).locator('.tickets li').first().getByRole('button').click()
+  await expect(page).toHaveURL(new RegExp(`#run=${FIRST_TICKET_RUN}$`))
+  await expect(detail(page).locator('h3')).toContainText('#131')
+
+  await page.goto(working('/#spec=999'))
+  await expect(detail(page).locator('.none')).toHaveText('spec run 999 is not on this factory')
+})
+
+test('a ticket run shows its validation and its merge, and links its spec run', async ({ page }) => {
+  await page.goto(working(`/#run=${REVALIDATED_RUN}`))
+  // A codex finding failed its first validation round; the fix passed the second, and the merge stage
+  // squash-merged it into the spec branch.
+  const stages = detail(page).locator('.steps li')
+  await expect(stages).toHaveText([
+    'implement',
+    'gate',
+    'review, round 1, class full',
+    'pr',
+    'ci',
+    'address-reviews',
+    'validate, round 2, codex pass, fable pass',
+    'merge',
+  ])
+  await expect(stages.nth(5)).toHaveClass('')
+  await expect(stages.nth(6)).toHaveClass('done')
+  await expect(stages.nth(7)).toHaveClass(/at/)
+  await expect(detail(page).locator('.head .state')).toHaveText('merged')
+  await expect(detail(page).locator('.outcome')).toContainText('spec/130-remote-firmware-updates')
+  // A run that has no validators shows neither stage.
+  await page.goto(working(`/#run=${READY_RUN}`))
+  await expect(detail(page).locator('.steps li')).toHaveCount(6)
+
+  await page.goto(working(`/#run=${REVALIDATED_RUN}`))
+  await detail(page).locator('.facts').first().getByRole('link', { name: 'spec #130' }).click()
+  await expect(page).toHaveURL(new RegExp(`#spec=${SPEC_RUN}$`))
+  await expect(detail(page).locator('h3')).toContainText('#130')
+})
+
+test('a spec run that waits for a person’s ticket says which', async ({ page }) => {
+  // The canned spec has no ticket of a person, so the answer under test is put in front of the
+  // dashboard here; the factory's Go tests serve the real one (specpull_test.go).
+  await page.route(/\/api\/specs(\/\d+)?(\?.*)?$/, async (route) => {
+    const answer = await (await route.fetch()).json()
+    const waiting = (spec) => ({ ...spec, pullRequest: undefined, waiting: [134] })
+    await route.fulfill({ json: Array.isArray(answer) ? answer.map(waiting) : waiting(answer) })
+  })
+  await page.goto(working(`/#spec=${SPEC_RUN}`))
+  await expect(page.locator('.specs > li > button.row')).toContainText('waiting for #134')
+  await expect(page.locator('.specs > li > button.row')).toHaveClass(/state-blocked/)
+  await expect(detail(page).locator('.head .state')).toHaveText('waiting for #134')
 })
 
 test('the selected run shows what it cost, how full its context came and what it warned about', async ({
@@ -413,6 +537,7 @@ test('a factory that answers slowly is not asked again while it is still answeri
     '/api/status': 1,
     '/api/repositories': 1,
     '/api/line': 1,
+    '/api/specs': 1,
     [`/api/runs/${RUNNING_RUN}`]: 1,
   })
 })

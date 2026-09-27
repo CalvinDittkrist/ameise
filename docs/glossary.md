@@ -74,7 +74,7 @@ Terms the code, the issues and the docs use, one row each.
 | update tick | One run of the factory binary's update mode by the host's timer, as root; it reads the release, the running state and the file, does one action and exits. |
 | auto-update | The configuration field `auto_update` that lets the host install factory releases; false by default, read by the update tick and reported by the factory. |
 | block list | The updater's root-owned list of versions that failed after an install and are never installed again; a line is lifted by deleting it. |
-| dashboard | The page the factory serves at `/`, built into the binary from `factory/ui`. It reads the four endpoints and writes nothing ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). |
+| dashboard | The page the factory serves at `/`, built into the binary from `factory/ui`. It reads the endpoints of the interface and writes nothing ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). |
 | test hunt | One run of `/orchestrator:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
 | hunter | The read-only subagent `test-hunter` of a test hunt, with no shell, that reads one share of at most 1500 lines and replies with candidates. |
 | candidate | One hunter line: `candidate: <path> \| <test> \| <category> \| <reason> \| <confidence>` ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)). |

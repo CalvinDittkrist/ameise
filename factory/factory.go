@@ -275,7 +275,7 @@ func New(settings Settings, fake bool) (*Factory, error) {
 	f.autoUpdate.Store(settings.AutoUpdate)
 	f.source = newGitHub(settings.Repositories, settings.Label)
 	if fake {
-		f.source = &canned{repositories: settings.Repositories, started: f.started, runs: runs}
+		f.source = &canned{repositories: settings.Repositories, started: f.started, runs: runs, specs: specs}
 	}
 	f.endSurvivors() // before anything of this start can queue a run of an issue one of them is working
 	return f, nil
@@ -1426,6 +1426,7 @@ func taken(claim claimed) string {
 // for a resumed run, continues under the claim that already holds it. Fake mode claims nothing: its
 // queue is canned and there is no remote behind it, so its scripted worker runs where the factory
 // itself does, and it says it holds the issue all the same, because its runs stand in for held ones.
+// A canned ticket's base is the spec branch its spec run holds, as a real one's is.
 func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error) {
 	if entry.Signal == signalSpecPull {
 		return f.takeSpecBranch(ctx, r, entry)
@@ -1434,7 +1435,16 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 		return f.resume(ctx, r, entry)
 	}
 	if f.fake {
-		return claimed{holding: true, base: "main"}, nil // the base its canned conflicts are with
+		claim := claimed{holding: true, base: "main"} // the base its canned conflicts are with
+		if entry.spec == 0 {
+			return claim, nil
+		}
+		base, err := f.ticketBase(ctx, r, "", claim.base, entry.Issue)
+		if err == nil {
+			claim.base = base
+			f.runs.update(r, func() { r.Base = base })
+		}
+		return claim, err
 	}
 	claim, err := f.claim(ctx, r, entry)
 	// The branch is recorded whether the claim was won or lost: it is what the claim was, and for a
@@ -1569,10 +1579,11 @@ func (f *Factory) error(r *Run, session *heard, e Event) {
 	f.runs.event(r, e)
 }
 
-// finish ends a run with an event that says why, so the log reads to the end.
+// finish ends a run with an event that says why, so the log reads to the end. A run that is ready or
+// merged ended well, and every other ending is logged as an error.
 func (f *Factory) finish(r *Run, outcome, reason string, exitCode *int) {
 	kind := "factory"
-	if outcome != outcomeReady {
+	if outcome != outcomeReady && outcome != outcomeMerged {
 		kind = "error"
 	}
 	if reason != "" {

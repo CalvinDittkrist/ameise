@@ -39,6 +39,40 @@ func (g *ghShim) hasCodex(t *testing.T) *codexShim {
 	return c
 }
 
+// lacksCodex takes every codex of this host off the PATH the shim gives the factory, so a test of a
+// host without Codex holds on a host that has it installed. A directory on the PATH that holds a codex
+// is stood in for by a directory of links to everything else in it.
+func (g *ghShim) lacksCodex(t *testing.T) {
+	t.Helper()
+	for i, entry := range g.env {
+		path, ok := strings.CutPrefix(entry, "PATH=")
+		if !ok {
+			continue
+		}
+		dirs := filepath.SplitList(path)
+		for j, dir := range dirs {
+			if _, err := os.Stat(filepath.Join(dir, "codex")); err != nil {
+				continue
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mirror := t.TempDir()
+			for _, e := range entries {
+				if e.Name() == "codex" {
+					continue
+				}
+				if err := os.Symlink(filepath.Join(dir, e.Name()), filepath.Join(mirror, e.Name())); err != nil {
+					t.Fatal(err)
+				}
+			}
+			dirs[j] = mirror
+		}
+		g.env[i] = "PATH=" + strings.Join(dirs, string(os.PathListSeparator))
+	}
+}
+
 // answers has the n-th Codex session end on this last message.
 func (c *codexShim) answers(t *testing.T, n int, message string) {
 	t.Helper()
@@ -239,6 +273,8 @@ func TestARunThatNeedsCodexOnAHostWithoutItIsBlocked(t *testing.T) {
 			if c.codex {
 				codex = gh.hasCodex(t)
 				gh.env = append(gh.env, "CODEX_SHIM_LOGGED_OUT=1")
+			} else {
+				gh.lacksCodex(t)
 			}
 			gh.comments(t, "acme/edge-sensors", claimedIssue)
 			cfg := codexPanel(data)

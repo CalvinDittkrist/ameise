@@ -178,8 +178,8 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	if records, _ := filepath.Glob(filepath.Join(data, "run-*.json")); len(records) != 0 {
 		t.Errorf("the waiting spec run started %d runs, want none", len(records))
 	}
-	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) {
-		t.Errorf("the spec run waits on %v, want #232", spec.WaitingOn)
+	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) || !equal(spec.Waiting, []int{232}) {
+		t.Errorf("the spec run named %v and waits on %v, want #232 for both", spec.WaitingOn, spec.Waiting)
 	}
 
 	gh.openTicketPull(t, 233, "feat/233-after-the-calibration", false)
@@ -190,6 +190,10 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	}
 	if made := gh.made(t, commentCall("acme/edge-sensors", specNumber)); made != 1 {
 		t.Errorf("the factory commented %d times on the spec, want once", made)
+	}
+	// The record keeps the ticket it named; what the spec run waits on now is nobody.
+	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) || len(spec.Waiting) != 0 {
+		t.Errorf("the spec run named %v and waits on %v, want #232 named and nobody waited on", spec.WaitingOn, spec.Waiting)
 	}
 }
 

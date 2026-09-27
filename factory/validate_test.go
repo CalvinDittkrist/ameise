@@ -270,6 +270,7 @@ func TestAnInvalidValidateObjectIsRefusedWithTheFix(t *testing.T) {
 func TestAValidatorOnCodexOnAHostWithoutItBlocksTheRun(t *testing.T) {
 	t.Parallel()
 	gh, data := validateClaim(t)
+	gh.lacksCodex(t)
 	f := gh.work(t, validateConfig(data, []string{"senior", "codex"}, nil))
 	run := f.ended(t, 1)
 	if run.Outcome != outcomeBlocked || run.Stage != stageValidate || !strings.Contains(run.Reason, "the validator codex runs on Codex") ||

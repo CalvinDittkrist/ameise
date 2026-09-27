@@ -149,13 +149,15 @@ func (f *Factory) specRunOf(repository string, spec int) (*SpecRun, bool) {
 
 // ticketBase is the base of a ticket's claim: the spec branch of the spec run that holds its spec,
 // after the base the repository names is merged into it (mergeIntoSpec). base is that repository base,
-// which the claim has just fetched.
+// which the claim has just fetched. Fake mode has no clone, so nothing is merged there.
 func (f *Factory) ticketBase(ctx context.Context, r *Run, clone, base string, ticket Issue) (string, error) {
 	s, ok := f.specRunOf(ticket.Repository, ticket.spec)
 	if !ok || s.State != specHolding || s.Branch == "" {
 		return "", fmt.Errorf("ticket #%d is a sub-issue of spec #%d, which no spec run of this factory holds any more", ticket.Number, ticket.spec)
 	}
-	f.mergeIntoSpec(ctx, clone, base, s)
+	if !f.fake {
+		f.mergeIntoSpec(ctx, clone, base, s)
+	}
 	f.runs.event(r, Event{Kind: "factory", Title: "a ticket of spec #" + strconv.Itoa(ticket.spec),
 		Body: fmt.Sprintf("spec run %d holds spec #%d, so the branch is cut from the spec branch %s and its pull request goes against it", s.ID, ticket.spec, s.Branch)})
 	return s.Branch, nil

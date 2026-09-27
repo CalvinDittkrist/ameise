@@ -298,7 +298,7 @@ The command line has three flags for the service:
 - `-paused`, which pauses a factory whose file says otherwise and never unpauses one.
 - `-version`.
 
-`-fake` works a canned queue with scripted workers and is for development only.
+`-fake` works a canned queue with scripted workers and is for development only. A third connected repository carries a canned spec, whose spec run works three chained tickets and opens its spec pull request.
 
 A complete configuration, written to `/etc/factory/factory.json` (root owns it, mode 0644; it holds no secret):
 
@@ -505,6 +505,8 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
 - A ticket whose parent carries the spec-run label never enters the line as a routed issue, whatever labels it carries.
   - A parent that cannot be read keeps its ticket out of that poll, with one warning in the journal.
 - `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events and its tickets.
+  - Each carries `waiting`: the tickets of a person it waits for now, as the last poll read them.
+  - The dashboard lists the spec runs with their state and their ticket runs beneath them, and `#spec=<id>` selects one.
 
 #### Ticket runs
 The tickets of a held spec are worked one at a time on the spec branch.

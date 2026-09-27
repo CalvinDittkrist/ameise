@@ -293,9 +293,6 @@ func (f *Factory) heldSpecs() []Held {
 // answers whether it made a claim, after which the dispatch starts nothing: the next poll reads the
 // tickets of the spec, which come before the routed issues.
 func (f *Factory) claimSpecs(ctx context.Context) bool {
-	if f.fake {
-		return false // the canned line of fake mode holds no spec
-	}
 	for _, held := range f.specs.list() {
 		if ctx.Err() != nil || f.Paused() || f.Draining() {
 			return false
@@ -378,6 +375,10 @@ func (f *Factory) takeSpec(ctx context.Context, r *SpecRun, resumed bool) {
 		}
 		end(specFailed, "the spec could not be claimed: "+err.Error()+specLeftBehind(branch))
 	}
+	if f.fake {
+		f.takeCannedSpec(r)
+		return
+	}
 
 	connected, _ := f.connected(r.Repository)
 	clone := clonePath(f.settings.DataDir, connected.Name)
@@ -424,6 +425,17 @@ func (f *Factory) takeSpec(ctx context.Context, r *SpecRun, resumed bool) {
 	f.specs.update(r, func() { r.State, r.Idle, r.ClaimedAt = specHolding, true, &now })
 	f.specs.event(r, Event{Kind: "factory", Title: "claimed " + branch,
 		Body: fmt.Sprintf("the spec branch %s is on the remote at %s (%s) and the spec is assigned to %s; the spec run holds the spec, idle", branch, head, base, login)})
+	log.Printf("spec run %d (%s#%d) holds %s", r.ID, r.Repository, r.Spec, branch)
+}
+
+// takeCannedSpec is the claim of fake mode's canned spec. There is no remote to create the spec branch
+// on and no spec to assign, so the spec run names its spec branch and holds the spec.
+func (f *Factory) takeCannedSpec(r *SpecRun) {
+	branch := specBranchName(Issue{Number: r.Spec, Title: r.Title})
+	now := time.Now()
+	f.specs.update(r, func() { r.Branch, r.Base, r.State, r.Idle, r.ClaimedAt = branch, "main", specHolding, true, &now })
+	f.specs.event(r, Event{Kind: "factory", Title: "claimed " + branch,
+		Body: "fake mode has no remote, so the spec branch " + branch + " is named and not created; the spec run holds the spec, idle"})
 	log.Printf("spec run %d (%s#%d) holds %s", r.ID, r.Repository, r.Spec, branch)
 }
 

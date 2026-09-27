@@ -51,12 +51,32 @@ var cannedIssues = []cannedIssue{
 	{number: 109, title: "Überwachung: Füllstand fällt unter den Schwellwert, ohne dass eine Warnung kommt", labels: []string{"bug"}, routed: 4 * time.Hour, repo: 1, scenario: "blocked"},
 }
 
+// cannedSpec is the spec of fake mode: routed to a spec run in the third connected repository, and in
+// no other, so a configuration that connects two repositories works the canned queue alone. Its
+// tickets are a chain: each one is blocked by the one before it until that one is closed. The one whose
+// scenario is revalidated has its validation fail once and pass after the fix.
+var cannedSpec = struct {
+	number  int
+	title   string
+	routed  time.Duration
+	repo    int
+	tickets []cannedIssue
+}{
+	number: 130, title: "Remote firmware updates", routed: 8 * time.Hour, repo: 2,
+	tickets: []cannedIssue{
+		{number: 131, title: "Read the firmware version the device reports", labels: []string{"enhancement"}, scenario: "ticket"},
+		{number: 132, title: "Download the firmware image over the broker", labels: []string{"enhancement"}, scenario: "revalidated"},
+		{number: 133, title: "Flash the image and roll back on a failed boot", labels: []string{"enhancement"}, scenario: "ticket"},
+	},
+}
+
 // canned is the queue of fake mode: the same entries on every poll, so a run of the factory can be
 // watched from start to end without tokens, git or GitHub.
 type canned struct {
 	repositories []Connected
 	started      time.Time
-	runs         *Store // the records, which remember a review of fake mode across a restart
+	runs         *Store     // the records, which remember a review of fake mode across a restart
+	specs        *SpecStore // the spec runs, whose records say which canned ticket is closed
 
 	mu    sync.Mutex
 	reads map[string]int // how often the ci stage has read each issue's pull request
@@ -72,9 +92,47 @@ type canned struct {
 }
 
 // The issues fake mode holds are not asked about: there is no GitHub behind a canned queue, so
-// nothing of it is ever let go and no scripted run is ever cancelled.
-func (c *canned) queue(context.Context, []Held) poll {
-	return poll{issues: cannedQueue(c.repositories, c.started)}
+// nothing of it is ever let go and no scripted run is ever cancelled. The canned spec is routed while
+// a third repository is connected, and once its spec run holds it, the poll reads its tickets.
+func (c *canned) queue(_ context.Context, held []Held) poll {
+	read := poll{issues: cannedQueue(c.repositories, c.started)}
+	if len(c.repositories) <= cannedSpec.repo {
+		return read
+	}
+	repository := c.repositories[cannedSpec.repo].Name
+	read.specs = []Issue{{Repository: repository, Number: cannedSpec.number, Title: cannedSpec.title,
+		Labels: []string{specLabel}, RoutedAt: c.started.Add(-cannedSpec.routed)}}
+	spec := Issue{Repository: repository, Number: cannedSpec.number}
+	if !slices.ContainsFunc(held, func(h Held) bool { return h.Spec && h.key() == spec.key() }) {
+		return read
+	}
+	read.tickets, read.subIssues = []Issue{}, map[string][]subIssue{spec.key(): {}}
+	closed := c.closedTickets(repository)
+	for i, ticket := range cannedSpec.tickets {
+		blocked := i > 0 && !closed[cannedSpec.tickets[i-1].number]
+		open := !closed[ticket.number]
+		read.subIssues[spec.key()] = append(read.subIssues[spec.key()], subIssue{Number: ticket.number, Title: ticket.title, Open: open, Blocked: blocked})
+		if open && !blocked {
+			read.tickets = append(read.tickets, Issue{Repository: repository, Number: ticket.number, Title: ticket.title,
+				Labels: ticket.labels, RoutedAt: c.started.Add(-cannedSpec.routed), scenario: ticket.scenario, spec: cannedSpec.number})
+		}
+	}
+	return read
+}
+
+// closedTickets is the canned tickets the factory has closed, as the latest spec run of the canned
+// spec records them: fake mode's closeIssue changes nothing, and the record is what remembers it across
+// a restart.
+func (c *canned) closedTickets(repository string) map[int]bool {
+	closed := map[int]bool{}
+	s, ok := c.specs.latest()[Issue{Repository: repository, Number: cannedSpec.number}.key()]
+	if !ok {
+		return closed
+	}
+	for _, t := range s.Tickets {
+		closed[t.Issue] = t.Closed
+	}
+	return closed
 }
 
 // cannedPull is the number of the pull request a scripted worker of that issue reports.
@@ -125,9 +183,14 @@ func (c *canned) reviewed(_ context.Context, _ string, pull int) reviewed {
 	return reviewed{requested: c.requested[issue], bot: c.botReviewed[issue]}
 }
 
-// scenarioOf is the scripted worker of a canned issue.
+// cannedWork is every canned issue a worker works: the canned queue and the tickets of the canned spec.
+func cannedWork() []cannedIssue {
+	return append(slices.Clone(cannedIssues), cannedSpec.tickets...)
+}
+
+// scenarioOf is the scripted worker of a canned issue or a canned ticket.
 func scenarioOf(issue int) string {
-	for _, c := range cannedIssues {
+	for _, c := range cannedWork() {
 		if c.number == issue {
 			return c.scenario
 		}
@@ -272,13 +335,15 @@ func (c *canned) commentOnIssue(context.Context, string, int, string) error     
 // markPull takes the call: there is no pull request behind it.
 func (c *canned) markPull(context.Context, string, int, string) error { return nil }
 
-// mergePull and closeIssue take the call: fake mode holds no spec run, so no ticket reaches them.
+// mergePull and closeIssue take the call: there is no pull request and no ticket behind them. The spec
+// run records the ticket closed, which is what the next poll reads (closedTickets).
 func (c *canned) mergePull(context.Context, string, int, string, string) error { return nil }
 func (c *canned) closeIssue(context.Context, string, int) error                { return nil }
 
-// issueText answers the canned issue's title and a body of its own.
+// issueText answers the title of a canned issue, ticket or spec and a body of its own.
 func (c *canned) issueText(_ context.Context, _ string, number int) (string, string, error) {
-	for _, issue := range cannedIssues {
+	issues := append(cannedWork(), cannedIssue{number: cannedSpec.number, title: cannedSpec.title})
+	for _, issue := range issues {
 		if issue.number == number {
 			return issue.title, "The canned issue #" + strconv.Itoa(number) + " of fake mode: " + issue.title + ".", nil
 		}
@@ -306,8 +371,8 @@ func cannedMerge(scenario string) []string {
 	return nil
 }
 
-// cannedQueue spreads the canned entries over the connected repositories, so the one line visibly
-// mixes them, as a real queue across repositories does.
+// cannedQueue spreads the canned entries over the first two connected repositories, so the one line
+// visibly mixes them, as a real queue across repositories does. A third one holds the canned spec.
 func cannedQueue(repositories []Connected, now time.Time) []Issue {
 	queue := make([]Issue, 0, len(cannedIssues))
 	for _, c := range cannedIssues {
@@ -342,14 +407,13 @@ func scriptedWorker(args []string, stdout, stderr io.Writer) int {
 		return scriptedAuthor(s, issue)
 	}
 	if name, round, ok := scriptedRound(scenario, "review:"); ok {
-		return scriptedReviewer(s, scenarioOf(issue), name, round)
+		return scriptedReviewer(s, name, round, cannedFindings(scenarioOf(issue), name, round))
 	}
 	if _, round, ok := scriptedRound(scenario, "review-fix:"); ok {
 		return scriptedRepair(s, scenarioOf(issue), round)
 	}
-	// The validators of fake mode pass in every scenario, so its validate stage ends at its first round.
 	if name, round, ok := scriptedRound(scenario, "validate:"); ok {
-		return scriptedReviewer(s, "", name, round)
+		return scriptedReviewer(s, name, round, cannedValidation(scenarioOf(issue), name, round))
 	}
 	if _, round, ok := scriptedRound(scenario, "validate-fix:"); ok {
 		return scriptedRepair(s, "", round)
@@ -521,28 +585,40 @@ func cannedFindings(scenario, reviewer string, round int) []map[string]any {
 	return nil
 }
 
+// cannedValidation is what a scripted validator finds in a round of the issue's scenario. The Codex
+// validator of the revalidated ticket asks for a fix in the first round and passes in the second, so
+// its validation takes one fix session. Every other validator passes, so the validate stage of every
+// other run ends at its first round.
+func cannedValidation(scenario, validator string, round int) []map[string]any {
+	if scenario == "revalidated" && validator == "codex" && round == 1 {
+		return []map[string]any{{"severity": "S2", "path": "firmware/download.go", "line": 27,
+			"claim": "The image is written before its checksum is read.", "why": "A torn download is flashed as it is.",
+			"fix": "Check the checksum before the image is written."}}
+	}
+	return nil
+}
+
 // reviewerStagger is how far apart the scripted reviewers of one round report. It is wide enough that
 // a loaded host, which starts the processes of one round and reads their output some way apart,
 // still logs the reviewers in the order of the panel.
 const reviewerStagger = 250 * time.Millisecond
 
-// scriptedReviewer is one reviewer of the panel in one round: it reads the change and reports its
-// verdict and its findings, and nothing else, because it can do nothing else.
-func scriptedReviewer(s *script, scenario, name string, round int) int {
+// scriptedReviewer is one reviewer of the panel, or one validator, in one round: it reads the change
+// and reports its verdict and the findings given, and nothing else, because it can do nothing else.
+func scriptedReviewer(s *script, name string, round int, findings []map[string]any) int {
 	// The reviewers of a round run beside each other; each one reports a moment after the one before it
-	// in the panel, and all at once, so no line of one falls between two of another and the log of a
-	// scripted run reads the same every time it is worked.
+	// in the list of reviewers, and all at once, so no line of one falls between two of another and the
+	// log of a scripted run reads the same every time it is worked.
 	out := s.out
 	var report bytes.Buffer
 	s.out = &report
 	defer func() {
-		time.Sleep(time.Duration(slices.Index(defaultReview.Reviewers, name)+1) * reviewerStagger)
+		time.Sleep(time.Duration(slices.Index(knownReviewers, name)+1) * reviewerStagger)
 		_, _ = out.Write(report.Bytes())
 	}()
 	s.init()
 	s.say(fmt.Sprintf("Round %d. Reading the change the brief names.", round))
 	s.tool("Read", map[string]any{"file_path": "upload/retry.go"}, "1  package upload")
-	findings := cannedFindings(scenario, name, round)
 	verdict := verdictPass
 	for _, finding := range findings {
 		if finding["severity"] != "S3" {
