@@ -148,7 +148,7 @@ class FactsAndLabelsTests(PlanWorktree):
         created = [c for c in self.calls() if c.startswith("gh label create")]
         names = [c.split()[3] for c in created]
         self.assertEqual(names, ["needs-triage", "needs-info", "ready-for-human", "wontfix", "spec", "factory", "factory:spec-run"])
-        self.assertIn("created: needs-triage,needs-info,ready-for-human,wontfix,spec,factory", r.stdout)
+        self.assertIn("created: needs-triage,needs-info,ready-for-human,wontfix,spec,factory,factory:spec-run\n", r.stdout)
 
 
 class IssueScriptTests(PlanWorktree):
@@ -512,6 +512,11 @@ class AcceptFactsTests(ShimTest):
                            "files": ["factory/merge.go"]},
                           {"number": 61, "head": "feat/510-merge-a-ticket-into-the-spec-branch", "base": "main",
                            "files": ["other-ticket.go"]}]},
+            {"number": 53, "title": "A spec run with a retitled ticket", "state": "open", "labels": [{"name": "spec"}],
+             "sub_issues": [54]},
+            {"number": 54, "title": "The new title", "state": "closed", "labels": [], "closed_by": [],
+             "head_prs": [{"number": 62, "head": "feat/54-the-old-title", "base": "spec/53-a-spec-run",
+                           "files": ["old.go"]}]},
         ]
         path = self.base / "specs.json"
         path.write_text(json.dumps(issues))
@@ -557,6 +562,14 @@ class AcceptFactsTests(ShimTest):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("warning: could not read the pull requests from the branch of #51", r.stderr)
         self.assertIn("  51,closed,-,Merge a ticket into the spec branch\n", r.stdout)
+
+    def test_a_ticket_found_by_neither_lookup_is_named_with_the_branches_tried(self):
+        """The branch is rebuilt from the current title, so a ticket retitled after its claim is not found."""
+        r = self.facts("53")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("  54,closed,-,The new title\n", r.stdout)
+        self.assertIn("warning: #54 has no merged pull request that closed it or came from feat/54-the-new-title", r.stderr)
+        self.assertIn("a ticket retitled after its claim is not found by its branch", r.stderr)
 
     def test_a_worktree_behind_the_base_branch_is_refused_before_anything_is_read(self):
         self.move_the_base_branch_on()
