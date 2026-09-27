@@ -1579,10 +1579,11 @@ func (f *Factory) error(r *Run, session *heard, e Event) {
 	f.runs.event(r, e)
 }
 
-// finish ends a run with an event that says why, so the log reads to the end.
+// finish ends a run with an event that says why, so the log reads to the end. A run that is ready or
+// merged ended well, and every other ending is logged as an error.
 func (f *Factory) finish(r *Run, outcome, reason string, exitCode *int) {
 	kind := "factory"
-	if outcome != outcomeReady {
+	if outcome != outcomeReady && outcome != outcomeMerged {
 		kind = "error"
 	}
 	if reason != "" {

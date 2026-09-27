@@ -42,6 +42,12 @@ func TestFakeModeWorksTheCannedSpecRunFromItsClaimToItsSpecPullRequest(t *testin
 		if run.Outcome != outcomeMerged {
 			t.Errorf("run %d of #%d ended %q (%s), want merged", run.ID, ticket, run.Outcome, run.Reason)
 		}
+		// A merged ticket ended well, and its log says so as the factory's word, never as an error.
+		for _, e := range run.Events {
+			if e.Title == outcomeMerged && e.Kind != "factory" {
+				t.Errorf("run %d logs its merge as a %q event, want a factory event", run.ID, e.Kind)
+			}
+		}
 		stages := []string{"implement", "gate", "review", "pr", "ci", "validate", "merge"}
 		rounds := 1
 		if ticket == 132 {
