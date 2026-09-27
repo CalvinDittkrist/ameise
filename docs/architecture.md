@@ -35,9 +35,9 @@ This repository packages a way of working with coding agents as Claude Code plug
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
-1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), with the routing or spec-run label, or with its branch on origin. `--force` overrides each.
+1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), with the routing or spec-run label, with a parent that carries the spec-run label and without `ready-for-human`, or with its branch on origin. `--force` overrides each.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
-   - A `ready-for-human` ticket of a spec run is cut from and targets its spec branch; `--base` wins.
+   - A ticket of a spec run is cut from and targets its spec branch; `--base` wins. A parent of another repository leaves the usual base.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
 4. The pane's status line writes the context size to `<worktree git dir>/worker/context`, the only thing the two plugins share ([ADR 0020](adr/0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md)).
 5. Worker knobs given to the claim with `--env` reach that session alone. Only names of the [configuration table](../README.md#configuration) pass.

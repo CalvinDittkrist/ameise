@@ -341,7 +341,7 @@ class ClaimSpecRunTests(ShimTest):
     """A ticket of a spec run: the factory's when it carries the spec-run label, and a developer's own when it is
     ready-for-human, which is then cut from the spec branch of its spec."""
 
-    def spec_run(self, *, branch="spec/100-offline-mode", parent_labels=("spec", "factory:spec-run")):
+    def spec_run(self, *, branch="spec/100-offline-mode", parent_labels=("spec", "factory:spec-run"), parent_repo="o/r"):
         """An origin whose spec branch carries work main does not have, and #12 as a ticket of spec #100.
         Returns the environment of the claim and the commit of the spec branch."""
         remote = self.base / "remote.git"
@@ -360,6 +360,7 @@ class ClaimSpecRunTests(ShimTest):
         self.git("branch", "-qD", "integration")
         parents = self.base / "parents.json"
         parents.write_text(json.dumps({"12": {"number": 100, "title": "Offline mode",
+                                              "repository_url": f"https://api.github.com/repos/{parent_repo}",
                                               "labels": [{"name": n} for n in parent_labels]}}))
         return {"SHIM_ISSUE_12_LABELS": "ready-for-human", "SHIM_PARENTS_FIXTURE": str(parents)}, sha
 
@@ -428,6 +429,51 @@ class ClaimSpecRunTests(ShimTest):
         r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_ISSUE_12_LABELS="ready-for-human", SHIM_PARENTS_FAIL="1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("could not read the parent of issue #12; branching from main", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+
+    def test_an_unreadable_repository_name_warns_and_claims_from_the_usual_base(self):
+        env, _ = self.spec_run()
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", SHIM_NWO_FAIL="1", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("warning: could not read the name of this repository", r.stderr)
+        self.assertIn("--base", r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_a_forced_agent_ticket_of_a_spec_run_is_cut_from_its_spec_branch(self):
+        env, sha = self.spec_run()
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent,factory:spec-run"
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        wt = self.repo / ".claude/worktrees/feat-12-fix-login-timeout"
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=wt).strip(), sha)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_an_agent_ticket_whose_parent_runs_a_spec_is_refused_without_its_own_label(self):
+        env, sha = self.spec_run()
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent"
+        r = self.run_script(ORCH / "claim.sh", "12", **env)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("error: issue #12 is a ticket of the spec run of #100", r.stderr)
+        self.assertFalse([c for c in self.calls() if "worktree create" in c or "agent start" in c])
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("warning: issue #12 is a ticket of the spec run of #100", r.stderr)
+        self.assertEqual(self.worker_env()["WF_BASE_BRANCH"], "spec/100-offline-mode")
+
+    def test_an_agent_ticket_of_a_normal_run_is_claimed_without_force(self):
+        env, _ = self.spec_run(parent_labels=("spec",))
+        env["SHIM_ISSUE_12_LABELS"] = "ready-for-agent"
+        r = self.run_script(ORCH / "claim.sh", "12", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
+
+    def test_a_parent_of_another_repository_leaves_the_usual_base(self):
+        # This origin has spec/100-offline-mode, which belongs to its own #100, not to the parent elsewhere.
+        env, _ = self.spec_run(parent_repo="other/repo")
+        r = self.run_script(ORCH / "claim.sh", "12", "--force", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("in another repository (https://api.github.com/repos/other/repo)", r.stderr)
         self.assertNotIn("WF_BASE_BRANCH", self.worker_env())
 
 

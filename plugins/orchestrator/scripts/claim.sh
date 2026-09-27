@@ -112,27 +112,47 @@ if wf_issue_has_label "$json" "$WF_SPEC_RUN_LABEL"; then
   fi
 fi
 
-# A developer's own ticket of a spec run (ready-for-human, its parent carrying the spec-run label) belongs on
-# the spec branch the factory created for the spec, so that branch is its base unless --base names another.
-# A parent that cannot be read, and a spec run without a spec branch on origin yet, leave the usual base.
+# A ticket's parent tells whether it belongs to a spec run, the rule the board and the factory apply. A
+# developer's own ticket (ready-for-human) of a spec run is cut from the spec branch the factory created for
+# the spec, unless --base names another base. Any other ticket of a spec run is the factory's, even when its
+# own spec-run label was removed, so it is refused like one that carries the label unless --force is given.
+# The parent is read unless --base names the base and nothing is left to refuse. A parent that cannot be read,
+# one of another repository, and a spec run without a spec branch on origin yet leave the usual base.
 spec_note=""
-if [ -z "$given_base" ] && wf_issue_has_label "$json" ready-for-human; then
+human=0; wf_issue_has_label "$json" ready-for-human && human=1
+if [ -z "$given_base" ] || { [ "$human" = 0 ] && [ "$force" = 0 ]; }; then
   nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
   # Only stdout is the parent's JSON; stderr is kept apart and read only to tell a missing parent from an error.
   perr=$(mktemp)
-  if [ -n "$nwo" ] && parent=$(gh api "repos/$nwo/issues/$issue/parent" 2>"$perr"); then
+  if [ -z "$nwo" ]; then
+    wf_warn "could not read the name of this repository, so not the parent of issue #$issue either; branching from $base. A ticket of a spec run names its spec branch with --base."
+  elif parent=$(gh api "repos/$nwo/issues/$issue/parent" 2>"$perr"); then
     parent_number=$(printf '%s' "$parent" | jq -r '.number // empty' 2>/dev/null || true)
+    parent_repo=$(printf '%s' "$parent" | jq -r '.repository_url // empty' 2>/dev/null || true)
     if [ -n "$parent_number" ] && wf_issue_has_label "$parent" "$WF_SPEC_RUN_LABEL"; then
-      if ! spec_branch=$(wf_remote_spec_branch "$parent_number"); then
-        wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, and the branches of origin could not be read; branching from $base instead of its spec branch. Name the spec branch with --base."
-      elif [ -z "$spec_branch" ]; then
-        wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, which has no spec branch spec/$parent_number-<slug> on origin yet; branching from $base."
+      # The parent's number names a spec branch on the origin of the parent's own repository alone.
+      if [ "$(printf '%s' "$parent_repo" | tr '[:upper:]' '[:lower:]')" != "$(printf 'https://api.github.com/repos/%s' "$nwo" | tr '[:upper:]' '[:lower:]')" ]; then
+        wf_warn "issue #$issue is a ticket of a spec run whose spec #$parent_number is in another repository (${parent_repo:-unknown}), so its spec branch is not on this origin; branching from $base. Name the base with --base."
       else
-        base="$spec_branch"; given_base="$spec_branch"
-        spec_note="the spec branch of the spec run of #$parent_number"
+        if [ "$human" = 0 ] && ! wf_issue_has_label "$json" "$WF_SPEC_RUN_LABEL"; then
+          if [ "$force" = 1 ]; then
+            wf_warn "issue #$issue is a ticket of the spec run of #$parent_number; claiming it locally anyway because --force was given. The factory may work it on the spec branch at the same time."
+          else
+            wf_die "issue #$issue is a ticket of the spec run of #$parent_number: the factory works it on the spec branch of its spec. Remove the label $WF_SPEC_RUN_LABEL from #$parent_number to work on it locally, or claim it anyway with --force."
+          fi
+        fi
+        if [ -n "$given_base" ]; then :
+        elif ! spec_branch=$(wf_remote_spec_branch "$parent_number"); then
+          wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, and the branches of origin could not be read; branching from $base instead of its spec branch. Name the spec branch with --base."
+        elif [ -z "$spec_branch" ]; then
+          wf_warn "issue #$issue is a ticket of the spec run of #$parent_number, which has no spec branch spec/$parent_number-<slug> on origin yet; branching from $base."
+        else
+          base="$spec_branch"; given_base="$spec_branch"
+          spec_note="the spec branch of the spec run of #$parent_number"
+        fi
       fi
     fi
-  elif [ -n "$nwo" ]; then
+  else
     case "$(cat "$perr")" in *"HTTP 404"*) ;; *) wf_warn "could not read the parent of issue #$issue; branching from $base. A ticket of a spec run names its spec branch with --base." ;; esac
   fi
   rm -f "$perr"

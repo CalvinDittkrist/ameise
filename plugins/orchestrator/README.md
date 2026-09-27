@@ -27,7 +27,9 @@ A claim refuses before anything is created, and the error names the labels or br
 - A forced claim over a remote branch adopts it and runs code nobody here reviewed. It refuses while a local branch of that name points elsewhere.
 - An origin that cannot be read is a warning; that check never stops a claim.
 
-A `ready-for-human` ticket whose parent carries the spec-run label is cut from the parent's spec branch, which its pull request targets. `--base` wins.
+A ticket whose parent carries the spec-run label is a ticket of a spec run. Without `ready-for-human` it is the factory's and refused like one that carries the label itself; `--force` claims it anyway.
+
+A ticket of a spec run is cut from the parent's spec branch, which its pull request targets. `--base` wins. A parent of another repository, or one that cannot be read, leaves the usual base with a warning.
 
 `--env NAME=VALUE`, repeatable, sets one worker knob for the claimed session and no other.
 
