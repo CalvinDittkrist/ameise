@@ -37,7 +37,8 @@ const ghTimeout = 60 * time.Second
 // heldReadTimeout bounds the reading of everything this factory holds, however many issues that is
 // (readHeld). One poll spends what one read of GitHub may cost on all of them together and not on
 // each of them, so the questions this factory asks about its own work can never push a poll further
-// away than a single hanging request already does.
+// away than a single hanging request already does. The held specs are a second pass with a budget
+// of their own, so a poll waits at most two of them.
 const heldReadTimeout = ghTimeout
 
 // errHeldReadCut is the cause that deadline carries, which tells a reading that ran out of the
@@ -263,8 +264,8 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 // repository nobody can reach must never take a worktree apart ([ADR 0026]), so the factory holds on
 // to what it holds until GitHub answers, and says once that it could not ask.
 //
-// The whole pass is bounded by heldReadTimeout, and the issues it does not reach are read by a later
-// poll. It runs in the working loop, so what it waits for the line waits for: a GitHub that takes a
+// Each pass, the issues and then the specs, is bounded by heldReadTimeout, and what it does not reach
+// is read by a later poll. It runs in the working loop, so what it waits for the line waits for: a GitHub that takes a
 // request and answers none of it would otherwise cost this poll one ghTimeout for every issue this
 // host holds: half an hour for thirty of them, in which nothing is dispatched, nothing is cancelled
 // and nothing is let go.
@@ -279,6 +280,25 @@ func (g *gitHub) readHeld(ctx context.Context, held []Held, result *poll, seen m
 		// marked before the first of them is read, because the pass below may end before the last.
 		seen[issue.key()] = true
 	}
+	// The specs this factory holds are read on a budget of their own, so an issue that spends the whole
+	// of one never keeps a spec's letting-go from being heard, and a spec never keeps a cancel back.
+	issues, specs := []Held{}, []Held{}
+	for _, issue := range held {
+		if issue.Spec {
+			specs = append(specs, issue)
+		} else {
+			issues = append(issues, issue)
+		}
+	}
+	for _, group := range [][]Held{issues, specs} {
+		if len(group) > 0 && ctx.Err() == nil {
+			g.readHeldPass(ctx, group, result)
+		}
+	}
+}
+
+// readHeldPass reads one group of what readHeld is given within one heldReadTimeout.
+func (g *gitHub) readHeldPass(ctx context.Context, held []Held, result *poll) {
 	pass, done := context.WithTimeoutCause(ctx, heldReadTimeout, errHeldReadCut)
 	defer done()
 	for _, issue := range held {
