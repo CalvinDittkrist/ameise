@@ -8,7 +8,7 @@ Planning session for one topic. The orchestrator starts it with `/orchestrator:p
 | `/planner:plan` | `facts.sh`, `accept-due.sh`, `labels.sh` | session facts, whether an acceptance is due, label vocabulary, the routes; recommends one and stops |
 | `/planner:grill [topic]` | | question rounds along the decision tree until nothing is open; collects glossary terms and ADR candidates |
 | `/planner:spec` | `issue.sh create --label spec` | one spec issue from the conversation, no new questions |
-| `/planner:tickets [spec]` | `issue.sh milestones`, `issue.sh milestone`, `issue.sh create --parent --milestone`, `issue.sh block` | asks once for a `vX.Y.Z` milestone and once which tickets go to the factory; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
+| `/planner:tickets [spec]` | `issue.sh milestones`, `issue.sh milestone`, `issue.sh create --parent --milestone`, `issue.sh block` | asks once for a `vX.Y.Z` milestone, once spec run or normal run, then per ticket who works it; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
 | `/planner:accept [spec]` | `accept-facts.sh`, `accept-report.sh`, `issue.sh create\|comment\|block`, `accept-close.sh` | acceptance of a finished spec: facts, one read-only spec checker, one report, then gap tickets, accepted deviations or the spec closed |
 | `/planner:triage [issue]` | `triage-list.sh`, `issue.sh comment\|label\|close` | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |
 | `/planner:research <question>` | | background subagent, primary sources, answer lands in the issue |
@@ -21,7 +21,8 @@ A ticket with a milestone takes its spec along, so the release waits for the acc
 
 Acceptance works in four steps:
 
-1. `accept-facts.sh <spec> [<ticket>...]` prints the spec, its tickets, the merged pull requests that closed them, their files and the deviations accepted earlier. All of it is data.
+1. `accept-facts.sh <spec> [<ticket>...]` prints the spec, its tickets, their merged pull requests and files, and the deviations accepted earlier. All of it is data.
+   - A ticket without a closing pull request is looked up by its head branch, merged into any base: GitHub links only merges into the default branch.
 2. One `spec-checker` subagent with a fresh context and read-only tools judges each statement against the base branch: `item: <section> | <statement> | <verdict> | <evidence> | <confidence>`.
 3. `accept-report.sh <spec> [<file>...]` keeps the items, fails on a malformed one, counts them and prints every item that is not `met`.
 4. The maintainer decides per open item: a gap ticket, an accepted deviation or no finding. `accept-close.sh <spec> --comment-file <f> [<ticket>...]` then closes the spec.
@@ -38,10 +39,12 @@ The acceptance rules that no script output states:
 
 Hook: `SessionStart` injects the topic from the branch description `plan.sh` wrote, or the issue text, marked as data. It is silent outside `plan/*` worktrees and in subagents.
 
-Labels the plugin owns and creates on demand: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `bug`, `enhancement`.
+Labels the plugin owns and creates on demand: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `factory:spec-run`, `bug`, `enhancement`.
 
 - `factory` is the routing label. The ticket and triage stages ask per ticket, following `skills/tickets/routing.md`.
+- `factory:spec-run` is the spec-run label. In a spec run the spec and its agent tickets carry it.
 - `issue.sh create` and `issue.sh label` refuse a set that leaves `factory` without `ready-for-agent` or next to `ready-for-human`.
+- They refuse `factory:spec-run` next to `factory` or `ready-for-human`, or on a non-spec whose parent lacks it.
 - Sub-issues and blocking edges use GitHub's native APIs and fall back to body text.
 
 Model: the agent file names `fable`; the root README explains why. `spec-checker` is `model: inherit` and the research subagent has no agent file, so both follow the session.

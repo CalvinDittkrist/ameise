@@ -47,6 +47,11 @@ The spec is $ARGUMENTS, or the issue this session started on (the `issue:` line 
          "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <f> --label ready-for-agent --parent <spec> --milestone <vX.Y.Z>
          "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" block <ticket> --by <n>,<m>
 
+     When the spec carries `factory:spec-run` (the labels in step 2), it is a spec run.
+     - Ask per gap ticket whether an agent or a person works it, as [../tickets/routing.md](../tickets/routing.md) asks.
+     - An agent's ticket adds `--label factory:spec-run` to the create line above.
+     - A person's ticket takes `--label ready-for-human` in place of `ready-for-agent`.
+
    - **Accepted deviation.** Write a file whose first line is exactly `> Accepted deviation (spec acceptance).`, then the deviation and the reason the code is right, and post it:
 
          "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" comment <spec> --body-file <f>
@@ -58,7 +63,7 @@ The spec is $ARGUMENTS, or the issue this session started on (the `issue:` line 
    - Stop here; do not close the spec.
 7. With nothing left open: write the closing comment, show it, ask for confirmation, then run the script below. The comment carries:
    - the counts per section from the report;
-   - the tickets with the pull requests that closed them, from the facts block;
+   - the tickets with their merged pull requests, from the facts block;
    - the accepted deviations, and the items the maintainer overruled with their reason.
 
    The script:

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# The facts a spec acceptance starts from: the spec, its tickets with the merged pull requests that closed
-# them, the files those pull requests changed, and the deviations accepted in earlier runs.
+# The facts a spec acceptance starts from. They are the spec, its tickets with their merged pull requests,
+# the files those pull requests changed, and the deviations accepted in earlier runs. A ticket's pull requests are the
+# merged ones that closed it, or else the merged ones whose head is the ticket's branch, whatever their base.
+# GitHub links a pull request to an issue only for a merge into the default branch.
 # Usage: accept-facts.sh <spec> [<ticket>...]   (tickets only where native sub-issues are unavailable)
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -46,20 +48,38 @@ pr_page=20
 query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){closedByPullRequestsReferences(first:'"$pr_page"',includeClosedPrs:false){nodes{number merged files(first:100){totalCount nodes{path}}}}}}}'
 files=$(mktemp); trap 'rm -f "$files" "$files.u"' EXIT
 ticket_rows=""
+# take_merged <json array of merged pull requests>: sets prs, appends their files, warns on a cut file list.
+take_merged() {
+  prs=$(printf '%s' "$1" | jq -r '[.[] | "#\(.number)"] | join(" ")')
+  [ -n "$prs" ] || prs="-"
+  printf '%s' "$1" | jq -r '.[].files.nodes[]?.path | gsub("[[:cntrl:]\u2028\u2029]"; " ")' >> "$files"
+  truncated=$(printf '%s' "$1" | jq -r '[.[] | select(.files.totalCount > (.files.nodes | length)) | "#\(.number)"] | join(" ")')
+  [ -z "$truncated" ] || wf_warn "pull request(s) $truncated changed more than 100 files; the file list is incomplete"
+}
 while IFS='	' read -r t state title; do
   [ -n "$t" ] || continue
   prs="-"
   if pj=$(gh api graphql -f query="$query" -F o="${nwo%%/*}" -F r="${nwo#*/}" -F n="$t" 2>/dev/null); then
     nodes=$(printf '%s' "$pj" | jq -c '[.data.repository.issue.closedByPullRequestsReferences.nodes[]?]')
-    merged=$(printf '%s' "$nodes" | jq -c '[.[] | select(.merged)]')
-    prs=$(printf '%s' "$merged" | jq -r '[.[] | "#\(.number)"] | join(" ")')
-    [ -n "$prs" ] || prs="-"
-    printf '%s' "$merged" | jq -r '.[].files.nodes[]?.path | gsub("[[:cntrl:]\u2028\u2029]"; " ")' >> "$files"
+    take_merged "$(printf '%s' "$nodes" | jq -c '[.[] | select(.merged)]')"
     [ "$(printf '%s' "$nodes" | jq length)" -lt "$pr_page" ] || wf_warn "#$t names $pr_page or more pull requests; only the first $pr_page are read"
-    truncated=$(printf '%s' "$merged" | jq -r '[.[] | select(.files.totalCount > (.files.nodes | length)) | "#\(.number)"] | join(" ")')
-    [ -z "$truncated" ] || wf_warn "pull request(s) $truncated changed more than 100 files; the file list is incomplete"
   else
     wf_warn "could not read the pull requests that closed #$t; the pull requests and files below are incomplete"
+  fi
+  # The second lookup, by the branch contract: <type>/<ticket>-<slug of the title>, for every type the
+  # claim can give it (wf_branch_type in the orchestrator). So a ticket relabelled since is still found.
+  # The slug comes from the current title: a ticket retitled after its claim is not found, and says so.
+  if [ "$prs" = - ]; then
+    slug=$(wf_slug "$title"); heads=""
+    for type in $WF_BRANCH_TYPES; do
+      heads="$heads $type: pullRequests(headRefName: \"$type/$t-$slug\", states: MERGED, first: $pr_page){nodes{number files(first:100){totalCount nodes{path}}}}"
+    done
+    if hj=$(gh api graphql -f query="query(\$o:String!,\$r:String!){repository(owner:\$o,name:\$r){$heads }}" -F o="${nwo%%/*}" -F r="${nwo#*/}" 2>/dev/null); then
+      take_merged "$(printf '%s' "$hj" | jq -c '[.data.repository[]?.nodes[]?]')"
+      [ "$prs" != - ] || wf_warn "#$t has no merged pull request that closed it or came from$(for type in $WF_BRANCH_TYPES; do printf ' %s' "$type/$t-$slug"; done); a ticket retitled after its claim is not found by its branch"
+    else
+      wf_warn "could not read the pull requests from the branch of #$t; the pull requests and files below are incomplete"
+    fi
   fi
   ticket_rows="$ticket_rows  $t,$state,$prs,$title
 "

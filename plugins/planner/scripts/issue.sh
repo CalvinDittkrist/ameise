@@ -10,10 +10,12 @@
 #        issue.sh close <n> [--comment-file <f>] [--reason completed|not-planned]
 #        create with --parent and --milestone also attaches the parent to that milestone when it carries none
 #        create and label refuse the routing label factory without ready-for-agent, or next to ready-for-human
+#        create and label refuse factory:spec-run next to factory or ready-for-human, or on an issue that is
+#        no spec and whose parent does not carry it, and create fails and drops it when no sub-issue can be made
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 wf_need gh; wf_need jq
-usage() { sed -n '3,12p' "$0"; exit "${1:-0}"; }
+usage() { sed -n '3,14p' "$0"; exit "${1:-0}"; }
 cmd="${1:-}"; [ -n "$cmd" ] || usage 1; shift
 version() { printf '%s' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || wf_die "milestone must be named vX.Y.Z, got '$1'"; printf '%s' "$1"; }
 # The milestone titled $1 as JSON (open or closed), or empty.
@@ -52,6 +54,7 @@ case "$cmd" in
     done
     if [ -z "$title" ] || [ -z "$body" ]; then wf_die "create needs --title and --body-file"; fi
     [ -f "$body" ] || wf_die "body file $body not found"
+    wf_require_spec_run "the new issue" "leave --label $WF_SPEC_RUN_LABEL off" "$parent" "${labels[@]+"${labels[@]}"}"
     wf_require_routable "the new issue" "leave --label $WF_ROUTING_LABEL off" "${labels[@]+"${labels[@]}"}"
     args=(); for l in "${labels[@]+"${labels[@]}"}"; do args+=(--label "$l"); done
     if [ -n "$milestone" ]; then open_milestone "$milestone"; args+=(--milestone "$milestone"); fi
@@ -63,6 +66,11 @@ case "$cmd" in
       id=$(wf_issue_db_id "$n")
       if [ -n "$id" ] && gh api --method POST "repos/$(wf_repo_nwo)/issues/$parent/sub_issues" -F sub_issue_id="$id" >/dev/null 2>&1; then
         wf_kv parent "#$parent (sub-issue)"
+      elif wf_labels_have "$WF_SPEC_RUN_LABEL" "${labels[@]+"${labels[@]}"}"; then
+        # A spec run finds its tickets through the sub-issues, so a ticket outside them loses the label.
+        gh issue edit "$n" --remove-label "$WF_SPEC_RUN_LABEL" >/dev/null \
+          || wf_warn "removing $WF_SPEC_RUN_LABEL from #$n failed; remove it on GitHub"
+        wf_die "#$n could not become a sub-issue of #$parent, so it cannot join the spec run and lost $WF_SPEC_RUN_LABEL. Attach it to #$parent on GitHub, then run issue.sh label $n --add $WF_SPEC_RUN_LABEL."
       else
         wf_kv parent "#$parent (body only; sub-issues unavailable here)"
       fi
@@ -125,6 +133,13 @@ case "$cmd" in
 $current
 EOF
     # The fix line names the route this call can drop: the one it adds, or the one the issue already carries.
+    if wf_labels_have "$WF_SPEC_RUN_LABEL" "${add[@]+"${add[@]}"}"; then drop="leave --add $WF_SPEC_RUN_LABEL off"
+    else drop="take the spec-run label off with --remove $WF_SPEC_RUN_LABEL"; fi
+    # The parent is read only where the rule needs it: a ticket that joins a spec run.
+    parent=""
+    if wf_labels_have "$WF_SPEC_RUN_LABEL" "${resulting[@]+"${resulting[@]}"}" \
+      && ! wf_labels_have spec "${resulting[@]+"${resulting[@]}"}"; then parent=$(wf_issue_parent "$n"); fi
+    wf_require_spec_run "#$n" "$drop" "$parent" "${resulting[@]+"${resulting[@]}"}"
     if wf_labels_have "$WF_ROUTING_LABEL" "${add[@]+"${add[@]}"}"; then drop="leave --add $WF_ROUTING_LABEL off"
     else drop="take the routing label off with --remove $WF_ROUTING_LABEL"; fi
     wf_require_routable "#$n" "$drop" "${resulting[@]+"${resulting[@]}"}"

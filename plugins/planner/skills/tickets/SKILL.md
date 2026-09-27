@@ -20,9 +20,10 @@ Source: the spec issue named in the argument ($ARGUMENTS), or the spec this sess
 
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" milestone <vX.Y.Z> --description "<goal>"
 
-6. Ask once which tickets are routed to the factory, following [routing.md](routing.md).
+6. Ask once whether the spec is a spec run or a normal run, then who gets each ticket, following [routing.md](routing.md).
    - Give one line per ticket with the recommendation, and the reason for every ticket you advise against.
-   - Route only the tickets the maintainer names.
+   - A normal run routes only the tickets the maintainer names to the factory.
+   - A spec run asks per ticket only whether an agent or a person works it. No ticket gets `factory`.
 7. Publish in dependency order, blockers first, so edges can name real numbers.
 
    For each ticket write the body with [template.md](template.md) and run (`--milestone` and `attach` only when a milestone was chosen):
@@ -30,12 +31,14 @@ Source: the spec issue named in the argument ($ARGUMENTS), or the spec this sess
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <file> --label ready-for-agent --parent <spec> --milestone <vX.Y.Z>   # plus --label factory for a routed ticket
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" block <ticket> --by <n>,<m>
 
+   In a spec run, label the spec first with `label <spec> --add factory:spec-run`. An agent ticket then takes `--label factory:spec-run` beside `ready-for-agent`; a person's ticket takes `--label ready-for-human` instead of both.
+
    A ticket created with a milestone attaches the spec to the same milestone, so the release waits for the acceptance; a warning means the spec already carries a different one. The first ticket also carries the spec's glossary terms and ADRs under Docs. If the spec fits one session, create no tickets:
 
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" label <spec> --add ready-for-agent   # plus --add factory when it is routed
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" attach <spec> --milestone <vX.Y.Z>
 
-8. Reply with the milestone (or none), the milestone the spec now carries, and one line per ticket (number, title, blocked by, routed or not).
+8. Reply with the milestone (or none), the spec's milestone, a line per ticket (number, title, blocked by, routed or not, or who works it in a spec run).
    - End with `next: the orchestrator claims from the frontier (/orchestrator:board); /planner:finish ends this session`.
 
 No em dash character (U+2014) anywhere in the body. Do not close or edit the spec; its milestone is the script's job. Bodies carry no file paths and no code; the prototype exception from the spec applies.

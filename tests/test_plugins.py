@@ -308,6 +308,21 @@ class LabelVocabularyTests(ShimTest):
             self.assertIn(routing, [name for name, _, _ in vocabulary],
                           f"claim.sh refuses the label {routing}, which {file} does not define")
 
+    def test_the_acceptance_looks_up_a_ticket_branch_under_every_type_a_claim_gives_it(self):
+        """accept-facts.sh finds a ticket's pull request by its head branch under each type in the planner's
+        WF_BRANCH_TYPES. A type wf_branch_type gains and the planner lacks hides that ticket's pull request.
+        The types are the printf arms of wf_branch_type, so a new arm fails this test until the planner has it."""
+        source = (ORCH / "lib.sh").read_text()
+        body = re.search(r"^wf_branch_type\(\) \{\n(.*?)^\}", source, re.M | re.S)
+        self.assertIsNotNone(body, "wf_branch_type is missing from the orchestrator's lib.sh")
+        claimed = set(re.findall(r"printf '([a-z]+)\\n'", body.group(1)))
+        self.assertTrue(claimed, "wf_branch_type prints no type this test can read")
+        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_BRANCH_TYPES"', "_", str(PLANNER)],
+                           cwd=self.base, text=True, capture_output=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(claimed, set(r.stdout.split()),
+                         "the orchestrator's wf_branch_type and the planner's WF_BRANCH_TYPES name different types")
+
 
 class WorkerKnobTests(ShimTest):
     """A claim sets a worker knob for the one session it starts (`--env NAME=VALUE`). The names it accepts are
