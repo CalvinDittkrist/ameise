@@ -342,3 +342,29 @@ func TestACodexSessionOnItsUsageLimitEndsTheRunQuotaAndIsResumed(t *testing.T) {
 		t.Errorf("the factory started %d Codex sessions, want the one that ran out and the one of the resumed run", len(codex.calls(t)))
 	}
 }
+
+// The class full asks all five reviewers because no class vouches for the change, and the reviewer on
+// Codex the repository's panel adds as well: naming codex is never lost to a change outside every class.
+func TestTheClassFullAsksTheCodexReviewerThePanelNames(t *testing.T) {
+	t.Parallel()
+	gh, data := panelClaim(t, "@true")
+	codex := gh.hasCodex(t)
+	c := ciConfig(data, nil)
+	c["repositories"] = []map[string]any{{"name": "acme/edge-sensors", "review": map[string]any{
+		"reviewers": []string{"code", "codex"},
+		"classes":   []map[string]any{{"name": "src", "paths": []string{"src/**"}, "gate": []string{}, "reviewers": []string{"code"}}},
+	}}}
+	f := gh.work(t, c)
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeReady {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	got := agents(t, gh)
+	slices.Sort(got)
+	if !equal(got, []string{"code", "docs", "security", "senior", "tests"}) {
+		t.Errorf("the class full ran the Claude reviewers %v, want all five", got)
+	}
+	if len(codex.calls(t)) != 1 {
+		t.Errorf("the class full started %d Codex reviewers, want the one the panel names", len(codex.calls(t)))
+	}
+}

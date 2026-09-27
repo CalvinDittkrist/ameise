@@ -334,13 +334,18 @@ const (
 // classify is the class of a change: the first class that covers every changed file, and full when none
 // does or no file changed. Reviewers is the panel a class that names none asks, and gate the
 // repository's gate command, which the class full runs. The class full asks all five reviewers, since
-// it is the change no class vouches for, unless the repository has no class at all, where it is the
-// panel the repository configured.
+// it is the change no class vouches for, and a reviewer the panel adds to them, such as codex, unless
+// the repository has no class at all, where it is the panel the repository configured.
 func classify(classes []changeClass, files []string, panel []string, gate gateCommand) (changeClass, string) {
 	if len(classes) == 0 {
 		return changeClass{Name: classFull, Gate: gate.clone(), Reviewers: slices.Clone(panel)}, "the repository has no change class"
 	}
 	full := changeClass{Name: classFull, Gate: gate.clone(), Reviewers: slices.Clone(defaultReview.Reviewers)}
+	for _, name := range panel {
+		if !slices.Contains(full.Reviewers, name) {
+			full.Reviewers = append(full.Reviewers, name)
+		}
+	}
 	if len(files) == 0 {
 		return full, "no file changed"
 	}
