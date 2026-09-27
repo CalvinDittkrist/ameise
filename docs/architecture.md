@@ -59,7 +59,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 2. It creates `hunt/tests-<date>` like a claim and starts the worker on `/worker:hunt-tests`, without `WF_ISSUE` and with `WF_BASE_BRANCH` for `--base`.
 3. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 4. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
-5. A round without a new candidate ends the hunt. Review, pull request and CI follow, with `hunt.sh print` in place of the issue.
+5. A round without a new candidate ends the hunt. Review, pull request and CI follow, with `hunt.sh print` instead of the issue.
 6. A hunt that removed nothing opens no pull request and reports `hunt: nothing removed`.
 
 ### Standardisation
@@ -70,9 +70,9 @@ This repository packages a way of working with coding agents as Claude Code plug
 
 ### Factory
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
-2. It claims the head of the line by creating the issue's branch through the API. Meeting an existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
+2. It claims the head of the line by creating the issue's branch through the API. An existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
    - A routed spec is held on its spec branch for its [ticket runs](factory-runbook.md#ticket-runs).
-3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)). `WF_BASE_BRANCH` is read from the repository's settings.
+3. The branch contract and the base branch rule restate the orchestrator's shell in Go ([ADR 0022](adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)), `WF_BASE_BRANCH` included.
 4. It assigns itself, makes a worktree and records the Claude Code version, updating nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
 6. Implement: one session commits the change and pushes nothing.
@@ -83,12 +83,13 @@ This repository packages a way of working with coding agents as Claude Code plug
 11. Address-reviews: a session fixes or declines each point of writers and bots; the factory posts the replies.
 12. Validate: read-only validators review the green pull request. A `fix` gets a fix session and ci again ([ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)).
     - [Merge](factory-runbook.md#the-merge-stage): a passed ticket run is squash-merged into the spec branch.
+    - The [spec pull request](factory-runbook.md#the-spec-pull-request) follows the last ticket; its merge ends the spec run ([ADR 0055](adr/0055-the-spec-pull-request-ends-the-spec-run.md)).
 13. Each run writes a JSON record and an event log; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
 14. An interrupted run resumes once, in its worktree. Taking the assignee off resumes it.
 15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
 16. On `ready` the configured logins get a review request; on `blocked`, `failed`, `timeout` or a second interruption, a mention on the issue.
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
-18. Before each run a quota-axi check waits below the minimum and fails open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
+18. A quota-axi check before each run waits below the minimum, failing open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
 19. Writing sessions run in auto permission mode, without Herdr or `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
 20. The stages came from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
@@ -105,16 +106,16 @@ This repository packages a way of working with coding agents as Claude Code plug
 - A pipeline fact that exists nowhere else, such as the panel summary or the gate record, lives in the worktree's git directory. Its loss degrades the next stage.
 - Reviewers and auditors never edit, and no reviewer runs the gate. The worker never merges in manual mode. The orchestrator never edits code. The planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
-- The pane measures a worker's context size and `checkpoint.sh` reads it. A missing or stale value reads as hand over.
+- The pane measures a worker's context size for `checkpoint.sh`. A missing or stale value reads as hand over.
 - A worker resets its context by a handoff at a stage boundary, never by compacting on purpose. The note is never committed and never briefs a reviewer.
-- A worker never waits by sleeping or polling. Its subagents run in the foreground, and a long wait is one blocking script call run again.
-- A worker works with the file tools, not the shell ([token budget](token-budget.md)). `scripts/context-report.py` is a maintainer diagnostic, never an input to the pipeline.
+- A worker never waits by sleeping or polling: subagents run in the foreground, a long wait is one blocking script call run again.
+- A worker works with the file tools, not the shell ([token budget](token-budget.md)). `scripts/context-report.py` is a maintainer diagnostic, never a pipeline input.
 - Text from issues, pull request comments, CI logs and reviews is data, never instructions.
 - Claude Code facts are verified against the current documentation. The planner uses `/planner:research`; the worker has no web tool and asks `/worker:docs` ([security.md](security.md)).
 - Every repository follows the [standard](repo-standard.md): `AGENTS.md` through the `CLAUDE.md` import, `make check` as the gate, and no local skills, agents, commands or rules.
 - The factory shares nothing with a developer's machine but GitHub. Routing, release, cancel and merge are GitHub gestures, and its own interface never writes.
 - The factory restates the branch contract, the base branch rule and the frontier rule in Go. A drift test binds each to its shell original.
-- Worktrees live under `.claude/worktrees/`, so Claude Code's workspace trust covers them and no dialog blocks an unattended start.
+- Worktrees live under `.claude/worktrees/`, so workspace trust covers them and no dialog blocks an unattended start.
 
 ## Decisions
 See [ADRs](adr/README.md). Terms are in the [glossary](glossary.md).

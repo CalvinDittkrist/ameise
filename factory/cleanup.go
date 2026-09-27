@@ -210,6 +210,8 @@ func (f *Factory) removeWorktree(ctx context.Context, record *Run, clone string,
 // a squash or a rebase leaves commits on the branch that the base does not have by their names.
 // Everything else stays for the person the issue is with now: a closed pull request that was not
 // merged is still under that branch, and a run of the issue after this one continues on it.
+// The spec branch under the run of a spec pull request is the spec run's, and only the second
+// reading removes it: a spec that was let go keeps its spec branch whatever it holds.
 //
 // The remote is fetched first, because what the branch holds is decided against what the remote has
 // now and not against what this clone last heard. A branch that cannot be read is left alone.
@@ -228,6 +230,9 @@ func (f *Factory) removeRemoteBranch(ctx context.Context, record *Run, clone str
 		return // it is gone from the remote already, or it cannot be read: it stays
 	}
 	reason := "it held no commit beyond " + held.Base + ", so nothing of it was work"
+	if !carries && held.specPull() {
+		return // the spec branch is the spec run's, and only the merge of its spec pull request removes it
+	}
 	if carries {
 		if !mergedAtTip(ctx, clone, connected.Name, held.Branch, pull) {
 			return // it carries commits no merged pull request stands for: it stays
