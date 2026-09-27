@@ -167,28 +167,38 @@ func (f *Factory) ingest(r *Run, session *heard, line []byte) {
 			event(line)
 			return
 		}
-		// The outcome, the pull request and the summary are the structured result's and never the
-		// report's words ([ADR 0039]).
-		//
-		// [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
-		read := session.read
-		if read == nil {
-			read = readResult
-		}
-		got, err := read(m.StructuredOutput)
-		f.runs.update(r, func() {
-			if err != nil {
-				session.result, session.misfit = nil, err.Error()
-				return
-			}
-			session.result, session.misfit = &got, ""
-		})
-		if err != nil {
-			line.Kind = "error"
-			line.Body = strings.TrimSpace(err.Error() + "\n" + final)
-		}
-		event(line)
+		f.settle(r, session, m.StructuredOutput, final, line.Title)
 	}
+}
+
+// settle reads a session's structured result, the structured output of Claude Code's result line or
+// the last message of a Codex session, and logs it as the result event under that title. The outcome,
+// the pull request and the summary are the structured result's and never the report's words
+// ([ADR 0039]).
+//
+// [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
+func (f *Factory) settle(r *Run, session *heard, raw json.RawMessage, final, title string) {
+	line := Event{Kind: "result", Title: title, Body: final}
+	if session.label != "" {
+		line.Title = session.label + ": " + line.Title
+	}
+	read := session.read
+	if read == nil {
+		read = readResult
+	}
+	got, err := read(raw)
+	f.runs.update(r, func() {
+		if err != nil {
+			session.result, session.misfit = nil, err.Error()
+			return
+		}
+		session.result, session.misfit = &got, ""
+	})
+	if err != nil {
+		line.Kind = "error"
+		line.Body = strings.TrimSpace(err.Error() + "\n" + final)
+	}
+	f.runs.event(r, line)
 }
 
 // A pull request as a result names it. GitHub spells a repository as its owner did and takes any

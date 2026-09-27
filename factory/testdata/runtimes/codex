@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Test shim for codex, used by the factory's Go tests. It lives in a directory of its own, which a test
+# puts on PATH when the host it plays has Codex, so every other test runs on a host without it. It
+# records how a session was started and prints the events of `codex exec --json` in the shape the
+# prototype recorded with codex-cli 0.155.0 on 2026-09-27: the thread, the turn, the agent's message and
+# the turn's usage, with the last message written whole to the file of -o.
+#
+#   CODEX_SHIM_LOG          one record per exec call: the directory it ran in, every argument, the
+#                           schema file's content, and what its standard input held once it closed
+#   CODEX_SHIM_LOGGED_OUT   when set, `codex login status` says it is not logged in and exits 1
+#   CODEX_SHIM_RESULT       the last message of every exec call, by default a pass with no finding;
+#                           it is written as it stands, so a test can hand the factory one that does not fit
+#   CODEX_SHIM_RESULTS      a directory whose file <n> is the last message of the n-th exec call instead
+#   CODEX_SHIM_USAGE_LIMIT  when set, the turn fails on the usage-limit error and the call exits 1
+set -u
+
+called=("$@")
+case "${1:-}" in
+  login)
+    if [ "${2:-}" = status ]; then
+      if [ -n "${CODEX_SHIM_LOGGED_OUT:-}" ]; then
+        echo "Not logged in" >&2
+        exit 1
+      fi
+      echo "Logged in using ChatGPT" >&2
+      exit 0
+    fi
+    echo "error: the factory logs nothing in" >&2
+    exit 1
+    ;;
+  exec) shift ;;
+  *)
+    echo "error: the factory runs codex exec and codex login status alone" >&2
+    exit 2
+    ;;
+esac
+
+log="${CODEX_SHIM_LOG:-/dev/null}"
+out="" schema="" previous=""
+for argument in "$@"; do
+  [ "$previous" = -o ] && out="$argument"
+  [ "$previous" = --output-schema ] && schema="$argument"
+  previous="$argument"
+done
+# Codex waits for the rest of its prompt on standard input while it is open; this shim reads it to its
+# end, so a factory that left it open never gets past this line.
+stdin=$(cat | wc -c | tr -d ' ')
+
+tries=0
+while ! mkdir "$log.lock" 2>/dev/null && [ "$tries" -lt 200 ]; do tries=$((tries + 1)); sleep 0.05; done
+{
+  echo "call"
+  printf 'cwd %s\n' "$(pwd -P)"
+  printf 'stdin %s\n' "$stdin"
+  printf 'schema %s\n' "$(cat "$schema" 2>/dev/null | tr -d '\n')"
+  for argument in "${called[@]}"; do printf 'arg %s\n' "$argument"; done
+} >> "$log"
+calls=$(grep -c '^call$' "$log" 2>/dev/null)
+rmdir "$log.lock" 2>/dev/null
+
+printf '%s\n' '{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"git diff main...HEAD","aggregated_output":"diff --git a/work.txt b/work.txt","exit_code":0,"status":"completed"}}'
+
+if [ -n "${CODEX_SHIM_USAGE_LIMIT:-}" ]; then
+  message="You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), or try again at 3:04 PM."
+  printf '{"type":"error","message":"%s"}\n' "$message"
+  printf '{"type":"turn.failed","error":{"message":"%s"}}\n' "$message"
+  exit 1
+fi
+
+result="${CODEX_SHIM_RESULT:-}"
+if [ -n "${CODEX_SHIM_RESULTS:-}" ] && [ -f "$CODEX_SHIM_RESULTS/${calls:-1}" ]; then
+  result=$(cat "$CODEX_SHIM_RESULTS/${calls:-1}")
+fi
+[ -n "$result" ] || result='{"verdict":"pass","findings":[]}'
+printf '%s' "$result" > "$out"
+text=$(printf '%s' "$result" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+printf '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"%s"}}\n' "$text"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":64000,"cached_input_tokens":51200,"cache_write_input_tokens":0,"output_tokens":900,"reasoning_output_tokens":400}}'
+exit 0

@@ -15,9 +15,10 @@ import (
 	"unicode/utf8"
 )
 
-// A session is one print-mode call of Claude Code, and this is the one place such a call is built:
+// A session is one non-interactive call of a runtime, and this is the one place such a call is built:
 // the agent, the prompt, the settings and the permission mode, the timeout of its stage and the JSON
-// schema of its result ([ADR 0039]). Every stage is the factory's own, and every session runs on the
+// schema of its result ([ADR 0039]). The runtime is Claude Code in print mode for every session but a
+// reviewer whose definition names Codex, which runs as `codex exec` (codex.go, [ADR 0052]). Every stage is the factory's own, and every session runs on the
 // factory's prompts and on no plugin ([ADR 0042]): the implement stage starts the implement session,
 // the gate stage a fix session per conflicting merge and per failing gate, the review stage the
 // reviewers and their fix sessions, the pr stage a read-only session that writes the pull request's
@@ -26,10 +27,16 @@ import (
 //
 // [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
 // [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
 type session struct {
-	stage   string        // the stage the session is started at, as the run records it
-	prompt  string        // the brief the session is given
-	timeout time.Duration // how long the session may run before its process group is ended
+	stage string // the stage the session is started at, as the run records it
+	// runtime is the program the session runs on, runtimeClaude when it is empty.
+	runtime string
+	// schemaFile and lastMessage are the files of a Codex session: the schema its result is held to,
+	// which Codex takes as a file, and the last message it writes its result to. runSession makes them.
+	schemaFile, lastMessage string
+	prompt                  string        // the brief the session is given
+	timeout                 time.Duration // how long the session may run before its process group is ended
 	// scripted is the scripted worker fake mode starts for this session, and empty for the one the
 	// issue's canned entry names.
 	scripted string
@@ -42,7 +49,8 @@ type session struct {
 	schema string
 	// agent and agents are the inline agent a read-only session runs as (--agents, --agent): a reviewer
 	// of the panel, whose prompt, tools and model the definition carries. model is that definition's
-	// model; a session whose agent inherits it runs on the worker's model.
+	// model; a session whose agent inherits it runs on the worker's model. A Codex session has no agent,
+	// and model is the model the call names.
 	agent, agents, model string
 	// commits is a session the factory briefs to commit its work on the branch, which the factory then
 	// pushes or gates by its commit: one that reports complete with changes it did not commit has not
@@ -228,6 +236,9 @@ func (f *Factory) command(ctx context.Context, s session, entry Entry, claim cla
 		}
 		args := []string{"scripted-worker", scenario, issue.Repository, strconv.Itoa(issue.Number)}
 		return exec.CommandContext(ctx, f.self, append(args, f.settings.WorkerArgs...)...), nil
+	}
+	if s.on() == runtimeCodex {
+		return codexCommand(ctx, s, claim), nil
 	}
 	settings, err := sessionSettings()
 	if err != nil {

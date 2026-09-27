@@ -230,12 +230,12 @@ func (g gateCommand) clone() gateCommand {
 // readReviewers is a list of reviewers as the review has them: at least one, each known, none twice.
 func readReviewers(names []string) ([]string, error) {
 	if len(names) == 0 {
-		return nil, fmt.Errorf("reviewers is empty; name at least one of %s", strings.Join(defaultReview.Reviewers, ", "))
+		return nil, fmt.Errorf("reviewers is empty; name at least one of %s", strings.Join(knownReviewers, ", "))
 	}
 	seen := map[string]bool{}
 	for _, name := range names {
 		if _, known := reviewers[name]; !known {
-			return nil, fmt.Errorf("reviewers carries %q, which is no reviewer; the reviewers are %s", name, strings.Join(defaultReview.Reviewers, ", "))
+			return nil, fmt.Errorf("reviewers carries %q, which is no reviewer; the reviewers are %s", name, strings.Join(knownReviewers, ", "))
 		}
 		if seen[name] {
 			return nil, fmt.Errorf("reviewers names %q twice; remove the duplicate", name)

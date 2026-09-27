@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1014,12 +1015,13 @@ type ending struct {
 	outcome, reason string
 	exitCode        *int
 	inError         bool
+	runtime         string // the runtime of the session that ended in the error, whose quota is checked
 }
 
 // end ends a run the way one of its sessions ended.
 func (f *Factory) end(parent context.Context, r *Run, e ending) {
 	if e.inError {
-		f.endInError(parent, r, e.reason, e.exitCode)
+		f.endInError(parent, r, e.reason, e.exitCode, e.runtime)
 		return
 	}
 	f.finish(r, e.outcome, e.reason, e.exitCode)
@@ -1044,7 +1046,8 @@ func (f *Factory) runLock(r *Run) (*os.File, error) {
 // ended when it left none that fits. label names the session in the run's log when it runs beside
 // others, and is empty for one that runs alone.
 func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, entry Entry, claim claimed, label string) (result, *ending) {
-	said := &heard{label: label, read: s.read}
+	codex := s.on() == runtimeCodex && !f.fake
+	said := &heard{label: label, read: s.read, model: f.modelFor(s)}
 	// A session that runs beside others says when its process is up, or that it never will be.
 	began := sync.OnceFunc(func() {
 		if s.began != nil {
@@ -1058,6 +1061,13 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	// timeout both end it: whichever passes first, and the cause the context carries says which one did.
 	sessionCtx, endSession := context.WithTimeoutCause(ctx, s.timeout, overran{s})
 	defer endSession()
+	if codex {
+		removed, err := codexFiles(&s)
+		if err != nil {
+			return result{}, abandoned(ctx, claim, "no worker could be started: "+err.Error())
+		}
+		defer removed()
+	}
 	cmd, err := f.command(sessionCtx, s, entry, claim)
 	if err != nil {
 		return result{}, abandoned(ctx, claim, "no worker could be started: "+err.Error())
@@ -1111,9 +1121,14 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	// the session, and a factory that is gone cannot say it afterwards. The sessions that run beside
 	// each other are in Groups as long as they run.
 	pid := cmd.Process.Pid
-	f.runs.update(r, func() { r.WorkerGroup, r.Groups = pid, append(r.Groups, pid) })
+	sessioned := Sessioned{Stage: s.stage, Label: label, Runtime: s.on(), Model: said.model}
+	f.runs.update(r, func() {
+		r.WorkerGroup, r.Groups = pid, append(r.Groups, pid)
+		r.Sessions = append(slices.Clone(r.Sessions), sessioned)
+	})
 	defer f.runs.update(r, func() { r.ungrouped(pid) })
-	started := Event{Kind: "factory", Title: "worker started", Body: fmt.Sprint(cmd.Args)}
+	started := Event{Kind: "factory", Title: "worker started",
+		Body: fmt.Sprintf("runtime %s, model %s\n%v", sessioned.Runtime, sessioned.Model, cmd.Args)}
 	if label != "" {
 		started.Title = label + ": " + started.Title
 	}
@@ -1124,7 +1139,11 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	readers.Add(2)
 	go func() {
 		defer readers.Done()
-		f.read(r, said, "the worker's output", stdout, func(line []byte) { f.ingest(r, said, line) })
+		ingest := f.ingest
+		if codex {
+			ingest = f.ingestCodex
+		}
+		f.read(r, said, "the worker's output", stdout, func(line []byte) { ingest(r, said, line) })
 	}()
 	go func() {
 		defer readers.Done()
@@ -1164,6 +1183,9 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	stderr.Close()
 
 	exitCode := cmd.ProcessState.ExitCode()
+	if codex && waitErr == nil {
+		f.readLastMessage(r, said, s)
+	}
 	var got *result
 	var misfit, lastError, resultSummary string
 	f.runs.update(r, func() {
@@ -1192,14 +1214,18 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 		if cause == "" {
 			cause = resultSummary
 		}
-		return result{}, &ending{outcome: outcomeFailed, inError: true, exitCode: &exitCode,
+		return result{}, &ending{outcome: outcomeFailed, inError: true, exitCode: &exitCode, runtime: s.on(),
 			reason: strings.TrimSpace(fmt.Sprintf("the session ended in an error (exit %d): %s", exitCode, cause))}
 	case got != nil:
 		return *got, nil
 	case misfit != "":
 		return result{}, &ending{outcome: outcomeFailed, reason: fmt.Sprintf("the result of the session of the stage %s does not fit the schema: %s", s.stage, misfit), exitCode: &exitCode}
 	}
-	return result{}, &ending{outcome: outcomeFailed, inError: true, exitCode: &exitCode,
+	if codex {
+		return result{}, &ending{outcome: outcomeFailed, inError: true, exitCode: &exitCode, runtime: s.on(),
+			reason: fmt.Sprintf("the Codex session of the stage %s ended without a last message; a Codex session ends by writing its structured result there", s.stage)}
+	}
+	return result{}, &ending{outcome: outcomeFailed, inError: true, exitCode: &exitCode, runtime: s.on(),
 		reason: fmt.Sprintf("the session of the stage %s ended without a result line; a session ends by printing its structured result", s.stage)}
 }
 
@@ -1226,16 +1252,21 @@ func cancelledBy(ctx context.Context) (cancelled, bool) {
 	return stopped, errors.As(context.Cause(ctx), &stopped)
 }
 
-// endInError ends a run whose session ended in an error. When the quota the worker spends is used up
-// by then, the error is the quota's and not the issue's: the outcome is quota, everything the run
+// endInError ends a run whose session ended in an error. When the quota of the runtime that session ran
+// on is used up by then, the error is the quota's and not the issue's, which is how a Codex turn that
+// failed on its usage limit ends as well ([ADR 0053]): the outcome is quota, everything the run
 // holds stays as it is, and the factory resumes the issue by itself after the reset, without spending
 // the one automatic resume an interruption has ([ADR 0026]). It does so once in a row, so a quota
 // resume that runs out again leaves the issue to a person. Otherwise, and when the check cannot answer, the run
 // has failed.
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
-func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCode *int) {
-	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository)
+// [ADR 0053]: ../docs/adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md
+func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCode *int, runtime string) {
+	if runtime == "" {
+		runtime = runtimeClaude
+	}
+	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository, runtime)
 	if err != nil {
 		f.warn(r, "quota not checked after the error",
 			"the quota could not be checked after the session's error, so the run is failed rather than resumed after a reset: "+err.Error())
@@ -1248,8 +1279,8 @@ func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCod
 	if r.Signal == signalQuota {
 		next = "the issue waits for a person, because this run was already the resume after a reset and ran out again; removing the assignee hands it back"
 	}
-	f.finish(r, outcomeQuota, fmt.Sprintf("%s; the Claude quota of the scope %s is exhausted until %s, so the branch, the worktree and the assignee stay and %s",
-		reason, scope, until.Format(time.RFC3339), next), exitCode)
+	f.finish(r, outcomeQuota, fmt.Sprintf("%s; the %s quota of the scope %s is exhausted until %s, so the branch, the worktree and the assignee stay and %s",
+		reason, providerName(runtime), scope, until.Format(time.RFC3339), next), exitCode)
 }
 
 // leftBehind says what a run that did not finish left on the remote, which is what the operator

@@ -16,10 +16,13 @@ import (
 // the factory asks the quota-axi the host has installed how much of it is left and waits when too
 // little is. It is a courtesy and not a guard: a check that cannot answer lets the run start with a
 // warning, because the worst case of that is a slow lunchtime and the worst case of the other way
-// round is a host that stopped for days without telling anyone ([ADR 0028], [ADR 0037]).
+// round is a host that stopped for days without telling anyone ([ADR 0028], [ADR 0037]). A run whose
+// panel names a reviewer on Codex spends the host's Codex login as well, and the check reads that
+// provider of the same quota-axi beside Claude's ([ADR 0053]).
 //
 // [ADR 0028]: ../docs/adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md
 // [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
+// [ADR 0053]: ../docs/adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md
 
 // quotaSchema is the version of quota-axi's JSON output this reading is written against. Another
 // version is output the factory cannot read, which is the operator's cue to look at the release
@@ -92,7 +95,8 @@ type quotaReport struct {
 	Providers     []struct {
 		Provider string `json:"provider"`
 		State    struct {
-			Stale bool `json:"stale"`
+			Stale bool   `json:"stale"`
+			Error string `json:"error"`
 		} `json:"state"`
 		Windows []struct {
 			ID       string `json:"id"`
@@ -109,8 +113,8 @@ type quotaReport struct {
 	} `json:"providers"`
 }
 
-// readQuota runs the configured quota-axi for the Claude provider and reads the scopes of these models
-// out of its answer. An expired credential is renewed on the way: quota-axi runs Claude Code's own
+// readQuota runs the configured quota-axi for the provider of a runtime, which quota-axi names as the
+// runtime is named, and reads the scopes of these models out of its answer. An expired credential is renewed on the way: quota-axi runs Claude Code's own
 // `claude doctor` for that, which spends no quota, and no session of the factory reads the credential
 // while a check runs, because the factory works one run at a time and checks only between sessions
 // ([ADR 0037], amended). With the flag that forbade the renewal, every run after a quiet night
@@ -121,12 +125,12 @@ type quotaReport struct {
 // session that started meanwhile, which is the second writer the check must not be.
 //
 // [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
-func (f *Factory) readQuota(ctx context.Context, models []string) (quota, error) {
+func (f *Factory) readQuota(ctx context.Context, provider string, models []string) (quota, error) {
 	// command sets the same deadline once more; this one is the earlier of the two, so a check the
 	// deadline ended is told from one that failed on its own.
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
-	out, said, err := command(ctx, quotaTimeout, f.settings.QuotaAxi, "--provider", "claude", "--json")
+	out, said, err := command(ctx, quotaTimeout, f.settings.QuotaAxi, "--provider", provider, "--json")
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return quota{}, fmt.Errorf("%s did not answer within %s", f.settings.QuotaAxi, quotaTimeout)
@@ -136,11 +140,12 @@ func (f *Factory) readQuota(ctx context.Context, models []string) (quota, error)
 		}
 		return quota{}, fmt.Errorf("%s failed: %v: %s", f.settings.QuotaAxi, err, said)
 	}
-	return parseQuota(out, models)
+	return parseQuota(out, provider, models)
 }
 
-// parseQuota reads the all-models scope and the scopes of the models out of quota-axi's output.
-func parseQuota(raw []byte, models []string) (quota, error) {
+// parseQuota reads the all-models scope and the scopes of the models out of quota-axi's output for one
+// provider. The scopes of a provider other than Claude carry its name, so a wait says whose it is.
+func parseQuota(raw []byte, provider string, models []string) (quota, error) {
 	var report quotaReport
 	if err := json.Unmarshal(raw, &report); err != nil {
 		return quota{}, fmt.Errorf("quota-axi printed something that is not its JSON report: %v", err)
@@ -148,23 +153,23 @@ func parseQuota(raw []byte, models []string) (quota, error) {
 	if report.SchemaVersion != quotaSchema {
 		return quota{}, fmt.Errorf("quota-axi reports in schema version %d and the factory reads version %d; install the pinned quota-axi again", report.SchemaVersion, quotaSchema)
 	}
-	for _, provider := range report.Providers {
-		if provider.Provider != "claude" {
+	for _, reported := range report.Providers {
+		if reported.Provider != provider {
 			continue
 		}
 		// A stale reading is quota-axi's cache of an older answer: its percentages and resets may
 		// be long gone, so the factory neither waits on it nor resumes by it.
-		if provider.State.Stale {
-			return quota{}, errors.New("quota-axi's reading of claude is stale, so it does not say how much is left now")
+		if reported.State.Stale {
+			return quota{}, fmt.Errorf("quota-axi's reading of %s is stale, so it does not say how much is left now", provider)
 		}
 		resets := map[string]time.Time{}
-		for _, w := range provider.Windows {
+		for _, w := range reported.Windows {
 			if at, err := time.Parse(time.RFC3339, w.ResetsAt); err == nil {
 				resets[w.ID] = at
 			}
 		}
 		read := quota{}
-		for _, row := range provider.QuotaSemantics.EffectiveAvailability {
+		for _, row := range reported.QuotaSemantics.EffectiveAvailability {
 			if row.Scope != allModels && !slices.ContainsFunc(models, func(model string) bool { return modelScope(row.Scope, model) }) {
 				continue
 			}
@@ -184,17 +189,43 @@ func parseQuota(raw []byte, models []string) (quota, error) {
 			}
 		}
 		if len(read.scopes) == 0 || read.scopes[0].name != allModels {
-			return quota{}, errors.New("quota-axi reports no all_models scope for claude")
+			if reported.State.Error != "" {
+				return quota{}, fmt.Errorf("quota-axi reports no all_models scope for %s: %s", provider, reported.State.Error)
+			}
+			return quota{}, fmt.Errorf("quota-axi reports no all_models scope for %s", provider)
+		}
+		if provider != runtimeClaude {
+			for i := range read.scopes {
+				read.scopes[i].name = provider + " " + read.scopes[i].name
+			}
 		}
 		return read, nil
 	}
-	return quota{}, errors.New("quota-axi reports nothing for the provider claude; is this host's Claude Code logged in?")
+	return quota{}, fmt.Errorf("quota-axi reports nothing for the provider %s; is this host's %s logged in?", provider, loginName(provider))
 }
 
-// spends is the models a run of the repository spends: the worker's, and the model of every reviewer
-// of its panel that names one of its own rather than inheriting the worker's.
-func (f *Factory) spends(repository string) []string {
-	models := []string{f.settings.WorkerModel}
+// providerName is how a runtime's quota is named in a reason or a warning.
+func providerName(runtime string) string {
+	if runtime == runtimeCodex {
+		return "Codex"
+	}
+	return "Claude"
+}
+
+// loginName is the program whose login on the host a runtime's quota is read from.
+func loginName(runtime string) string {
+	if runtime == runtimeCodex {
+		return "Codex"
+	}
+	return "Claude Code"
+}
+
+// spends is the models a run of the repository spends, by the runtime they run on: on Claude the
+// worker's and the model of every reviewer of its panel that names one of its own rather than
+// inheriting the worker's, and on Codex the model of every reviewer that runs there. A runtime no
+// session of the run starts on is not in it.
+func (f *Factory) spends(repository string) map[string][]string {
+	models := map[string][]string{runtimeClaude: {f.settings.WorkerModel}}
 	// Which change class a run's change is of is known only once it is made, so every reviewer a class
 	// of the repository names may run, beside the panel.
 	knobs := f.reviewFor(repository)
@@ -203,11 +234,22 @@ func (f *Factory) spends(repository string) []string {
 		names = append(names, class.Reviewers...)
 	}
 	for _, name := range names {
-		if model := reviewers[name].model; model != "inherit" && !slices.Contains(models, model) {
-			models = append(models, model)
+		def := reviewers[name]
+		runtime := def.on()
+		if def.model != "inherit" && !slices.Contains(models[runtime], def.model) {
+			models[runtime] = append(models[runtime], def.model)
 		}
 	}
 	return models
+}
+
+// runtimesOf is the runtimes of spent models in the order the check reads them: Claude first.
+func runtimesOf(spent map[string][]string) []string {
+	out := []string{runtimeClaude}
+	if _, ok := spent[runtimeCodex]; ok {
+		out = append(out, runtimeCodex)
+	}
+	return out
 }
 
 // modelScope says whether a scope of quota-axi is the one of this model: model:opus is the scope of
@@ -217,6 +259,9 @@ func modelScope(name, model string) bool {
 	family, ok := strings.CutPrefix(name, "model:")
 	if !ok || family == "" {
 		return false
+	}
+	if strings.EqualFold(family, model) {
+		return true // a Codex model's scope carries its whole name, model:gpt-5.1-codex
 	}
 	words := strings.FieldsFunc(strings.ToLower(model), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
@@ -232,19 +277,33 @@ func modelScope(name, model string) bool {
 // quotaAllows is the check before a run. It answers whether the run may start and, when it may, the
 // warning it starts with: empty when the check answered, and why it did not otherwise. When it may
 // not, the factory waits until the reset quota-axi reported, and the interface says so.
+//
+// Every runtime the run spends is read, and a scope of any of them below the minimum holds it back. A
+// runtime whose reading fails leaves the others' to decide, and the run starts with the warning of that
+// failure.
 func (f *Factory) quotaAllows(ctx context.Context, repository string) (bool, string) {
 	if f.settings.QuotaAxi == "" {
 		return true, ""
 	}
-	read, err := f.readQuota(ctx, f.spends(repository))
-	if err == nil {
-		var low bool
-		var until time.Time
-		low, until, err = read.below(float64(f.settings.QuotaMinimum))
-		if err == nil && low {
-			left, name := read.remaining()
-			f.waitForQuota(until, fmt.Sprintf("%s of %s is left, below the minimum of %d %%", percent(left), name, f.settings.QuotaMinimum))
-			return false, ""
+	spent := f.spends(repository)
+	failures := []string{}
+	for _, runtime := range runtimesOf(spent) {
+		read, err := f.readQuota(ctx, runtime, spent[runtime])
+		if err == nil {
+			var low bool
+			var until time.Time
+			low, until, err = read.below(float64(f.settings.QuotaMinimum))
+			if err == nil && low {
+				left, name := read.remaining()
+				f.waitForQuota(until, fmt.Sprintf("%s of %s is left, below the minimum of %d %%", percent(left), name, f.settings.QuotaMinimum))
+				return false, ""
+			}
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("the quota check failed, so this run started without knowing how much of the %s quota is left: %v", providerName(runtime), err))
 		}
 	}
 	f.mu.Lock()
@@ -253,22 +312,23 @@ func (f *Factory) quotaAllows(ctx context.Context, repository string) (bool, str
 	if ctx.Err() != nil {
 		return false, "" // the factory is stopping, and a check it cut off is not a check that failed
 	}
-	if err != nil {
-		log.Printf("warning: the quota check failed, so the next run starts without it: %v", err)
-		return true, "the quota check failed, so this run started without knowing how much of the Claude quota is left: " + err.Error()
+	if len(failures) > 0 {
+		warning := strings.Join(failures, "; ")
+		log.Printf("warning: %s", warning)
+		return true, warning
 	}
 	return true, ""
 }
 
-// quotaExhausted is the check after a run that ended in an error: whether a scope the run spends is
-// used up, and until when. Only then is the error the quota's rather than the issue's. A check
+// quotaExhausted is the check after a run that ended in an error: whether a scope the run spends on the
+// runtime of the session that failed is used up, and until when. Only then is the error the quota's rather than the issue's. A check
 // that cannot answer says no, and the run is failed like any other: fail open here means that the
 // run's outcome is what the factory knows, not what it guesses.
-func (f *Factory) quotaExhausted(ctx context.Context, repository string) (bool, string, time.Time, error) {
+func (f *Factory) quotaExhausted(ctx context.Context, repository, runtime string) (bool, string, time.Time, error) {
 	if f.settings.QuotaAxi == "" {
 		return false, "", time.Time{}, nil
 	}
-	read, err := f.readQuota(ctx, f.spends(repository))
+	read, err := f.readQuota(ctx, runtime, f.spends(repository)[runtime])
 	if err != nil {
 		return false, "", time.Time{}, err
 	}

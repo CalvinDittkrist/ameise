@@ -16,22 +16,40 @@
 #                      garbage    output that is not a report
 #   QUOTA_SHIM_LOG   one line per call: when it came, in seconds since the epoch, and its arguments
 #   QUOTA_SHIM_COUNT the file the calls are counted in, which is how a line of the plan is chosen
+#   QUOTA_SHIM_CODEX_PLAN
+#                    the plan of the calls with --provider codex, which are counted apart and
+#                    answered for the provider codex; without it such a call fails, as on a host
+#                    without a Codex login
 set -euo pipefail
 
 printf '%s %s\n' "$(date +%s)" "$*" >> "${QUOTA_SHIM_LOG:-/dev/null}"
 
+provider=claude plan="$QUOTA_SHIM_PLAN" counted="$QUOTA_SHIM_COUNT"
+previous=""
+for argument in "$@"; do
+  [ "$previous" = --provider ] && provider="$argument"
+  previous="$argument"
+done
+if [ "$provider" = codex ]; then
+  if [ -z "${QUOTA_SHIM_CODEX_PLAN:-}" ]; then
+    echo "error: Codex sign-in required" >&2
+    exit 1
+  fi
+  plan="$QUOTA_SHIM_CODEX_PLAN" counted="$QUOTA_SHIM_COUNT.codex"
+fi
+
 count=0
-if [ -f "$QUOTA_SHIM_COUNT" ]; then
-  count=$(cat "$QUOTA_SHIM_COUNT")
+if [ -f "$counted" ]; then
+  count=$(cat "$counted")
 fi
 count=$((count + 1))
-printf '%s\n' "$count" > "$QUOTA_SHIM_COUNT"
+printf '%s\n' "$count" > "$counted"
 
-lines=$(wc -l < "$QUOTA_SHIM_PLAN" | tr -d ' ')
+lines=$(wc -l < "$plan" | tr -d ' ')
 if [ "$count" -gt "$lines" ]; then
   count=$lines
 fi
-answer=$(sed -n "${count}p" "$QUOTA_SHIM_PLAN")
+answer=$(sed -n "${count}p" "$plan")
 
 case "$answer" in
   fail)
@@ -77,5 +95,5 @@ for model in ${models[@]+"${models[@]}"}; do
   scopes="$scopes"',{"scope":"model:'"$name"'","status":"known","effectivePercentRemaining":'"$left"',"boundedBy":["five_hour","model:'"$name"'"],"limitingWindowIds":["model:'"$name"'"]}'
 done
 
-printf '{"generatedAt":"%s","schemaVersion":5,"providers":[{"provider":"claude","plan":"max","windows":[%s],"state":{"status":"%s","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[%s]}}]}\n' \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$windows" "$( [ "$stale" = true ] && echo stale || echo fresh )" "$stale" "$scopes"
+printf '{"generatedAt":"%s","schemaVersion":5,"providers":[{"provider":"%s","plan":"max","windows":[%s],"state":{"status":"%s","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[%s]}}]}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$provider" "$windows" "$( [ "$stale" = true ] && echo stale || echo fresh )" "$stale" "$scopes"
