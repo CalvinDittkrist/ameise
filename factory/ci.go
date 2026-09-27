@@ -448,8 +448,15 @@ func (f *Factory) ci(parent, ctx context.Context, r *Run, entry Entry, claim cla
 		}
 		switch verdict {
 		case ciGreen:
-			f.finish(r, outcomeReady, "", nil)
-			return
+			pushed, again := f.validate(parent, ctx, r, entry, claim, pull, read.Head)
+			if !again {
+				return
+			}
+			if pushed != read.Head {
+				spent = read.Head
+			}
+			doneAt, said = time.Time{}, ""
+			continue // the fix is pushed, and the validators read the pull request again once it is green
 		case ciConflicts, ciFailed, ciComments:
 			stands := "the branch conflicts with " + claim.base
 			switch verdict {

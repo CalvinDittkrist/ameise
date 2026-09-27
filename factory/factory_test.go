@@ -116,11 +116,12 @@ type apiRun struct {
 		ClaudeCode string `json:"claudeCode"`
 		Factory    string `json:"factory"`
 	} `json:"versions"`
-	Review   *Review     `json:"review"`
-	Panel    *Panel      `json:"panel"`
-	Gates    []Gated     `json:"gates"`
-	Sessions []Sessioned `json:"sessions"`
-	Events   []apiEvent  `json:"events"`
+	Review     *Review     `json:"review"`
+	Panel      *Panel      `json:"panel"`
+	Validation *Validation `json:"validation"`
+	Gates      []Gated     `json:"gates"`
+	Sessions   []Sessioned `json:"sessions"`
+	Events     []apiEvent  `json:"events"`
 }
 
 type apiEvent struct {

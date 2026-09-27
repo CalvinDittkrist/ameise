@@ -269,6 +269,9 @@ func (c *canned) openPulls(context.Context, string, string) ([]branchPull, error
 func (c *canned) finishPull(context.Context, string, int, string, string) error { return nil }
 func (c *canned) commentOnIssue(context.Context, string, int, string) error     { return nil }
 
+// markPull takes the call: there is no pull request behind it.
+func (c *canned) markPull(context.Context, string, int, string) error { return nil }
+
 // issueText answers the canned issue's title and a body of its own.
 func (c *canned) issueText(_ context.Context, _ string, number int) (string, string, error) {
 	for _, issue := range cannedIssues {
@@ -318,10 +321,10 @@ func cannedQueue(repositories []Connected, now time.Time) []Issue {
 
 // scriptedWorker stands in for `claude -p --output-format stream-json --verbose`. It is a subcommand
 // of the factory's own binary, so fake mode needs nothing installed on the host.
-// Usage: factory scripted-worker <ready|blocked|failed|silent|detached|fix|author|address|hang|child|daemon|review:<reviewer>:<round>|review-fix:<round>> <owner/name> <issue>
+// Usage: factory scripted-worker <ready|blocked|failed|silent|detached|fix|author|address|hang|child|daemon|review:<reviewer>:<round>|review-fix:<round>|validate:<validator>:<round>|validate-fix:<round>> <owner/name> <issue>
 func scriptedWorker(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 3 {
-		fmt.Fprintln(stderr, "error: usage: factory scripted-worker <ready|blocked|failed|silent|detached|fix|author|address|hang|child|daemon|review:<reviewer>:<round>|review-fix:<round>> <owner/name> <issue>")
+		fmt.Fprintln(stderr, "error: usage: factory scripted-worker <ready|blocked|failed|silent|detached|fix|author|address|hang|child|daemon|review:<reviewer>:<round>|review-fix:<round>|validate:<validator>:<round>|validate-fix:<round>> <owner/name> <issue>")
 		return 2
 	}
 	scenario, repository := args[0], args[1]
@@ -339,6 +342,13 @@ func scriptedWorker(args []string, stdout, stderr io.Writer) int {
 	}
 	if _, round, ok := scriptedRound(scenario, "review-fix:"); ok {
 		return scriptedRepair(s, scenarioOf(issue), round)
+	}
+	// The validators of fake mode pass in every scenario, so its validate stage ends at its first round.
+	if name, round, ok := scriptedRound(scenario, "validate:"); ok {
+		return scriptedReviewer(s, "", name, round)
+	}
+	if _, round, ok := scriptedRound(scenario, "validate-fix:"); ok {
+		return scriptedRepair(s, "", round)
 	}
 
 	// The child of a hanging worker: it prints which process it is and then waits to be ended with

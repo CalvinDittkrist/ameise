@@ -172,6 +172,9 @@ type source interface {
 	issueText(ctx context.Context, repository string, number int) (string, string, error)
 	createPull(ctx context.Context, repository string, p newPull) (string, error)
 	finishPull(ctx context.Context, repository string, pull int, title, body string) error
+	// markPull writes the validate stage's section into the body of a pull request in place of the one
+	// before it, or takes it out when the section is empty (validate.go).
+	markPull(ctx context.Context, repository string, pull int, section string) error
 	// commentOnIssue names on the issue a pull request of its branch that is not the run's.
 	commentOnIssue(ctx context.Context, repository string, issue int, body string) error
 	// replyToThread, resolveThread and commentOnPull carry what an address-reviews session answered to
@@ -891,9 +894,7 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 		if pull := r.PullRequest; pull != "" && !r.Draft {
 			f.runs.event(r, Event{Kind: "factory", Title: "resuming at the ci stage of " + pull,
 				Body: "the branch " + claim.branch + " has this pull request open, the run's own, so the stages that open it are done"})
-			if pullOf(entry.resume.PullRequest) == pullOf(pull) {
-				f.runs.update(r, func() { r.RepairRounds = entry.resume.RepairRounds })
-			}
+			f.carryOn(r, entry, pull)
 			f.ci(parent, ctx, r, entry, claim, pull, false)
 			return
 		}

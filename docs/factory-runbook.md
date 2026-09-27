@@ -227,6 +227,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `ci` | see below | The knobs of the ci stage ([The ci stage](#the-ci-stage)). |
 | `gate` | see below | The knobs of the gate stage ([The gate stage](#the-gate-stage)). |
 | `review` | see below | The knobs of the review stage ([The review stage](#the-review-stage)). |
+| `validate` | see below | The knobs of the validate stage ([The validate stage](#the-validate-stage)). Without it the stage is off. |
 | `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is read again on every poll, so it takes no restart ([Pausing](#pausing)). |
 | `auto_update` | `false` | Lets the host's update tick install factory releases on this host. It is read again on every poll like `paused`, and `/api/line` reports it. |
 | `notify` | `[]` | GitHub logins, without the `@`. They are asked for a review when a run ends `ready`, and mentioned on the issue when a run waits for a person. Empty: nobody is notified, and the log says so on start. |
@@ -273,16 +274,23 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - `gate_rounds` (default `2`): the fix sessions a gate that fails on the final head may take; `0` blocks on the first failure.
 - `classes` (default none): the change classes ([Change classes](#change-classes)).
 
+`validate`:
+
+- `validators` (default `[]`, the stage off): the reviewers that validate the green pull request, any of the panel's names, `codex` included.
+- `[]` on a repository switches off the stage the host switched on.
+- `rounds` (default `2`): the fix sessions a validation that does not pass may take.
+- Past them the run ends `ready` all the same, and the pull request says the validation did not pass.
+
 `repositories`:
 
 - An entry is `"owner/name"`, or `{"name": "owner/name", "base": "dev"}` when this host branches off something other than the repository's base.
 - The repository's base is its `WF_BASE_BRANCH`, else its default branch.
-- The object may also carry `"gate"`, `"ci"` and `"review"` with any of their knobs, which then stand for that repository over the host's.
-- A repository's `classes` replace the host's as a whole. An unknown knob or reviewer is refused.
+- The object may also carry `"gate"`, `"ci"`, `"review"` and `"validate"` with any of their knobs, which then stand for that repository over the host's.
+- A repository's `classes` replace the host's as a whole. An unknown knob, reviewer or validator is refused, and so is a `rounds` below 1.
 
 `quota_minimum` applies to the all-models scope, and to the scope of each model the run spends. Those are the worker's model, and the one a reviewer of the repository's panel or change classes names for itself.
 
-A run whose panel or change classes name `codex` spends Codex as well. The check then also runs `quota_axi --provider codex --json` and holds the run back on a Codex scope below `quota_minimum` ([ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A Codex reading that fails lets the run start with a warning that names the Codex quota.
+A run whose panel, change classes or validators name `codex` spends Codex as well. The check then also runs `quota_axi --provider codex --json` and holds the run back on a Codex scope below `quota_minimum` ([ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A Codex reading that fails lets the run start with a warning that names the Codex quota.
 
 The command line has three flags for the service:
 
@@ -311,7 +319,8 @@ A complete configuration, written to `/etc/factory/factory.json` (root owns it, 
   "quota_minimum": 12,
   "repositories": [
     {"name": "yourname/service", "gate": {"command": "ci"}},
-    {"name": "yourname/app", "base": "dev", "review": {"rounds": 2}, "ci": {"repair_rounds": 2}},
+    {"name": "yourname/app", "base": "dev", "review": {"rounds": 2}, "ci": {"repair_rounds": 2},
+     "validate": {"validators": ["codex", "senior"], "rounds": 2}},
     {"name": "yourname/handbook", "review": {"classes": [
       {"name": "docs", "paths": ["docs/**", "*.md"], "gate": [], "reviewers": ["docs", "senior"]},
       {"name": "ui", "paths": ["ui/**"], "gate": ["make", "ui"]}
@@ -724,7 +733,7 @@ Once the pr stage has opened the pull request, the factory waits on it, reading 
 | has failed checks | starts a fix session with the failed checks and the tail of their failed logs from GitHub Actions, which fixes, commits and pushes. |
 | has no review of a listed bot yet, within `review_wait` of its checks passing | waits. |
 | has a writer's review that asks for changes, or an unresolved thread a writer or any Bot account opened | starts an address-reviews session in the worktree with what the reviewers still ask for. See [Answering reviews](#answering-reviews). |
-| is green | ends the run `ready` and asks `notify` for a review. |
+| is green | ends the run `ready` and asks `notify` for a review. With validators configured, the validate stage runs first ([The validate stage](#the-validate-stage)). |
 
 #### Answering reviews
 - The session is given the review summaries, then the unresolved threads with their ids and their replies.
@@ -765,6 +774,34 @@ After a repair:
 - A run resumed while its pull request is open, and no longer the draft of its gate, starts at the ci stage.
 - The rounds of the run before still count, and nothing before it is done again.
 - The host's git needs an identity (`user.name`, `user.email`) for the merge commit, as its worker sessions do for theirs.
+
+### The validate stage
+A repository whose `validate.validators` names reviewers has them validate the pull request once the ci stage reads it green:
+
+- Every validator reads the branch's diff against its base, beside the others, read-only, in the run's worktree.
+- It reads the commit CI passed. A branch that moved on the remote while the run waited is followed there first.
+- A branch the worktree cannot fast-forward to blocks the run.
+- Its brief names the base, the head, the commits, the diff and the issue.
+- A validator is a reviewer of the panel under its own prompt and model. `codex` runs on Codex.
+- A host without Codex, or without its login, blocks the run with that reason ([The Codex runtime](#the-codex-runtime)).
+- Each reports a verdict and findings, as a reviewer does. When all of them pass, the run ends `ready` and asks `notify` for a review.
+- When one does not, one fix session is given the findings of every validator.
+- It fixes or disputes each S1 and S2 and commits, and the factory pushes.
+- The run then goes back through the ci stage and validates the new head again.
+- The fix sessions are bounded by `validate.rounds`, default `2`. So with `2`, the third validation that does not pass is the last one.
+- Past the budget the run ends `ready` with a review request all the same.
+- The factory then adds a section to the pull request's body. It says the validation did not pass and names the validators and their findings.
+- That section replaces the one an earlier validation wrote, and a later validation that passes takes it out.
+- A fix session that reports `blocked` blocks the run on its words.
+- The validation's fix sessions do not count against `ci.repair_rounds`.
+
+Every round, verdict and fix, and the commit each fix was pushed at, is on the run's record and in its events. The dashboard shows the stage on the line of a run that went through it.
+
+A run resumed while its pull request is open goes through the ci stage to validate:
+
+- The fix rounds its run before spent on the same pull request still count.
+- One whose run before recorded a pass on the commit the branch is at ends `ready` without validating again.
+- One whose run before recorded a round that did not pass on that commit, and no fix, runs that fix first.
 
 ## Upkeep
 
