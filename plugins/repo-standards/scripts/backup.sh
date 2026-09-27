@@ -100,7 +100,9 @@ while IFS=$'\t' read -r _ target _ reason _; do
       [ -z "$src" ] || { origin="upstream: $src (from $l)"; break; }
     done
     if [ -z "$origin" ] && [ "$path" != "$md" ]; then
-      lic=$(git ls-tree --name-only "$WF_TAG" -- "$path/" | awk -F/ 'toupper($NF) ~ /^(LICEN[CS]E|COPYING)/ { print $NF; exit }')
+      # awk reads to the end: an early exit could kill git with SIGPIPE, which pipefail and set -e make fatal.
+      lic=$(git ls-tree --name-only "$WF_TAG" -- "$path/" | awk -F/ 'lic == "" && toupper($NF) ~ /^(LICEN[CS]E|COPYING)/ { lic = $NF }
+        END { if (lic != "") print lic }')
       [ -z "$lic" ] || origin="upstream (carries $lic)"
     fi
     [ -n "$origin" ] || origin="audit: $reason"

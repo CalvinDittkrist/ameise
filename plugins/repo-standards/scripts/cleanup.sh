@@ -148,7 +148,8 @@ catalogue=$(catalogue_issue) || exit 1
   any=0
   for c in $WF_CATEGORIES; do
     rows=$(approved_findings "$answers" delete | awk -F'\t' -v c="$c" '$1 == c' | while IFS=$'\t' read -r _ t _ why _; do
-      printf '%s\n' "$deleted" | awk -v t="$t" '$0 == t || index($0, t "/") == 1 { f = 1; exit } END { exit !f }' || continue
+      # awk reads to the end: an early exit could kill printf with SIGPIPE, which pipefail reports as a miss.
+      printf '%s\n' "$deleted" | awk -v t="$t" '$0 == t || index($0, t "/") == 1 { f = 1 } END { exit !f }' || continue
       printf -- '- `%s`: %s. Restore: `git checkout %s -- %s`\n' "$t" "$why" "$WF_TAG" "$t"
     done)
     [ -n "$rows" ] || continue
