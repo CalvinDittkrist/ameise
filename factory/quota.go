@@ -223,8 +223,9 @@ func loginName(runtime string) string {
 // spends is the models a run of the repository spends, by the runtime they run on: on Claude the
 // worker's and the model of every reviewer of its panel that names one of its own rather than
 // inheriting the worker's, and on Codex the model of every reviewer that runs there. A runtime no
-// session of the run starts on is not in it.
-func (f *Factory) spends(repository string) map[string][]string {
+// session of the run starts on is not in it. A review the run resumes goes on with the reviewers its
+// panel recorded, which a changed configuration may no longer name, so they are in it as well.
+func (f *Factory) spends(repository string, recorded *Panel) map[string][]string {
 	models := map[string][]string{runtimeClaude: {f.settings.WorkerModel}}
 	// Which change class a run's change is of is known only once it is made, so every reviewer a class
 	// of the repository names may run, beside the panel.
@@ -233,8 +234,16 @@ func (f *Factory) spends(repository string) map[string][]string {
 	for _, class := range knobs.Classes {
 		names = append(names, class.Reviewers...)
 	}
+	if recorded != nil {
+		for _, class := range recorded.Classes {
+			names = append(names, class.Reviewers...)
+		}
+	}
 	for _, name := range names {
-		def := reviewers[name]
+		def, ok := reviewers[name]
+		if !ok {
+			continue
+		}
 		runtime := def.on()
 		if def.model != "inherit" && !slices.Contains(models[runtime], def.model) {
 			models[runtime] = append(models[runtime], def.model)
@@ -252,6 +261,10 @@ func runtimesOf(spent map[string][]string) []string {
 	return out
 }
 
+// scopeAliases is the scope quota-axi 0.1.49 reports for a model whose scope carries another name than
+// the model's (its model-kb.js): gpt-5.3-codex is spent on model:codex_bengalfox.
+var scopeAliases = map[string]string{"gpt-5.3-codex": "codex_bengalfox"}
+
 // modelScope says whether a scope of quota-axi is the one of this model: model:opus is the scope of
 // opus, of claude-opus-4-1 and of opus[1m] alike, because a model is named by its family in every
 // spelling Claude Code takes.
@@ -262,6 +275,9 @@ func modelScope(name, model string) bool {
 	}
 	if strings.EqualFold(family, model) {
 		return true // a Codex model's scope carries its whole name, model:gpt-5.1-codex
+	}
+	if alias, ok := scopeAliases[strings.ToLower(model)]; ok && strings.EqualFold(family, alias) {
+		return true
 	}
 	words := strings.FieldsFunc(strings.ToLower(model), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
@@ -281,11 +297,11 @@ func modelScope(name, model string) bool {
 // Every runtime the run spends is read, and a scope of any of them below the minimum holds it back. A
 // runtime whose reading fails leaves the others' to decide, and the run starts with the warning of that
 // failure.
-func (f *Factory) quotaAllows(ctx context.Context, repository string) (bool, string) {
+func (f *Factory) quotaAllows(ctx context.Context, entry Entry) (bool, string) {
 	if f.settings.QuotaAxi == "" {
 		return true, ""
 	}
-	spent := f.spends(repository)
+	spent := f.spends(entry.Repository, entry.resume.Panel)
 	failures := []string{}
 	for _, runtime := range runtimesOf(spent) {
 		read, err := f.readQuota(ctx, runtime, spent[runtime])
@@ -324,11 +340,11 @@ func (f *Factory) quotaAllows(ctx context.Context, repository string) (bool, str
 // runtime of the session that failed is used up, and until when. Only then is the error the quota's rather than the issue's. A check
 // that cannot answer says no, and the run is failed like any other: fail open here means that the
 // run's outcome is what the factory knows, not what it guesses.
-func (f *Factory) quotaExhausted(ctx context.Context, repository, runtime string) (bool, string, time.Time, error) {
+func (f *Factory) quotaExhausted(ctx context.Context, repository string, recorded *Panel, runtime string) (bool, string, time.Time, error) {
 	if f.settings.QuotaAxi == "" {
 		return false, "", time.Time{}, nil
 	}
-	read, err := f.readQuota(ctx, runtime, f.spends(repository)[runtime])
+	read, err := f.readQuota(ctx, runtime, f.spends(repository, recorded)[runtime])
 	if err != nil {
 		return false, "", time.Time{}, err
 	}

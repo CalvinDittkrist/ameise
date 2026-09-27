@@ -571,7 +571,7 @@ func (f *Factory) dispatch(ctx context.Context) {
 		if !f.claimable(entry.Repository) {
 			continue // the issue keeps its place in the line; nothing of it is started or recorded
 		}
-		allowed, warning := f.quotaAllows(ctx, entry.Repository)
+		allowed, warning := f.quotaAllows(ctx, entry)
 		if !allowed {
 			return // the entry keeps its place; the check runs again after the reset
 		}
@@ -1266,7 +1266,8 @@ func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCod
 	if runtime == "" {
 		runtime = runtimeClaude
 	}
-	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository, runtime)
+	held, _ := f.runs.get(r.ID)
+	exhausted, scope, until, err := f.quotaExhausted(ctx, r.Repository, held.Panel, runtime)
 	if err != nil {
 		f.warn(r, "quota not checked after the error",
 			"the quota could not be checked after the session's error, so the run is failed rather than resumed after a reset: "+err.Error())
