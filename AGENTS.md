@@ -12,6 +12,7 @@ Public repository of Claude Code plugins for agent-driven development: an orches
   - The config file is your own. `factory/factory.example.json` is a host's configuration, paused and rooted at `/var/lib/factory`.
   - A fake run that should work its queue sets `"paused": false` and a data directory this machine can write.
   - It also drops `"quota_axi"`, which would check this machine's own Claude quota.
+  - A third connected repository carries a canned spec: its spec run works three chained tickets to its spec pull request.
   - A repository that branches off something other than its default is `{"name": "owner/name", "base": "dev"}`.
   - Read the factory at `http://<listen>/` in a browser or at `http://<listen>/api/line`.
   - The dashboard under `/` is the Vite build in `factory/ui` that `make ui` writes and the binary embeds.

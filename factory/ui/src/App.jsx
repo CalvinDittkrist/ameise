@@ -1,21 +1,27 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 // The dashboard reads the factory's read-only interface and never writes: it polls /api/status,
-// /api/repositories and /api/line for the three areas, and /api/runs/{id} for the selected run.
+// /api/repositories, /api/line and /api/specs for the three areas, and /api/runs/{id} or
+// /api/specs/{id} for the selected run or spec run.
 
 // The stages of the pipeline in the order a run moves through them, every one of them the factory's. A
 // run moves between ci and address-reviews as the reviewers ask for changes; this is the line those
-// stages are shown on. The validate stage runs only in a repository that names validators, so it is on
-// the line of a run that went through it and of no other.
+// stages are shown on. The validate stage runs only where validators are named, and the merge stage
+// only in a ticket run, so each is on the line of a run that went through it and of no other.
 const STAGES = ['implement', 'gate', 'review', 'pr', 'ci', 'address-reviews']
-const stagesOf = (run) => (run.stages?.includes('validate') ? [...STAGES, 'validate'] : STAGES)
+const stagesOf = (run) => [...STAGES, ...['validate', 'merge'].filter((stage) => run.stages?.includes(stage))]
 
 // A stage as a run shows it: the review with the round of its panel the run is in or ended at, and the
 // change class that applied, each class the determinations moved to after a chevron. It is a chevron
 // and not an arrow because the dashboard is written in the Latin subset of JetBrains Mono it bundles,
 // which has no arrow: a glyph the subset lacks is drawn in whatever font the host falls back to, and
-// on a host whose fallback is wide the trail comes out wider than the approved screenshot.
+// on a host whose fallback is wide the trail comes out wider than the approved screenshot. The
+// validation shows its last round with the verdict of every validator in it.
 const stageOf = (run, stage = run.stage) => {
+  if (stage === 'validate' && run.validation?.rounds?.length) {
+    const last = run.validation.rounds.at(-1)
+    return [`validate, round ${last.number}`, ...last.verdicts.map((v) => `${v.reviewer} ${v.verdict}`)].join(', ')
+  }
   if (stage !== 'review' || !run.panel) return stage
   const classes = (run.panel.classes ?? []).map((c) => c.class).filter((name, i, all) => name !== all[i - 1])
   return [
@@ -25,6 +31,47 @@ const stageOf = (run, stage = run.stage) => {
     .filter(Boolean)
     .join(', ')
 }
+
+// A spec run holds its spec across many runs, so what it is doing is read from its record and from the
+// run of it that is going: its word, and the colour of the run state it is like. A spec run that holds
+// its spec is working a ticket or its spec pull request, waiting for a person's ticket, waiting on its
+// open spec pull request, or claimed with nothing going.
+const specState = (spec, going) => {
+  if (spec.state === 'claiming') return { word: 'claiming', tone: 'running' }
+  if (spec.state === 'done') return { word: 'done', tone: 'ready' }
+  if (spec.state === 'let-go') return { word: 'let go', tone: 'cancelled' }
+  if (spec.state !== 'holding') return { word: spec.state, tone: spec.state }
+  if (going) {
+    if (going.issue !== spec.spec) return { word: `working #${going.issue}`, tone: 'running' }
+    return { word: spec.pullRequest ? 'spec pull request open' : 'opening the spec pull request', tone: 'running' }
+  }
+  if (spec.waiting?.length) return { word: `waiting for ${spec.waiting.map((n) => `#${n}`).join(', ')}`, tone: 'blocked' }
+  if (spec.pullRequest) return { word: 'spec pull request open', tone: 'ready' }
+  return { word: 'claimed', tone: 'claimed' }
+}
+
+// The spec runs of one spec follow each other, a new one only once the one before holds it no more, so
+// a run belongs to the latest spec run of its spec that started before it.
+const sameRepository = (a, b) => a.toLowerCase() === b.toLowerCase()
+const specRunOf = (run, specs) =>
+  run.spec
+    ? specs
+        .filter(
+          (s) =>
+            s.spec === run.spec &&
+            sameRepository(s.repository, run.repository) &&
+            new Date(s.startedAt) <= new Date(run.startedAt),
+        )
+        .at(-1)
+    : undefined
+
+// The runs of a spec run's spec pull request: runs on the spec itself, of that spec run.
+const specPulls = (spec, runs, specs) =>
+  runs.filter((r) => r.issue === spec.spec && specRunOf(r, specs)?.id === spec.id).sort((a, b) => a.id - b.id)
+
+// A spec run's record is written for the last time once it no longer holds its spec.
+const specOver = (spec) => !['claiming', 'holding'].includes(spec.state)
+const runOver = (run) => Boolean(run.endedAt)
 
 // Of the runs that are done, the newest are drawn: the factory keeps every run it ever made, and a
 // page that drew them all would grow with the months. The older ones are reached by their id.
@@ -74,9 +121,16 @@ const cost = (run, marked = true) =>
   run.costUsd ? `$${run.costUsd.toFixed(2)}${marked && run.totals === 'factory' ? ' counted' : ''}` : ''
 const clock = (at) => new Date(at).toLocaleTimeString('en-GB')
 
-// The selected run lives in the URL (#run=2), so a run can be linked, survives a reload and is
-// reached by editing the address.
-const runInHash = () => Number(new URLSearchParams(location.hash.slice(1)).get('run')) || null
+// The selected run or spec run lives in the URL (#run=2, #spec=1), so either can be linked, survives
+// a reload and is reached by editing the address.
+const inHash = () => {
+  const asked = new URLSearchParams(location.hash.slice(1))
+  for (const kind of ['run', 'spec']) {
+    const id = Number(asked.get(kind))
+    if (id) return { kind, id }
+  }
+  return null
+}
 
 // Whether the done section is folded is the reader's preference, and the browser keeps it. The key
 // stands while the section is folded and is gone while it is open, so a first visit finds it open.
@@ -131,9 +185,9 @@ function Facts({ className = 'facts', items }) {
   )
 }
 
-function State({ state }) {
+function State({ state, tone = state }) {
   return (
-    <span className={`state state-${state}`}>
+    <span className={`state state-${tone}`}>
       <i />
       {state}
     </span>
@@ -156,8 +210,9 @@ export default function App() {
   const [status, setStatus] = useState(null)
   const [repositories, setRepositories] = useState([])
   const [line, setLine] = useState(null)
+  const [specs, setSpecs] = useState([])
   const [error, setError] = useState('')
-  const [selected, setSelected] = useState(runInHash)
+  const [selected, setSelected] = useState(inHash)
   const [folded, toggleFolded] = useFolded()
   const now = useNow()
 
@@ -170,12 +225,13 @@ export default function App() {
       if (!stop) next = setTimeout(load, SLOW)
     }
     const load = () =>
-      Promise.all([get('/api/status'), get('/api/repositories'), get('/api/line')])
-        .then(([nextStatus, nextRepositories, nextLine]) => {
+      Promise.all([get('/api/status'), get('/api/repositories'), get('/api/line'), get('/api/specs')])
+        .then(([nextStatus, nextRepositories, nextLine, nextSpecs]) => {
           if (stop) return
           setStatus(nextStatus)
           setRepositories(nextRepositories)
           setLine(nextLine)
+          setSpecs(nextSpecs)
           setError('')
           again()
         })
@@ -192,23 +248,27 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const follow = () => setSelected(runInHash())
+    const follow = () => setSelected(inHash())
     addEventListener('hashchange', follow)
     return () => removeEventListener('hashchange', follow)
   }, [])
 
-  const select = (id) => {
-    history.replaceState(null, '', `#run=${id}`)
-    setSelected(id)
+  const select = (kind, id) => {
+    history.replaceState(null, '', `#${kind}=${id}`)
+    setSelected({ kind, id })
   }
+  const selectRun = (id) => select('run', id)
 
   if (!status || !line) return <div className="boot">{error || 'connecting…'}</div>
 
   const done = [...line.done].reverse() // newest first: the last run is the one being looked for
   const shown = done.slice(0, SHOWN)
   const active = line.now[0] ?? null
+  const runs = [...line.done, ...line.now]
   // Follow the factory until the reader picks a run.
-  const current = selected ?? active?.id ?? done[0]?.id ?? null
+  const followed = active ?? done[0]
+  const current = selected ?? (followed ? { kind: 'run', id: followed.id } : null)
+  const on = (kind, id) => (current?.kind === kind && current.id === id ? ' on' : '')
   const mode = status.state === 'running' ? (active ? 'working' : 'idle') : status.state
 
   return (
@@ -246,8 +306,8 @@ export default function App() {
         {active ? (
           <button
             type="button"
-            className={`row now${active.id === current ? ' on' : ''}`}
-            onClick={() => select(active.id)}
+            className={`row now${on('run', active.id)}`}
+            onClick={() => selectRun(active.id)}
           >
             <span className="pos">
               <i />
@@ -279,6 +339,52 @@ export default function App() {
           ))}
         </ol>
 
+        {/* A factory that never held a spec shows no section for it. */}
+        {specs.length > 0 && (
+          <>
+            <h2>
+              Specs<b>{specs.length}</b>
+            </h2>
+            <ul className="specs">
+              {[...specs]
+                .reverse()
+                .slice(0, SHOWN)
+                .map((spec) => {
+                  const going = line.now.find((r) => specRunOf(r, specs)?.id === spec.id)
+                  const shownState = specState(spec, going)
+                  const end = spec.doneAt ?? spec.letGoAt
+                  return (
+                    <li key={spec.id}>
+                      <button
+                        type="button"
+                        className={`row state-${shownState.tone}${on('spec', spec.id)}`}
+                        onClick={() => select('spec', spec.id)}
+                      >
+                        <span className="pos">
+                          <i />
+                        </span>
+                        <span className="title">
+                          <em>#{spec.spec}</em>
+                          {spec.title}
+                        </span>
+                        <Facts
+                          items={[
+                            <span key="s" className="outcome-word">
+                              {shownState.word}
+                            </span>,
+                            spec.repository,
+                            (end || !specOver(spec)) && <Tick key="t">{duration(spec.startedAt, end ?? now)}</Tick>,
+                          ]}
+                        />
+                      </button>
+                      <Tickets spec={spec} runs={runs} specs={specs} on={on} select={selectRun} />
+                    </li>
+                  )
+                })}
+            </ul>
+          </>
+        )}
+
         {/* The heading is the toggle, and its count stands in both states. */}
         <h2 className="fold">
           <button type="button" aria-expanded={!folded} aria-controls="done-runs" onClick={toggleFolded}>
@@ -291,8 +397,8 @@ export default function App() {
             <button
               type="button"
               key={run.id}
-              className={`row state-${stateOf(run)}${run.id === current ? ' on' : ''}`}
-              onClick={() => select(run.id)}
+              className={`row state-${stateOf(run)}${on('run', run.id)}`}
+              onClick={() => selectRun(run.id)}
             >
               <span className="pos">
                 <i />
@@ -317,8 +423,10 @@ export default function App() {
         </div>
       </section>
 
-      {current ? (
-        <Run key={current} id={current} now={now} />
+      {current?.kind === 'spec' ? (
+        <Spec key={`spec-${current.id}`} id={current.id} now={now} runs={runs} specs={specs} on={on} select={selectRun} />
+      ) : current ? (
+        <Run key={`run-${current.id}`} id={current.id} now={now} specs={specs} />
       ) : (
         <section className="pane detail">
           <p className="none">no run yet</p>
@@ -328,16 +436,14 @@ export default function App() {
   )
 }
 
-// Run is the selected run: what it is, how far it got, how it ended, and its log as it is written.
-function Run({ id, now }) {
-  const [run, setRun] = useState(null)
+// useFollowed reads one record of the interface with its log, a run or a spec run, and follows it
+// while it is written. over says a record is written for the last time.
+function useFollowed(path, over) {
+  const [record, setRecord] = useState(null)
   const [missing, setMissing] = useState(false)
   const [trouble, setTrouble] = useState('')
   const [events, setEvents] = useState([])
-  const [open, setOpen] = useState({})
   const seen = useRef(0)
-  const log = useRef(null)
-  const pinned = useRef(true)
 
   useEffect(() => {
     let stop = false
@@ -350,7 +456,7 @@ function Run({ id, now }) {
       if (!stop) follow = setTimeout(load, FAST)
     }
     const load = () =>
-      get(`/api/runs/${id}?after=${seen.current}`)
+      get(`${path}?after=${seen.current}`)
         .then((next) => {
           if (stop) return
           if (next.events?.length) {
@@ -362,16 +468,16 @@ function Run({ id, now }) {
               return [...old, ...next.events.filter((e) => e.seq > last)]
             })
           }
-          setRun(next)
+          setRecord(next)
           setMissing(false)
           setTrouble('')
-          // A run that has ended is written once and never again: this answer carries its record and
-          // the rest of its log, so a dashboard left open stops asking for it.
-          if (!next.endedAt) again()
+          // A record that is over is written once and never again: this answer carries it and the rest
+          // of its log, so a dashboard left open stops asking for it.
+          if (!over(next)) again()
         })
         .catch((e) => {
           if (stop) return
-          // A run this factory does not have is not going to appear later, so it is asked for once.
+          // A record this factory does not have is not going to appear later, so it is asked for once.
           if (e.status === 404) setMissing(true)
           else {
             setTrouble(e.message)
@@ -383,13 +489,163 @@ function Run({ id, now }) {
       stop = true
       if (follow) clearTimeout(follow)
     }
-  }, [id])
+  }, [path, over])
 
-  // The log follows the worker as long as the reader has not scrolled away from its end.
+  return { record, missing, trouble, events }
+}
+
+// Log is the events of a run or a spec run as they are written. It follows its end as long as the
+// reader has not scrolled away from it.
+function Log({ events }) {
+  const [open, setOpen] = useState({})
+  const log = useRef(null)
+  const pinned = useRef(true)
+
   useEffect(() => {
     if (pinned.current && log.current) log.current.scrollTop = log.current.scrollHeight
   }, [events])
 
+  return (
+    <div
+      className="log"
+      ref={log}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+      }}
+    >
+      {events.map((e) => (
+        <div key={e.seq} className={`ev ev-${e.kind}${e.sub ? ' ev-sub' : ''}${open[e.seq] ? ' ev-open' : ''}`}>
+          <button type="button" disabled={!e.body} onClick={() => setOpen((o) => ({ ...o, [e.seq]: !o[e.seq] }))}>
+            <time className="tick">{clock(e.at)}</time>
+            <span className="kind">{e.kind}</span>
+            <span className="what">
+              <What event={e} />
+            </span>
+          </button>
+          {open[e.seq] && <pre>{e.body}</pre>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Tickets is the ticket runs of a spec run in the order it took them, each ticket with the outcome of
+// its latest run, and the runs of its spec pull request after them. A ticket merged without a run of
+// this factory has no run to select.
+function Tickets({ spec, runs, specs, on, select }) {
+  const byId = new Map(runs.map((r) => [r.id, r]))
+  const rows = spec.tickets.map((ticket) => {
+    const run = byId.get(ticket.runs.at(-1))
+    const outcome = run ? stateOf(run) : ticket.mergedAt ? 'merged' : 'waiting'
+    const title = ticket.title || run?.title
+    return { key: `t${ticket.issue}`, issue: ticket.issue, title, run, outcome, ids: ticket.runs }
+  })
+  for (const run of specPulls(spec, runs, specs)) {
+    rows.push({ key: `p${run.id}`, issue: run.issue, title: 'spec pull request', run, outcome: stateOf(run), ids: [run.id] })
+  }
+  if (rows.length === 0) return null
+  return (
+    <ol className="tickets">
+      {rows.map((row) => {
+        const inner = (
+          <>
+            <span className="pos">
+              <i />
+            </span>
+            <span className="title">
+              <em>#{row.issue}</em>
+              {row.title}
+            </span>
+            <Facts
+              items={[
+                <span key="o" className="outcome-word">
+                  {row.outcome}
+                </span>,
+                row.ids.length > 0 && `${row.ids.length > 1 ? 'runs' : 'run'} ${row.ids.join(', ')}`,
+              ]}
+            />
+          </>
+        )
+        return (
+          <li key={row.key}>
+            {row.run ? (
+              <button type="button" className={`row state-${row.outcome}${on('run', row.run.id)}`} onClick={() => select(row.run.id)}>
+                {inner}
+              </button>
+            ) : (
+              <div className={`row state-${row.outcome}`}>{inner}</div>
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+// Spec is the selected spec run: what it holds, how far its tickets got, its spec pull request, and
+// its log as it is written.
+function Spec({ id, now, runs, specs, on, select }) {
+  const { record: spec, missing, trouble, events } = useFollowed(`/api/specs/${id}`, specOver)
+  if (missing) {
+    return (
+      <section className="pane detail">
+        <p className="none">spec run {id} is not on this factory</p>
+      </section>
+    )
+  }
+  if (!spec) return <section className="pane detail" />
+
+  const going = runs.find((r) => !r.endedAt && specRunOf(r, specs)?.id === spec.id)
+  const shownState = specState(spec, going)
+  const end = spec.doneAt ?? spec.letGoAt
+  return (
+    <section className="pane detail">
+      <div className="head">
+        <h3>
+          <em>#{spec.spec}</em>
+          {spec.title}
+        </h3>
+        <State state={shownState.word} tone={shownState.tone} />
+      </div>
+      {trouble && <p className="trouble">{trouble}</p>}
+      <Facts
+        items={[
+          spec.repository,
+          `spec run ${spec.id}`,
+          spec.branch && `${spec.branch} from ${spec.base}`,
+          (end || !specOver(spec)) && <Tick key="t">{duration(spec.startedAt, end ?? now)}</Tick>,
+          `${spec.tickets.length} ${spec.tickets.length === 1 ? 'ticket' : 'tickets'}`,
+        ]}
+      />
+      <Tickets spec={spec} runs={runs} specs={specs} on={on} select={select} />
+      {spec.warnings?.length > 0 && (
+        <ul className="warnings">
+          {spec.warnings.map((warning, i) => (
+            <li key={i}>{warning}</li>
+          ))}
+        </ul>
+      )}
+      {(spec.pullRequest || spec.reason) && (
+        <div className={`outcome state-${shownState.tone}`}>
+          <b>{shownState.word}</b>
+          {spec.pullRequest && (
+            <a href={spec.pullRequest} target="_blank" rel="noreferrer">
+              {spec.pullRequest}
+            </a>
+          )}
+          {spec.reason && <p>{spec.reason}</p>}
+        </div>
+      )}
+      <Log events={events} />
+    </section>
+  )
+}
+
+// Run is the selected run: what it is, how far it got, how it ended, and its log as it is written. A
+// ticket run, and the run of a spec pull request, links the spec run it belongs to.
+function Run({ id, now, specs }) {
+  const { record: run, missing, trouble, events } = useFollowed(`/api/runs/${id}`, runOver)
   if (missing) {
     return (
       <section className="pane detail">
@@ -398,6 +654,7 @@ function Run({ id, now }) {
     )
   }
   if (!run) return <section className="pane detail" />
+  const spec = specRunOf(run, specs)
 
   const state = stateOf(run)
   const reached = new Set(run.stages)
@@ -419,6 +676,11 @@ function Run({ id, now }) {
       <Facts
         items={[
           run.repository,
+          spec && (
+            <a key="s" href={`#spec=${spec.id}`}>
+              spec #{run.spec}
+            </a>
+          ),
           // A first run is the ordinary one and says nothing; a run that continues held work says
           // what it is and the signal that brought it back, as the queue names it.
           run.kind && run.kind !== 'first' && `${run.kind} run`,
@@ -459,27 +721,7 @@ function Run({ id, now }) {
           {run.reason && <p>{run.reason}</p>}
         </div>
       )}
-      <div
-        className="log"
-        ref={log}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-        }}
-      >
-        {events.map((e) => (
-          <div key={e.seq} className={`ev ev-${e.kind}${e.sub ? ' ev-sub' : ''}${open[e.seq] ? ' ev-open' : ''}`}>
-            <button type="button" disabled={!e.body} onClick={() => setOpen((o) => ({ ...o, [e.seq]: !o[e.seq] }))}>
-              <time className="tick">{clock(e.at)}</time>
-              <span className="kind">{e.kind}</span>
-              <span className="what">
-                <What event={e} />
-              </span>
-            </button>
-            {open[e.seq] && <pre>{e.body}</pre>}
-          </div>
-        ))}
-      </div>
+      <Log events={events} />
     </section>
   )
 }

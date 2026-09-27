@@ -54,7 +54,7 @@ func readOnly(next http.Handler) http.Handler {
 }
 
 // index is what the interface offers, for a reader with a terminal rather than a browser. The
-// browser gets the dashboard under /, which reads the first four.
+// browser gets the dashboard under /, which reads them all.
 func (f *Factory) index(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("factory\n\n" +

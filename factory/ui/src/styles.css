@@ -90,6 +90,10 @@ button {
 .state-lost {
   --c: var(--faint);
 }
+/* A spec run that holds its spec with nothing going and nothing to wait for. */
+.state-claimed {
+  --c: var(--dim);
+}
 @keyframes pulse {
   50% {
     opacity: 0.25;
@@ -314,6 +318,21 @@ h3 em {
 .line ol .row:not(:first-child) .title {
   color: var(--dim);
 }
+/* A spec run's tickets stand beneath it, set in by the width of its dot, so the line reads as one spec
+   and the runs it took. */
+.tickets .row {
+  padding-left: 46px;
+}
+.detail .tickets {
+  margin: 0;
+}
+.detail .tickets .row {
+  padding: 6px 20px 6px 18px;
+}
+.detail .tickets .facts {
+  margin-top: 0;
+  white-space: nowrap;
+}
 
 .detail {
   display: flex;
@@ -364,6 +383,10 @@ h3 em {
 }
 .detail .facts > span {
   white-space: nowrap;
+}
+.facts a {
+  color: var(--accent);
+  text-underline-offset: 3px;
 }
 .versions {
   margin-top: -16px;
