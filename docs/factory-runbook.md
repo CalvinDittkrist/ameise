@@ -270,7 +270,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 `review`:
 
 - `rounds` (default `3`): the rounds the panel may take.
-- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round. `codex` adds the reviewer on Codex ([The Codex runtime](#the-codex-runtime)).
+- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round. `codex` adds the reviewer on Codex ([The Codex runtime](#the-codex-runtime)), `fable` the Claude reviewer on the Fable model.
 - `gate_rounds` (default `2`): the fix sessions a gate that fails on the final head may take; `0` blocks on the first failure.
 - `classes` (default none): the change classes ([Change classes](#change-classes)).
 
@@ -500,9 +500,37 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
   - The factory takes its assignee off and records the letting-go on the spec run.
   - The spec branch stays, with everything on it.
   - Routing the spec again claims it again only once that branch is gone.
-- A ticket whose parent carries the spec-run label never enters the line, whatever labels it carries.
+- A ticket whose parent carries the spec-run label never enters the line as a routed issue, whatever labels it carries.
   - A parent that cannot be read keeps its ticket out of that poll, with one warning in the journal.
-- `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events.
+- `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events and its tickets.
+
+#### Ticket runs
+The tickets of a held spec are worked one at a time on the spec branch.
+
+- Ticket order: every poll reads the spec's sub-issues. The lowest-numbered ticket that may be taken is next, before the routed issues.
+  - A ticket may be taken when it is open and carries the spec-run label and `ready-for-agent`, with no assignee and no open blocker.
+  - A ticket that gets the label during the spec run is taken once its dependency edges allow it.
+- Base merge: before a ticket is claimed, the factory merges the base into the spec branch and pushes the merge.
+  - It merges only when the merge is clean. A conflicting merge leaves the spec branch as it is, with a warning on the spec run.
+- A ticket run is a first run whose base is the spec branch. Its branch is cut from it, its gate merges it and its pull request targets it.
+  - The run records the spec's number, and the spec run's record lists the ticket with its runs.
+- Validate is on in a ticket run, with the repository's `validate` knobs. When they name no validator, `codex` and `fable` validate.
+- A ticket run that ends `blocked`, `failed` or `timeout` holds its ticket until the release signal. Siblings its edges free are worked meanwhile.
+- A resumed ticket run goes on from its record and its pull request: before validate, at merge, or done.
+
+#### The merge stage
+The merge stage ends a ticket run whose conditions all hold:
+
+- ci is green, the panel summary is `ready`, and the validation passed.
+- The factory then squash-merges the pull request into the spec branch, with the pull request's title as the commit title.
+- It closes the ticket with a comment that names the pull request, and the spec run records the ticket as merged.
+- The run ends `merged`.
+
+GitHub closes no linked issue on a merge into a branch other than the default one ([GitHub docs](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue), checked 2026-09-27). That is why the factory closes the ticket itself.
+
+- A panel that did not pass merges nothing. The run ends `ready` with a review request, and a person merges or changes the pull request.
+- A pull request merged already, by a person or before a restart, is not merged again. The ticket is recorded and closed once.
+- A merge GitHub refuses ends the run `blocked` with its reason.
 
 ### The implement stage
 A run starts with the version of Claude Code it is made with, written on the run. Then one implement session runs in the run's worktree ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
@@ -620,6 +648,7 @@ Each reviewer on Claude Code is a read-only session run as an inline agent of th
 - The code, docs and tests reviewers run on `sonnet`. Security and senior inherit the worker's model: `opus` unless `worker_args` names another.
 - The factory passes that model with `--model`, so no reviewer runs on the account default of the host's Claude login.
 - The reviewer `codex` runs on Codex instead ([The Codex runtime](#the-codex-runtime)).
+- The reviewer `fable` runs on `fable`, the Fable model ([model configuration](https://code.claude.com/docs/en/model-config.md), checked 2026-09-27).
 
 Every reviewer of a round gets the same brief: the diff range, the base, the commits, the diff, the issue and the gate result. Each reports a verdict, `pass` or `fix`, and its findings.
 
@@ -733,7 +762,7 @@ Once the pr stage has opened the pull request, the factory waits on it, reading 
 | has failed checks | starts a fix session with the failed checks and the tail of their failed logs from GitHub Actions, which fixes, commits and pushes. |
 | has no review of a listed bot yet, within `review_wait` of its checks passing | waits. |
 | has a writer's review that asks for changes, or an unresolved thread a writer or any Bot account opened | starts an address-reviews session in the worktree with what the reviewers still ask for. See [Answering reviews](#answering-reviews). |
-| is green | ends the run `ready` and asks `notify` for a review. With validators configured, the validate stage runs first ([The validate stage](#the-validate-stage)). |
+| is green | ends the run `ready` and asks `notify` for a review. With validators configured, the validate stage runs first ([The validate stage](#the-validate-stage)). A ticket run goes on to [the merge stage](#the-merge-stage). |
 
 #### Answering reviews
 - The session is given the review summaries, then the unresolved threads with their ids and their replies.
@@ -785,6 +814,7 @@ A repository whose `validate.validators` names reviewers has them validate the p
 - A validator is a reviewer of the panel under its own prompt and model. `codex` runs on Codex.
 - A host without Codex, or without its login, blocks the run with that reason ([The Codex runtime](#the-codex-runtime)).
 - Each reports a verdict and findings, as a reviewer does. When all of them pass, the run ends `ready` and asks `notify` for a review.
+  - A ticket run goes on to [the merge stage](#the-merge-stage) instead.
 - When one does not, one fix session is given the findings of every validator.
 - It fixes or disputes each S1 and S2 and commits, and the factory pushes.
 - The run then goes back through the ci stage and validates the new head again.
@@ -950,7 +980,7 @@ Everything the factory knows about itself is in `data_dir`:
 | `factory.lock` | The lock that keeps a second factory off this directory; the kernel releases it when the process is gone. | Harmless, and pointless: it is taken again on start. |
 | `run-<n>.json` | The record of run `n`: issue, branch, worktree, outcome, versions, warnings, what it owes a notification. | No. The records are how a factory knows after a restart what it holds, which resume it has spent and what it still owes the maintainer. Deleting one makes it forget an issue it holds. |
 | `run-<n>.events.jsonl` | The append-only event log of run `n`, which the dashboard shows. | Only with its record, and only for an issue the factory no longer holds. |
-| `spec-<n>.json` | The record of spec run `n`: the spec, its spec branch and base, its state and the time of its claim. | No. It is how a factory knows after a restart which spec it holds. |
+| `spec-<n>.json` | The record of spec run `n`: the spec, its spec branch and base, its state, the time of its claim and its tickets. | No. It is how a factory knows after a restart which spec it holds. |
 | `spec-<n>.events.jsonl` | The append-only event log of spec run `n`. | Only with its record, and only for a spec the factory no longer holds. |
 | `run-<n>.lock` | The lock the worker of run `n` held; it tells a start whether that worker is still alive. | With the factory stopped, for a run whose record is no longer running. |
 | `repos/<owner>/<name>/` | The clone of a connected repository, in lower case, with the worktrees of the issues the factory holds under `.claude/worktrees/`. | Not while a worktree in it holds commits that are not pushed. Every run that ends without a pull request pushes its worktree, so only a run whose push failed (a warning on it) leaves such commits. The clone of a repository you disconnected may go once its worktrees are pushed. A missing clone is made again on the next start. |

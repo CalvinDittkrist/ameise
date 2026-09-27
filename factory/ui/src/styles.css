@@ -73,7 +73,8 @@ button {
 .state-running {
   --c: var(--accent);
 }
-.state-ready {
+.state-ready,
+.state-merged {
   --c: var(--mint);
 }
 .state-blocked,
