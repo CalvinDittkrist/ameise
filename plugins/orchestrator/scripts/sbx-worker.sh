@@ -13,7 +13,8 @@ branch=$(git -C "$path" rev-parse --abbrev-ref HEAD | tr '/' '-')
 name="wf-$repo-$branch"
 market="${WF_MARKETPLACE:-CalvinDittkrist/workflows}"
 
-if ! sbx ls 2>/dev/null | grep -q "^$name\b"; then
+boxes=$(sbx ls 2>/dev/null || true)
+if ! grep -q "^$name\b" <<<"$boxes"; then
   # Mount only this worktree read-write; the shared skills store stays read-only.
   sbx create claude "$path" --name "$name" --skills readonly -e WF_MODE -e WF_ISSUE -e WF_BASE_BRANCH -q
   sbx exec "$name" sh -c "claude plugin marketplace add '$market' >/dev/null && claude plugin install worker@workflows --scope user >/dev/null && claude plugin install repo-standards@workflows --scope user >/dev/null" \

@@ -32,7 +32,7 @@ trim() { printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
 # A line that ends a line for a reader but not for `read`: a carriage return, a NEL or a line or paragraph
 # separator. A record is printed back into the briefs, where a line at the left margin is a key, so a field
 # may carry none of them.
-has_break() { printf '%s' "$1" | LC_ALL=C grep -q -e $'\r' -e $'\xc2\x85' -e $'\xe2\x80\xa8' -e $'\xe2\x80\xa9'; }
+has_break() { LC_ALL=C grep -q -e $'\r' -e $'\xc2\x85' -e $'\xe2\x80\xa8' -e $'\xe2\x80\xa9' <<<"$1"; }
 
 # Parse the fields after a line's key, separated by |, into f_path f_test f_cat f_reason and f_conf. $2 is how
 # many fields the line carries: five for a hunter's candidate line, four for a removal. Returns 1 with the
@@ -58,7 +58,7 @@ EOF
   # repository tracks, exactly as the rule lists it, so a path through .. or from the root never passes; a
   # removal names the file its commit touched, which the removed command checks against that commit.
   [ -n "$(printf '%s\n' "$f_path" | wf_test_paths)" ] || { problem="$f_path is no test file by the hunt's conventions ($wf_test_file_rule)"; return 1; }
-  if [ "$want" = 5 ] && ! printf '%s\n' "$test_files" | grep -Fxq -- "$f_path"; then
+  if [ "$want" = 5 ] && ! grep -Fxq -- "$f_path" <<<"$test_files"; then
     problem="$f_path is no test file this repository tracks; name it exactly as the brief lists it"; return 1
   fi
   if [ "$want" = 5 ]; then
@@ -77,7 +77,7 @@ rounds() { count_files round; }
 field() { wf_record_field "$1" "$2"; }
 
 # Whether the file $1 at HEAD still names the test $2 as a word: a removed test is gone from its file.
-in_head() { git cat-file -e "HEAD:$1" 2>/dev/null && git show "HEAD:$1" | grep -Fqw -- "$2"; }
+in_head() { local body; git cat-file -e "HEAD:$1" 2>/dev/null && body=$(git show "HEAD:$1") && grep -Fqw -- "$2" <<<"$body"; }
 
 # Records are named by their number, never by their path: the git directory may lie under a path with a
 # space in it, and the lists below are split into words.
@@ -151,7 +151,7 @@ round_files() {
   found=$(found_in $(($1 - 1)))
   [ -n "$found" ] || return 0
   printf '%s\n' "$all" | while IFS= read -r f; do
-    if printf '%s\n' "$found" | grep -Fxq -- "$f"; then printf '%s\n' "$f"; fi
+    if grep -Fxq -- "$f" <<<"$found"; then printf '%s\n' "$f"; fi
   done
 }
 
@@ -335,7 +335,8 @@ $removed_form"
     if [ "${#why}" -gt "$max_reason" ] || [ "${#still}" -gt "$max_reason" ]; then wf_die "the why: and still_proven: lines hold at most $max_reason characters each; say it in one plain sentence"; fi
     case "$still" in yes*|no*) ;; *) wf_die "still_proven: starts with yes or no: 'yes, by <which test>' or 'no, <why no test needs to>'" ;; esac
     ! is_removed "$f_path" "$f_test" || wf_die "$f_test in $f_path is recorded as removed already"
-    git diff-tree --no-commit-id --name-only -r "$head" | grep -Fxq -- "$f_path" ||
+    touched=$(git diff-tree --no-commit-id --name-only -r "$head")
+    grep -Fxq -- "$f_path" <<<"$touched" ||
       wf_die "the last commit does not touch $f_path, so it is not the removal of $f_test; commit the removal on its own, then record it"
     ! in_head "$f_path" "$f_test" || wf_die "$f_path still names $f_test at the last commit, so the commit did not remove it; remove the test, commit, then record it"
     f=$(removal $(( $(count_files removal) + 1 )))

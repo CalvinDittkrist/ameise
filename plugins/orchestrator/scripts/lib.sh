@@ -179,12 +179,12 @@ wf_wait_agent() {
   if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then herdr workspace focus "$HERDR_WORKSPACE_ID" >/dev/null 2>&1 || true; fi
   [ -n "$agent_status" ] && return 0
   out=$(herdr pane read "$pane" --source recent --lines 20 --format text 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
-  if printf '%s' "$out" | grep -q "not found"; then
+  if grep -q "not found" <<<"$out"; then
     start_error="claude exited: $(printf '%s' "$out" | grep "not found" | tail -n 1). The agent's plugin is not loaded in new sessions: install it (claude plugin install <plugin>@workflows) or set WF_CLAUDE_ARGS=\"--plugin-dir <path>\" for the orchestrator."
     return 1
   fi
   # A bare shell prompt as the last line means claude exited (bad flag, crash); a slow start would still show claude.
-  if printf '%s' "$out" | tail -n 1 | grep -Eq '[%$#] ?$'; then
+  if grep -Eq '[%$#] ?$' <<<"${out##*$'\n'}"; then
     start_error="claude exited right after start; the pane is back at the shell prompt. Last output: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' '). Check WF_CLAUDE_ARGS (${WF_CLAUDE_ARGS:-empty}) and run the command by hand in that pane."
     return 1
   fi

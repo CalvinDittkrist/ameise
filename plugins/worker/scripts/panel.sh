@@ -99,7 +99,7 @@ disputed_lines() {
 # note; here they are refused instead, because the worker writes these lines itself and can write one line.
 refuse_line_breaks() {
   local block=$1 what=$2 call=$3
-  printf '%s\n' "$block" | LC_ALL=C grep -q -e $'\r' -e $'\xc2\x85' -e $'\xe2\x80\xa8' -e $'\xe2\x80\xa9' || return 0
+  LC_ALL=C grep -q -e $'\r' -e $'\xc2\x85' -e $'\xe2\x80\xa8' -e $'\xe2\x80\xa9' <<<"$block" || return 0
   wf_die "a line of the $what block carries a carriage return or another line separator, which the record cannot hold: it would read as a line of its own in the brief of the next stage, where a line is a key. Write each line as one line of plain text and record the $what again with $call"
 }
 

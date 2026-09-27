@@ -45,6 +45,9 @@ Public repository of Claude Code plugins for agent-driven development: an orches
 ## Conventions
 - Scripts do, agents decide: anything deterministic lives in `plugins/*/scripts/*.sh`. Skills are short prompts that call scripts.
   - Scripts are bash 3.2 compatible, use `set -euo pipefail` and print `error:` lines on stderr with the fix.
+  - Never pipe text with more than one line into `grep -q` when the match decides an action.
+  - Read a here-string instead (`grep -qxF -e "$x" <<<"$list"`), or test a command substitution (`[ -z "$(...)" ]`).
+  - Under `pipefail` the early exit of `grep -q` can kill the writer with SIGPIPE and turn a match false.
 - Every user-facing behaviour has a test in `tests/` that runs the real script with the `gh`/`herdr` shims in `tests/shims/`.
 - The factory's behaviour has a Go test in `factory/` that starts the real binary. Tests assert observable behaviour, never grep prompt text.
 - Plugins are self-contained (no shared code across plugin directories); duplicated helpers in `lib.sh` are intentional.
