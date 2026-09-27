@@ -913,6 +913,58 @@ func TestTheCompactPinAgreesWithTheOrchestratorsClaim(t *testing.T) {
 	}
 }
 
+// The spec branch is the branch contract with spec as its type: spec/<number>-<slug>. The factory
+// creates it (specBranchName) and finds it again on the remote (remoteSpecBranch); a local claim of a
+// developer's own ticket of a spec run finds it on the remote to take it as its base
+// (wf_remote_spec_branch in the orchestrator's lib.sh). This holds the name the factory creates to the
+// slug of the shell, and runs both lookups over one remote that carries spec branches and near misses
+// of them, so the ticket is cut from the branch the factory integrates on ([ADR 0022]).
+//
+// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
+func TestTheSpecBranchAgreesWithTheOrchestratorsShell(t *testing.T) {
+	t.Parallel()
+	for _, spec := range []Issue{
+		{Number: 100, Title: "Offline mode"},
+		{Number: 9, Title: "Überwachung: Füllstand fällt unter den Schwellwert"},
+		{Number: 41, Title: "Rewrite the ingestion pipeline so that late events are folded into the window they belong to"},
+		{Number: 33, Title: "!!! ??? ..."},
+	} {
+		want := strings.TrimSpace(shell(t, "", `. "$1"; printf 'spec/%s-%s\n' "$2" "$(wf_slug "$3")"`,
+			nil, orchestratorLib(t), strconv.Itoa(spec.Number), spec.Title))
+		if got := specBranchName(spec); got != want {
+			t.Errorf("the factory names the spec branch of %q %q; the orchestrator's shell spells it %q", spec.Title, got, want)
+		}
+		if got := issueFromBranch(specBranchName(spec)); got != strconv.Itoa(spec.Number) {
+			t.Errorf("the factory reads the spec branch %q as the branch of issue %q, want %d", specBranchName(spec), got, spec.Number)
+		}
+	}
+
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	clone := gh.cloneInto(t, t.TempDir(), "acme/edge-sensors")
+	for _, branch := range []string{
+		"spec/100-offline-mode",
+		"spec/100-an-older-title", // the same spec under the title it had when another host claimed it
+		"spec/1000-another-spec",
+		"spec/10-a-shorter-number",
+		"feat/200-a-ticket",
+		"spec/200", // no slug and no hyphen: no spec branch of the contract
+		"specs/300-not-the-type",
+		"feat/spec/400-nested",
+	} {
+		gh.git(t, clone, "push", "-q", "origin", "HEAD:refs/heads/"+branch)
+	}
+	gh.git(t, clone, "fetch", "-q", "--prune", "origin")
+	for _, spec := range []int{100, 1000, 10, 1, 200, 300, 400, 500} {
+		t.Run(strconv.Itoa(spec), func(t *testing.T) {
+			want := strings.TrimSpace(shell(t, clone, `. "$1"; wf_remote_spec_branch "$2"`, nil, orchestratorLib(t), strconv.Itoa(spec)))
+			if got := remoteSpecBranch(context.Background(), clone, spec); got != want {
+				t.Errorf("the factory finds %q as the spec branch of #%d; the orchestrator's shell cuts its ticket from %q", got, spec, want)
+			}
+		})
+	}
+}
+
 // shellBranchName is the branch the orchestrator's claim.sh names for an issue, built by the shell
 // itself out of the helpers in its lib.sh.
 // Which issue a branch belongs to is wf_issue_from_branch in the orchestrator's lib.sh, the rule a
@@ -931,6 +983,8 @@ func TestTheIssueABranchBelongsToAgreesWithTheOrchestratorsShell(t *testing.T) {
 		"chore/7-bump-the-pins",
 		"feat/104-", // a title that slugs to nothing
 		"feat/0104-retry",
+		"spec/104-a-spec-branch-is-the-branch-of-its-spec",
+		"spec/104",
 		"plan/104-a-plan-branch-carries-a-topic",
 		"plan/retry-the-upload",
 		"main",
