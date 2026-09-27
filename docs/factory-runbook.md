@@ -763,6 +763,7 @@ After a repair:
 A repository whose `validate.validators` names reviewers has them validate the pull request once the ci stage reads it green:
 
 - Every validator reads the branch's diff against its base, beside the others, read-only, in the run's worktree.
+- It reads the commit CI passed. A branch that moved on the remote while the run waited is followed there first, and one the worktree cannot fast-forward to blocks the run.
 - Its brief names the base, the head, the commits, the diff and the issue.
 - A validator is a reviewer of the panel under its own prompt and model. `codex` runs on Codex.
 - A host without Codex, or without its login, blocks the run with that reason ([The Codex runtime](#the-codex-runtime)).
@@ -773,6 +774,7 @@ A repository whose `validate.validators` names reviewers has them validate the p
 - The fix sessions are bounded by `validate.rounds`, default `2`. So with `2`, the third validation that does not pass is the last one.
 - Past the budget the run ends `ready` with a review request all the same.
 - The factory then adds a section to the pull request's body. It says the validation did not pass and names the validators and their findings.
+- That section replaces the one an earlier validation wrote, and a later validation that passes takes it out.
 - A fix session that reports `blocked` blocks the run on its words.
 - The validation's fix sessions do not count against `ci.repair_rounds`.
 

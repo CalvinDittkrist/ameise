@@ -13,7 +13,7 @@ Status: accepted
 - When every validator passes, the run ends `ready`.
 - When one does not, one fix session gets every finding. The run goes back through ci.
 - The fix sessions are bounded by `validate.rounds`, default 2. They do not count against `ci.repair_rounds`.
-- Past the budget the run ends `ready` all the same. The factory adds a section to the pull request's body that says the validation did not pass.
+- Past the budget the run ends `ready` all the same. The factory writes a section into the pull request's body that says the validation did not pass, in place of the one an earlier validation wrote, and takes it out once a later validation passes.
 - A resumed run carries the validation on and does not validate a passed head again.
 - The validators' models count toward the quota check ([ADR 0053](0053-the-quota-check-reads-every-runtime-a-run-spends.md)).
 
