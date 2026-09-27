@@ -24,6 +24,13 @@ const stageMerge = "merge"
 // mergedDecision is the decision a poll reads when the pull request of a held issue was merged.
 func mergedDecision(pull string) string { return "the pull request " + pull + " was merged" }
 
+// mergedClosedDecision is the decision a poll reads when a held ticket was closed and the pull request
+// of its run was merged into the spec branch: a person merged it and closed the ticket between two
+// polls, or the factory closed the ticket and stopped before it recorded that.
+func mergedClosedDecision(pull string) string {
+	return mergedDecision(pull) + " and the issue was closed"
+}
+
 // passed ends a run whose validation passed at the commit head. A run of a routed issue ends ready; a
 // ticket run whose panel summary is ready goes on to the merge stage.
 func (f *Factory) passed(parent, ctx context.Context, r *Run, entry Entry, pull, head string) {
@@ -68,34 +75,41 @@ func (f *Factory) merge(parent, ctx context.Context, r *Run, entry Entry, pull, 
 	}
 	f.runs.event(r, Event{Kind: "factory", Title: "merged " + pull + " into " + r.Base,
 		Body: "ci is green, the panel summary is ready and the validation passed, so the pull request is squash-merged under its title"})
-	f.ticketMerged(ctx, r.Repository, r.Spec, entry.Number, pull)
-	f.finish(r, outcomeMerged, "the pull request "+pull+" is squash-merged into the spec branch "+r.Base+" and the ticket is closed", nil)
+	reason := "the pull request " + pull + " is squash-merged into the spec branch " + r.Base + " and the ticket is closed"
+	if !f.ticketMerged(ctx, r.Repository, r.Spec, entry.Number, pull, false) {
+		reason = "the pull request " + pull + " is squash-merged into the spec branch " + r.Base + "; the ticket is not closed yet, and the poll that reads the merge closes it"
+	}
+	f.finish(r, outcomeMerged, reason, nil)
 }
 
 // ticketMerged records a ticket whose pull request is merged into the spec branch on its spec run, and
 // closes the ticket with a comment that names the pull request when the record says it is open. It is made
 // by the merge stage, and by the poll that reads a ticket's pull request merged: a person merged it,
-// or the factory stopped between its merge and this.
-func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, ticket int, pull string) {
+// or the factory stopped between its merge and this. closed says the ticket is closed on GitHub
+// already, so it is recorded closed without a comment. It answers whether the ticket is closed, or has
+// no spec run to be recorded on: a ticket it could not close is held until a later poll closes it.
+func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, ticket int, pull string, closed bool) bool {
 	s, ok := f.specRunOf(repository, spec)
 	if !ok {
-		return
+		return true
 	}
-	marked, closed := false, false
+	alreadyClosed := closed
+	marked := false
 	f.specs.update(s, func() {
 		i := s.ticket(ticket, "")
 		if s.Tickets[i].MergedAt == nil {
 			now := time.Now()
 			s.Tickets[i].MergedAt, s.Tickets[i].PullRequest, marked = &now, pull, true
 		}
-		closed = s.Tickets[i].Closed
+		closed = s.Tickets[i].Closed || alreadyClosed
+		s.Tickets[i].Closed = closed
 	})
 	if marked {
 		f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("ticket #%d merged", ticket),
 			Body: "its pull request " + pull + " is merged into the spec branch " + s.Branch})
 	}
 	if closed {
-		return // closed once already, by the merge stage or by the poll that read the merge
+		return true // closed once already, by the merge stage, by the poll that read the merge or by a person
 	}
 	comment := "The pull request " + pull + " is merged into the spec branch " + s.Branch + " of the spec run of #" + strconv.Itoa(spec) +
 		". GitHub closes no issue on a merge into a branch other than the default one, so the factory closes this ticket.\n"
@@ -107,10 +121,11 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 		if ctx.Err() == nil {
 			f.specs.warn(s, "ticket not closed", fmt.Sprintf("ticket #%d of %s is merged by %s and could not be closed: %v; close it by hand", ticket, repository, pull, err))
 		}
-		return // the record says open, as the ticket is
+		return false // the record says open, as the ticket is
 	}
 	f.specs.update(s, func() { s.Tickets[s.ticket(ticket, "")].Closed = true })
 	log.Printf("spec run %d (%s#%d): ticket #%d is merged by %s and closed", s.ID, repository, spec, ticket, pull)
+	return true
 }
 
 // mergeRequest is the body of the call that squash-merges a pull request.

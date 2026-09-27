@@ -218,6 +218,9 @@ type Held struct {
 	// Ticket says this is a ticket of a spec run, which is held by the spec-run label and not by the
 	// routing label (ticket.go).
 	Ticket bool
+	// Base is the spec branch a ticket's pull request goes into. A merge into any other branch is no
+	// merge of the ticket into its spec run.
+	Base string
 }
 
 func (h Held) key() string { return Issue{Repository: h.Repository, Number: h.Number}.key() }
@@ -479,6 +482,9 @@ func (f *Factory) heldIssuesDue() []Held {
 		}
 		issue := Held{Repository: connected.Name, Number: h.run.Issue, Branch: h.run.Branch,
 			PullRequest: h.pullRequest, Running: !h.idle, Ticket: h.run.Spec != 0}
+		if issue.Ticket {
+			issue.Base = h.run.Base
+		}
 		state := fmt.Sprintf("%s|%t|%s", issue.key(), h.idle, h.pullRequest)
 		last, known := f.askedHeld[state]
 		if h.idle && known && now.Sub(last) < time.Duration(heldPolls)*f.settings.Poll {
@@ -545,9 +551,17 @@ func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
 			return // the deadline is spent; what is left is still held and is let go from a later poll
 		}
 		// A ticket's pull request merged into the spec branch by a person, or by a merge stage the factory
-		// stopped in, is recorded on its spec run and its ticket closed, as the merge stage does.
-		if h := held[key]; h.run.Spec != 0 && letGo[key] == mergedDecision(h.pullRequest) {
-			f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest)
+		// stopped in, is recorded on its spec run and its ticket closed, as the merge stage does. A ticket
+		// that could not be closed stays held, and the next poll that reads the merge closes it again.
+		if h := held[key]; h.run.Spec != 0 {
+			switch letGo[key] {
+			case mergedDecision(h.pullRequest):
+				if !f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, false) {
+					continue
+				}
+			case mergedClosedDecision(h.pullRequest):
+				f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, true)
+			}
 		}
 		f.letGo(pass, held[key], letGo[key])
 	}

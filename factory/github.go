@@ -406,6 +406,18 @@ func (g *gitHub) decided(ctx context.Context, held Held) (string, error) {
 		label, which = specRunLabel(g.label), "the spec-run label "
 	}
 	switch {
+	case issue.State == "closed" && held.Ticket && held.PullRequest != "":
+		// A ticket closed after its pull request was merged into the spec branch is recorded on its spec
+		// run before it is let go, so the pull request is read for it.
+		// A pull request that cannot be read is asked again on the next poll rather than lost.
+		decision, err := g.decidedOnPull(ctx, held)
+		if err != nil {
+			return "", err
+		}
+		if decision == mergedDecision(held.PullRequest) {
+			return mergedClosedDecision(held.PullRequest), nil
+		}
+		return "the issue was closed", nil
 	case issue.State == "closed":
 		return "the issue was closed", nil
 	case !issue.hasLabel(label):
@@ -442,6 +454,10 @@ func (g *gitHub) decidedOnPull(ctx context.Context, held Held) (string, error) {
 		return "", nil
 	}
 	switch {
+	case pull.Merged && held.Ticket && held.Base != "" && pull.Base.Ref != held.Base:
+		// A ticket's pull request a person turned to another branch and merged there never reached the
+		// spec branch: the ticket is let go and not recorded merged.
+		return "the pull request " + held.PullRequest + " was merged into " + pull.Base.Ref + " and not into the spec branch " + held.Base, nil
 	case pull.Merged:
 		return mergedDecision(held.PullRequest), nil
 	case pull.State == "closed":
