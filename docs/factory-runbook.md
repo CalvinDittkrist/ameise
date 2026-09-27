@@ -495,7 +495,7 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
 - Every poll reads the routed specs beside the routed issues. The factory claims a routed spec while no run is going.
   - It creates the spec branch `spec/<number>-<slug>` through the API, from the base the base branch rule names. Exactly one claimer wins.
   - It then assigns itself to the spec. The spec run holds the spec, idle: it starts no session yet.
-- A spec branch that stands on the remote already ends the spec run `lost`, and nothing is touched. Delete the branch and set the spec-run label again to claim the spec.
+- A spec branch already on the remote ends the spec run `lost`, and nothing is touched. Delete the branch and set the spec-run label again to claim the spec.
 - A held spec is read on every poll. Take the spec-run label off, or close the spec, to let it go.
   - The factory takes its assignee off and records the letting-go on the spec run.
   - The spec branch stays, with everything on it.
