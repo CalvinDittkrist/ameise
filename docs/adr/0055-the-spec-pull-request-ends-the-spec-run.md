@@ -8,7 +8,7 @@ Status: accepted
 - A ticket that carries `ready-for-human`, or is blocked, is no work for the factory, and a spec run could wait on it without anyone knowing.
 
 ## Decision
-- Once every sub-issue of the spec is closed, a run on the spec itself (signal `spec-pull`) opens the spec pull request from the spec branch to the base.
+- A run on the spec itself (signal `spec-pull`) starts once every sub-issue of the spec is closed. It opens the spec pull request from the spec branch to the base.
 - Its body says `Part of #<spec>`, never `Closes`: the acceptance stays with the planner.
 - It goes through the ci stage alone, within the repair budget. Green ends it `ready` with a review request, and a person merges it.
 - The poll that reads it merged ends the spec run `done`.
