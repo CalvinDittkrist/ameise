@@ -51,6 +51,14 @@ func (issue ghIssue) inRepository(repository string) bool {
 	return strings.HasSuffix(repositoryKey(issue.RepositoryURL), "/repos/"+repositoryKey(repository))
 }
 
+// repositoryName is the owner/name of the repository the issue is in, read from its API address.
+func (issue ghIssue) repositoryName() string {
+	if _, name, ok := strings.Cut(issue.RepositoryURL, "/repos/"); ok {
+		return name
+	}
+	return issue.RepositoryURL
+}
+
 // subIssuesRequest is the list of the sub-issues of one issue, one page of it as the issue list is.
 func subIssuesRequest(repository string, number int) string {
 	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/sub_issues?per_page=100"
@@ -59,8 +67,9 @@ func subIssuesRequest(repository string, number int) string {
 // specTickets reads the sub-issues of a held spec and keeps the tickets a ticket run may take. When
 // the spec-run label was last set on a ticket is read from its event list, as the routing of an issue
 // is, together with its assignments, which carry the release of a ticket this factory holds. It
-// answers with every sub-issue of the spec's repository as well, open or closed, which the end of the
-// spec run is decided from (specpull.go).
+// answers with every sub-issue as well, open or closed, which the end of the spec run is decided from
+// (specpull.go): one from another repository is kept there, since the spec is not done while it is
+// open, and is never a ticket.
 func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, []subIssue, error) {
 	raw, err := gh(ctx, "api", subIssuesRequest(held.Repository, held.Number))
 	if err != nil {
@@ -72,7 +81,11 @@ func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, []subIssu
 	}
 	out, subs := []Issue{}, []subIssue{}
 	for _, issue := range issues {
-		if !issue.inRepository(held.Repository) || issue.PullRequest != nil {
+		if issue.PullRequest != nil {
+			continue
+		}
+		if !issue.inRepository(held.Repository) {
+			subs = append(subs, subIssue{Number: issue.Number, Title: issue.Title, Open: issue.State == "open", Elsewhere: issue.repositoryName()})
 			continue
 		}
 		subs = append(subs, subIssue{Number: issue.Number, Title: issue.Title, Open: issue.State == "open",

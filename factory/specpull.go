@@ -32,13 +32,17 @@ const humanLabel = "ready-for-human"
 // spec is closed. Its run is a first run, on the spec branch the spec run holds.
 const signalSpecPull = "spec-pull"
 
-// subIssue is one sub-issue of a held spec in the spec's repository, as a poll read it.
+// subIssue is one sub-issue of a held spec, as a poll read it.
 type subIssue struct {
-	Number  int
-	Title   string
-	Open    bool
-	Human   bool // it carries ready-for-human
-	Blocked bool // an open issue blocks it
+	Number int
+	Title  string
+	// Elsewhere is the repository of a sub-issue from another repository, and empty for one of the
+	// spec's own. Such a sub-issue is no ticket the factory takes, but the spec is not done while it is
+	// open.
+	Elsewhere string
+	Open      bool
+	Human     bool // it carries ready-for-human
+	Blocked   bool // an open issue blocks it
 }
 
 // specPull says the run is the run of a spec pull request: a run on the spec itself, of its spec run.
@@ -55,7 +59,8 @@ func (f *Factory) specPullsDue(records []Run) []Entry {
 	out := []Entry{}
 	for _, s := range f.specs.list() {
 		connected, ok := f.connected(s.Repository)
-		subs, known := read[s.key()]
+		current, known := read[s.key()]
+		subs := withIntegrated(s, current)
 		if !ok || !known || len(subs) == 0 || s.State != specHolding || !s.Idle || s.ClaimedAt == nil || s.Branch == "" {
 			continue
 		}
@@ -98,6 +103,9 @@ func (f *Factory) takeSpecBranch(ctx context.Context, r *Run, entry Entry) (clai
 		return held, err
 	}
 	held.base = base
+	// The run records it too: the merge of its pull request is read against the run's base, and a
+	// restart or a follow-up run resumes from it.
+	f.runs.update(r, func() { r.Base = base })
 	if s.Base != base {
 		f.specs.update(s, func() { s.Base = base })
 	}
@@ -133,7 +141,7 @@ func (f *Factory) openSpecPull(parent, ctx context.Context, r *Run, entry Entry,
 	f.mu.Lock()
 	subs := f.subIssues[held.key()]
 	f.mu.Unlock()
-	body := specPullBody(held, subs)
+	body := specPullBody(held, withIntegrated(held, subs))
 	url, err := f.source.createPull(ctx, entry.Repository, newPull{Title: specPullTitle(held.Title), Head: claim.branch, Base: claim.base, Body: body, issue: r.Issue})
 	if err != nil {
 		if !f.halted(parent, ctx, r, "opened the spec pull request") {
@@ -147,8 +155,23 @@ func (f *Factory) openSpecPull(parent, ctx context.Context, r *Run, entry Entry,
 	f.ci(parent, ctx, r, entry, claim, url, false)
 }
 
-// specPullTitle is the title of a spec pull request, which the squash merge takes as its subject.
-func specPullTitle(title string) string { return "feat: " + title }
+// specPullTitle is the title of a spec pull request, which the squash merge takes as its subject. It
+// is cut to the longest title the factory takes, as the title of any pull request it opens.
+func specPullTitle(title string) string { return cut("feat: "+title, maxTitle) }
+
+// withIntegrated is the sub-issues of a spec with the tickets its spec run merged into the spec branch
+// that are no longer on the list: a maintainer may take a ticket off the spec once its work is
+// integrated, and that work is still part of the spec pull request. Such a ticket counts as closed.
+func withIntegrated(s SpecRun, subs []subIssue) []subIssue {
+	out := slices.Clone(subs)
+	for _, t := range s.Tickets {
+		if t.MergedAt == nil || slices.ContainsFunc(subs, func(i subIssue) bool { return i.Elsewhere == "" && i.Number == t.Issue }) {
+			continue
+		}
+		out = append(out, subIssue{Number: t.Issue, Title: t.Title})
+	}
+	return out
+}
 
 // specPullBody is the body of a spec pull request: the spec it is part of, and every ticket with the
 // pull request that merged it into the spec branch, or a note that none of the factory's did.
@@ -161,6 +184,10 @@ func specPullBody(s SpecRun, subs []subIssue) string {
 	}
 	lines := []string{}
 	for _, t := range subs {
+		if t.Elsewhere != "" {
+			lines = append(lines, fmt.Sprintf("- %s#%d %s: in another repository", t.Elsewhere, t.Number, t.Title))
+			continue
+		}
 		pull := pulls[t.Number]
 		if pull == "" {
 			pull = "closed without a pull request the factory merged"
@@ -230,12 +257,13 @@ func (f *Factory) ticketsOfSpecsLetGo(held map[string]holding, letGo map[string]
 
 // waitsOn is the tickets of a person a spec run waits for: the open sub-issues that carry
 // ready-for-human, when every open sub-issue carries it or is blocked. Otherwise there is a ticket the
-// factory may still take, or one it works, and the spec run waits for nobody.
+// factory may still take, or one it works, and the spec run waits for nobody. A sub-issue from another
+// repository is no ticket of the spec's repository and is left out.
 func waitsOn(subs []subIssue) []int {
 	people := []int{}
 	for _, t := range subs {
 		switch {
-		case !t.Open:
+		case !t.Open || t.Elsewhere != "":
 		case t.Human:
 			people = append(people, t.Number)
 		case !t.Blocked:
