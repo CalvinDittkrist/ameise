@@ -196,3 +196,38 @@ export function canRepo(m: Machine, repository: string, defaultBranch: string) {
 export function read(path: string): string {
   return readFileSync(path, 'utf8')
 }
+
+// canApi cans the answer of gh api <endpoint> on the fake GitHub, an endpoint such as
+// repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100.
+export function canApi(m: Machine, endpoint: string, answer: unknown) {
+  const file = join(m.github, 'api', endpoint)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(answer))
+}
+
+// canPages cans the answer of gh api --paginate <endpoint> as GitHub writes it over several pages: one
+// JSON array per page, one after the other.
+export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {
+  const file = join(m.github, 'api', endpoint)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, pages.map((p) => JSON.stringify(p)).join('\n'))
+}
+
+// canPulls cans the open pull requests of a repository, as gh pr list answers them.
+export function canPulls(m: Machine, repository: string, pulls: unknown[]) {
+  mkdirSync(join(m.github, 'repos', repository), { recursive: true })
+  writeFileSync(join(m.github, 'repos', repository, 'pulls.json'), JSON.stringify(pulls))
+}
+
+// worktree adds a worktree of the checkout on a new branch, where the local workflow keeps them.
+export function worktree(dir: string, branch: string): string {
+  const path = join(dir, '.claude', 'worktrees', branch.replace(/\//g, '-'))
+  execFileSync('git', ['-C', dir, 'worktree', 'add', '-q', '-b', branch, path], { stdio: 'pipe' })
+  return path
+}
+
+// record writes a process record into the machine's state directory, as the controller keeps one.
+export function record(m: Machine, id: string, r: Record<string, unknown>) {
+  mkdirSync(join(m.state, 'processes'), { recursive: true })
+  writeFileSync(join(m.state, 'processes', `${id}.json`), JSON.stringify(r))
+}

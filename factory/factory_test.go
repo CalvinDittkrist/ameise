@@ -1359,8 +1359,15 @@ func (f *factory) stop(t *testing.T, signal syscall.Signal) {
 // serves it.
 func (f *factory) ended(t *testing.T, id int) apiRun {
 	t.Helper()
+	return f.endedWithin(t, id, 90*time.Second)
+}
+
+// endedWithin waits that long for the run to end. A run the factory has not claimed yet answers 404,
+// which is no failure but a run still to come.
+func (f *factory) endedWithin(t *testing.T, id int, within time.Duration) apiRun {
+	t.Helper()
 	var run apiRun
-	f.eventually(t, 90*time.Second, fmt.Sprintf("run %d to end", id), func() bool {
+	f.eventually(t, within, fmt.Sprintf("run %d to end", id), func() bool {
 		run = apiRun{}
 		response, err := http.Get(fmt.Sprintf("http://%s/api/runs/%d", f.address, id))
 		if err != nil {

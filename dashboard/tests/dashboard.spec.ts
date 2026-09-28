@@ -2,7 +2,8 @@ import { test as base, expect, type Page } from "@playwright/test"
 
 // The dashboard read the way the maintainer reads it: in a browser, against the real controller in fake
 // mode (tests/controller.ts). Its projects are edge-sensors (base main) and backtest (base dev), both
-// clones of a GitHub repository, and notes, a directory that is no checkout.
+// clones of a GitHub repository with processes, frontier and a spec ready for acceptance, and notes, a
+// directory that is no checkout.
 
 const url = (path = "/") => process.env.WORKFLOWS_URL + path
 const sidebar = (page: Page) => page.locator("[data-slot=sidebar]")
@@ -41,11 +42,54 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
   await expect(sidebar(page).getByText("Quota")).toBeVisible()
 })
 
-test("the Orchestrator page shows its three sections, each empty", async ({ page }) => {
+// section is the card of that title, its rows each the item the row names.
+const section = (page: Page, title: string) => main(page).locator(`[data-slot=card][aria-label="${title}"]`)
+const rows = (page: Page, title: string) => section(page, title).locator("[data-slot=item]")
+
+test("the Orchestrator page sorts the processes of every project into needs you and running, beside the frontier", async ({ page }) => {
   await page.goto(url())
   await expect(page.locator("header")).toHaveText(/Orchestrator3 projects$/)
-  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you0", "Running0", "Ready to start0"])
-  await expect(sections(page).locator("[data-slot=empty]")).toHaveText(["Nothing waits for you", "Nothing running", "Frontier empty"])
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you4", "Running3", "Ready to start3"])
+  expect(await rows(page, "Needs you").evaluateAll((r) => r.map((x) => x.getAttribute("aria-label")))).toEqual([
+    "feat/118-refuse-a-project-without-origin",
+    "fix/131-log-the-sensor-drift",
+    "plan/open-20260928-0011",
+    "#100",
+  ])
+  await expect(rows(page, "Needs you").getByRole("button")).toHaveText(["Answer", "Merge", "Continue", "Accept"])
+  await expect(rows(page, "Needs you").first()).toContainText("edge-sensors#118feat/118-refuse-a-project-without-originAsks: keep the project in the file, or drop it?implement2h")
+  expect(await rows(page, "Running").evaluateAll((r) => r.map((x) => x.getAttribute("aria-label")))).toEqual([
+    "feat/142-read-the-configuration",
+    "feat/88-reconnect-the-broker-stream",
+    "hunt/tests-2026-09-27",
+  ])
+  await expect(rows(page, "Running").getByRole("button")).toHaveText(["Open", "Open", "Open"])
+  await expect(rows(page, "Running").nth(1)).toContainText("PR #251, checks pendingci1h")
+  await expect(rows(page, "Ready to start")).toHaveText([
+    /^edge-sensors#144Board lists every project with its processesv0\.12\.0ClaimPlan$/,
+    /^edge-sensors#145Claim from the frontier by one actionv0\.12\.0ClaimPlan$/,
+    /^backtest#91Backfill candles after a gapv2\.4\.0ClaimPlan$/,
+  ])
+
+  // The page shows what the API answers, derived again on every request.
+  const board = await (await fetch(url("/api/board"))).json()
+  expect(board.projects.map((p: { frontier?: { number: number }[] }) => p.frontier?.map((i) => i.number))).toEqual([[144, 145], [91], undefined])
+})
+
+test("while the board is derived the sections wait, and never say they are empty", async ({ page }) => {
+  let release = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route("**/api/board", async (r) => {
+    await held
+    await r.continue()
+  })
+  await page.goto(url())
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you", "Running", "Ready to start"])
+  await expect(main(page).locator("[aria-busy=true]")).toHaveCount(3)
+  await expect(main(page)).not.toContainText("Nothing waits for you")
+  await expect(main(page)).not.toContainText("Frontier empty")
+  release()
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you4", "Running3", "Ready to start3"])
 })
 
 test("a project opens its page from the sidebar, and the page survives a reload", async ({ page }) => {
@@ -53,9 +97,12 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await projects(page).getByRole("link", { name: "backtest" }).click()
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
   await expect(page.getByText("acme · base dev")).toBeVisible()
-  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Processes0", "Ready to start0"])
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Processes2", "Ready to start1"])
+  await expect(rows(page, "Processes").getByRole("button")).toHaveText(["Open", "Open"])
+  await expect(rows(page, "Processes").first()).not.toContainText("backtest")
+  await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
   for (const action of ["Plan", "Standardize", "Hunt tests", "Release"]) {
-    await expect(page.getByRole("button", { name: action })).toBeDisabled()
+    await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeDisabled()
   }
   await expect(projects(page).getByRole("link", { name: "backtest" })).toHaveAttribute("data-active", "true")
 
@@ -74,6 +121,13 @@ test("on a phone the sidebar closes on the page it opens, and the project page f
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
   await expect(sheet).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+test("a project page shows its specs ready for acceptance", async ({ page }) => {
+  await page.goto(url())
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Processes4", "Ready to start2", "Ready for acceptance1"])
+  await expect(rows(page, "Ready for acceptance")).toHaveText([/^#100Offline modeEvery ticket is closedv0\.12\.0Accept$/])
 })
 
 test("a project whose checkout no longer derives shows the controller's reason", async ({ page }) => {
@@ -96,7 +150,7 @@ test("a project page whose projects cannot be read says why, not that the projec
   await expect(main(page)).not.toContainText("No such project")
 })
 
-test("add project refuses a path with the controller's reason and adds a checkout", async ({ page }) => {
+test("add project refuses a path with the controller's reason and adds a checkout, whose notes both pages show", async ({ page }) => {
   const spare = process.env.WORKFLOWS_SPARE!
   await page.goto(url())
   try {
@@ -111,6 +165,12 @@ test("add project refuses a path with the controller's reason and adds a checkou
     await expect(dialog).toBeHidden()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("firmware")
     await expect(projects(page).getByRole("link")).toHaveText(["edge-sensors", "backtest", "notes", "firmware"])
+
+    // GitHub does not answer the open specs of firmware, and both pages say so above the sections.
+    const note = "firmware: could not read the open specs; ready for acceptance is empty, not idle"
+    await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
+    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
   } finally {
     await fetch(url("/api/projects"), {
       method: "DELETE",
@@ -137,6 +197,8 @@ for (const scheme of ["light", "dark"] as const) {
 
     for (const name of ["orchestrator", "project"] as const) {
       test(`the ${name} page holds its layout`, async ({ page }) => {
+        // Tall enough for every section of the board the fake mode serves.
+        await page.setViewportSize({ width: 1440, height: 1040 })
         await page.goto(url())
         await expect(projects(page).getByRole("link")).toHaveCount(3)
         if (name === "project") await projects(page).getByRole("link", { name: "edge-sensors" }).click()

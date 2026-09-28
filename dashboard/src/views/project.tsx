@@ -1,22 +1,25 @@
 import { ChevronDownIcon, TriangleAlertIcon } from "lucide-react"
+import { IssueRow, Notes, ProcessRow } from "@/components/rows"
 import { Section } from "@/components/section"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { broken, type Listed } from "@/api"
+import { broken, type Board, type Listed, type ProjectBoard } from "@/api"
 
-// The project page: the project's facts and actions, its processes and its frontier. The actions and
-// the sections wait for the processes and the frontier the controller does not serve yet.
+// The project page: the project's facts and actions, its processes, its frontier and, when there are
+// any, its specs ready for acceptance. The actions wait for the controller to serve them.
 // failed is the reason the projects could not be read, which leaves open whether this one is a project.
 export function ProjectView({
   path,
   project,
   loading,
   failed,
+  board,
 }: {
   path: string
   project?: Listed
   loading: boolean
   failed?: string
+  board: Board
 }) {
   if (loading) return null
   if (failed) {
@@ -55,6 +58,9 @@ export function ProjectView({
       </Empty>
     )
   }
+  const found = board.state === "loaded" ? board.projects.find((x) => x.path === project.path) : undefined
+  const b = found && !broken(found) ? (found as ProjectBoard) : undefined
+  const pending = board.state === "loading"
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -71,8 +77,19 @@ export function ProjectView({
           </Button>
         </div>
       </div>
-      <Section title="Processes" count={0} empty="Nothing running" />
-      <Section title="Ready to start" count={0} empty="Frontier empty" />
+      {board.state === "failed" && <p role="alert" className="text-sm text-destructive">{board.error}</p>}
+      {b && <Notes boards={[b]} />}
+      <Section title="Processes" count={b?.processes.length ?? 0} empty="Nothing running" loading={pending}>
+        {b?.processes.map((p) => <ProcessRow key={p.branch} p={p} />)}
+      </Section>
+      <Section title="Ready to start" count={b?.frontier.length ?? 0} empty="Frontier empty" loading={pending}>
+        {b?.frontier.map((i) => <IssueRow key={i.number} i={i} />)}
+      </Section>
+      {b && b.acceptance.length > 0 && (
+        <Section title="Ready for acceptance" count={b.acceptance.length} empty="">
+          {b.acceptance.map((i) => <IssueRow key={i.number} i={i} accept />)}
+        </Section>
+      )}
     </>
   )
 }

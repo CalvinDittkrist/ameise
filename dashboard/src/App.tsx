@@ -1,14 +1,19 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { label, useProjects } from "@/api"
+import { label, useBoard, useProjects } from "@/api"
 import { useRoute } from "@/route"
 import { Orchestrator } from "@/views/orchestrator"
 import { ProjectView } from "@/views/project"
 
 export default function App() {
   const route = useRoute()
-  const [projects, reload] = useProjects()
+  const [projects, reloadProjects] = useProjects()
+  const [board, reloadBoard] = useBoard()
+  // A project added from the sidebar shows on the board at once.
+  const reload = async () => {
+    await Promise.all([reloadProjects(), reloadBoard()])
+  }
   const listed = projects.state === "loaded" ? projects.projects : []
   const project = route.page === "project" ? listed.find((p) => p.path === route.path) : undefined
   const title = route.page === "orchestrator" ? "Orchestrator" : project ? label(project) : "Project"
@@ -28,13 +33,14 @@ export default function App() {
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
           {route.page === "orchestrator" ? (
-            <Orchestrator />
+            <Orchestrator board={board} />
           ) : (
             <ProjectView
               path={route.path}
               project={project}
               loading={projects.state === "loading"}
               failed={projects.state === "failed" ? projects.error : undefined}
+              board={board}
             />
           )}
         </div>
