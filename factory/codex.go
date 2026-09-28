@@ -54,17 +54,22 @@ func (s session) on() string {
 // schema and its last message written to a file the factory reads as the structured result
 // (https://learn.chatgpt.com/docs/developer-commands?surface=cli,
 // https://learn.chatgpt.com/codex/non-interactive-mode and codex-rs/exec/src/cli.rs of openai/codex,
-// checked on 2026-09-27). Its standard input is closed: with it open, Codex waits for more of the
-// prompt before it starts. The configured worker arguments are Claude Code's and go to no Codex call.
+// checked on 2026-09-27). The prompt goes in on its standard input, which is closed after it, and the
+// call names it `-`: Codex then reads the prompt from stdin alone, while a prompt in the arguments
+// with a stdin that is no terminal has it print "Reading additional input from stdin..." on its error
+// output, which the factory records as an error of the session, and append whatever stdin holds
+// (resolve_root_prompt in codex-rs/exec/src/lib.rs, rust-v0.155.0, checked on 2026-09-28). It also
+// keeps a long brief clear of the 128 KiB Linux holds an argument to. The configured worker arguments
+// are Claude Code's and go to no Codex call.
 func codexCommand(ctx context.Context, s session, claim claimed) *exec.Cmd {
 	args := []string{"exec", "--sandbox", "read-only", "--cd", claim.worktree, "--ephemeral", "--skip-git-repo-check",
 		"--ignore-user-config", "--ignore-rules",
 		"-c", "model_reasoning_effort=\"" + codexReasoning + "\"",
-		"--output-schema", s.schemaFile, "--json", "-o", s.lastMessage, "-m", s.model, s.prompt}
+		"--output-schema", s.schemaFile, "--json", "-o", s.lastMessage, "-m", s.model, "-"}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = claim.worktree
 	cmd.Env = workerEnv(os.Environ(), nil)
-	cmd.Stdin = nil // the null device: exec reads nothing into it
+	cmd.Stdin = strings.NewReader(s.prompt) // exec copies it into a pipe and closes the pipe after it
 	return cmd
 }
 

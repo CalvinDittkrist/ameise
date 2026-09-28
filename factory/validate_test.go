@@ -109,8 +109,13 @@ func TestTwoValidatorsReadTheGreenPullRequestBesideEachOther(t *testing.T) {
 			t.Errorf("the validators' brief does not carry %q:\n%s", want, brief)
 		}
 	}
-	if said := calls[0].args[len(calls[0].args)-1]; !strings.Contains(said, "read-only sandbox") || !strings.Contains(said, "Validate the branch") || !strings.Contains(said, "at "+short(head)) {
+	if said := calls[0].stdin; calls[0].args[len(calls[0].args)-1] != "-" || !strings.Contains(said, "read-only sandbox") || !strings.Contains(said, "Validate the branch") || !strings.Contains(said, "at "+short(head)) {
 		t.Errorf("the Codex validator was briefed with %q, want the reviewer's prompt and the validation's brief at %s", said, short(head))
+	}
+	for _, e := range run.Events {
+		if e.Kind == "error" && strings.HasPrefix(e.Title, "codex: ") {
+			t.Errorf("the run records the error %q of a Codex validator that passed, want none", e.Title)
+		}
 	}
 	if titles := factoryTitles(run, "senior: pass", "codex: pass", "validation round 1 passed"); len(titles) != 3 {
 		t.Errorf("the run's events carry %v, want each validator's verdict and the pass", titles)

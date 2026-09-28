@@ -134,11 +134,11 @@ type Factory struct {
 	// reviewsEarly says that reviews was read while a run was going: a run that ends between
 	// that reading and the start of the next one has not been asked about yet.
 	reviewsEarly bool
-	// lineEarly says that the queue, the tickets and the sub-issues were read while a run was going: the
-	// run that ends before the next dispatch may have closed a ticket that reading still has open.
-	lineEarly  bool
-	unreadable map[string]string
-	polledAt   time.Time
+	unreadable   map[string]string
+	polledAt     time.Time
+	// readFrom is when the last poll began to read the line. A run that ended after it may have
+	// changed what the line holds, such as a merged ticket that unblocks the next one of its spec.
+	readFrom   time.Time
 	connecting bool
 	user       string          // the login this host's gh is logged in as, read once and kept
 	held       map[string]bool // repositories this factory claims nothing from, so the log says it once
@@ -423,7 +423,7 @@ func sortRouted(issues []Issue) {
 //
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
 func (f *Factory) refreshQueue(ctx context.Context) poll {
-	early := slices.ContainsFunc(f.runs.list(), func(r Run) bool { return r.EndedAt == nil })
+	from := time.Now()
 	held := f.heldIssuesDue()
 	if !f.Paused() {
 		held = append(held, f.heldSpecs()...)
@@ -435,7 +435,8 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	sortTickets(read.tickets)
 	f.mu.Lock()
 	f.queue, f.specQueue, f.tickets, f.unreadable, f.polledAt = queue, read.specs, read.tickets, read.unreadable, time.Now()
-	f.subIssues, f.lineEarly = read.subIssues, early
+	f.readFrom = from
+	f.subIssues = read.subIssues
 	f.mu.Unlock()
 	return read
 }
@@ -642,23 +643,22 @@ func (f *Factory) dispatch(ctx context.Context) {
 	if f.Paused() || f.Draining() || ctx.Err() != nil {
 		return
 	}
+	f.mu.Lock()
+	from := f.readFrom
+	f.mu.Unlock()
 	for _, r := range f.runs.list() {
-		if r.EndedAt == nil {
+		// A run that ended while this poll read the line may have closed a ticket the line counts as
+		// open. That ticket then still blocks the next one of its spec. The wake its end sent polls
+		// again at once, and that poll starts the head of the line it reads.
+		if r.EndedAt == nil || r.EndedAt.After(from) {
 			return
 		}
 	}
-	f.mu.Lock()
-	stale, early := f.lineEarly, f.reviewsEarly
-	f.mu.Unlock()
-	// The run that was going when this poll read the line has ended since. A ticket it closed may be
-	// what makes the next ticket or the spec pull request due, which the reading does not show yet, so
-	// nothing starts from it: the end of the run has woken the loop, and its next poll reads the line
-	// again.
-	if stale {
-		return
-	}
 	// The run that was going when this poll read the reviews has ended since, and a review of its pull
 	// request would stand behind whatever the line starts next if it were not read now.
+	f.mu.Lock()
+	early := f.reviewsEarly
+	f.mu.Unlock()
 	if early {
 		f.refreshReviews(ctx)
 	}
@@ -1245,6 +1245,10 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	defer f.runs.update(r, func() { r.ungrouped(pid) })
 	started := Event{Kind: "factory", Title: "worker started",
 		Body: fmt.Sprintf("runtime %s, model %s\n%v", sessioned.Runtime, sessioned.Model, cmd.Args)}
+	if codex {
+		// A Codex session takes its prompt on stdin, where the call names it -; the record shows it after the call.
+		started.Body += "\nprompt on stdin:\n" + s.prompt
+	}
 	if label != "" {
 		started.Title = label + ": " + started.Title
 	}
