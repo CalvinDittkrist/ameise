@@ -57,7 +57,7 @@ The board is derived on every request from the state directory, git and GitHub, 
   - Each has `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
   - A record decides state, stage and note.
-  - A work worktree without one is `foreign`: this controller did not start it, and its note names its pull request.
+  - A work worktree without one is `foreign`: this controller did not start it, and its note names its pull request when it has one.
   - A worktree of another kind without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
   - A claimed process is `created` until its first session starts.
   - `blocked`, `approval`, `ready`, `input`, `interrupted` and `foreign` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume` or `Adopt`.
@@ -125,7 +125,8 @@ Stopping and starting the controller loses no process.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
-- An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project, `interrupted` without a session, which a resume starts.
+- An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project.
+  - The record is `interrupted` without a session, and a resume starts its session.
   - It refuses an issue that has a process already and one without a work worktree.
   - A foreign worktree is removed by an abandon, as any other.
 
