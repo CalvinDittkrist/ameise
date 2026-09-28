@@ -196,7 +196,8 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
     await dialog.getByRole("button", { name: "Claim" }).click()
     await expect(dialog.getByRole("alert")).toContainText("WF_NOPE is not a worker knob a claim can set")
 
-    // The claim goes through with a warning, which the dialog shows until it is closed.
+    // The claim goes through with a warning, which a dialog shows until it is closed, whatever the
+    // board's refresh does meanwhile.
     const warning = "could not read the branches of acme/edge-sensors; claimed #145 without checking whether it is claimed on origin"
     await page.route("**/api/processes", async (r) => {
       const res = await r.fetch()
@@ -208,6 +209,11 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
     await dialog.getByRole("button", { name: "Claim" }).click()
     await expect(dialog.getByRole("status", { name: "Warnings" })).toHaveText(warning)
     await page.unroute("**/api/processes")
+    // A refresh of the board, which no longer has #145 in its frontier, leaves the warning on screen.
+    const refreshed = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/board")
+    await page.evaluate(() => dispatchEvent(new Event("focus")))
+    await refreshed
+    await expect(dialog.getByRole("status", { name: "Warnings" })).toHaveText(warning)
     await dialog.getByRole("button", { name: "Done" }).click()
     await expect(dialog).toBeHidden()
     const row = section(page, "Running").locator(`[aria-label="${branch}"]`)

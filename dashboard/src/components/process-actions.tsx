@@ -1,5 +1,5 @@
 import { XIcon } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { type FormEvent, useState, useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,10 +34,53 @@ function Refused({ id, error }: { id: string; error: string }) {
   )
 }
 
+// The warnings of the last claim that went through with any, until they are closed. They live outside
+// the row of the frontier, because the refresh of the board drops that row once its issue is claimed.
+interface Warned {
+  issue: number
+  warnings: string[]
+}
+let warned: Warned | null = null
+const watchers = new Set<() => void>()
+function warn(next: Warned | null) {
+  warned = next
+  for (const w of watchers) w()
+}
+const watch = (w: () => void) => {
+  watchers.add(w)
+  return () => watchers.delete(w)
+}
+
+// ClaimWarnings shows the warnings of a claim that went through until they are closed, whatever the
+// board does meanwhile. The app mounts it once.
+export function ClaimWarnings() {
+  const w = useSyncExternalStore(watch, () => warned)
+  return (
+    <Dialog open={w !== null} onOpenChange={(open) => !open && warn(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Claim #{w?.issue}</DialogTitle>
+          <DialogDescription>The claim went through with these warnings.</DialogDescription>
+        </DialogHeader>
+        <ul role="status" aria-label="Warnings" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
+          {w?.warnings.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button">Done</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Claim takes an issue of the frontier into a work process of the project at path. The dialog asks
 // for the mode and the worker knobs the process overrides, one NAME=VALUE per line. The controller
 // refuses what it will not claim, and its reason is shown in the dialog. The warnings of a claim that
-// went through stay in the dialog until it is closed.
+// went through show in ClaimWarnings until they are closed.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"manual" | "yolo">("manual")
@@ -45,19 +88,14 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
   const [force, setForce] = useState(false)
   const [error, setError] = useState("")
   const [claiming, setClaiming] = useState(false)
-  // warnings are what a claim that went through lifted with force or could not check.
-  const [warnings, setWarnings] = useState<string[]>([])
   const id = `claim-${i.number}`
 
   const change = (next: boolean) => {
-    // The board is read again once the warnings are closed: it drops this row, and the dialog with it.
-    if (!next && warnings.length > 0) void reload()
     setOpen(next)
     setMode("manual")
     setKnobs("")
     setForce(false)
     setError("")
-    setWarnings([])
   }
 
   async function submit(e: FormEvent) {
@@ -66,14 +104,10 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
     try {
       const env = knobs.split("\n").map((l) => l.trim()).filter((l) => l !== "")
       const done = await claim(path, i.number, mode, env, force)
-      // A claim with warnings keeps the dialog open, so they are read before it closes.
-      if (done.warnings.length > 0) {
-        setError("")
-        setWarnings(done.warnings)
-      } else {
-        await reload()
-        change(false)
-      }
+      // What a claim lifted with force or could not check stays on screen until it is closed.
+      if (done.warnings.length > 0) warn({ issue: i.number, warnings: done.warnings })
+      change(false)
+      await reload()
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -126,26 +160,11 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
             Force: claim it even when it is not agent-ready, routed, held in a spec run or claimed on origin
           </Force>
           <Refused id={`${id}-error`} error={error} />
-          {warnings.length > 0 && (
-            <ul role="status" aria-label="Warnings" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
-              {warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
-          )}
           <DialogFooter>
-            {warnings.length > 0 ? (
-              <DialogClose asChild>
-                <Button type="button">Done</Button>
-              </DialogClose>
-            ) : (
-              <>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">Cancel</Button>
-                </DialogClose>
-                <Button type="submit" disabled={claiming}>Claim</Button>
-              </>
-            )}
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button type="submit" disabled={claiming}>Claim</Button>
           </DialogFooter>
         </form>
       </DialogContent>
