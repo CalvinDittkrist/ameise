@@ -1,6 +1,8 @@
 import { connect } from 'node:net'
+import { join, resolve } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { api, cleanup, cli, dashboard, type Machine, machine, start } from './controller.js'
+import { buildFile } from '../src/server.js'
 
 afterEach(cleanup)
 
@@ -67,13 +69,20 @@ test('the root serves the built dashboard and its files, each as its kind, and n
 
 test('a request target that names a file above the build is answered 404, not with the controller’s own files', async () => {
   const m = await running(build)
-  // main.js and config.js stand one directory above the build. The URL parser drops the plain dot
-  // segments and leaves the escaped ones undecoded, so none of these reaches a file above the build
-  // today; the targets pin that, and would reach one if the path were ever decoded without the guard.
+  // main.js and config.js stand one directory above the build.
   for (const target of ['/../main.js', '/assets/../../config.js', '/%2e%2e/main.js', '/..%2fmain.js', '/assets/..%5c..%5cmain.js']) {
     const answer = await raw(m, target)
     expect(answer.split('\r\n')[0], target).toBe('HTTP/1.1 404 Not Found')
     expect(answer, target).not.toContain('import ')
+  }
+})
+
+test('a path that leaves the build names no file of it, though the URL parser never passes one on', () => {
+  const dir = resolve('/srv/dist/dashboard')
+  expect(buildFile(dir, '/')).toBe(join(dir, 'index.html'))
+  expect(buildFile(dir, '/assets/index-a1.js')).toBe(join(dir, 'assets', 'index-a1.js'))
+  for (const path of ['/../main.js', '/assets/../../config.js', '/../dashboard-old/index.js', '/assets/notes.txt']) {
+    expect(buildFile(dir, path), path).toBeUndefined()
   }
 })
 

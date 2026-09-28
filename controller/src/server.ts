@@ -141,13 +141,12 @@ const policy = "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ance
 // page answers a file of the dashboard's build. The root is its index.html, which names every other
 // file by a name that carries its content's hash; the page itself lives in the URL's fragment, so no
 // other path is ever asked for. Without a build the root answers 404 with the command that makes one,
-// and the API works as it does with one. The URL parser has already dropped every dot segment, and the
-// check that the file stays inside the build holds should that ever change.
+// and the API works as it does with one.
 async function page(res: ServerResponse, dir: string, pathname: string) {
   const root = pathname === '/'
-  const file = resolve(dir, root ? 'index.html' : '.' + pathname)
-  const type = types[extname(file)]
-  if (!type || !file.startsWith(dir + sep)) return send(res, 404, { error: `no route GET ${pathname}` })
+  const file = buildFile(dir, pathname)
+  const type = file && types[extname(file)]
+  if (!file || !type) return send(res, 404, { error: `no route GET ${pathname}` })
   let body: Buffer
   try {
     body = await readFile(file)
@@ -165,6 +164,14 @@ async function page(res: ServerResponse, dir: string, pathname: string) {
     [identity]: '1',
   })
   res.end(body)
+}
+
+// buildFile is the file of the build at dir that a path names, or undefined when the path leaves the
+// build or names a kind of file the build does not hold. The URL parser drops the dot segments of a
+// request target before the path gets here, and this check holds should that ever change.
+export function buildFile(dir: string, pathname: string): string | undefined {
+  const file = resolve(dir, pathname === '/' ? 'index.html' : '.' + pathname)
+  return file.startsWith(dir + sep) && types[extname(file)] ? file : undefined
 }
 
 function send(res: ServerResponse, status: number, body: unknown) {
