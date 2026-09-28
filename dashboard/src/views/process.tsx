@@ -72,7 +72,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
   return (
     <>
       <Header record={record} />
-      <Facts record={record} project={found?.b} kind={found?.p.kind ?? "work"} reconnecting={followed.state === "reconnecting"} />
+      <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
       <Separator />
       <Conversation record={record} entries={entries} />
     </>
@@ -127,10 +127,11 @@ const reported: Process["state"][] = ["blocked", "ready", "failed"]
 // tokens is a size in tokens as the fact row shows it: in thousands from a thousand on.
 const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`)
 
-// Facts is the row of facts under the title: the project, the branch, the mode, the time since the
-// process last changed and the size of the session's context against the size at which it compacts.
-// Below it are the stages, the current one filled, the ones done struck through.
-function Facts({ record, project, kind, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; kind: Process["kind"]; reconnecting: boolean }) {
+// Facts is the row of facts under the title: the project, the branch, the pull request with its checks,
+// the mode, the time since the process last changed and the size of the session's context against the
+// size at which it compacts. Below it are the stages, the current one filled, the ones done struck through.
+function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
+  const kind = process?.kind ?? "work"
   const stages = stagesOf[kind].includes(record.stage) ? stagesOf[kind] : [...stagesOf[kind], record.stage]
   const at = stages.indexOf(record.stage)
   const share = record.context === undefined ? 0 : Math.min(100, (record.context / record.compact_at) * 100)
@@ -145,6 +146,14 @@ function Facts({ record, project, kind, reconnecting }: { record: ProcessRecord;
           <span>{record.project.split("/").filter(Boolean).pop()}</span>
         )}
         <span className="font-mono text-xs">{record.branch}</span>
+        {process?.pr && (
+          <span aria-label="Pull request">
+            <a href={process.pr.url} className="hover:text-foreground hover:underline">
+              #{process.pr.number}
+            </a>
+            {process.checks && process.checks !== "none" && ` checks ${process.checks}`}
+          </span>
+        )}
         <Badge variant="outline">{record.mode}</Badge>
         <span title={record.updated_at}>{age(record.updated_at)}</span>
         <span

@@ -135,6 +135,7 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   // The failed-session test writes a record of its own here and removes it again.
   process.env.WORKFLOWS_RECORDS = records
   process.env.WORKFLOWS_BACKTEST = backtest
+  process.env.WORKFLOWS_SENSORS = sensors
   const record = (id: string, r: Record<string, unknown>) => writeFileSync(join(records, `${id}.json`), JSON.stringify(r))
   record("p118", {
     project: sensors, kind: "work", branch: "feat/118-refuse-a-project-without-origin", issue: 118, worktree: blocked, base: "origin/main", mode: "manual", env: {},

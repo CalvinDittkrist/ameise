@@ -183,6 +183,23 @@ test("a process whose session failed waits under needs you with its reason, a da
   }
 })
 
+test("a process page links the pull request of its branch with its checks", async ({ page }) => {
+  const file = join(process.env.WORKFLOWS_RECORDS!, "p131.json")
+  writeFileSync(file, JSON.stringify({
+    project: process.env.WORKFLOWS_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "ci", state: "running", note: "Waiting for the checks", updated_at: new Date().toISOString(),
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("#131 fix/131-log-the-sensor-drift")
+    const pr = main(page).getByLabel("Pull request")
+    await expect(pr).toHaveText("#250 checks pass")
+    await expect(pr.getByRole("link", { name: "#250" })).toHaveAttribute("href", "https://github.com/acme/pull/250")
+  } finally {
+    rmSync(file, { force: true })
+  }
+})
+
 test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
   await page.goto(url())
   await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()
