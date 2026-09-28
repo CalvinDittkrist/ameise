@@ -40,9 +40,9 @@ const (
 
 // What put a run in the line. routed is an issue taken from the queue of routed issues; the others
 // are work this factory already holds and continues in the worktree of that claim: the one
-// automatic resume after an interruption or after an outage of the permission check, the resume after
-// the quota reset that a run which ran out of it waits for, the run a person asked for by taking the assignee off an issue the factory holds
-// ([ADR 0026]), the run a writer's review that asks for changes on the pull request queues
+// automatic resume after an interruption or after an outage of the permission check, the resume
+// after the quota reset that a run which ran out of it waits for, the run a person asked for by
+// taking the assignee off an issue the factory holds ([ADR 0026]), the run a writer's review that asks for changes on the pull request queues
 // ([ADR 0023]), and the run a bot's review that leaves an unresolved thread on it queues ([ADR 0051]).
 // The signals of an issue's runs are what the next run of it is decided from, which is why every run
 // records its own.
@@ -115,8 +115,8 @@ type Run struct {
 	LetGoAt *time.Time `json:"letGoAt"`
 	// Signal is what queued this run: routed, interruption, outage, quota, release, changes-requested
 	// or bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of
-	// the run that saw the outage or ran out of quota, the moment the assignee came off, or the moment the review was
-	// submitted). It is the answer this run is: a signal of an issue is acted on once, and a signal no
+	// the run that saw the outage or ran out of quota, the moment the assignee came off, or the moment
+	// the review was submitted). It is the answer this run is: a signal of an issue is acted on once, and a signal no
 	// later than the one its records already carry has been answered already. That is what keeps the
 	// factory from resuming the same release, or answering the same review, for as long as GitHub
 	// reports it, without a clock of its own.

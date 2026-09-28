@@ -48,8 +48,7 @@ var deniers = map[string]string{
 
 // classifierUnavailable is the decision_reason of a permission_denied line whose classifier gave no
 // verdict at all: the server-side check failed, and the tool call was denied without a judgement
-// about it. Its message calls it a transient failure of the check (recorded on a host on 2026-09-28,
-// in two runs that ended blocked on it).
+// about it. Its message calls it a transient failure of the check.
 const classifierUnavailable = "Classifier unavailable"
 
 // message is what an assistant or user line carries in its message.

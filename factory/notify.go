@@ -53,8 +53,8 @@ const maxNotifyReason = 2000
 // (the one automatic resume), because nothing waits on the maintainer there; a second interruption
 // has spent that resume and waits, exactly as a failure does ([ADR 0026]). The same goes for a run
 // that ended blocked or failed on an outage of the permission check, which spends that same resume.
-// quota does not either: a
-// run the quota stopped keeps everything it holds and is queued again after the reset ([ADR 0037]).
+// quota does not either: a run the quota stopped keeps everything it holds and is queued again
+// after the reset ([ADR 0037]).
 // Neither does cancelled: the routing label taken off the issue or the issue closed is the
 // maintainer's own decision, and they are the one who made it ([ADR 0023]).
 //

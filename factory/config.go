@@ -20,8 +20,7 @@ type Config struct {
 	Deadline string `json:"deadline"`
 	Poll     string `json:"poll"`
 	// OutageWait is how long a run that ended on an outage of the permission check waits before the
-	// factory resumes it (holdings): long enough for the check to come back, which it did within half
-	// an hour both times a host met it.
+	// factory resumes it (holdings): long enough for a transient outage of the check to clear.
 	OutageWait string   `json:"outage_wait"`
 	DataDir    string   `json:"data_dir"`
 	WorkerArgs []string `json:"worker_args"`

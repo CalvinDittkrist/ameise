@@ -12,9 +12,9 @@ import (
 
 // Resuming work the factory already holds. Nothing here deletes anything and nothing here retries by
 // itself more than once: the factory resumes an interruption or an outage of the permission check
-// exactly once per issue, and after that the issue waits for a person, whose gesture is taking the assignee off it ([ADR 0026]). The resume
-// after a quota reset is counted apart, once in a row, because running out of quota once says
-// nothing about the issue (quota.go).
+// exactly once per issue, and after that the issue waits for a person, whose gesture is taking the
+// assignee off it ([ADR 0026]). The resume after a quota reset is counted apart, once in a row,
+// because running out of quota once says nothing about the issue (quota.go).
 //
 // Every signal is read from the run records in the data directory rather than from memory, so a
 // factory that was stopped, rebooted or cut off from power knows on its next start what it holds and
@@ -129,15 +129,16 @@ type holding struct {
 // back by every signal that is a person's decision: a claim carries one, a release hands the issue
 // back with one, and so does the routing of an issue this factory had let go. An interruption and an
 // outage are the signals that spend and never give, so a factory that loses power twice over one
-// issue, or meets the permission check down twice, stops after the second time and waits.
+// issue, or meets the permission check down twice, stops after the second time and waits. A quota
+// resume neither spends it nor gives it back: its cause passes by itself and has nothing to do with
+// the issue. It is one in a row all the same: a resumed run that runs out of quota again is an issue
+// that uses up a whole window by itself, and the next one after it is the maintainer's to decide
+// on, so that issue waits for a person too.
 //
 // An outage is a run that ended blocked or failed after a session was told the permission check gave
 // no verdict (Run.Outage). The session cannot tell that from a reason of the issue's to stop, and
 // says blocked because nothing it needed would run. The factory can: the check failed, not the work,
-// so the run is resumed in its worktree like an interruption, on the same budget. A quota resume neither spends it nor gives it back: its cause
-// passes by itself and has nothing to do with the issue. It is one in a row all the same: a resumed
-// run that runs out of quota again is an issue that uses up a whole window by itself, and the next
-// one after it is the maintainer's to decide on, so that issue waits for a person too.
+// so the run is resumed in its worktree like an interruption, on the same budget.
 func holdings(runs []Run) map[string]holding {
 	out := map[string]holding{}
 	budget := map[string]int{}
