@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The scripted claude of the controller's fake mode (workflows --fake): the runtime the Agent SDK starts
 # in place of the machine's claude. It speaks the SDK's stream-json protocol on stdin and stdout and plays
-# the session a canned directory names, so the real server runs a session with no model behind it.
+# the session a canned directory names. The real server so runs a session with no model behind it.
 #
 #   WORKFLOWS_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
 #     play                     one line, the session to play: its first word, then a message

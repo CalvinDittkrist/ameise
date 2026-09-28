@@ -92,7 +92,7 @@ An abandon stops the process's session, then removes the worktree, the record an
 A claimed process runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
 - the machine's `claude` from `PATH` as the executable,
 - the worker plugin of this checkout (`plugins/worker`) loaded, and the marketplace's copies of the workflow's plugins switched off,
-- the user's and the repository's settings, the `auto` permission mode and the `worker` agent,
+- the user's, the repository's and the local settings, the `auto` permission mode and the `worker` agent,
 - session settings over them: `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH`, the claim's overrides, foreground subagents and the compact pin (80% of 312 500 tokens).
 
 The brief runs `/worker:work` and names the issue, the branch, its base and the `gh` and `git` reads the session does itself. It carries no text of the issue.
