@@ -32,28 +32,28 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
-5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance. It keeps no state.
+5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests (closing reference, else head branch) and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
-   - `workflows accept` opens the same plan process with the route `accept` but starts no session ([acceptance start](../controller/README.md#acceptance-start)).
+   - `workflows accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - `workflows claim` refuses the same but starts no session ([claim and abandon](../controller/README.md#claim-and-abandon)).
+   - `workflows claim` refuses the same, sessionless ([claim and abandon](../controller/README.md#claim-and-abandon)).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
 4. The pane's status line writes the context size to `<worktree git dir>/worker/context`, the only thing the two plugins share ([ADR 0020](adr/0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md)).
 5. Worker knobs given to the claim with `--env` reach that session alone. Only names of the [configuration table](../README.md#configuration) pass.
 6. The worker's SessionStart hook assigns the issue and injects it as untrusted data. It injects a waiting handoff note once ([ADR 0029](adr/0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)).
-7. `/worker:work` first merges the base with `base-sync.sh`, never rebasing; a conflict stops it with `blocked:`. Then it implements and verifies.
-8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. A record of another commit or a dirty tree reads as none.
+7. `/worker:work` merges the base with `base-sync.sh`, never rebasing; a conflict stops it with `blocked:`. Then it implements and verifies.
+8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. A record of another commit or dirty tree reads as none.
 9. `/worker:review` launches the reviewer panel in one message. The gate runs once per review, not per round, and reaches the reviewers as a fact ([ADR 0019](adr/0019-the-gate-runs-once-per-review-round.md)).
 10. The worker fixes findings and ends each round with `panel.sh round`. Rounds go on until every reviewer passes or the limit is reached ([ADR 0018](adr/0018-worker-stages-hand-facts-over-through-the-worktree-git-dir.md)).
 11. `/worker:review` and `/worker:ci` measure the context on entry with `checkpoint.sh`. Past `WF_HANDOFF_TOKENS` a fresh context takes over ([ADR 0032](adr/0032-the-stage-measures-the-context-on-entry-and-a-handoff-grants-one-skip.md)).
-12. `panel.sh record` derives the panel summary from the round records. It refuses a head without a round record or a passed gate.
-13. `/worker:pr` forks into `pr-author`, briefed with the diff, `panel.sh print` and `gate.sh print`. The pull request is never a draft; its body names a failed panel.
-14. `/worker:ci` calls `pr-wait.sh`: conflicts first, then checks, bot reviewers and standing change requests, which keep it from green.
+12. `panel.sh record` derives the panel summary from the round records. It refuses a head without a round record or passed gate.
+13. `/worker:pr` forks into `pr-author`, briefed with the diff, `panel.sh print` and `gate.sh print`. It is never a draft; its body names a failed panel.
+14. `/worker:ci` calls `pr-wait.sh`: conflicts first, then checks, bot reviewers and standing change requests, which block green.
 15. `/worker:address-reviews` fixes what reviewers still ask for, replies to and resolves each thread, and answers each review summary once (`pr-answer.sh`).
 16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
@@ -111,7 +111,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 2. `/orchestrator:release vX.Y.Z`: `release.sh` refuses while the milestone is missing or has open issues, or the tag exists.
 3. With `dev` plus `main` it opens the promotion pull request, which `merge.sh` merges with a merge commit, and tags that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
 4. With `main` alone it tags the head of `main`. It publishes the GitHub release and closes the milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)).
-   - `workflows release` does the same by the same rules ([release](../controller/README.md#release)).
+   - `workflows release` does the same ([release](../controller/README.md#release)).
 
 ## Boundaries and constraints
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.
