@@ -75,6 +75,13 @@ export function issueOf(branch: string): number | null {
   return m ? Number(m[1]) : null
 }
 
+// issueFromBranch is the issue a branch belongs to by the branch contract, spelled as the branch spells
+// it, or '' for a branch of no issue. A spec branch belongs to its spec.
+export function issueFromBranch(branch: string): string {
+  if (branch.startsWith('plan/')) return ''
+  return /^[a-z]+\/([0-9]+)-/.exec(branch)?.[1] ?? ''
+}
+
 // A record is what the state directory holds of a process: one JSON file per process under
 // processes/. It names its project by the checkout's path.
 export interface ProcessRecord {
@@ -212,6 +219,7 @@ export interface GitHubIssue {
   milestone?: { title?: string } | null
   pull_request?: unknown
   parent_issue_url?: string | null
+  repository_url?: string
   issue_dependencies_summary?: { blocked_by?: number }
 }
 

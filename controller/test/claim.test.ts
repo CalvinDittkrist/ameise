@@ -23,6 +23,9 @@ beforeEach(async () => {
 
 const issue = (number: number, title: string, labels: string[]) => ({ number, title, state: 'open', labels: labels.map((name) => ({ name })) })
 
+// parent is a parent issue as GitHub answers it, of this repository unless another is named.
+const parent = (number: number, title: string, labels: string[], repo = 'owner/repo') => ({ ...issue(number, title, labels), repository_url: `https://api.github.com/repos/${repo}` })
+
 // can cans an issue as GitHub answers it.
 const can = (number: number, title: string, labels: string[], state?: string) => canIssue(m, 'owner/repo', number, title, labels, state)
 
@@ -86,7 +89,7 @@ const refusals: { name: string; arrange: () => void; reason: RegExp }[] = [
     name: 'a ticket whose parent is in a spec run',
     arrange: () => {
       can(150, 'Loose idea', ['ready-for-agent'])
-      canApi(m, 'repos/owner/repo/issues/150/parent', issue(100, 'Offline mode', ['spec', 'factory:spec-run']))
+      canApi(m, 'repos/owner/repo/issues/150/parent', parent(100, 'Offline mode', ['spec', 'factory:spec-run']))
     },
     reason: /#150 is a ticket of the spec run of #100/,
   },
@@ -141,7 +144,7 @@ test('a claim refuses a closed issue and one GitHub does not know, force or not'
 for (const labelled of [false, true]) {
   test(`a claim of a ready-for-human ticket of a spec run branches from the spec branch, the ticket labelled ${labelled ? 'too' : 'or not'}`, async () => {
     can(150, 'Loose idea', ['ready-for-agent', 'ready-for-human', ...(labelled ? ['factory:spec-run'] : [])])
-    canApi(m, 'repos/owner/repo/issues/150/parent', issue(100, 'Offline mode', ['spec', 'factory:spec-run']))
+    canApi(m, 'repos/owner/repo/issues/150/parent', parent(100, 'Offline mode', ['spec', 'factory:spec-run']))
     branches(['main', 'spec/99-other-spec', 'spec/100-offline-mode'])
     // What this checkout fetched of the spec branch: one commit past main.
     const tip = git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'spec work')
@@ -155,6 +158,39 @@ for (const labelled of [false, true]) {
     expect(git(c.record.worktree, 'rev-parse', 'HEAD')).toBe(tip)
   })
 }
+
+test('a claim of a ticket whose spec run is in another repository neither refuses it nor branches from a spec branch here', async () => {
+  for (const [n, labels] of [
+    [150, ['ready-for-agent']],
+    [151, ['ready-for-agent', 'ready-for-human']],
+  ] as const) {
+    can(n, 'Loose idea', [...labels])
+    canApi(m, `repos/owner/repo/issues/${n}/parent`, parent(100, 'Offline mode', ['spec', 'factory:spec-run'], 'other/specs'))
+  }
+  branches(['main', 'spec/100-offline-mode'])
+  const tip = git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'unrelated spec work')
+  git(dir, 'update-ref', 'refs/remotes/origin/spec/100-offline-mode', tip)
+  for (const n of [150, 151]) {
+    const r = await claim({ issue: n })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    const c = r.body as Claimed
+    expect(c.record.base).toBe('origin/main')
+    expect(c.warnings.join('\n')).toMatch(/in another repository \(https:\/\/api.github.com\/repos\/other\/specs\)/)
+  }
+})
+
+test('a forced claim of a spec adopts its spec branch on origin, and a branch that spells the number otherwise is no branch of the issue', async () => {
+  can(104, 'Offline mode', ['spec'])
+  branches(['main', 'feat/0104-other-work', 'spec/104-offline-mode'])
+  const tip = git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'spec work')
+  git(dir, 'update-ref', 'refs/remotes/origin/spec/104-offline-mode', tip)
+  const r = await claim({ issue: 104, force: true })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  const c = r.body as Claimed
+  expect(c.warnings.join('\n')).toMatch(/#104 is claimed on origin already: the branch spec\/104-offline-mode exists there/)
+  expect(c.record.branch).toBe('spec/104-offline-mode')
+  expect(git(c.record.worktree, 'rev-parse', 'HEAD')).toBe(tip)
+})
 
 test('a claim refuses an issue that has a process, with or without force', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
@@ -237,6 +273,18 @@ test('a claim that GitHub will not assign is undone', async () => {
   expect(worktrees()).toBe(0)
   expect(git(dir, 'branch', '--list')).toBe('* main')
   expect(processes()).toEqual([])
+})
+
+test('a claim whose process cannot be written is undone', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  // The processes directory is a file, so no record can be written under it.
+  writeFileSync(join(m.state, 'processes'), '')
+  const r = await claim({ issue: 144 })
+  expect(r.status).toBe(500)
+  expect((r.body as { error: string }).error).toMatch(/could not write the process of #144: .*the claim is undone/)
+  expect(worktrees()).toBe(0)
+  expect(git(dir, 'branch', '--list')).toBe('* main')
+  expect(assigned()).toEqual(['issue edit 144 --repo owner/repo --add-assignee @me', 'issue edit 144 --repo owner/repo --remove-assignee @me'])
 })
 
 test('abandon removes worktree and process, leaves branch and issue, and refuses work not on origin unless forced', async () => {

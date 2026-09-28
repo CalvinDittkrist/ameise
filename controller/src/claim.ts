@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
-import { ghApi, issueOf, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
+import { ghApi, issueFromBranch, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
 import { type Project, Refusal } from './project.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
@@ -125,11 +125,12 @@ const recordsDir = (stateDir: string) => join(stateDir, 'processes')
 
 // recordsOf are the records of a project's issue, each with the path of its file, as the board reads them.
 function recordsOf(stateDir: string, project: string, issue: number) {
-  return recordFiles(stateDir, project).filter(({ record: r }) => (r.issue ?? issueOf(r.branch)) === issue)
+  return recordFiles(stateDir, project).filter(({ record: r }) => (r.issue != null ? r.issue === issue : ofIssue(r.branch, issue)))
 }
 
-// A work branch of the issue: a branch of the contract that is no plan and no spec branch.
-const ofIssue = (branch: string, issue: number) => kindOf(branch) === 'work' && issueOf(branch) === issue
+// ofIssue tells a branch of the issue by the contract's issue-from-branch rule, spec branches included
+// and the number spelled as the branch spells it, so feat/0104-x is no branch of #104.
+const ofIssue = (branch: string, issue: number) => issueFromBranch(branch) === String(issue)
 
 async function git(top: string, ...args: string[]): Promise<string> {
   return run('git', ['-C', top, ...args])
@@ -225,10 +226,15 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
 
   // The parent tells whether the issue is a ticket of a spec run, the rule the board and the factory
   // apply. A parent that cannot be read leaves the usual base, as the local claim does.
+  // The parent's number names a spec branch on the origin of the parent's own repository alone.
   let spec: number | undefined
   try {
     const parent = await api<GitHubIssue>(`issues/${n}/parent`)
-    if (parent.number > 0 && labelNames(parent).includes(labels.specRun)) spec = parent.number
+    if (parent.number > 0 && labelNames(parent).includes(labels.specRun)) {
+      const own = `https://api.github.com/repos/${repo}`.toLowerCase()
+      if ((parent.repository_url ?? '').toLowerCase() === own) spec = parent.number
+      else warnings.push(`#${n} is a ticket of the spec run of #${parent.number} in another repository (${parent.repository_url ?? 'unknown'}), so its spec branch is not on this origin; branching from ${project.base}`)
+    }
   } catch (err) {
     if (!/HTTP 404/.test((err as Error).message)) warnings.push(`could not read the parent of #${n}; branching from ${project.base}`)
   }
@@ -254,9 +260,8 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
   let start: string
   if (adopted) {
     branch = adopted
-    await fetch(top, adopted, fake)
     start = `origin/${adopted}`
-    if (!(await exists(top, start))) throw new Refusal(`could not fetch ${adopted} from origin, so its work cannot go on here`, 502)
+    if (!(await fetch(top, adopted, fake)) || !(await exists(top, start))) throw new Refusal(`could not fetch ${adopted} from origin, so its work cannot go on here`, 502)
     const local = await git(top, 'rev-parse', '-q', '--verify', `refs/heads/${branch}`).catch(() => '')
     if (local && local !== (await git(top, 'rev-parse', start))) {
       throw new Refusal(`the local branch ${branch} is not what origin has; go on with it by hand, or remove it with git branch -D ${branch} and claim again`, 409)
@@ -287,12 +292,15 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     throw new Refusal(`could not create the worktree ${path}: ${(err as Error).message}`, 500)
   }
 
+  // undo removes the worktree and the branch the claim created, so nothing of a failed claim stays.
+  const undo = async () => {
+    await git(top, 'worktree', 'remove', '--force', path).catch(() => undefined)
+    if (created) await git(top, 'branch', '-D', branch).catch(() => undefined)
+  }
   try {
     await run(gh, ['issue', 'edit', String(n), '--repo', repo, '--add-assignee', '@me'])
   } catch (err) {
-    // Nothing of the claim stays behind when GitHub refuses the assignment.
-    await git(top, 'worktree', 'remove', '--force', path).catch(() => undefined)
-    if (created) await git(top, 'branch', '-D', branch).catch(() => undefined)
+    await undo()
     throw new Refusal(`could not assign #${n}: ${(err as Error).message}; the claim is undone`, 502)
   }
 
@@ -314,12 +322,25 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     created_at: now,
     updated_at: now,
   }
-  mkdirSync(recordsDir(stateDir), { recursive: true })
-  writeAtomic(join(recordsDir(stateDir), `${id}.json`), JSON.stringify(record, null, 2) + '\n')
-  appendFileSync(
-    join(recordsDir(stateDir), `${id}.events.jsonl`),
-    JSON.stringify({ at: now, event: 'claimed', issue: n, branch, base: start, mode: req.mode, env: req.env, warnings }) + '\n',
-  )
+  const file = join(recordsDir(stateDir), `${id}.json`)
+  const events = join(recordsDir(stateDir), `${id}.events.jsonl`)
+  try {
+    mkdirSync(recordsDir(stateDir), { recursive: true })
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
+    appendFileSync(events, JSON.stringify({ at: now, event: 'claimed', issue: n, branch, base: start, mode: req.mode, env: req.env, warnings }) + '\n')
+  } catch (err) {
+    // A process that cannot be written is no process: the claim is undone on GitHub and in the checkout.
+    for (const f of [file, events, `${file}.${process.pid}.tmp`]) {
+      try {
+        rmSync(f, { force: true })
+      } catch {
+        // a path that is no file is left alone
+      }
+    }
+    await run(gh, ['issue', 'edit', String(n), '--repo', repo, '--remove-assignee', '@me']).catch(() => undefined)
+    await undo()
+    throw new Refusal(`could not write the process of #${n}: ${(err as Error).message}; the claim is undone`, 500)
+  }
   return { record, warnings }
 }
 
