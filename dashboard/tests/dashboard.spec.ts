@@ -196,9 +196,19 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
     await dialog.getByRole("button", { name: "Claim" }).click()
     await expect(dialog.getByRole("alert")).toContainText("WF_NOPE is not a worker knob a claim can set")
 
+    // The claim goes through with a warning, which the dialog shows until it is closed.
+    const warning = "could not read the branches of acme/edge-sensors; claimed #145 without checking whether it is claimed on origin"
+    await page.route("**/api/processes", async (r) => {
+      const res = await r.fetch()
+      const body = await res.json()
+      await r.fulfill({ response: res, json: { ...body, warnings: [warning] } })
+    })
     await dialog.getByRole("radio", { name: "Yolo" }).click()
     await dialog.getByLabel("Knobs").fill("WF_REVIEWERS=2\nWF_PR_BOT_REVIEWERS=")
     await dialog.getByRole("button", { name: "Claim" }).click()
+    await expect(dialog.getByRole("status", { name: "Warnings" })).toHaveText(warning)
+    await page.unroute("**/api/processes")
+    await dialog.getByRole("button", { name: "Done" }).click()
     await expect(dialog).toBeHidden()
     const row = section(page, "Running").locator(`[aria-label="${branch}"]`)
     await expect(row).toContainText(`edge-sensors#145${branch}claimed; no session yetimplement`)

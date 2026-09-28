@@ -36,7 +36,8 @@ function Refused({ id, error }: { id: string; error: string }) {
 
 // Claim takes an issue of the frontier into a work process of the project at path. The dialog asks
 // for the mode and the worker knobs the process overrides, one NAME=VALUE per line. The controller
-// refuses what it will not claim, and its reason is shown in the dialog.
+// refuses what it will not claim, and its reason is shown in the dialog. The warnings of a claim that
+// went through stay in the dialog until it is closed.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"manual" | "yolo">("manual")
@@ -44,14 +45,19 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
   const [force, setForce] = useState(false)
   const [error, setError] = useState("")
   const [claiming, setClaiming] = useState(false)
+  // warnings are what a claim that went through lifted with force or could not check.
+  const [warnings, setWarnings] = useState<string[]>([])
   const id = `claim-${i.number}`
 
   const change = (next: boolean) => {
+    // The board is read again once the warnings are closed: it drops this row, and the dialog with it.
+    if (!next && warnings.length > 0) void reload()
     setOpen(next)
     setMode("manual")
     setKnobs("")
     setForce(false)
     setError("")
+    setWarnings([])
   }
 
   async function submit(e: FormEvent) {
@@ -59,9 +65,15 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
     setClaiming(true)
     try {
       const env = knobs.split("\n").map((l) => l.trim()).filter((l) => l !== "")
-      await claim(path, i.number, mode, env, force)
-      await reload()
-      change(false)
+      const done = await claim(path, i.number, mode, env, force)
+      // A claim with warnings keeps the dialog open, so they are read before it closes.
+      if (done.warnings.length > 0) {
+        setError("")
+        setWarnings(done.warnings)
+      } else {
+        await reload()
+        change(false)
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -114,11 +126,26 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
             Force: claim it even when it is not agent-ready, routed, held in a spec run or claimed on origin
           </Force>
           <Refused id={`${id}-error`} error={error} />
+          {warnings.length > 0 && (
+            <ul role="status" aria-label="Warnings" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button type="submit" disabled={claiming}>Claim</Button>
+            {warnings.length > 0 ? (
+              <DialogClose asChild>
+                <Button type="button">Done</Button>
+              </DialogClose>
+            ) : (
+              <>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button type="submit" disabled={claiming}>Claim</Button>
+              </>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>
