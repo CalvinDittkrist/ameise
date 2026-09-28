@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
+import { connect } from 'node:net'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canRepo, checkout, cleanup, cli, type Machine, machine, read, start } from './controller.js'
 
@@ -31,7 +33,7 @@ interface Case {
   github_default: string | null
   base: string
 }
-const fixture = JSON.parse(read(new URL('../../contract/base-branch.json', import.meta.url).pathname)) as { cases: Case[] }
+const fixture = JSON.parse(read(fileURLToPath(new URL('../../contract/base-branch.json', import.meta.url)))) as { cases: Case[] }
 
 test.each(fixture.cases.map((c, i) => [c.name, c, i] as const))('the base follows the contract fixture: %s', async (_, c, i) => {
   const repository = `owner/repo-${i}`
@@ -219,4 +221,18 @@ test('a write the page of another site could send is turned away', async () => {
   })
   expect(rebound).toBe(403)
   expect(read(m.config)).toBe(before)
+})
+
+test('a request target URL cannot read is answered with 400 and the server keeps running', async () => {
+  const { hostname, port } = new URL(m.url)
+  const answer = await new Promise<string>((resolve, reject) => {
+    const socket = connect(Number(port), hostname, () => socket.end(`GET //[ HTTP/1.1\r\nHost: ${m.url.slice('http://'.length)}\r\nConnection: close\r\n\r\n`))
+    let data = ''
+    socket.setEncoding('utf8')
+    socket.on('data', (chunk: string) => (data += chunk))
+    socket.on('end', () => resolve(data))
+    socket.on('error', reject)
+  })
+  expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 400 Bad Request')
+  expect((await api(m, 'GET', '/api/projects')).status).toBe(200)
 })

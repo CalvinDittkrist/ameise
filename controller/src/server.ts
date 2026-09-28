@@ -59,7 +59,14 @@ export function serve(o: Options): Server {
   }
 
   const server = createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost')
+    // Node accepts a request target that URL refuses, such as //[, so a bad one is answered here
+    // rather than thrown out of the server.
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      return send(res, 400, { error: 'the request target is not a path' })
+    }
     const route = `${req.method} ${url.pathname}`
     // A page on another site can make a browser send requests here. A Host that is not this server's
     // own name turns away a rebound DNS name. A write must say it is JSON, which a page can only do
@@ -85,7 +92,7 @@ export function serve(o: Options): Server {
     }
     handle().catch((err: Error) => {
       if (err instanceof TooLarge) send(res, 413, { error: err.message })
-      else if (err instanceof Refusal || err instanceof SyntaxError) send(res, 400, { error: err.message })
+      else if (err instanceof Refusal) send(res, 400, { error: err.message })
       else send(res, 500, { error: err.message })
     })
   })
@@ -152,6 +159,6 @@ async function readJSON(req: IncomingMessage): Promise<Record<string, unknown> |
   try {
     return JSON.parse(raw) as Record<string, unknown>
   } catch {
-    throw new SyntaxError('the body is not JSON; send {"path": "<checkout>"}')
+    throw new Refusal('the body is not JSON; send {"path": "<checkout>"}')
   }
 }
