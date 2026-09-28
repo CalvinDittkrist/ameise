@@ -82,16 +82,16 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 6. Implement: one session commits the change and pushes nothing.
 7. Gate: the factory merges the base and runs the change class's gate, here or on CI ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). A failure gets a fix session.
 8. Review: read-only reviewers run in parallel, `codex` on Codex. A `fix` gets one fix session; every round is recorded.
-9. Pr: a read-only author session writes the title and body; the factory appends the gate result and panel summary.
+9. Pr: a read-only session writes the title and body; the factory appends the gate and panel results.
 10. Ci: a conflict or failed checks get a fix session, within a budget. Green ends the run `ready`, after validate when configured.
 11. Address-reviews: a session fixes or declines each point of writers and bots; the factory posts the replies.
 12. Validate: read-only validators review the green pull request. A `fix` gets a fix session and ci again ([ADR 0054](adr/0054-the-validate-stage-is-a-second-budgeted-review-after-a-green-ci.md)).
     - [Merge](factory-runbook.md#the-merge-stage): a passed ticket run is squash-merged into the spec branch.
     - The [spec pull request](factory-runbook.md#the-spec-pull-request) follows the last ticket; its merge ends the spec run ([ADR 0055](adr/0055-the-spec-pull-request-ends-the-spec-run.md)).
 13. Each run writes a JSON record and an event log; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
-14. An interrupted run resumes once, in its worktree. Taking the assignee off resumes it.
+14. A run interrupted, or blocked or failed on a classifier outage, resumes once in place. Taking the assignee off resumes it.
 15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
-16. On `ready` the configured logins get a review request; on `blocked`, `failed`, `timeout` or a second interruption, a mention on the issue.
+16. `ready` requests the configured logins' review. A mention follows `timeout` or any unresumed block, failure or interruption.
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
 18. A quota-axi check before each run waits below the minimum, failing open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
 19. Writing sessions run in auto permission mode, without Herdr or `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).

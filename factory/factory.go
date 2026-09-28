@@ -63,6 +63,9 @@ type Entry struct {
 	// [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
 	Signal   string    `json:"signal"`
 	SignalAt time.Time `json:"signalAt"`
+	// NotBefore is when an outage resume may start: the end of the run it answers and the wait after an
+	// outage (outage_wait). Until then the line waits at it, and every other entry waits behind it.
+	NotBefore *time.Time `json:"notBefore,omitempty"`
 
 	// resume is the run this entry continues: the claim a resume signal resumes under, and for a
 	// routed issue the run that once held it and was let go, whose branch the claim takes back
@@ -153,6 +156,9 @@ type Factory struct {
 	// quotaUntil is the reset the factory waits for when the quota check found too little left, and
 	// empty while it does not wait (quota.go).
 	quotaUntil *time.Time
+	// outageUntil is when the outage resume the line waits for may start, and nil while the line
+	// waits for none (dispatch). Work wakes for it, since outage_wait may be shorter than a poll.
+	outageUntil *time.Time
 	// delivered is the runs whose ending this process has taken on to notify (deliver), so an unpause
 	// and the run that ends in the same moment cannot both make the call.
 	delivered map[int]bool
@@ -316,12 +322,21 @@ func (f *Factory) Work(ctx context.Context) {
 		f.letSpecsGo(ctx, read.letGoSpecs)
 		f.waitForPeople(ctx)
 		f.refreshReviews(ctx)
+		f.mu.Lock()
+		f.outageUntil = nil
+		f.mu.Unlock()
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
-		// after it.
+		// after it, and starts an outage resume once its wait has passed.
 		next := f.settings.Poll
 		if until, ahead := f.waitingForQuota(time.Now()); ahead && time.Until(until) < next {
 			next = time.Until(until)
+		}
+		f.mu.Lock()
+		outage := f.outageUntil
+		f.mu.Unlock()
+		if outage != nil && time.Until(*outage) < next {
+			next = time.Until(*outage)
 		}
 		select {
 		case <-ctx.Done():
@@ -675,6 +690,14 @@ func (f *Factory) dispatch(ctx context.Context) {
 		if !f.claimable(entry.Repository) {
 			continue // the issue keeps its place in the line; nothing of it is started or recorded
 		}
+		// An outage of the permission check is not the issue's: the next issue would meet it too, and
+		// block on it in minutes. So the whole line waits for it, as it does for a used-up quota.
+		if entry.NotBefore != nil && time.Now().Before(*entry.NotBefore) {
+			f.mu.Lock()
+			f.outageUntil = entry.NotBefore
+			f.mu.Unlock()
+			return
+		}
 		allowed, warning := f.quotaAllows(ctx, entry)
 		if !allowed {
 			return // the entry keeps its place; the check runs again after the reset
@@ -793,7 +816,12 @@ func (f *Factory) waiting() []Entry {
 		case held.released(issue, routed):
 			out = append(out, Entry{Issue: issue, Signal: signalRelease, SignalAt: issue.unassignedAt, resume: held.run, pull: held.pullRequest, drafted: held.drafted})
 		case held.resumes != "":
-			out = append(out, Entry{Issue: issue, Signal: held.resumes, SignalAt: held.signalAt(), resume: held.run, pull: held.pullRequest, drafted: held.drafted})
+			entry := Entry{Issue: issue, Signal: held.resumes, SignalAt: held.signalAt(), resume: held.run, pull: held.pullRequest, drafted: held.drafted}
+			if held.resumes == signalOutage {
+				at := entry.SignalAt.Add(f.settings.OutageWait)
+				entry.NotBefore = &at
+			}
+			out = append(out, entry)
 		// A writer's review is the mandate and stands before a bot's: the run it queues answers the
 		// bot's threads as well, and ends after the bot's review, which is then answered too.
 		case held.unanswered(reviews[key].requested):
@@ -1409,6 +1437,20 @@ func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCod
 		reason, providerName(runtime), scope, until.Format(time.RFC3339), next), exitCode)
 }
 
+// outage is the event that says what becomes of a run that ended blocked or failed after a session
+// was told the permission check gave no verdict: the factory resumes it once by itself after the wait,
+// or, with that resume spent, the issue waits for a person (holdings).
+func (f *Factory) outage(r Run, outcome string) Event {
+	said := "a session was told that Claude Code's auto mode classifier gave no verdict, so this run " +
+		"stopped on an outage of the permission check rather than on the issue"
+	if _, held := f.endingAs(r, outcome); held.resumes == signalOutage {
+		return Event{Kind: "factory", Title: "outage of the permission check",
+			Body: fmt.Sprintf("%s; the factory resumes it in its worktree once by itself after %s (outage_wait)", said, f.settings.OutageWait)}
+	}
+	return Event{Kind: "error", Title: "outage of the permission check",
+		Body: said + "; the one automatic resume of this issue is spent, so it waits for a person, and removing the assignee hands it back"}
+}
+
 // leftBehind says what a run that did not finish left on the remote, which is what the operator
 // needs to decide: a claim that never got to create the branch took nothing, one that did holds the
 // issue by it until somebody removes it, and a resumed run leaves the claim it was under exactly as
@@ -1608,6 +1650,9 @@ func (f *Factory) finish(r *Run, outcome, reason string, exitCode *int) {
 	}
 	if reason != "" {
 		f.runs.event(r, Event{Kind: kind, Title: outcome, Body: reason})
+	}
+	if r.Outage && (outcome == outcomeBlocked || outcome == outcomeFailed) {
+		f.runs.event(r, f.outage(*r, outcome))
 	}
 	// The worktree goes to the remote before the ending is written, so a push that failed is in the
 	// record and in the notification both (keep.go).

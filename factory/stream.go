@@ -46,6 +46,11 @@ var deniers = map[string]string{
 	"asyncAgent": "the background agent's permissions",
 }
 
+// classifierUnavailable is the decision_reason of a permission_denied line whose classifier gave no
+// verdict at all: the server-side check failed, and the tool call was denied without a judgement
+// about it. Its message calls it a transient failure of the check.
+const classifierUnavailable = "Classifier unavailable"
+
 // message is what an assistant or user line carries in its message.
 type message struct {
 	ID      string          `json:"id"`
@@ -124,6 +129,9 @@ func (f *Factory) ingest(r *Run, session *heard, line []byte) {
 		denier, ok := deniers[m.DecisionReasonType]
 		if !ok {
 			denier = "a permission check"
+		}
+		if m.DecisionReasonType == "classifier" && m.DecisionReason == classifierUnavailable {
+			f.runs.update(r, func() { r.Outage = true })
 		}
 		event(Event{Kind: "error", Title: denier + " denied " + m.ToolName,
 			Body: strings.TrimSpace(m.DecisionReason + "\n" + blockText(m.Message)), Sub: sub || m.AgentID != ""})

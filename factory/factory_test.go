@@ -85,6 +85,7 @@ type apiRun struct {
 	Spec         int        `json:"spec"`
 	Worktree     string     `json:"worktree"`
 	Holding      bool       `json:"holding"`
+	Outage       bool       `json:"outage"`
 	LetGoAt      *time.Time `json:"letGoAt"`
 	Signal       string     `json:"signal"`
 	SignalAt     time.Time  `json:"signalAt"`
@@ -862,6 +863,8 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"not JSON", `listen = 7341`, `see factory/factory.example.json`},
 		{"deadline in words", `{"data_dir":"data","repositories":["a/b"],"deadline":"90 minutes"}`, `is not a positive duration; write it as "90m"`},
 		{"poll of zero", `{"data_dir":"data","repositories":["a/b"],"poll":"0s"}`, `is not a positive duration`},
+		{"an outage wait in words", `{"data_dir":"data","repositories":["a/b"],"outage_wait":"a quarter of an hour"}`, `outage_wait "a quarter of an hour" is not a duration; write it as "15m"`},
+		{"a negative outage wait", `{"data_dir":"data","repositories":["a/b"],"outage_wait":"-1m"}`, `outage_wait "-1m" is not a duration`},
 		{"address without host", `{"data_dir":"data","repositories":["a/b"],"listen":":7341"}`, `answers on every interface`},
 		{"address without port", `{"data_dir":"data","repositories":["a/b"],"listen":"127.0.0.1"}`, `is not an address; write it as host:port`},
 		{"wildcard address", `{"data_dir":"data","repositories":["a/b"],"listen":"0.0.0.0:7341"}`, `answers on every interface; bind it to one address`},

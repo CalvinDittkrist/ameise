@@ -43,6 +43,9 @@
 #                      Markdown fence around its diff has to be longer than
 #   CLAUDE_SHIM_SLEEP  when set, the session waits that many seconds before it reports, so a test can
 #                      reach a worker that is still going
+#   CLAUDE_SHIM_OUTAGE the first this many sessions CLAUDE_SHIM_LOG records meet an outage of the
+#                      permission check before they report: a Bash call the auto mode classifier gave no
+#                      verdict on, as the permission_denied line and the tool error a host recorded
 #   CLAUDE_SHIM_THEN_SLEEP, CLAUDE_SHIM_THEN_RESULT
 #                      what every session after the first one CLAUDE_SHIM_LOG records does instead of
 #                      CLAUDE_SHIM_SLEEP and CLAUDE_SHIM_RESULT, so a test can have the fix session of
@@ -262,6 +265,13 @@ if [ -z "$output" ]; then
 fi
 
 printf '%s\n' '{"type":"system","subtype":"init","model":"claude-opus-5","permissionMode":"auto","session_id":"5f2d8c11-0b9e-4a3f-9d21-7c6e4b0a1f33"}'
+
+if [ "${calls:-1}" -le "${CLAUDE_SHIM_OUTAGE:-0}" ]; then
+  verdict='The server-side auto mode classifier gave no verdict (error), so auto mode cannot determine the safety of Bash. This is a transient failure of the check, not a judgment about the action: a later response may get a verdict.'
+  printf '%s\n' '{"type":"assistant","message":{"id":"msg_outage","model":"claude-opus-5","content":[{"type":"tool_use","id":"toolu_outage","name":"Bash","input":{"command":"git status","description":"Show the worktree"}}],"usage":{"input_tokens":10,"output_tokens":10}}}'
+  printf '{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_outage","decision_reason_type":"classifier","decision_reason":"Classifier unavailable","message":"%s"}\n' "$verdict"
+  printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_outage","is_error":true,"content":"%s"}]}}\n' "$verdict"
+fi
 
 if [ -n "${CLAUDE_SHIM_COMMIT:-}" ]; then
   mkdir -p "$(dirname "$CLAUDE_SHIM_COMMIT")"
