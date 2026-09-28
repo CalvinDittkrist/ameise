@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Abandon, Claim, ProcessAction } from "@/components/process-actions"
+import { Accept, Merge } from "@/components/actions"
 import { age, type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
@@ -19,8 +20,8 @@ const dot: Record<Process["state"], string> = {
   foreign: "border-2 border-dashed border-muted-foreground",
 }
 
-// The controller carries out claim, abandon, resume and adopt. It does not serve any other action yet,
-// so a row shows those disabled.
+// The controller carries out claim, abandon, resume, adopt, merge and the start of an acceptance. It
+// does not serve any other action yet, so a row shows those disabled.
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work
@@ -50,7 +51,11 @@ export function ProcessRow({ p, project, path, reload }: { p: Process; project?:
         <span data-slot="age" className="w-8 text-right text-xs tabular-nums text-muted-foreground">
           {age(p.since)}
         </span>
-        <ProcessAction p={p} path={path} reload={reload} />
+        {p.action === "Merge" && p.pr ? (
+          <Merge p={{ ...p, pr: p.pr }} path={path} reload={reload} />
+        ) : (
+          <ProcessAction p={p} path={path} reload={reload} />
+        )}
         {p.kind === "work" && p.issue !== null && <Abandon issue={p.issue} branch={p.branch} path={path} reload={reload} />}
       </ItemActions>
     </Item>
@@ -88,7 +93,7 @@ export function IssueRow({
       <ItemActions className="gap-3">
         {i.milestone && <Badge variant="outline">{i.milestone}</Badge>}
         {accept ? (
-          <Button size="sm" disabled>Accept</Button>
+          <Accept i={i} path={path} reload={reload} />
         ) : (
           <>
             <Claim i={i} path={path} reload={reload} />

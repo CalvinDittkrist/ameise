@@ -16,7 +16,7 @@ import { abandon, adopt, claim, type Issue, type Process, QuotaContext, type Rea
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
-function Force({ id, checked, onChange, children }: { id: string; checked: boolean; onChange: (v: boolean) => void; children: string }) {
+export function Force({ id, checked, onChange, children }: { id: string; checked: boolean; onChange: (v: boolean) => void; children: string }) {
   return (
     <div className="flex items-start gap-2">
       <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 accent-primary" />
@@ -25,7 +25,7 @@ function Force({ id, checked, onChange, children }: { id: string; checked: boole
   )
 }
 
-function Refused({ id, error }: { id: string; error: string }) {
+export function Refused({ id, error }: { id: string; error: string }) {
   if (!error) return null
   return (
     <p id={id} role="alert" className="text-sm text-destructive">
@@ -34,15 +34,17 @@ function Refused({ id, error }: { id: string; error: string }) {
   )
 }
 
-// The warnings of the last claim that went through with any, until they are closed. They live outside
-// the row of the frontier, because the refresh of the board drops that row once its issue is claimed.
+// What the last action that went through has to say, until it is closed: the warnings of a claim or a
+// merge, or why a release waits. It lives outside the rows, because the refresh of the board drops the
+// row an action acted on.
 interface Warned {
-  issue: number
+  title: string
+  said: string
   warnings: string[]
 }
 let warned: Warned | null = null
 const watchers = new Set<() => void>()
-function warn(next: Warned | null) {
+export function warn(next: Warned | null) {
   warned = next
   for (const w of watchers) w()
 }
@@ -51,16 +53,16 @@ const watch = (w: () => void) => {
   return () => watchers.delete(w)
 }
 
-// ClaimWarnings shows the warnings of a claim that went through until they are closed, whatever the
-// board does meanwhile. The app mounts it once.
-export function ClaimWarnings() {
+// Warnings shows what an action that went through has to say until it is closed, whatever the board
+// does meanwhile. The app mounts it once.
+export function Warnings() {
   const w = useSyncExternalStore(watch, () => warned)
   return (
     <Dialog open={w !== null} onOpenChange={(open) => !open && warn(null)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Claim #{w?.issue}</DialogTitle>
-          <DialogDescription>The claim went through with these warnings.</DialogDescription>
+          <DialogTitle>{w?.title}</DialogTitle>
+          <DialogDescription>{w?.said}</DialogDescription>
         </DialogHeader>
         <ul role="status" aria-label="Warnings" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
           {w?.warnings.map((x) => (
@@ -80,7 +82,7 @@ export function ClaimWarnings() {
 // Claim takes an issue of the frontier into a work process of the project at path. The dialog asks
 // for the mode and the worker knobs the process overrides, one NAME=VALUE per line. The controller
 // refuses what it will not claim, and its reason is shown in the dialog. The warnings of a claim that
-// went through show in ClaimWarnings until they are closed. A runtime whose quota is below the minimum is
+// went through show in Warnings until they are closed. A runtime whose quota is below the minimum is
 // a warning in the dialog: the claim goes on when it is confirmed, and nothing waits for the reset.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   const quota = useContext(QuotaContext)
@@ -112,7 +114,7 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
       // the minimum since the last reading; a runtime the dialog warned of is not told again.
       const unwarned = done.quota.filter((l) => !low.some((r) => l.startsWith(`${r.runtime} `)))
       const all = [...unwarned, ...done.warnings]
-      if (all.length > 0) warn({ issue: i.number, warnings: all })
+      if (all.length > 0) warn({ title: `Claim #${i.number}`, said: "The claim went through with these warnings.", warnings: all })
       change(false)
       await reload()
     } catch (err) {
