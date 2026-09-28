@@ -130,13 +130,16 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A later call they cover runs without a card, as an `allowed` event.
   - Those rules reach the session for its own lifetime and never a settings file.
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
+  - A call that asks several questions takes the one message as the answer to each.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
 - A message to a process whose session has ended resumes that session by its id, with the message as its turn.
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
-The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. Then it runs `<terminal> <script>`. Without a `terminal` that is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux.
+The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux.
+
+While the headless session still runs, the terminal is a second runtime on the same session. Its turns stay out of the process's event log.
 
 ## Quota
 The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
@@ -172,7 +175,9 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.
 - `POST /api/processes/answer` with `{"id": "<id>", "request": "<request>", "answer": "once"|"process"|"deny"}`: answers a permission request and answers `200`. `409` says no such request waits.
-- `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`. `409` refuses a process without a session, `502` a terminal that fails.
+- `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`.
+  - `409` refuses a process without a session, `502` a terminal that fails.
+  - `501` refuses on a platform without a known terminal while no `terminal` is configured.
 - Each of these refuses a malformed id with `400` and an id that is no process with `404`.
 - `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}`. Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.

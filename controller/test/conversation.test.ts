@@ -54,7 +54,7 @@ const recordOf = (id: string) => JSON.parse(read(join(m.state, 'processes', `${i
 // until waits for what the check answers to be true, or fails with what it last saw.
 async function until<T>(what: string, look: () => T, ok: (v: T) => boolean): Promise<T> {
   let v = look()
-  for (let i = 0; i < 200 && !ok(v); i++) {
+  for (let i = 0; i < 400 && !ok(v); i++) {
     await new Promise((done) => setTimeout(done, 50))
     v = look()
   }

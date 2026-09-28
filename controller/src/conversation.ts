@@ -1,9 +1,9 @@
-// The conversation of a process: its event log read as the process page shows it. Each line of the log
-// becomes no, one or several entries, numbered by the line they come from, so the page can take the
-// log whole when it opens and line by line while the session runs. The session's own text and its
-// tool calls come from the stream; the maintainer's messages, the permission requests and questions,
-// their answers and the end of each session come from the controller's own events. Tool results,
-// subagents' messages and thinking stay in the log and out of the conversation.
+// The conversation of a process: its event log read as the process page shows it.
+// A line of the log yields any number of entries, each numbered by its line.
+// The page so reads the whole log when it opens and each new line while the session runs.
+// The session's text and tool calls come from the stream. The maintainer's messages, the requests,
+// their answers and the end of each session come from the controller's own events.
+// Tool results, subagents' messages and thinking stay in the log and out of the conversation.
 
 // A question as the session asks it through AskUserQuestion, with the options it offers.
 export interface Question {
@@ -108,13 +108,18 @@ interface Block {
   input?: unknown
 }
 
+// main is whether a stream message is the main session's own assistant message, not a subagent's.
+function main(m: { type?: string; parent_tool_use_id?: unknown }): boolean {
+  return m.type === 'assistant' && (m.parent_tool_use_id === null || m.parent_tool_use_id === undefined)
+}
+
 // entries are the entries of one event of the log, numbered seq.
 export function entries(e: Record<string, unknown>, seq: number, worktree = ''): Entry[] {
   switch (e.event) {
     case 'stream': {
       const m = (e.message ?? {}) as { type?: string; parent_tool_use_id?: unknown; message?: { content?: unknown } }
       // A subagent's messages belong to its own conversation, which the tool chip of its call stands for.
-      if (m.type !== 'assistant' || (m.parent_tool_use_id !== null && m.parent_tool_use_id !== undefined)) return []
+      if (!main(m)) return []
       const content = Array.isArray(m.message?.content) ? (m.message.content as Block[]) : []
       return content.flatMap((b): Entry[] => {
         if (b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '') return [{ seq, kind: 'text', text: clip(b.text, textLimit) }]
@@ -153,7 +158,7 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
 // event that says nothing of it.
 export function context(message: unknown): number | undefined {
   const m = (message ?? {}) as { type?: string; parent_tool_use_id?: unknown; message?: { usage?: Record<string, unknown> } }
-  if (m.type !== 'assistant' || (m.parent_tool_use_id !== null && m.parent_tool_use_id !== undefined)) return undefined
+  if (!main(m)) return undefined
   const u = m.message?.usage
   if (!u) return undefined
   const n = (k: string) => (typeof u[k] === 'number' ? u[k] : 0)

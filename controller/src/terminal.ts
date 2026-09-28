@@ -1,7 +1,6 @@
-// Open in terminal: the session of a process opened in a terminal window of this machine, with the
-// runtime's resume by the session's id, in the process's worktree, with the bundled worker plugin and
-// the session's settings. The maintainer so goes on in Claude Code itself wherever the process page
-// lacks something.
+// Open in terminal: the session of a process opened in a terminal window of this machine.
+// The runtime resumes it by its id in the process's worktree, with the bundled worker plugin and the
+// session's settings.
 import { execFile } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -9,7 +8,6 @@ import type { WorkRecord } from './claim.js'
 import { Refusal } from './project.js'
 import { settings } from './session.js'
 
-// quote makes a word the shell reads back as it is.
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 // script is the shell script the terminal runs: into the worktree, then claude resuming the session

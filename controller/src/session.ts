@@ -4,10 +4,11 @@
 // log and its session id into the record. A session that ends without a result, or a runtime that
 // cannot start, ends the process as failed with the reason.
 //
-// The session takes its input as a stream, so the maintainer writes to it while it runs: a message is
-// its next turn. A permission the classifier does not settle and a question the session asks reach the
-// controller through the SDK's permission callback; the session waits until the process page answers
-// them. A message to a process whose session has ended resumes that session by its id.
+// The session takes its input as a stream, so the maintainer writes to it while it runs.
+// A message is its next turn.
+// A permission the classifier does not settle and a question of the session reach the controller
+// through the SDK's permission callback. The session waits until the process page answers them.
+// A message to a process whose session has ended resumes that session by its id.
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -93,8 +94,8 @@ interface Request {
   close: () => void
 }
 
-// A session running: the abort that stops it, its end, which settles once the session has written its
-// last and its runtime process has exited, its input and the requests that wait for an answer.
+// A session running: the abort that stops it, its end, its input and the requests that wait for an
+// answer. Its end settles once the session has written its last and its runtime has exited.
 interface Running {
   abort: AbortController
   done: Promise<void>
@@ -182,8 +183,8 @@ export function settings(record: WorkRecord): { env: Record<string, string>; ena
 }
 
 // runtimeEnv is the environment the runtime runs in: the controller's own without the workflow's
-// variables and Herdr's, so a WF_MODE left in the shell that started the controller reaches no session.
-export function runtimeEnv(): Record<string, string> {
+// variables and Herdr's. A WF_MODE left in the shell that started the controller so reaches no session.
+function runtimeEnv(): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [name, value] of Object.entries(process.env)) {
     if (value === undefined || name.startsWith('WF_') || name.startsWith('HERDR_')) continue
@@ -195,7 +196,7 @@ export function runtimeEnv(): Record<string, string> {
 const recordFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.json`)
 export const eventsFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.events.jsonl`)
 
-// processId checks that an id is the shape of a process id, so no id names a file outside the processes.
+// No id names a file outside the processes.
 export function processId(id: unknown): string {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) throw new Refusal('id is not the id of a process; send the id the board names')
   return id
@@ -220,7 +221,7 @@ export function update(stateDir: string, id: string, change: Partial<WorkRecord>
   return record
 }
 
-// forget removes the record, the event log and the terminal script of a process.
+// The record, the event log and the terminal script go.
 export function forget(stateDir: string, id: string) {
   rmSync(recordFile(stateDir, id), { force: true })
   rmSync(eventsFile(stateDir, id), { force: true })
@@ -320,9 +321,9 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime, mes
   return started
 }
 
-// say writes the maintainer's message to the process's session. A question that waits takes it as its
-// answer; a session that runs takes it as its next turn; a session that has ended is resumed by its id
-// with the message. It answers which of the three it was.
+// say writes the maintainer's message to the process's session and answers where it went.
+// A question that waits takes it as its answer. A session that runs takes it as its next turn.
+// A session that has ended is resumed by its id with the message.
 export async function say(record: WorkRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
   const s = running.get(id)
@@ -367,8 +368,8 @@ function allowance(tool: string, input: Record<string, unknown>, suggestions: Pe
   return keys.length > 0 ? keys : [`call ${tool} ${JSON.stringify(input)}`]
 }
 
-// sessionScoped are the suggested updates that allow more, held to this session: an allowance never
-// reaches a settings file of the machine or the repository, and never changes the permission mode.
+// sessionScoped are the suggested updates that allow more, held to this session.
+// An allowance so never reaches a settings file and never changes the permission mode.
 const sessionScoped = (suggestions: PermissionUpdate[] | undefined): PermissionUpdate[] =>
   (suggestions ?? []).flatMap((u): PermissionUpdate[] => {
     if (u.type === 'addRules' && u.behavior === 'allow') return [{ ...u, destination: 'session' }]
@@ -392,8 +393,8 @@ async function session(
     if (!safeRef.test(name)) return { state: 'failed', note: `the branch name ${JSON.stringify(name)} has characters the brief does not carry; rename it on origin` }
   }
 
-  // waiting shows the process as waiting for the maintainer while a request of its session waits, the
-  // question before the permission, and as running once none does.
+  // waiting shows the process as waiting for the maintainer while a request of its session waits.
+  // A question goes before a permission. Once none waits, the process is running again.
   const waiting = () => {
     if (!live()) return
     const open = [...s.requests.values()]
@@ -422,7 +423,7 @@ async function session(
           resolve(closed)
         },
       })
-      event(rt.stateDir, id, { event: e.event, request, ...e })
+      event(rt.stateDir, id, { request, ...e })
       waiting()
       signal.addEventListener(
         'abort',
