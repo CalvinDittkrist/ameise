@@ -1,11 +1,11 @@
 # The gate: `make check` runs everything CI gates on, locally and in the CI job named `check`.
-SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude
+SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
 
-.PHONY: check lint validate standard test ui factory factory-go browser binaries
+.PHONY: check lint validate standard test ui factory factory-go browser binaries controller
 # The gate parallelises inside its targets (the Python runner's process pool, go test) and never across
 # them: the targets run one after the other so their output does not interleave, because the make that
 # ships with macOS is 3.81 and has no --output-sync to keep a parallel target's lines together.
-check: lint validate standard test ui factory browser
+check: lint validate standard test ui factory browser controller
 
 # The factory's dashboard: an npm package that Vite builds into factory/ui/dist/app, which the binary
 # embeds. Every target below needs that build, so it is a file the others depend on.
@@ -84,3 +84,16 @@ factory-go:
 	@# -parallel 16: the tests spend their time waiting on the binary's timers and polls, not on a CPU, so
 	@# they run more at once than go test's default of one per CPU, which on CI's four is mostly idle.
 	go -C factory test -race -count=1 -parallel 16 ./... # the service is goroutines over shared run records: the gate says so
+
+# The controller, the local peer of the factory: a TypeScript package in controller/. Its lint is eslint
+# and the type check; its tests build the binary and start it in fake mode with a scripted gh.
+CONTROLLER := controller
+
+controller: $(CONTROLLER)/node_modules
+	npm --prefix $(CONTROLLER) run lint
+	npm --prefix $(CONTROLLER) test
+
+$(CONTROLLER)/node_modules: $(CONTROLLER)/package-lock.json
+	@command -v npm >/dev/null || { echo 'error: npm not installed; brew install node (or https://nodejs.org), the controller is written in TypeScript' >&2; exit 1; }
+	npm --prefix $(CONTROLLER) ci
+	@touch $@
