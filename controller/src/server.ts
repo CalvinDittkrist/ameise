@@ -34,26 +34,28 @@ export function serve(o: Options): Server {
     if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
     const project = await derive(resolve(path), o.gh)
     // The file is read again before each write, so a change made to it by hand while the server
-    // runs is kept: only the projects change.
+    // runs is kept. The server takes over only the projects: it stays on the address it listens on.
     const config = readConfig(o.configPath)
     if (config.projects.includes(project.path)) return send(res, 409, { error: `${project.path} is already a project` })
     config.projects.push(project.path)
     writeConfig(o.configPath, config)
-    o.config = config
+    o.config.projects = config.projects
     send(res, 201, project)
   }
 
   async function remove(req: IncomingMessage, res: ServerResponse) {
     const body = await readJSON(req)
-    const path = typeof body?.path === 'string' ? resolve(body.path) : ''
+    const path = typeof body?.path === 'string' ? body.path : ''
+    if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
     // A checkout names itself by its top, so a path inside one removes the project it belongs to.
     const config = readConfig(o.configPath)
-    const known = config.projects.includes(path) ? path : await checkout(path).catch(() => path)
+    const absolute = resolve(path)
+    const known = config.projects.includes(absolute) ? absolute : await checkout(absolute).catch(() => absolute)
     const i = config.projects.indexOf(known)
-    if (i < 0) return send(res, 404, { error: `${path} is not a project; workflows projects lists them` })
+    if (i < 0) return send(res, 404, { error: `${absolute} is not a project; workflows projects lists them` })
     config.projects.splice(i, 1)
     writeConfig(o.configPath, config)
-    o.config = config
+    o.config.projects = config.projects
     send(res, 200, { path: known })
   }
 
@@ -61,8 +63,8 @@ export function serve(o: Options): Server {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const route = `${req.method} ${url.pathname}`
     // A page on another site can make a browser send requests here. A Host that is not this server's
-    // own name turns away a rebound DNS name, and a write must say it is JSON, which a page can only
-    // do after a preflight this server never grants.
+    // own name turns away a rebound DNS name. A write must say it is JSON, which a page can only do
+    // after a preflight this server never grants.
     if (!loopbackHost(req.headers.host, o.config.listen)) return send(res, 403, { error: 'the Host header does not name this server' })
     if (req.method !== 'GET' && !(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return send(res, 415, { error: 'a write is sent as application/json' })

@@ -117,6 +117,34 @@ test('adding and removing a project keeps a change made to the configuration by 
   expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 40, notifications: false, projects: [b] })
 })
 
+test('adding a project that is known already is refused with 409 and changes nothing', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
+  const before = read(m.config)
+  expect(await api(m, 'POST', '/api/projects', { path: a })).toEqual({ status: 409, body: { error: `${a} is already a project` } })
+  expect(read(m.config)).toBe(before)
+})
+
+test('removing by a path that is not absolute is refused with 400 and changes nothing', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  await api(m, 'POST', '/api/projects', { path: a })
+  const before = read(m.config)
+  const reason = 'path is not an absolute path; name the checkout as an absolute path'
+  expect(await api(m, 'DELETE', '/api/projects', { path: 'a' })).toEqual({ status: 400, body: { error: reason } })
+  expect(await api(m, 'DELETE', '/api/projects', {})).toEqual({ status: 400, body: { error: reason } })
+  expect(read(m.config)).toBe(before)
+})
+
+test('a listen changed by hand while the server runs does not lock the running server out of its own API', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  const b = checkout(m, 'b', { origin: 'https://github.com/owner/b.git', originHead: 'main' })
+  const edited = JSON.parse(read(m.config)) as Record<string, unknown>
+  writeFileSync(m.config, JSON.stringify({ ...edited, listen: '127.0.0.1:1' }, null, 2) + '\n')
+  expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
+  expect((await api(m, 'POST', '/api/projects', { path: b })).status).toBe(201)
+  expect((await api(m, 'GET', '/api/projects')).status).toBe(200)
+})
+
 test('a body larger than a path needs is refused with 413 and changes nothing', async () => {
   const before = read(m.config)
   const res = await fetch(m.url + '/api/projects', {
