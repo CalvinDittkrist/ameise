@@ -5,10 +5,14 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
 - Its footer holds the quota. The sidebar collapses to its icons, which hides the footer.
-- The Orchestrator page, at `#`, has the sections needs you, running and ready to start.
+- The pages read the board of `GET /api/board` when they open, when the window comes back into focus and every half minute.
+- The Orchestrator page, at `#`, has the sections needs you, running and ready to start over every project.
+  - Needs you holds the processes that wait for a person and the specs ready for acceptance. Running holds every other process.
+  - A process row shows its state as a dot, its issue and branch, its note, stage and age, and its one primary action.
 - A project's page, at `#project=<path of its checkout>`, has its actions and the sections processes and ready to start.
-- A project whose checkout no longer derives shows the controller's reason.
-- The controller serves no processes, frontier or quota yet. Until it does, the sections are empty and the actions disabled.
+  - Ready for acceptance follows when a spec of the project is.
+- A project whose checkout no longer derives shows the controller's reason. What GitHub did not answer shows as a note above the sections.
+- The controller carries out no action and reads no quota yet. Until it does, the actions are disabled.
 - Light and dark follow the system.
 
 ## Development
@@ -16,6 +20,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - `npm --prefix dashboard run dev` serves it with hot reload. It sends `/api` to a controller on the default address.
 - `make dashboard` runs eslint, the type check, the build and the browser test.
 - The browser test starts the built controller in fake mode with two checkouts and a directory that is no checkout.
+  - The checkouts hold worktrees and process records, and the canned GitHub their pull requests, issues and specs, so the board has a row of every kind.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:
