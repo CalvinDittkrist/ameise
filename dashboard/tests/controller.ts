@@ -9,9 +9,9 @@ import { fileURLToPath } from "node:url"
 // its own. That machine is a temporary directory with the configuration, the state, a claude that only
 // answers its version, a browser that opens nothing and a canned GitHub. Its projects are two
 // checkouts whose origin is on GitHub and one directory that is no checkout, so the sidebar shows both
-// kinds. The checkouts hold worktrees and process records, and the canned GitHub their pull requests,
-// agent-ready issues and specs, so the board has a row of every kind (see board below). The controller serves the dashboard build it finds in its own build, which make dashboard
-// writes before this runs.
+// kinds. The checkouts hold worktrees and process records. The canned GitHub holds their pull requests,
+// agent-ready issues and specs. So the board has a row of every kind. The controller serves the
+// dashboard build it finds in its own build, which make dashboard writes before this runs.
 
 const controller = fileURLToPath(new URL("../../controller/dist/main.js", import.meta.url))
 const READY = 30_000
@@ -92,8 +92,8 @@ export default async function start() {
 // stays the same while the tests run.
 const ago = (hours: number) => new Date(Date.now() - (hours + 0.5) * 3_600_000).toISOString()
 
-// board gives the two checkouts their processes and their GitHub: a process of every state the board
-// sorts, a frontier with an issue it leaves out, and a spec ready for acceptance beside one that is not.
+// board gives the two checkouts their processes and their GitHub. The processes hold every state the
+// board sorts. The frontier holds an issue it leaves out. One spec is ready for acceptance, one is not.
 function board(root: string, github: string, sensors: string, backtest: string) {
   const blocked = worktree(sensors, "feat/118-refuse-a-project-without-origin", 2)
   worktree(sensors, "fix/131-log-the-sensor-drift", 5)

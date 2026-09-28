@@ -51,12 +51,12 @@ The board is derived on every request from the state directory, git and GitHub, 
 - `processes`: one per worktree of the checkout whose branch names a process kind, and one per process record in the state directory.
   - Each has `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
-  - A record decides state, stage and note. A worktree without one is read from its pull request: green is `ready`, pending checks `waiting`, anything else `running`.
+  - A record decides state, stage and note. A worktree without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
   - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
   - The tests hold it to the frontier of the [contract fixture](../contract/fixture.json).
-- `acceptance`: the open specs whose sub-issues are all closed.
+- `acceptance`: the open specs that have sub-issues, all of them closed.
 - `notes`: what GitHub did not answer, so an empty section reads as unknown and not as idle.
 
 ## API
