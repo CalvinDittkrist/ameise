@@ -97,7 +97,7 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   // The runtime runs without the controller's own workflow and Herdr variables.
   const env = read(m.claudeLog + '.env')
     .split('\n')
-    .map((l) => l.replace(/^declare -x /, '').split('=')[0])
+    .map((l) => l.replace(/^declare -x /, '').split('=')[0] ?? '')
   expect(env.filter((name) => /^(WF_|HERDR_)/.test(name))).toEqual([])
   expect(env).toContain('HOME')
 
