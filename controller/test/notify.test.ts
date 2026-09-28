@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, script, start } from './controller.js'
@@ -72,6 +72,18 @@ test.each([
   expect(await row()).toMatchObject({ state, unseen: false })
   // Opening the page again sends nothing more.
   await api(m, 'POST', '/api/processes/seen', { id: r.id })
+  await new Promise((done) => setTimeout(done, 200))
+  expect(notifications()).toHaveLength(1)
+})
+
+test('a yolo process that ends ready sends one notification though its record is gone', async () => {
+  play(m, 'ready Merged pull request #7')
+  const claimed = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode: 'yolo' })
+  expect(claimed.status, JSON.stringify(claimed.body)).toBe(201)
+  const file = join(m.state, 'processes', `${(claimed.body as { record: { id: string } }).record.id}.json`)
+  for (let i = 0; i < 200 && (existsSync(file) || notifications().length < 1); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(existsSync(file)).toBe(false)
+  expect(notifications()).toEqual(['repo #144 ready | Merged pull request #7'])
   await new Promise((done) => setTimeout(done, 200))
   expect(notifications()).toHaveLength(1)
 })
