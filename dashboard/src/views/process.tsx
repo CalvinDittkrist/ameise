@@ -268,19 +268,21 @@ function Conversation({ record, entries }: { record: ProcessRecord; entries: Ent
   return (
     <div aria-label="Conversation" className="flex w-full max-w-3xl flex-col gap-5">
       {list.length === 0 && <p className="text-sm text-muted-foreground">The session has written nothing yet.</p>}
-      {list.map((t) => {
+      {/* A turn keeps its place as the log grows, and one line of the log can make several turns, so a
+          turn is keyed by its place. */}
+      {list.map((t, i) => {
         switch (t.kind) {
           case "session":
-            return <Said key={t.seq} text={t.text} tools={t.tools} />
+            return <Said key={i} text={t.text} tools={t.tools} />
           case "you":
-            return <Said key={t.seq} text={t.text} you />
+            return <Said key={i} text={t.text} you />
           case "permission":
-            return <Permission key={t.seq} id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
+            return <Permission key={i} id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
           case "question":
-            return <Asked key={t.seq} id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
+            return <Asked key={i} id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
           case "line":
             return (
-              <p key={t.seq} role="note" className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+              <p key={i} role="note" className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
                 {t.text}
               </p>
             )
@@ -377,9 +379,11 @@ function Permission({ id, entry, settled }: { id: string; entry: Extract<Entry, 
 }
 
 // Asked is a question of the session. An option answers it with a click, the chat below with any text.
+// A question that takes several options has them toggled, then sent together as the session reads them.
 function Asked({ id, questions, settled }: { id: string; questions: Question[]; settled?: Settled }) {
   const [error, setError] = useState("")
   const [sending, setSending] = useState(false)
+  const [chosen, setChosen] = useState<string[]>([])
   const pick = async (label: string) => {
     setSending(true)
     setError("")
@@ -390,6 +394,7 @@ function Asked({ id, questions, settled }: { id: string; questions: Question[]; 
       setSending(false)
     }
   }
+  const toggle = (label: string) => setChosen((c) => (c.includes(label) ? c.filter((l) => l !== label) : [...c, label]))
   const open = settled === undefined
   return (
     <Card role="article" aria-label="Question" size="sm" className={cn(open && "bg-primary/5 ring-primary/40")}>
@@ -405,11 +410,22 @@ function Asked({ id, questions, settled }: { id: string; questions: Question[]; 
             <p>{q.question}</p>
             {open && questions.length === 1 && q.options.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {q.options.map((o) => (
-                  <Button key={o.label} size="sm" variant="outline" title={o.description} disabled={sending} onClick={() => void pick(o.label)}>
-                    {o.label}
+                {q.options.map((o) =>
+                  q.multiSelect ? (
+                    <Button key={o.label} size="sm" variant={chosen.includes(o.label) ? "default" : "outline"} aria-pressed={chosen.includes(o.label)} title={o.description} disabled={sending} onClick={() => toggle(o.label)}>
+                      {o.label}
+                    </Button>
+                  ) : (
+                    <Button key={o.label} size="sm" variant="outline" title={o.description} disabled={sending} onClick={() => void pick(o.label)}>
+                      {o.label}
+                    </Button>
+                  ),
+                )}
+                {q.multiSelect && (
+                  <Button size="sm" disabled={sending || chosen.length === 0} onClick={() => void pick(q.options.map((o) => o.label).filter((l) => chosen.includes(l)).join(", "))}>
+                    Send
                   </Button>
-                ))}
+                )}
               </div>
             )}
           </div>

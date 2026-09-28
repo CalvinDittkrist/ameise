@@ -248,7 +248,7 @@ test("open in terminal has the terminal resume the session by its id", async ({ 
 test("a running session's permission, question and chat are answered on its page, which follows it live", async ({ page }) => {
   const project = process.env.WORKFLOWS_SENSORS!
   const play = join(process.env.WORKFLOWS_FAKE_CLAUDE!, "play")
-  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nwait\nready Pull request #9 waits for your merge\n")
+  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nready Pull request #9 waits for your merge\n")
   try {
     const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
     expect(claimed.status).toBe(201)
@@ -262,12 +262,23 @@ test("a running session's permission, question and chat are answered on its page
     await expect(permission.getByRole("status")).toHaveText("Allowed once")
     await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "Ran npm test." })).toHaveCount(1)
 
-    const question = conversation.getByRole("article", { name: "Question" })
+    const question = conversation.getByRole("article", { name: "Question" }).first()
     await expect(question).toContainText("Keep the old flag, or drop it?")
     await expect(main(page).getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Answer the question…")
     await question.getByRole("button", { name: "Drop" }).click()
     await expect(question.getByRole("status")).toHaveText("You answered: Drop")
     await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You answered: Drop." })).toHaveCount(1)
+
+    // A question that takes several options sends the ones chosen together, in the order it offers them.
+    const choice = conversation.getByRole("article", { name: "Question" }).filter({ hasText: "Which of the flags go?" })
+    const send = choice.getByRole("button", { name: "Send" })
+    await expect(send).toBeDisabled()
+    await choice.getByRole("button", { name: "Drop" }).click()
+    await choice.getByRole("button", { name: "Keep" }).click()
+    await expect(choice.getByRole("button", { name: "Keep" })).toHaveAttribute("aria-pressed", "true")
+    await expect(choice.getByRole("status")).toHaveText("Answer below")
+    await send.click()
+    await expect(choice.getByRole("status")).toHaveText("You answered: Keep, Drop")
 
     const message = main(page).getByRole("textbox", { name: "Message" })
     await message.fill("Name it --keep")

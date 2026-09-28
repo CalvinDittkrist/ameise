@@ -16,6 +16,8 @@
 #   usage <tokens>      its messages from here on used that many tokens of input
 #   permit <command>    it asks for the permission to run the command in Bash, then says whether it ran
 #   ask <question>      it asks the question with the options Keep and Drop, then says the answer
+#   choose <question>   it asks the question with the options Keep and Drop, of which any may be chosen,
+#                       then says the answer
 #   wait                it waits for the next message, then says what it read
 # A line with one of these words ends it:
 #   ready <message>     it reports ready with the message
@@ -143,8 +145,10 @@ play() {
           *'"behavior":"allow"'*) text "Ran $rest." ;;
           *) text "Did not run $rest." ;;
         esac ;;
-      ask)
-        ask AskUserQuestion "{\"questions\":[{\"question\":$(json "$rest"),\"header\":\"Question\",\"options\":[{\"label\":\"Keep\",\"description\":\"Keep it as it is.\"},{\"label\":\"Drop\",\"description\":\"Take it out.\"}],\"multiSelect\":false}]}" '[]' || return 1
+      ask | choose)
+        local multi=false
+        if [ "${step%% *}" = choose ]; then multi=true; fi
+        ask AskUserQuestion "{\"questions\":[{\"question\":$(json "$rest"),\"header\":\"Question\",\"options\":[{\"label\":\"Keep\",\"description\":\"Keep it as it is.\"},{\"label\":\"Drop\",\"description\":\"Take it out.\"}],\"multiSelect\":$multi}]}" '[]' || return 1
         local answers=${line#*\"answers\":\{}
         text "You answered: $(field "$rest" "{$answers")." ;;
       wait)
