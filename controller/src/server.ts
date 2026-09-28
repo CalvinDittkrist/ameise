@@ -7,6 +7,7 @@ import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
+import { implement } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -16,6 +17,8 @@ export interface Options {
   stateDir: string
   gh: string
   fake: boolean
+  // runtime is what an implement session runs on: the claude executable and the bundled worker plugin.
+  runtime: { claude: string; worker: string }
   // dashboard is the directory of the dashboard's build, which the server serves at its root.
   dashboard: string
 }
@@ -72,7 +75,9 @@ export function serve(o: Options): Server {
     const project = await known(body)
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
-    send(res, 201, done)
+    // The claimed process starts its implement session at once; the answer is its record as it runs.
+    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir })
+    send(res, 201, { ...done, record })
   }
 
   async function abandoned(req: IncomingMessage, res: ServerResponse) {

@@ -25,9 +25,16 @@ export const binary = fileURLToPath(new URL('../dist/main.js', import.meta.url))
 const started: ChildProcess[] = []
 const made: string[] = []
 
-// cleanup stops every server a test started and removes every machine it made.
+// cleanup stops every server a test started, with the sessions it runs in its process group, and
+// removes every machine it made.
 export function cleanup() {
-  for (const p of started.splice(0)) p.kill('SIGKILL')
+  for (const p of started.splice(0)) {
+    try {
+      if (p.pid !== undefined) process.kill(-p.pid, 'SIGKILL')
+    } catch {
+      // the group is gone already
+    }
+  }
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true })
 }
 
@@ -61,6 +68,10 @@ export interface Machine {
   state: string
   github: string
   ghLog: string
+  // claude is the canned runtime of the scripted claude (see play), claudeLog what it was started with
+  // and what it read.
+  claude: string
+  claudeLog: string
   opened: string
   bin: string
   url: string
@@ -92,6 +103,9 @@ export async function machine(): Promise<Machine> {
   mkdirSync(dirname(config), { recursive: true })
   writeFileSync(config, JSON.stringify({ listen }, null, 2) + '\n')
   const ghLog = join(root, 'gh.log')
+  const claude = join(root, 'claude')
+  mkdirSync(claude)
+  const claudeLog = join(root, 'claude.log')
   const env = {
     HOME: root,
     PATH: bin,
@@ -100,17 +114,20 @@ export async function machine(): Promise<Machine> {
     BROWSER: browser,
     WORKFLOWS_FAKE_GH: github,
     WORKFLOWS_FAKE_GH_LOG: ghLog,
+    WORKFLOWS_FAKE_CLAUDE: claude,
+    WORKFLOWS_FAKE_CLAUDE_LOG: claudeLog,
   }
-  return { root, env, config, state: join(root, 'data', 'workflows'), github, ghLog, opened, bin, url: `http://${listen}`, listen, binary }
+  return { root, env, config, state: join(root, 'data', 'workflows'), github, ghLog, claude, claudeLog, opened, bin, url: `http://${listen}`, listen, binary }
 }
 
 // dashboard gives the machine a copy of the controller whose dashboard build is the files given, each
 // a path under the build and its content, or no build at all when there are none. The copy stands
-// beside the scripted gh as the build does, so it runs the same way.
+// beside the scripted gh and claude and the packages as the build does, so it runs the same way.
 export function dashboard(m: Machine, files: Record<string, string> = {}) {
   const dist = join(m.root, 'controller', 'dist')
   cpSync(dirname(binary), dist, { recursive: true, filter: (from) => from !== join(dirname(binary), 'dashboard') })
   symlinkSync(fileURLToPath(new URL('../fake', import.meta.url)), join(m.root, 'controller', 'fake'))
+  symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), join(m.root, 'controller', 'node_modules'))
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dist, 'dashboard', path)), { recursive: true })
     writeFileSync(join(dist, 'dashboard', path), content)
@@ -137,7 +154,8 @@ export function cli(m: Machine, args: string[], cwd?: string): Exit {
 
 // start starts the server in fake mode and returns once it listens, or with how it exited.
 export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean; process: ChildProcess }> {
-  const p = spawn(process.execPath, [m.binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  // The server leads a process group of its own, so cleanup stops the sessions it started with it.
+  const p = spawn(process.execPath, [m.binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
   started.push(p)
   let stdout = ''
   let stderr = ''
@@ -195,6 +213,12 @@ export function canRepo(m: Machine, repository: string, defaultBranch: string) {
 
 export function read(path: string): string {
   return readFileSync(path, 'utf8')
+}
+
+// play cans the session the scripted claude plays next, such as 'ready <message>' (see fake/claude).
+// Without one a session runs until it is stopped.
+export function play(m: Machine, session: string) {
+  writeFileSync(join(m.claude, 'play'), session + '\n')
 }
 
 // canApi cans the answer of gh api <endpoint> on the fake GitHub, an endpoint such as

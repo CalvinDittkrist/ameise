@@ -6,7 +6,8 @@ import { readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
-import { run } from './exec.js'
+import { run, which } from './exec.js'
+import { bundledWorker } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
@@ -26,7 +27,8 @@ const usage = `usage:
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
 origin, and abandons a worktree with work not on origin.
 
---fake answers GitHub with the scripted gh the tests use, so nothing reaches GitHub.`
+--fake answers GitHub with the scripted gh the tests use and plays the sessions with the scripted
+claude, so nothing reaches GitHub or a model.`
 
 function die(message: string): never {
   process.stderr.write(`error: ${message}\n`)
@@ -44,6 +46,8 @@ function config(path: string): Config {
 
 // The scripted gh ships beside the build: dist/main.js reaches fake/gh.
 const fakeGh = fileURLToPath(new URL('../fake/gh', import.meta.url))
+// The scripted claude beside it plays the sessions in fake mode.
+const fakeClaude = fileURLToPath(new URL('../fake/claude', import.meta.url))
 // The dashboard's build is written into this one: dist/main.js reaches dist/dashboard.
 const dashboard = fileURLToPath(new URL('./dashboard', import.meta.url))
 
@@ -61,13 +65,15 @@ async function start(fake: boolean) {
   } catch {
     die('gh is not logged in; run gh auth login')
   }
+  // Fake mode plays its sessions on the scripted claude it ships, so it needs no claude of the machine.
+  const claude = fake ? fakeClaude : which('claude')
   try {
-    await run('claude', ['--version'])
+    await run(claude, ['--version'])
   } catch {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, dashboard })
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, worker: bundledWorker }, dashboard })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)
@@ -209,13 +215,13 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
     return
   }
   const c = (await call('POST', '/api/processes', { project, issue, mode, env, force })) as {
-    record: { branch: string; worktree: string; base: string; mode: string; env: Record<string, string>; state: string }
+    record: { branch: string; worktree: string; base: string; start?: string; mode: string; env: Record<string, string>; state: string }
     warnings: string[]
   }
   for (const w of c.warnings) process.stderr.write(`warning: ${w}\n`)
   const r = c.record
   const knobs = Object.entries(r.env).map(([k, v]) => `${k}=${v}`)
-  process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)
+  process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.start ?? r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)
 }
 
 async function main(argv: string[]) {

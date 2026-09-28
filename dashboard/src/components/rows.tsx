@@ -12,6 +12,7 @@ const dot: Record<Process["state"], string> = {
   approval: "bg-amber-500",
   input: "bg-violet-500",
   ready: "bg-emerald-500",
+  failed: "bg-red-700",
   created: "border-2 border-blue-500",
 }
 

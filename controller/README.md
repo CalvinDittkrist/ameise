@@ -4,7 +4,7 @@
 
 ## Commands
 - `workflows` starts the server on the configured loopback address and opens the browser there (`BROWSER` names another browser).
-- `workflows --fake` does the same against the scripted `fake/gh`, so nothing reaches GitHub.
+- `workflows --fake` does the same against the scripted `fake/gh` and `fake/claude`, so nothing reaches GitHub or a model.
 - `workflows projects` lists the projects with their derived facts.
 - `workflows projects add <path>` adds the checkout at `<path>`; `workflows projects remove <path>` removes it.
 - `workflows board [<path>]` prints the board of every project, or of the project at `<path>`.
@@ -18,7 +18,7 @@
 The start stops with one `error:` line that names the fix when:
 - the configuration is malformed,
 - `gh` is missing or not logged in,
-- `claude` is missing.
+- `claude` is missing, outside fake mode, which runs on the scripted `fake/claude` it ships.
 
 ## Configuration
 One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/workflows/config.json`. Without it the defaults hold.
@@ -56,7 +56,8 @@ The board is derived on every request from the state directory, git and GitHub, 
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
   - A record decides state, stage and note. A worktree without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
   - A claimed process is `created` until its first session starts.
-  - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`. Every other process runs, with the action `Open`.
+  - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`.
+  - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
   - The tests hold it to the frontier of the [contract fixture](../contract/fixture.json).
@@ -80,11 +81,33 @@ A claim then:
 2. creates it from `origin/<base>` and its worktree in `.claude/worktrees/` of the checkout, which git ignores through `.git/info/exclude`,
 3. assigns the issue to the user gh is logged in as, and undoes the two when GitHub refuses,
 4. writes the process record `processes/<id>.json` with the mode and the overrides, in the state `created`,
-5. opens its event log `processes/<id>.events.jsonl`.
+   - its `base` is the ref the branch merges into,
+   - its `start` is the ref the worktree started from, which a forced claim that adopts a branch on origin sets to that branch,
+5. opens its event log `processes/<id>.events.jsonl`,
+6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
-No session starts yet. In fake mode the claim fetches nothing and branches from what the checkout has of origin.
+In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 
-An abandon removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced.
+An abandon stops the process's session and waits for its runtime to exit, then removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced. It checks before the stop and again after it, so work the session wrote until it stopped is refused too; a refusal after the stop ends the process `failed`.
+
+## Implement session
+A claimed process runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
+- the machine's `claude` from `PATH` as the executable,
+- the worker plugin of this checkout (`plugins/worker`) loaded, and the marketplace's copies of the workflow's plugins switched off,
+- the user's, the repository's and the local settings, the `auto` permission mode and the `worker` agent,
+- session settings over them: `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH`, the claim's overrides, foreground subagents and the compact pin (80% of 312 500 tokens).
+
+The brief runs `/worker:work` and names the issue, the branch, its base and the `gh` and `git` reads the session does itself. It carries no text of the issue.
+
+The session has no status line, so the worker's checkpoint answers unavailable and nothing is handed over. The worker runs its own pipeline after implement, as the sandbox path does, and the process stays in the stage `implement`.
+
+- The stream goes into the event log, each message as a `stream` event, and the session id into the record as `session_id`.
+- The session reports through a structured result: `ready` or `blocked`, each with a message that becomes the note.
+- A `yolo` session that reports `ready` has merged its pull request, and the worker removes its worktree, so its record and event log go with it.
+- A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
+- A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
+
+In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
 
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
@@ -94,7 +117,7 @@ An abandon removes the worktree, the record and the event log. It leaves the bra
 - `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project and answers `200`. `400` with `{error}` refuses a path that is not absolute, `404` says it is no project.
 - `GET /api/board`: the [board](#board) of every project, `{projects: [...]}`, each a project's board or `{path, error}`.
 - `GET /api/board?project=<path>`: the board of the project at that checkout; `404` says it is no project.
-- `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue and answers `201` with `{record, warnings}`.
+- `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings}`.
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
@@ -107,5 +130,5 @@ One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/work
 
 ## Development
 - `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.
-- The tests build the binary and start it in fake mode on a temporary machine: its own configuration, state, `PATH` and canned GitHub (see `fake/gh`).
+- The tests build the binary and start it in fake mode on a temporary machine: its own configuration, state, `PATH`, canned GitHub (see `fake/gh`) and canned runtime (see `fake/claude`).
 - They watch it over the API, its files and its output.

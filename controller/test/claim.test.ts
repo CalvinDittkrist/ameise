@@ -53,26 +53,28 @@ function nothing() {
   expect(processes()).toEqual([])
 }
 
-test('a claim of an agent-ready issue creates branch, worktree, assignment, record and event log, and the board shows the process', async () => {
+test('a claim of an agent-ready issue creates branch, worktree, assignment, record and event log, starts its session, and the board shows the process', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
   const r = await claim({ issue: 144 })
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   const c = r.body as Claimed
   const branch = 'feat/144-board-lists-every-project'
   const path = join(dir, '.claude', 'worktrees', 'feat-144-board-lists-every-project')
-  expect(c.record).toMatchObject({ project: dir, kind: 'work', branch, issue: 144, worktree: path, base: 'origin/main', mode: 'manual', env: {}, state: 'created' })
+  expect(c.record).toMatchObject({ project: dir, kind: 'work', branch, issue: 144, worktree: path, base: 'origin/main', mode: 'manual', env: {}, state: 'running', stage: 'implement' })
   expect(c.warnings).toEqual([])
 
   expect(git(path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(branch)
   expect(git(path, 'rev-parse', 'HEAD')).toBe(git(dir, 'rev-parse', 'origin/main'))
   expect(git(dir, 'status', '--porcelain')).toBe('')
   expect(assigned()).toEqual(['issue edit 144 --repo owner/repo --add-assignee @me'])
-  expect(JSON.parse(read(join(m.state, 'processes', `${c.record.id}.json`)))).toEqual(c.record)
+  const kept: Partial<Claimed["record"]> = { ...c.record }
+  delete kept.updated_at
+  expect(JSON.parse(read(join(m.state, 'processes', `${c.record.id}.json`)))).toMatchObject(kept)
   const events = read(join(m.state, 'processes', `${c.record.id}.events.jsonl`)).trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>)
-  expect(events).toMatchObject([{ event: 'claimed', issue: 144, branch, mode: 'manual' }])
+  expect(events.slice(0, 2)).toMatchObject([{ event: 'claimed', issue: 144, branch, mode: 'manual' }, { event: 'session-start', stage: 'implement' }])
 
   const board = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: Record<string, unknown>[] }
-  expect(board.processes).toMatchObject([{ kind: 'work', issue: 144, branch, worktree: path, state: 'created', stage: 'implement', needs: false, action: 'Open' }])
+  expect(board.processes).toMatchObject([{ kind: 'work', issue: 144, branch, worktree: path, state: 'running', stage: 'implement', needs: false, action: 'Open' }])
 })
 
 // Each refusal the story names, with the issue as GitHub answers it and what force says of it.
@@ -123,6 +125,8 @@ for (const r of refusals) {
       // Force adopts the branch on origin: the worktree goes on from its work.
       expect(c.record.branch).toBe('fix/150-loose-idea-seen-elsewhere')
       expect(git(c.record.worktree, 'log', '-1', '--format=%s')).toBe('remote work')
+      // The adopted branch is where the worktree starts; it still merges into the project's base.
+      expect(c.record).toMatchObject({ base: 'origin/main', start: 'origin/fix/150-loose-idea-seen-elsewhere' })
     }
   })
 }
@@ -325,9 +329,9 @@ test('the CLI claims and abandons', async () => {
   const c = cli(m, ['claim', '144', '--yolo', '--env', 'WF_REVIEWERS=2'], dir)
   expect(c.stderr).toBe('')
   expect(c.code).toBe(0)
-  expect(c.stdout).toMatch(/^claimed #144 {2}feat\/144-board-lists-every-project {2}from origin\/main {2}yolo {2}WF_REVIEWERS=2 {2}created\n/)
+  expect(c.stdout).toMatch(/^claimed #144 {2}feat\/144-board-lists-every-project {2}from origin\/main {2}yolo {2}WF_REVIEWERS=2 {2}running\n/)
   const b = cli(m, ['board', dir])
-  expect(b.stdout).toMatch(/running +work {2}#144 {2}feat\/144-board-lists-every-project {2}implement {2}created/)
+  expect(b.stdout).toMatch(/running +work {2}#144 {2}feat\/144-board-lists-every-project {2}implement {2}running/)
 
   const refused = cli(m, ['claim', '#144', '--env', 'WF_NOPE=1', '--project', dir])
   expect(refused.code).toBe(1)

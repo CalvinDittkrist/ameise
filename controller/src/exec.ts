@@ -1,6 +1,8 @@
 // run starts a command and answers its output without the line ending it closes with, or an
 // error that carries what it wrote on stderr. git never asks for credentials on a terminal it has none of.
 import { execFile } from 'node:child_process'
+import { accessSync, constants } from 'node:fs'
+import { delimiter, join } from 'node:path'
 
 export function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -9,4 +11,18 @@ export function run(cmd: string, args: string[]): Promise<string> {
       else resolve(stdout.replace(/\r?\n$/, ''))
     })
   })
+}
+
+// which is the path of a command on PATH, as the shell finds it, or the name itself when none is found.
+export function which(cmd: string): string {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir === '') continue
+    try {
+      accessSync(join(dir, cmd), constants.X_OK)
+      return join(dir, cmd)
+    } catch {
+      // not in this directory
+    }
+  }
+  return cmd
 }
