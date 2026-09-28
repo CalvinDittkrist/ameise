@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { test as base, expect, type Page } from "@playwright/test"
@@ -255,6 +256,30 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ project, issue: 145, force: true }),
+    })
+  }
+})
+
+test("a worktree the controller did not start is adopted from its row, and the interrupted process resumes", async ({ page }) => {
+  const project = process.env.WORKFLOWS_BACKTEST!
+  const branch = "fix/93-by-hand"
+  execFileSync("git", ["-C", project, "worktree", "add", "-q", "-b", branch, join(project, ".claude", "worktrees", "fix-93-by-hand")], { stdio: "pipe" })
+  try {
+    await page.goto(url())
+    const waiting = section(page, "Needs you").locator(`[aria-label="${branch}"]`)
+    await expect(waiting).toContainText(`backtest#93${branch}not started by this controller; adopt it or remove itimplement`)
+    await expect(waiting.locator("[title=foreign]")).toHaveCount(1)
+    await waiting.getByRole("button", { name: "Adopt" }).click()
+    await expect(waiting).toContainText("adopted; resume it to start its implement session in the worktree")
+    await expect(waiting.locator("[title=interrupted]")).toHaveCount(1)
+    await waiting.getByRole("button", { name: "Resume" }).click()
+    await expect(section(page, "Running").locator(`[aria-label="${branch}"]`)).toContainText(`backtest#93${branch}implement session runningimplement`)
+    await expect(waiting).toHaveCount(0)
+  } finally {
+    await fetch(url("/api/processes"), {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project, issue: 93, force: true }),
     })
   }
 })

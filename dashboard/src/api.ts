@@ -42,7 +42,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 // request. needs says it waits for a person, action names what answers it.
 export type Process = {
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "failed" | "running" | "waiting" | "created"
+  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "failed" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
@@ -112,6 +112,12 @@ export const claim = (path: string, issue: number, mode: "manual" | "yolo", env:
 // abandon removes the worktree and the process of the issue, or throws the controller's reason.
 export const abandon = (path: string, issue: number, force: boolean) =>
   call<{ branch: string }>("DELETE", "/api/processes", { project: path, issue, force })
+
+// resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
+export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
+
+// adopt takes the issue's worktree the controller did not start into a process, or throws its reason.
+export const adopt = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/adopt", { project: path, issue })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response

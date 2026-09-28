@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, claim, type Issue } from "@/api"
+import { abandon, adopt, claim, type Issue, type Process, resume } from "@/api"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -229,5 +229,41 @@ export function Abandon({ issue, branch, path, reload }: { issue: number; branch
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ProcessAction is the one action that moves a process on. Resume goes on with an interrupted session and
+// Adopt takes a foreign worktree into a process; the controller does not serve the others yet, so they
+// are shown disabled. The controller's reason for refusing one is shown beside it.
+export function ProcessAction({ p, path, reload }: { p: Process; path: string; reload: () => Promise<void> }) {
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const act = p.issue === null ? undefined : p.action === "Resume" ? resume : p.action === "Adopt" ? adopt : undefined
+
+  async function run() {
+    if (!act || p.issue === null) return
+    setBusy(true)
+    setError("")
+    try {
+      await act(path, p.issue)
+      await reload()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      {error && (
+        <span role="alert" className="max-w-64 text-xs text-destructive">
+          {error}
+        </span>
+      )}
+      <Button size="sm" variant={p.needs ? "default" : "ghost"} disabled={!act || busy} onClick={run}>
+        {p.action}
+      </Button>
+    </>
   )
 }
