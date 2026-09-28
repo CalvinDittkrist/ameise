@@ -4,14 +4,15 @@ Public repository of Claude Code plugins for agent-driven development: an orches
 
 Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
-`controller/` is the local program `workflows`, which holds this machine's projects and serves a local API.
+`controller/` is the local program `workflows`, which holds this machine's projects and serves a local API. `dashboard/` is its browser interface, which the controller serves.
 
 ## Commands
-- Gate: `make check` runs everything CI runs. `make lint`, `make validate`, `make standard`, `make test`, `make ui`, `make factory`, `make browser`, `make controller` run one part.
+- Gate: `make check` runs everything CI runs. `make lint`, `make validate`, `make standard`, `make test`, `make ui`, `make factory`, `make browser`, `make controller`, `make dashboard` run one part.
   - Shell and plugins: shellcheck, `claude plugin validate --strict`, the standard check.
   - Python: the suite through `tests/run.py`, which runs its test classes on a pool of processes.
   - Factory: the dashboard's lint and build, gofmt, vet, staticcheck, the Go tests, the dashboard's browser test.
   - Controller: eslint, the TypeScript type check, the vitest suite.
+  - Dashboard: eslint, the TypeScript type check, the build, the browser test against the controller.
 - Factory without tokens, git or GitHub: `make ui && go -C factory run . -fake -config <file>` works a canned queue with scripted workers.
   - Against real GitHub it claims the head of its line by creating the issue's branch. It runs a worker session in a worktree of its own clone.
   - The config file is your own. `factory/factory.example.json` is a host's configuration, paused and rooted at `/var/lib/factory`.
@@ -25,6 +26,8 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - `npm --prefix factory/ui run dev` serves the dashboard with hot reload against a factory beside it.
 - Controller: `make controller` runs its lint and tests. `npm --prefix controller run build && node controller/dist/main.js --fake` starts it against the scripted gh.
   - Its configuration is `~/.config/workflows/config.json`, its state `~/.local/share/workflows`; `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them.
+  - It serves the dashboard at `/` once `npm --prefix dashboard run build` has written it into `controller/dist/dashboard`. Until then `/` answers 404 while the API works.
+  - `npm --prefix dashboard run dev` serves the dashboard with hot reload against a controller beside it on the default address `127.0.0.1:7420`.
 - Try a plugin without installing: `claude --plugin-dir plugins/<name>`
 - Release a plugin: bump `version` in `plugins/<name>/.claude-plugin/plugin.json`, commit, `scripts/release.sh <name> --push`
 - Release the factory: bump `factory/VERSION` (the one place its version is written), commit, `scripts/release.sh factory --push`.
@@ -83,6 +86,10 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - The controller is TypeScript on npm in `controller/`, apart from the factory and its dashboard.
   - Its tests start the built `dist/main.js --fake`, so `npm test` builds first through `pretest`.
   - Its helper `controller/test/controller.ts` gives each test a machine of its own: a temporary configuration, state, PATH and scripted gh.
+- The local dashboard is the controller's npm part ([ADR 0064](docs/adr/0064-the-local-dashboard-is-built-into-the-controller.md)): shadcn/ui on Tailwind in `dashboard/`.
+  - Its build writes into `controller/dist/dashboard`, and `tsc` of the controller leaves that directory alone.
+  - A shadcn component is copied into `dashboard/src/components/ui` and imports `cn` from `@/lib/utils`.
+  - The browser test starts the built controller in fake mode on a free port. It compares an approved screenshot per page, scheme and operating system (`dashboard/tests/screenshots/<page>-<scheme>-<platform>.png`).
 - A skill's `` !`command` `` runs through the permission system.
   - Forked skills (`context: fork`) fail silently without a matching `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x.sh)` rule.
   - So every injection calls a plugin script and lists it there (tested).

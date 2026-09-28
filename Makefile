@@ -1,11 +1,11 @@
 # The gate: `make check` runs everything CI gates on, locally and in the CI job named `check`.
 SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
 
-.PHONY: check lint validate standard test ui factory factory-go browser binaries controller
+.PHONY: check lint validate standard test ui factory factory-go browser binaries controller dashboard
 # The gate parallelises inside its targets (the Python runner's process pool, go test) and never across
 # them: the targets run one after the other so their output does not interleave, because the make that
 # ships with macOS is 3.81 and has no --output-sync to keep a parallel target's lines together.
-check: lint validate standard test ui factory browser controller
+check: lint validate standard test ui factory browser controller dashboard
 
 # The factory's dashboard: an npm package that Vite builds into factory/ui/dist/app, which the binary
 # embeds. Every target below needs that build, so it is a file the others depend on.
@@ -96,4 +96,22 @@ controller: $(CONTROLLER)/node_modules
 $(CONTROLLER)/node_modules: $(CONTROLLER)/package-lock.json
 	@command -v npm >/dev/null || { echo 'error: npm not installed; brew install node (or https://nodejs.org), the controller is written in TypeScript' >&2; exit 1; }
 	npm --prefix $(CONTROLLER) ci
+	@touch $@
+
+# The controller's dashboard: an npm package in dashboard/ that Vite builds into controller/dist/dashboard,
+# which the controller serves. Its lint is eslint and the type check; its browser test starts the built
+# controller in fake mode and reads the dashboard in Chromium, so both builds come first. Chromium is
+# downloaded once into Playwright's own cache, which the factory's dashboard shares.
+DASHBOARD := dashboard
+
+dashboard: $(DASHBOARD)/node_modules $(CONTROLLER)/node_modules
+	npm --prefix $(DASHBOARD) run lint
+	npm --prefix $(DASHBOARD) run build
+	npm --prefix $(CONTROLLER) run build
+	npm --prefix $(DASHBOARD) exec -- playwright install chromium
+	npm --prefix $(DASHBOARD) test
+
+$(DASHBOARD)/node_modules: $(DASHBOARD)/package-lock.json
+	@command -v npm >/dev/null || { echo 'error: npm not installed; brew install node (or https://nodejs.org), the dashboard is built with it' >&2; exit 1; }
+	npm --prefix $(DASHBOARD) ci
 	@touch $@

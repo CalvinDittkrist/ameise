@@ -6,7 +6,7 @@ Terms the code, the issues and the docs use, one row each.
 | --- | --- |
 | standard | The written baseline a repository is checked against: [repo-standard.md](repo-standard.md). |
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
-| controller | The local program `workflows`, the local peer of the factory: it holds the machine's projects and serves the local API. In `controller/`. |
+| controller | The local program `workflows`, the local peer of the factory: it holds the machine's projects and serves the local API and the dashboard. In `controller/`. |
 | project | A checkout of a GitHub repository on this machine, configured in the controller by its path alone. Owner, name and base branch are derived on read. |
 | contract fixture | A file in `contract/` that states a rule the controller and the factory share as cases with the expected output. The tests of both read it. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |

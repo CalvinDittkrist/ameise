@@ -34,6 +34,8 @@ function config(path: string): Config {
 
 // The scripted gh ships beside the build: dist/main.js reaches fake/gh.
 const fakeGh = fileURLToPath(new URL('../fake/gh', import.meta.url))
+// The dashboard's build is written into this one: dist/main.js reaches dist/dashboard.
+const dashboard = fileURLToPath(new URL('./dashboard', import.meta.url))
 
 async function start(fake: boolean) {
   const path = configPath()
@@ -55,7 +57,7 @@ async function start(fake: boolean) {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake })
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, dashboard })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)

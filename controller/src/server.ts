@@ -1,8 +1,9 @@
 // The server: the local API every client talks to, the dashboard and the CLI alike. It is the one
 // writer of the configuration file.
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { isAbsolute, join, resolve } from 'node:path'
+import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { checkout, derive, type Listed, Refusal } from './project.js'
 
@@ -13,6 +14,8 @@ export interface Options {
   stateDir: string
   gh: string
   fake: boolean
+  // dashboard is the directory of the dashboard's build, which the server serves at its root.
+  dashboard: string
 }
 
 export function serve(o: Options): Server {
@@ -83,10 +86,8 @@ export function serve(o: Options): Server {
           return add(req, res)
         case 'DELETE /api/projects':
           return remove(req, res)
-        case 'GET /':
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', [identity]: '1' })
-          return res.end('<!doctype html><title>workflows</title><p>workflows is running. The projects are at <a href="/api/projects">/api/projects</a>.</p>\n')
         default:
+          if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })
       }
     }
@@ -119,6 +120,59 @@ function loopbackHost(host: string | undefined, listen: string): boolean {
 // identity is the header every answer carries, so the CLI tells this server from another service
 // that took its port after it stopped.
 export const identity = 'x-workflows'
+
+// The kinds of file the dashboard's build holds. A file of another kind is not served.
+const types: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+}
+
+// The dashboard runs its own scripts alone and talks to this server alone, and no other site may frame
+// it, so a page of another site cannot put the dashboard's buttons under its own. Styles may be inline,
+// because a dialog locks the page's scroll with a style element it writes.
+const policy = "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+// page answers a file of the dashboard's build. The root is its index.html, which names every other
+// file by a name that carries its content's hash; the page itself lives in the URL's fragment, so no
+// other path is ever asked for. Without a build the root answers 404 with the command that makes one,
+// and the API works as it does with one.
+async function page(res: ServerResponse, dir: string, pathname: string) {
+  const root = pathname === '/'
+  const file = buildFile(dir, pathname)
+  const type = file && types[extname(file)]
+  if (!file || !type) return send(res, 404, { error: `no route GET ${pathname}` })
+  let body: Buffer
+  try {
+    body = await readFile(file)
+  } catch {
+    if (root) return send(res, 404, { error: 'the dashboard is not built; run npm --prefix dashboard run build' })
+    return send(res, 404, { error: `no route GET ${pathname}` })
+  }
+  res.writeHead(200, {
+    'content-type': type,
+    // index.html names the build, so it is asked for again each time, at / and at its own name; the
+    // rest never changes under its name.
+    'cache-control': type === types['.html'] ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'content-security-policy': policy,
+    'x-content-type-options': 'nosniff',
+    [identity]: '1',
+  })
+  res.end(body)
+}
+
+// buildFile is the file of the build at dir that a path names, or undefined when the path leaves the
+// build or names a kind of file the build does not hold. The URL parser drops the dot segments of a
+// request target before the path gets here, and this check holds should that ever change.
+export function buildFile(dir: string, pathname: string): string | undefined {
+  const file = resolve(dir, pathname === '/' ? 'index.html' : '.' + pathname)
+  return file.startsWith(dir + sep) && types[extname(file)] ? file : undefined
+}
 
 function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json', [identity]: '1' })

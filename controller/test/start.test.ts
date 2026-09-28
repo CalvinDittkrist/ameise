@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
-import { api, binary, cleanup, cli, freePort, machine, read, start } from './controller.js'
+import { api, cleanup, cli, freePort, machine, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -87,7 +87,7 @@ test('the CLI does not take another service on a stale recorded address for work
     writeFileSync(record, `127.0.0.1:${port}\n`)
     // The CLI runs beside the test, not in its place, so the service in this process can answer it.
     const r = await new Promise<{ code: number | null; stderr: string }>((resolve) =>
-      execFile(process.execPath, [binary, 'projects', 'add', m.root], { env: m.env }, (err, _stdout, stderr) =>
+      execFile(process.execPath, [m.binary, 'projects', 'add', m.root], { env: m.env }, (err, _stdout, stderr) =>
         resolve({ code: err ? (typeof err.code === 'number' ? err.code : null) : 0, stderr }),
       ),
     )

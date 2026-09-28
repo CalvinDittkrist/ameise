@@ -45,6 +45,8 @@ Owner and name come from the checkout's origin, which must be on GitHub. The bas
 All of them are derived on every read and never stored. A path that is no git checkout, or whose origin is missing or not on GitHub, is refused with the reason.
 
 ## API
+- `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
+- Without that build `/` answers `404` with the command, and the API works.
 - `GET /api/projects`: the projects, each `{path, owner, name, base}`, or `{path, error}` when its checkout no longer derives.
 - `POST /api/projects` with `{"path": "<absolute path>"}`: adds a project and answers `201`. `400` with `{error}` refuses it, `409` says it is a project already.
 - `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project and answers `200`. `400` with `{error}` refuses a path that is not absolute, `404` says it is no project.
@@ -56,6 +58,6 @@ The server answers only a `Host` that names it, and takes a write only as `appli
 One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl` and, while the server runs, `listen`: the address it started on, which the CLI reads first.
 
 ## Development
-- `make controller` runs eslint, the type check and the tests.
+- `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.
 - The tests build the binary and start it in fake mode on a temporary machine: its own configuration, state, `PATH` and canned GitHub (see `fake/gh`).
 - They watch it over the API, its files and its output.
