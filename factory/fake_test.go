@@ -80,7 +80,7 @@ func TestFakeModeWorksTheCannedSpecRunFromItsClaimToItsSpecPullRequest(t *testin
 		}
 		return false
 	})
-	specPull :=fmt.Sprintf("https://github.com/acme/firmware/pull/%d", cannedPull(cannedSpec.number))
+	specPull := fmt.Sprintf("https://github.com/acme/firmware/pull/%d", cannedPull(cannedSpec.number))
 	if pull.Issue != cannedSpec.number || pull.Spec != cannedSpec.number || pull.Outcome != outcomeReady || pull.PullRequest != specPull {
 		t.Errorf("run %d worked #%d of spec #%d, ended %q with %q, want the spec pull request %s of #%d ready",
 			pull.ID, pull.Issue, pull.Spec, pull.Outcome, pull.PullRequest, specPull, cannedSpec.number)
