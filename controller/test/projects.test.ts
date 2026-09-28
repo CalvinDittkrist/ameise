@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -123,6 +123,15 @@ test('adding and removing a project keeps a change made to the configuration by 
   writeFileSync(m.config, JSON.stringify({ ...edited, quota_minimum: 40, projects: [a, b] }, null, 2) + '\n')
   expect((await api(m, 'DELETE', '/api/projects', { path: a })).status).toBe(200)
   expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 40, notifications: false, projects: [b] })
+})
+
+test('adding and removing a project keeps a private configuration private', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  chmodSync(m.config, 0o600)
+  expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
+  expect(statSync(m.config).mode & 0o777).toBe(0o600)
+  expect((await api(m, 'DELETE', '/api/projects', { path: a })).status).toBe(200)
+  expect(statSync(m.config).mode & 0o777).toBe(0o600)
 })
 
 test('adding a project that is known already is refused with 409 and changes nothing', async () => {

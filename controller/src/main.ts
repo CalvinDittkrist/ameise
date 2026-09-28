@@ -45,7 +45,7 @@ async function start(fake: boolean) {
     die('gh is not installed; install the GitHub CLI (brew install gh, or https://cli.github.com) and log in with gh auth login')
   }
   try {
-    await run(gh, ['auth', 'status'])
+    await run(gh, ['auth', 'status', '--active', '--hostname', 'github.com'])
   } catch {
     die('gh is not logged in; run gh auth login')
   }

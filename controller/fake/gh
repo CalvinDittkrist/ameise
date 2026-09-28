@@ -16,14 +16,14 @@ canned=${WORKFLOWS_FAKE_GH:-}
 case "$*" in
   --version)
     printf 'gh version 0.0.0 (workflows fake)\n' ;;
-  'auth status')
+  'auth status --active --hostname github.com')
     if [ -n "$canned" ] && [ -e "$canned/logged-out" ]; then
       printf 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n' >&2
       exit 1
     fi
     printf 'github.com\n  Logged in to github.com account fake (workflows fake)\n' ;;
   'repo view '*' --json defaultBranchRef --jq .defaultBranchRef.name')
-    repo=$3
+    repo=${3#github.com/}
     file="$canned/repos/$repo/default-branch"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
       printf 'error: no canned repository %s\n' "$repo" >&2

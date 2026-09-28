@@ -47,9 +47,12 @@ export function serve(o: Options): Server {
     const path = typeof body?.path === 'string' ? body.path : ''
     if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
     // A checkout names itself by its top, so a path inside one removes the project it belongs to.
-    const config = readConfig(o.configPath)
+    // The top is asked before the file is read, so no other change lands between the read and the
+    // write.
     const absolute = resolve(path)
-    const known = config.projects.includes(absolute) ? absolute : await checkout(absolute).catch(() => absolute)
+    const top = await checkout(absolute).catch(() => absolute)
+    const config = readConfig(o.configPath)
+    const known = config.projects.includes(absolute) ? absolute : top
     const i = config.projects.indexOf(known)
     if (i < 0) return send(res, 404, { error: `${absolute} is not a project; workflows projects lists them` })
     config.projects.splice(i, 1)
@@ -102,7 +105,10 @@ export function serve(o: Options): Server {
 function loopbackHost(host: string | undefined, listen: string): boolean {
   if (!host) return false
   const { port } = address(listen)
-  return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, listen].includes(host)
+  const names = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, listen]
+  // A client leaves the default port of http out of the Host it sends.
+  if (port === 80) names.push('127.0.0.1', 'localhost', '[::1]', listen.replace(/:80$/, ''))
+  return names.includes(host)
 }
 
 // identity is the header every answer carries, so the CLI tells this server from another service

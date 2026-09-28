@@ -78,7 +78,7 @@ export async function baseBranch(top: string, repository: string, gh: string): P
     // origin names no head: GitHub is asked next
   }
   try {
-    const name = await run(gh, ['repo', 'view', repository, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])
+    const name = await run(gh, ['repo', 'view', `github.com/${repository}`, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'])
     if (name) return name
   } catch {
     // GitHub does not answer: the rule ends at main

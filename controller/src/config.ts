@@ -1,7 +1,7 @@
 // The configuration of this machine: one file in the user's configuration directory. It holds what
 // only the maintainer can say (where the server listens, the quota check, notifications, the
 // checkouts that are projects) and nothing that git or GitHub can say instead.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -92,6 +92,8 @@ function validate(path: string, parsed: unknown): Config {
     if (!Array.isArray(p) || p.some((x) => typeof x !== 'string' || !isAbsolute(x))) {
       throw bad('projects is not a list of absolute paths; write each project as the path of its checkout, such as "/home/me/src/repo"')
     }
+    const twice = (p as string[]).find((x, i) => p.indexOf(x) !== i)
+    if (twice !== undefined) throw bad(`projects names ${twice} twice; keep one of them`)
     config.projects = [...(p as string[])]
   }
   return config
@@ -109,11 +111,19 @@ export function loopback(listen: string): boolean {
 }
 
 // writeConfig replaces the file whole, through a rename, so a crash leaves the old file or the new
-// one and never half of either.
+// one and never half of either. The new file keeps the permissions of the old one, and a first file
+// is private to this user, because it names the checkouts of this machine.
 export function writeConfig(path: string, config: Config): void {
   mkdirSync(dirname(path), { recursive: true })
+  let mode = 0o600
+  try {
+    mode = statSync(path).mode & 0o777
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
   const tmp = `${path}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(config, null, 2) + '\n')
+  writeFileSync(tmp, JSON.stringify(config, null, 2) + '\n', { mode })
+  chmodSync(tmp, mode)
   renameSync(tmp, path)
 }
 
