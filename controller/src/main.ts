@@ -6,7 +6,8 @@ import { readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
-import { run } from './exec.js'
+import { run, which } from './exec.js'
+import { bundledWorker } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
@@ -26,7 +27,8 @@ const usage = `usage:
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
 origin, and abandons a worktree with work not on origin.
 
---fake answers GitHub with the scripted gh the tests use, so nothing reaches GitHub.`
+--fake answers GitHub with the scripted gh the tests use and plays the sessions with the scripted
+claude, so nothing reaches GitHub or a model.`
 
 function die(message: string): never {
   process.stderr.write(`error: ${message}\n`)
@@ -44,6 +46,8 @@ function config(path: string): Config {
 
 // The scripted gh ships beside the build: dist/main.js reaches fake/gh.
 const fakeGh = fileURLToPath(new URL('../fake/gh', import.meta.url))
+// The scripted claude beside it plays the sessions in fake mode.
+const fakeClaude = fileURLToPath(new URL('../fake/claude', import.meta.url))
 // The dashboard's build is written into this one: dist/main.js reaches dist/dashboard.
 const dashboard = fileURLToPath(new URL('./dashboard', import.meta.url))
 
@@ -67,7 +71,8 @@ async function start(fake: boolean) {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, dashboard })
+  const claude = fake ? fakeClaude : which('claude')
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, worker: bundledWorker }, dashboard })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)

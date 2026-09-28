@@ -1,13 +1,14 @@
 // Claim and abandon: a claim takes an agent-ready issue of a project into a work process, an abandon
 // drops the process again. A claim creates the issue's branch and its worktree, assigns the issue, and
-// writes the process record and its event log; no session starts yet. An abandon removes the worktree
+// writes the process record and its event log; the server then starts its implement session. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
 import { ghApi, issueFromBranch, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
 import { type Project, Refusal } from './project.js'
+import { stop } from './session.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
 // claim itself sets the mode and the issue, and the base branch follows the base branch rule.
@@ -91,6 +92,8 @@ export interface WorkRecord {
   stage: string
   state: string
   note: string
+  // session_id is the id of the implement session, once it has started.
+  session_id?: string
   created_at: string
   updated_at: string
 }
@@ -154,7 +157,7 @@ async function fetch(top: string, branch: string, fake: boolean): Promise<boolea
 }
 
 // writeAtomic replaces a file whole, through a rename, so a reader sees the old one or the new one.
-function writeAtomic(path: string, body: string) {
+export function writeAtomic(path: string, body: string) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, body)
   renameSync(tmp, path)
@@ -370,6 +373,8 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
       throw new Refusal(`${tree.path} has changes not committed; commit and push them, or abandon with force to lose them`, 409)
     }
   }
+  // A session still running in the worktree is stopped first, so it writes nothing into a removed process.
+  for (const { file } of records) stop(basename(file, '.json'))
   if (tree) {
     await git(top, 'worktree', 'remove', '--force', tree.path)
     await git(top, 'worktree', 'prune')

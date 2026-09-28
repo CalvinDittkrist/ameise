@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# The scripted claude of the controller's fake mode (workflows --fake): the runtime the Agent SDK starts
+# in place of the machine's claude. It speaks the SDK's stream-json protocol on stdin and stdout and plays
+# the session a canned directory names, so the real server runs a session with no model behind it.
+#
+#   WORKFLOWS_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
+#     play                     one line, the session to play: its first word, then a message
+#       ready <message>          the session reports ready with the message
+#       blocked <message>        the session reports blocked with the message as its question
+#       silent                   the session ends without a result
+#       broken <message>         the runtime cannot start: it prints the message on stderr and exits 1
+#       (none)                   the session runs until its input closes, as a long session does
+#   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< '
+#
+# --version answers as a claude does, whatever the play.
+set -euo pipefail
+
+log=${WORKFLOWS_FAKE_CLAUDE_LOG:-/dev/null}
+if [ "${1:-}" = --version ]; then
+  printf '2.0.0 (Claude Code, workflows fake)\n'
+  exit 0
+fi
+printf '%s\n' "$@" >> "$log"
+
+play=''
+canned=${WORKFLOWS_FAKE_CLAUDE:-}
+if [ -n "$canned" ] && [ -f "$canned/play" ]; then IFS= read -r play < "$canned/play" || true; fi
+word=${play%% *}
+message=''
+case "$play" in *' '*) message=${play#* } ;; esac
+
+if [ "$word" = broken ]; then
+  printf '%s\n' "$message" >&2
+  exit 1
+fi
+
+# json quotes a string for JSON: backslash and double quote escaped, control characters dropped.
+json() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//[[:cntrl:]]/}
+  printf '"%s"' "$s"
+}
+
+session=fake-session-$$
+say() { printf '%s\n' "$1"; }
+
+# The SDK sends its initialize request, then the prompt; the session answers the one and plays the other.
+while IFS= read -r line; do
+  printf '< %s\n' "$line" >> "$log"
+  case "$line" in
+    *'"subtype":"initialize"'*)
+      id=${line#*\"request_id\":\"}
+      id=${id%%\"*}
+      say "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$id\",\"response\":{}}}" ;;
+    *'"type":"user"'*)
+      say "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"uuid\":\"$session-init\",\"cwd\":$(json "$PWD"),\"tools\":[],\"mcp_servers\":[],\"model\":\"fake\",\"permissionMode\":\"auto\",\"slash_commands\":[],\"apiKeySource\":\"none\",\"output_style\":\"default\"}"
+      say "{\"type\":\"assistant\",\"session_id\":\"$session\",\"uuid\":\"$session-1\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"fake\",\"content\":[{\"type\":\"text\",\"text\":\"Working on it.\"}],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+      case "$word" in
+        ready|blocked)
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":\"\",\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
+          exit 0 ;;
+        silent)
+          exit 0 ;;
+      esac ;;
+  esac
+done
