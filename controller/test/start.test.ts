@@ -1,7 +1,9 @@
-import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
-import { api, cleanup, cli, machine, read, start } from './controller.js'
+import { api, binary, cleanup, cli, freePort, machine, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -65,5 +67,34 @@ test('the CLI against a stopped server says to start workflows and fails', async
     const r = cli(m, args)
     expect(r.code).toBe(1)
     expect(r.stderr).toBe(`error: workflows is not running on ${m.url}; start it with workflows\n`)
+  }
+})
+
+test('the CLI does not take another service on a stale recorded address for workflows', async () => {
+  const m = await machine()
+  const port = await freePort()
+  let requests = 0
+  const other = createServer((_req, res) => {
+    requests++
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end('[]')
+  })
+  await new Promise<void>((resolve) => other.listen(port, '127.0.0.1', resolve))
+  try {
+    const record = join(m.state, 'listen')
+    mkdirSync(m.state, { recursive: true })
+    writeFileSync(record, `127.0.0.1:${port}\n`)
+    // The CLI runs beside the test, not in its place, so the service in this process can answer it.
+    const r = await new Promise<{ code: number | null; stderr: string }>((resolve) =>
+      execFile(process.execPath, [binary, 'projects', 'add', m.root], { env: m.env }, (err, _stdout, stderr) =>
+        resolve({ code: err ? (typeof err.code === 'number' ? err.code : null) : 0, stderr }),
+      ),
+    )
+    expect(r.code).toBe(1)
+    expect(r.stderr).toBe(`error: workflows is not running on ${m.url}; start it with workflows\n`)
+    expect(existsSync(record)).toBe(false)
+    expect(requests).toBe(1)
+  } finally {
+    await new Promise((resolve) => other.close(resolve))
   }
 })

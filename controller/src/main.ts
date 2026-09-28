@@ -2,13 +2,13 @@
 // workflows: with no command it starts the controller's server and opens the browser on it; every
 // other command is a client of that running server.
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
 import type { Listed } from './project.js'
-import { serve } from './server.js'
+import { identity, serve } from './server.js'
 
 const usage = `usage:
   workflows [--fake]                 start the server and open the browser
@@ -55,7 +55,7 @@ async function start(fake: boolean) {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ config: c, configPath: path, stateDir: stateDir(), gh, fake })
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)
@@ -98,27 +98,41 @@ function running(): string {
 // call sends one request to the running server and dies with the fix when none runs. It tries the
 // address the server started on first, since a listen changed in the file takes effect only at the
 // next start. The configured address comes after it, since a server that was killed leaves its record.
+// An address is taken only when its answer to GET / carries the server's identity header, so no
+// request reaches another service that took the port. A recorded address no workflows answers on is
+// stale, and its record is removed.
 async function call(method: string, path: string, body?: unknown): Promise<unknown> {
   const { url } = address(config(configPath()).listen)
   const started = running()
-  const urls = [...new Set([...(started ? [address(started).url] : []), url])]
-  let res: Response | undefined
-  for (const u of urls) {
-    try {
-      res = await fetch(u + path, {
-        method,
-        headers: body === undefined ? {} : { 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      })
+  const candidates = [...(started ? [{ url: address(started).url, record: true }] : []), { url, record: false }]
+  let found: string | undefined
+  for (const c of candidates) {
+    if (await workflows(c.url)) {
+      found = c.url
       break
-    } catch {
-      // nothing listens there: the next address is tried
     }
+    if (c.record) rmSync(join(stateDir(), 'listen'), { force: true })
   }
-  if (!res) die(`workflows is not running on ${url}; start it with workflows`)
+  if (!found) die(`workflows is not running on ${url}; start it with workflows`)
+  const res = await fetch(found + path, {
+    method,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
   const answer = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) die(answer.error ?? `${method} ${path} answered ${res.status}`)
   return answer
+}
+
+// workflows says whether the server at url is this controller.
+async function workflows(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url + '/')
+    await res.body?.cancel()
+    return res.headers.get(identity) === '1'
+  } catch {
+    return false
+  }
 }
 
 function line(p: Listed): string {

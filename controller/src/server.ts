@@ -3,11 +3,12 @@
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isAbsolute, join, resolve } from 'node:path'
-import { address, type Config, readConfig, writeConfig } from './config.js'
+import { address, readConfig, writeConfig } from './config.js'
 import { checkout, derive, type Listed, Refusal } from './project.js'
 
 export interface Options {
-  config: Config
+  // listen is the address the server listens on; the projects are read from the file on each request.
+  listen: string
   configPath: string
   stateDir: string
   gh: string
@@ -38,7 +39,6 @@ export function serve(o: Options): Server {
     if (config.projects.includes(project.path)) return send(res, 409, { error: `${project.path} is already a project` })
     config.projects.push(project.path)
     writeConfig(o.configPath, config)
-    o.config.projects = config.projects
     send(res, 201, project)
   }
 
@@ -54,7 +54,6 @@ export function serve(o: Options): Server {
     if (i < 0) return send(res, 404, { error: `${absolute} is not a project; workflows projects lists them` })
     config.projects.splice(i, 1)
     writeConfig(o.configPath, config)
-    o.config.projects = config.projects
     send(res, 200, { path: known })
   }
 
@@ -64,7 +63,7 @@ export function serve(o: Options): Server {
     // A page on another site can make a browser send requests here. A Host that is not this server's
     // own name turns away a rebound DNS name. A write must say it is JSON, which a page can only do
     // after a preflight this server never grants.
-    if (!loopbackHost(req.headers.host, o.config.listen)) return send(res, 403, { error: 'the Host header does not name this server' })
+    if (!loopbackHost(req.headers.host, o.listen)) return send(res, 403, { error: 'the Host header does not name this server' })
     if (req.method !== 'GET' && !(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return send(res, 415, { error: 'a write is sent as application/json' })
     }
@@ -77,7 +76,7 @@ export function serve(o: Options): Server {
         case 'DELETE /api/projects':
           return remove(req, res)
         case 'GET /':
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', [identity]: '1' })
           return res.end('<!doctype html><title>workflows</title><p>workflows is running. The projects are at <a href="/api/projects">/api/projects</a>.</p>\n')
         default:
           return send(res, 404, { error: `no route ${route}` })
@@ -93,7 +92,7 @@ export function serve(o: Options): Server {
   // the CLI reads it from the state directory rather than from the configuration.
   const record = join(o.stateDir, 'listen')
   server.on('listening', () => {
-    writeFileSync(record, o.config.listen + '\n')
+    writeFileSync(record, o.listen + '\n')
     log({ event: 'started', fake: o.fake })
   })
   server.on('close', () => rmSync(record, { force: true }))
@@ -106,8 +105,12 @@ function loopbackHost(host: string | undefined, listen: string): boolean {
   return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, listen].includes(host)
 }
 
+// identity is the header every answer carries, so the CLI tells this server from another service
+// that took its port after it stopped.
+export const identity = 'x-workflows'
+
 function send(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { 'content-type': 'application/json' })
+  res.writeHead(status, { 'content-type': 'application/json', [identity]: '1' })
   res.end(JSON.stringify(body) + '\n')
 }
 
