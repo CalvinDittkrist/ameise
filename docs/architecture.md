@@ -53,7 +53,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 13. `/worker:pr` forks into `pr-author`, briefed with the diff, `panel.sh print` and `gate.sh print`. The pull request is never a draft; a failed panel is named in its body.
 14. `/worker:ci` calls `pr-wait.sh`: conflicts first, then checks, bot reviewers and standing change requests, which keep it from green.
 15. `/worker:address-reviews` fixes what reviewers still ask for, replies to and resolves each thread, and answers each review summary with one comment (`pr-answer.sh`).
-16. `ready` requests the configured logins' review. A mention follows `timeout` and a block, failure or interruption left unresumed.
+16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
     - A merge outside the default branch also closes the issue.
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.

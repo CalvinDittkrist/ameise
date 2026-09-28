@@ -45,8 +45,7 @@
 #                      reach a worker that is still going
 #   CLAUDE_SHIM_OUTAGE the first this many sessions CLAUDE_SHIM_LOG records meet an outage of the
 #                      permission check before they report: a Bash call the auto mode classifier gave no
-#                      verdict on, as the permission_denied line and the tool error a host recorded on
-#                      2026-09-28
+#                      verdict on, as the permission_denied line and the tool error a host recorded
 #   CLAUDE_SHIM_THEN_SLEEP, CLAUDE_SHIM_THEN_RESULT
 #                      what every session after the first one CLAUDE_SHIM_LOG records does instead of
 #                      CLAUDE_SHIM_SLEEP and CLAUDE_SHIM_RESULT, so a test can have the fix session of
