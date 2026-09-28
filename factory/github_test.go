@@ -531,6 +531,7 @@ type ghShim struct {
 	failing  string // the file holding the pattern of requests that fail
 	stalling string // the file holding the pattern of requests that are never answered
 	hanging  string // the file holding how long a clone sleeps instead of cloning
+	holding  string // the file holding the pattern of requests that wait until the test lets them through
 	gate     string // the file that holds a ref creation until the test lets it through
 	worker   string // the log of the claude shim: how every worker was started
 	authors  string // the log of the claude shim: how every author session of the pr stage was started
@@ -551,6 +552,7 @@ func newGhShim(t *testing.T) *ghShim {
 		failing:  filepath.Join(dir, "failing"),
 		stalling: filepath.Join(dir, "stalling"),
 		hanging:  filepath.Join(dir, "hanging"),
+		holding:  filepath.Join(dir, "holding"),
 		gate:     filepath.Join(dir, "gate"),
 		worker:   filepath.Join(dir, "workers.log"),
 		authors:  filepath.Join(dir, "authors.log"),
@@ -568,6 +570,7 @@ func newGhShim(t *testing.T) *ghShim {
 		"HOME="+dir, "GH_SHIM_DIR="+g.answers, "GH_SHIM_LOG="+g.log, "GH_SHIM_REMOTES="+g.remotes,
 		"GH_SHIM_BODIES="+g.bodies,
 		"GH_SHIM_FAIL="+g.failing, "GH_SHIM_STALL="+g.stalling, "GH_SHIM_HANG="+g.hanging,
+		"GH_SHIM_HOLD="+g.holding,
 		"CLAUDE_SHIM_LOG="+g.worker, "CLAUDE_SHIM_AUTHOR_LOG="+g.authors, "CLAUDE_SHIM_HOST_LOG="+g.host,
 		"CLAUDE_SHIM_REVIEW_LOG="+g.reviewer, "CLAUDE_SHIM_REVIEWS="+g.verdicts)
 	return g
@@ -980,6 +983,29 @@ func (g *ghShim) fail(t *testing.T, pattern string) {
 func (g *ghShim) stall(t *testing.T, pattern string) {
 	t.Helper()
 	writeFile(t, g.stalling, pattern)
+}
+
+// hold makes every request that matches the shell pattern wait until release lets it through, and
+// then answers it as usual. It takes effect on the next call, so a test can keep a poll inside one read.
+func (g *ghShim) hold(t *testing.T, pattern string) {
+	t.Helper()
+	writeFile(t, g.holding, pattern)
+}
+
+// holdingAny says whether a request is waiting inside the hold.
+func (g *ghShim) holdingAny(t *testing.T) bool {
+	t.Helper()
+	waiting, err := filepath.Glob(g.holding + ".[0-9]*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(waiting) > 0
+}
+
+// release lets every held request through, and every later one that matches the pattern.
+func (g *ghShim) release(t *testing.T) {
+	t.Helper()
+	writeFile(t, g.holding+".open", "")
 }
 
 // hang makes `gh repo clone` sleep in a child of its own instead of cloning, as a clone of a large

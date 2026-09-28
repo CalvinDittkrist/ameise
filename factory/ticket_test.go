@@ -574,3 +574,42 @@ func TestASpecRunIsIdleAfterARestartThatEndedItsTicketRun(t *testing.T) {
 		t.Errorf("spec run 1 is %s with idle=%v after a restart, want holding and idle", spec.State, spec.Idle)
 	}
 }
+
+// A ticket run that ends while a poll reads the line may have unblocked the next ticket of its spec.
+// The line that poll read is stale, and the head of it is not started: the next poll reads the ticket
+// unblocked and takes it before the routed issue beside the spec.
+func TestARunThatEndsWhileAPollReadsTheLineStartsNothingFromIt(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	now := time.Now().UTC()
+	gh.timeline(t, "acme/edge-sensors", claimedIssue, labeled("factory", now.Add(-6*time.Hour)))
+	gh.assigns(t, "acme/edge-sensors", claimedIssue, "factory-bot")
+	gh.issues(t, "acme/edge-sensors", openIssue(claimedIssue, claimedTitle, now.Add(-96*time.Hour)))
+	next := gh.ticketOf(t, 233, "Close the ticket after")
+	blocked := gh.ticketOf(t, 233, "Close the ticket after")
+	blocked["issue_dependencies_summary"] = map[string]any{"blocked_by": 1, "blocking": 0}
+	gh.openTicketPull(t, 233, "feat/233-close-the-ticket-after", false)
+	gh.subIssues(t, gh.ticketOf(t, ticketIssue, ticketTitle), blocked)
+	gh.workerWaits(t, 3*time.Second)
+	f := gh.work(t, ticketConfig(data, nil, map[string]any{"validators": []string{"senior"}}))
+	f.eventually(t, 60*time.Second, "run 1 to start", func() bool { return len(gh.workers(t)) > 0 })
+
+	// A poll reads #233 still blocked, then waits in its read of #231's events while run 1 merges
+	// #231 and ends. #231 was touched since the last poll, so that poll reads its events again.
+	gh.hold(t, "api --paginate "+eventsRequest("acme/edge-sensors", ticketIssue))
+	touched := gh.ticketOf(t, ticketIssue, ticketTitle)
+	touched["updated_at"] = time.Now().UTC().Format(time.RFC3339)
+	gh.subIssues(t, touched, blocked)
+	f.eventually(t, 30*time.Second, "a poll inside the read of the ticket", func() bool { return gh.holdingAny(t) })
+	first := f.ended(t, 1)
+	if first.Issue != ticketIssue || first.Outcome != outcomeMerged {
+		t.Fatalf("run 1 worked #%d and ended %q (%s), want ticket #%d merged; the factory's log:\n%s", first.Issue, first.Outcome, first.Reason, ticketIssue, f.output(t))
+	}
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)), next)
+	gh.release(t)
+
+	second := f.ended(t, 2)
+	if second.Issue != 233 || second.Spec != specNumber {
+		t.Errorf("run 2 worked #%d of spec #%d, want the ticket #233 the end of run 1 unblocked", second.Issue, second.Spec)
+	}
+}
