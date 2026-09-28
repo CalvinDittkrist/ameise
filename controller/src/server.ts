@@ -2,8 +2,8 @@
 // writer of the configuration file.
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { join, resolve } from 'node:path'
-import { type Config, writeConfig } from './config.js'
+import { isAbsolute, join, resolve } from 'node:path'
+import { address, type Config, readConfig, writeConfig } from './config.js'
 import { checkout, derive, Refusal } from './project.js'
 
 export interface Options {
@@ -31,11 +31,15 @@ export function serve(o: Options): Server {
   async function add(req: IncomingMessage, res: ServerResponse) {
     const body = await readJSON(req)
     const path = typeof body?.path === 'string' ? body.path : ''
-    if (!path || !path.startsWith('/')) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
+    if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
     const project = await derive(resolve(path), o.gh)
-    if (o.config.projects.includes(project.path)) return send(res, 409, { error: `${project.path} is already a project` })
-    o.config.projects.push(project.path)
-    writeConfig(o.configPath, o.config)
+    // The file is read again before each write, so a change made to it by hand while the server
+    // runs is kept: only the projects change.
+    const config = readConfig(o.configPath)
+    if (config.projects.includes(project.path)) return send(res, 409, { error: `${project.path} is already a project` })
+    config.projects.push(project.path)
+    writeConfig(o.configPath, config)
+    o.config = config
     send(res, 201, project)
   }
 
@@ -43,11 +47,13 @@ export function serve(o: Options): Server {
     const body = await readJSON(req)
     const path = typeof body?.path === 'string' ? resolve(body.path) : ''
     // A checkout names itself by its top, so a path inside one removes the project it belongs to.
-    const known = o.config.projects.includes(path) ? path : await checkout(path).catch(() => path)
-    const i = o.config.projects.indexOf(known)
+    const config = readConfig(o.configPath)
+    const known = config.projects.includes(path) ? path : await checkout(path).catch(() => path)
+    const i = config.projects.indexOf(known)
     if (i < 0) return send(res, 404, { error: `${path} is not a project; workflows projects lists them` })
-    o.config.projects.splice(i, 1)
-    writeConfig(o.configPath, o.config)
+    config.projects.splice(i, 1)
+    writeConfig(o.configPath, config)
+    o.config = config
     send(res, 200, { path: known })
   }
 
@@ -77,7 +83,8 @@ export function serve(o: Options): Server {
       }
     }
     handle().catch((err: Error) => {
-      if (err instanceof Refusal || err instanceof SyntaxError) send(res, 400, { error: err.message })
+      if (err instanceof TooLarge) send(res, 413, { error: err.message })
+      else if (err instanceof Refusal || err instanceof SyntaxError) send(res, 400, { error: err.message })
       else send(res, 500, { error: err.message })
     })
   })
@@ -87,7 +94,7 @@ export function serve(o: Options): Server {
 
 function loopbackHost(host: string | undefined, listen: string): boolean {
   if (!host) return false
-  const port = listen.slice(listen.lastIndexOf(':') + 1)
+  const { port } = address(listen)
   return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, listen].includes(host)
 }
 
@@ -96,9 +103,27 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body) + '\n')
 }
 
+// A body is a path and nothing more, so one past this size is refused before it fills the memory.
+const bodyLimit = 64 * 1024
+
+class TooLarge extends Error {}
+
 async function readJSON(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
-  let raw = ''
-  for await (const chunk of req) raw += chunk
+  const raw = await new Promise<string>((resolve, reject) => {
+    let body = ''
+    req.setEncoding('utf8')
+    const take = (chunk: string) => {
+      body += chunk
+      if (body.length <= bodyLimit) return
+      // The rest of the body is read and dropped, so the answer still reaches the client.
+      req.off('data', take)
+      req.resume()
+      reject(new TooLarge(`the body is larger than ${bodyLimit} bytes; send {"path": "<checkout>"}`))
+    }
+    req.on('data', take)
+    req.on('end', () => resolve(body))
+    req.on('error', reject)
+  })
   if (!raw) return undefined
   try {
     return JSON.parse(raw) as Record<string, unknown>

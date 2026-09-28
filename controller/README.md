@@ -1,6 +1,6 @@
 # Controller
 
-`workflows` is the local peer of the factory ([ADR 0038](../docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md)): one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
+`workflows` is the local peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Commands
 - `workflows` starts the server on the configured loopback address and opens the browser there (`BROWSER` names another browser).
@@ -30,7 +30,7 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
 
 - `listen` is a loopback address; the controller is never reachable from another machine.
 - `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage.
-- A project is the absolute path of a checkout, stored as the top of its working tree. Adding and removing a project rewrites this file and nothing else.
+- A project is the absolute path of a checkout, stored as the top of its working tree. Adding and removing a project reads this file again and rewrites its `projects` and nothing else, so a change made by hand while the server runs is kept.
 
 ## Projects
 Owner and name come from the checkout's origin, which must be on GitHub. The base branch follows the base branch rule, whose cases [`contract/base-branch.json`](../contract/base-branch.json) states:
@@ -43,10 +43,11 @@ All of them are derived on every read and never stored. A path that is no git ch
 
 ## API
 - `GET /api/projects`: the projects, each `{path, owner, name, base}`, or `{path, error}` when its checkout no longer derives.
-- `POST /api/projects` with `{"path": "<absolute path>"}`: adds a project. `400` with `{error}` refuses it.
-- `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project.
+- `POST /api/projects` with `{"path": "<absolute path>"}`: adds a project and answers `201`. `400` with `{error}` refuses it, `409` says it is a project already.
+- `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project and answers `200`. `404` says it is no project.
+- A body larger than 64 KiB is refused with `413`.
 
-The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser.
+The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
 
 ## State
 One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`.

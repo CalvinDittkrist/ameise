@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -96,6 +96,35 @@ test('a checkout whose origin is not on GitHub, or that has none, is refused by 
   const noOrigin = `${none} has no origin; add the GitHub repository as origin with git remote add origin <url>`
   expect(cli(m, ['projects', 'add', none]).stderr).toBe(`error: ${noOrigin}\n`)
   expect(await api(m, 'POST', '/api/projects', { path: none })).toEqual({ status: 400, body: { error: noOrigin } })
+  const token = checkout(m, 'token', { origin: 'https://user:secret-token@gitlab.com/owner/repo.git' })
+  const refused = await api(m, 'POST', '/api/projects', { path: token })
+  expect(refused).toEqual({
+    status: 400,
+    body: { error: `the origin of ${token} is https://gitlab.com/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository` },
+  })
+  expect(read(m.config)).toBe(before)
+})
+
+test('adding and removing a project keeps a change made to the configuration by hand while the server runs', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  const b = checkout(m, 'b', { origin: 'https://github.com/owner/b.git', originHead: 'main' })
+  writeFileSync(m.config, JSON.stringify({ listen: m.listen, quota_minimum: 30, notifications: false }, null, 2) + '\n')
+  expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
+  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 30, notifications: false, projects: [a] })
+  const edited = JSON.parse(read(m.config)) as Record<string, unknown>
+  writeFileSync(m.config, JSON.stringify({ ...edited, quota_minimum: 40, projects: [a, b] }, null, 2) + '\n')
+  expect((await api(m, 'DELETE', '/api/projects', { path: a })).status).toBe(200)
+  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 40, notifications: false, projects: [b] })
+})
+
+test('a body larger than a path needs is refused with 413 and changes nothing', async () => {
+  const before = read(m.config)
+  const res = await fetch(m.url + '/api/projects', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: '/' + 'x'.repeat(100 * 1024) }),
+  })
+  expect(res.status).toBe(413)
   expect(read(m.config)).toBe(before)
 })
 
