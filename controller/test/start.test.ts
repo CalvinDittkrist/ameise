@@ -45,6 +45,7 @@ test.each([
   ['not JSON', '{"listen": ', /is not JSON .*; correct it or remove it/],
   ['an unknown field', '{"repositories": []}', /unknown field "repositories"; the fields are listen, /],
   ['a listen address off this machine', '{"listen": "0.0.0.0:7420"}', /listen "0\.0\.0\.0:7420" is not a loopback address; write it as "127\.0\.0\.1:<port>"/],
+  ['a listen address that is no IPv4 address', '{"listen": "127.999.999.999:7420"}', /listen "127\.999\.999\.999:7420" is not a loopback address; write it as "127\.0\.0\.1:<port>"/],
   ['a quota minimum that is no percentage', '{"quota_minimum": 120}', /quota_minimum 120 is not a percentage; write it as a whole number/],
   ['a relative project path', '{"projects": ["src/repo"]}', /projects is not a list of absolute paths; write each project as the path of its checkout/],
 ])('a configuration with %s stops the start with one line that names the fix', async (_, content, fault) => {

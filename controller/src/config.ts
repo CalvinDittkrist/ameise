@@ -2,6 +2,7 @@
 // only the maintainer can say (where the server listens, the quota check, notifications, the
 // checkouts that are projects) and nothing that git or GitHub can say instead.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
@@ -104,7 +105,7 @@ export function loopback(listen: string): boolean {
   const host = m[1] ?? m[2] ?? ''
   const port = Number(m[3])
   if (port < 1 || port > 65535) return false
-  return host === 'localhost' || host === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+  return host === 'localhost' || host === '::1' || (isIP(host) === 4 && host.startsWith('127.'))
 }
 
 // writeConfig replaces the file whole, through a rename, so a crash leaves the old file or the new
