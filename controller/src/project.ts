@@ -12,6 +12,9 @@ export interface Project {
   base: string
 }
 
+// Listed is one entry of the project list: the project, or the reason its checkout no longer derives.
+export type Listed = Project | { path: string; error: string }
+
 export class Refusal extends Error {}
 
 // checkout is the top of the git working tree at path, or a Refusal that says it is none.
@@ -31,18 +34,16 @@ export function github(url: string): { owner: string; name: string } | undefined
   return { owner: m[1], name: m[2] }
 }
 
-// withoutCredentials is the origin with the user and password of a URL taken out, so a token kept
-// in the remote never reaches an answer or a terminal.
-function withoutCredentials(origin: string): string {
+// redacted is the origin with its user, password, query and fragment taken out, so a token kept in
+// the remote never reaches an answer or a terminal.
+function redacted(origin: string): string {
   try {
     const url = new URL(origin)
-    if (!url.username && !url.password) return origin
-    url.username = ''
-    url.password = ''
-    return url.toString()
+    if (url.host) return `${url.protocol}//${url.host}${url.pathname}`
   } catch {
-    return origin
+    // no URL: an scp-like address such as user@host:path
   }
+  return origin.replace(/^[^/]*@/, '').replace(/[?#].*$/, '')
 }
 
 // derive reads the facts of the checkout at path. A path that is no checkout, or whose origin is
@@ -56,7 +57,7 @@ export async function derive(path: string, gh: string): Promise<Project> {
     throw new Refusal(`${top} has no origin; add the GitHub repository as origin with git remote add origin <url>`)
   }
   const repo = github(origin)
-  if (!repo) throw new Refusal(`the origin of ${top} is ${withoutCredentials(origin)}, which is not on GitHub; a project is a clone of a GitHub repository`)
+  if (!repo) throw new Refusal(`the origin of ${top} is ${redacted(origin)}, which is not on GitHub; a project is a clone of a GitHub repository`)
   return { path: top, ...repo, base: await baseBranch(top, `${repo.owner}/${repo.name}`, gh) }
 }
 
