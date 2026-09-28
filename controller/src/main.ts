@@ -86,12 +86,15 @@ async function start(fake: boolean) {
     process.stdout.write(`workflows on ${url} (fake=${fake}, config ${path})\n`)
     browse(url)
   })
-  // A stop cuts the sessions off and marks their processes interrupted, so the next start resumes them.
+  // A stop takes no new connection, then cuts the sessions off and marks their processes interrupted,
+  // so a later resume can go on with them.
   let stopping = false
   const stop = () => {
     if (stopping) return
     stopping = true
-    void stopAll(stateDir()).finally(() => server.close(() => process.exit(0)))
+    server.close()
+    server.closeIdleConnections()
+    void stopAll(stateDir()).finally(() => process.exit(0))
   }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
