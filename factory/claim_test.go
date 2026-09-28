@@ -761,6 +761,59 @@ func TestTheNextRunStartsWhenTheOneBeforeItEndedAndNeverBesideIt(t *testing.T) {
 
 // ---- the base branch beyond the contract fixture ----
 
+// contract/base-branch.json states the base branch rule as cases the controller's tests read too, so
+// the factory is held to the same cases and a change of the rule on one side fails on the other. A
+// case's declared base is the repository's own settings file, read from the branch it is worked from.
+func TestTheBaseBranchRuleHoldsToTheSharedContract(t *testing.T) {
+	// Serial: inProcess sets this process's PATH, GH_SHIM_* and GIT_CONFIG_* to reach the shim.
+	raw, err := os.ReadFile(filepath.Join("..", "contract", "base-branch.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		Cases []struct {
+			Name          string  `json:"name"`
+			Declared      *string `json:"declared"`
+			OriginHead    *string `json:"origin_head"`
+			GitHubDefault *string `json:"github_default"`
+			Base          string  `json:"base"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		t.Fatalf("contract/base-branch.json is not the shape this test reads: %v", err)
+	}
+	if len(contract.Cases) == 0 {
+		t.Fatal("contract/base-branch.json holds no cases")
+	}
+	for _, c := range contract.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			gh := newGhShim(t)
+			gh.remote(t, "acme/edge-sensors")
+			clone := gh.cloneInto(t, t.TempDir(), "acme/edge-sensors")
+			worked := "main"
+			if c.GitHubDefault != nil {
+				worked = *c.GitHubDefault
+				gh.answer(t, "repo view acme/edge-sensors --json defaultBranchRef --jq .defaultBranchRef.name", worked+"\n")
+			}
+			if c.OriginHead != nil {
+				worked = *c.OriginHead
+			}
+			if c.Declared != nil {
+				declaresBase(t, gh, clone, "acme/edge-sensors", worked, *c.Declared)
+			}
+			if c.OriginHead != nil {
+				gh.git(t, clone, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+*c.OriginHead)
+			} else {
+				gh.git(t, clone, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+			}
+			inProcess(t, gh)
+			if got := baseBranch(context.Background(), Connected{Name: "acme/edge-sensors"}, clone); got != c.Base {
+				t.Errorf("the factory branches off %q; the shared contract says %q", got, c.Base)
+			}
+		})
+	}
+}
+
 // The two explicit settings meet in one case the contract fixture has no word for: a host that connects a
 // repository under a base of its own. The configuration is the operator's and wins, and a settings
 // file that names no branch name is read as if the repository had said nothing, because the value
