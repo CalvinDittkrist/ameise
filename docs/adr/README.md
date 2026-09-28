@@ -41,7 +41,7 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0035](0035-every-category-the-apply-phase-scaffolds-is-answerable.md) | Every category the apply phase scaffolds is answerable | accepted |
 | [0036](0036-the-factory-updates-the-worker-plugin-and-nothing-else.md) | The factory updates the worker plugin and nothing else | superseded by [0042](0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md), amended by [0050](0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md) |
 | [0037](0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md) | The quota check waits below 12 % of the worker's scope | amended by [0044](0044-the-quota-check-reads-the-scope-of-every-model-a-run-spends.md) |
-| [0038](0038-the-local-workflow-and-the-factory-are-peers.md) | The local workflow and the factory are peers | accepted |
+| [0038](0038-the-local-workflow-and-the-factory-are-peers.md) | The local workflow and the factory are peers | amended by [0062](0062-the-peers-share-a-contract-fixture-not-code.md) |
 | [0039](0039-every-session-reports-through-a-structured-result.md) | Every session reports through a structured result and never through prose | amended by [0052](0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md) |
 | [0040](0040-the-factory-owns-the-delivery-lifecycle-in-go.md) | The factory owns the delivery lifecycle in Go and starts one fresh session per stage | amended |
 | [0041](0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md) | A change class decides the gate and the reviewers before the pull request, and CI remains the full gate | accepted |

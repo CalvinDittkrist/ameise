@@ -304,7 +304,7 @@
     ]
   },
   "frontier": {
-    "about": "The agent-ready issues nobody works on. With the routing label on every issue the factory takes the free ones and the local board offers none; without it the board offers them and the factory takes none. Both ask GitHub for the list with the query below, the factory with the routing label added after ready-for-agent.",
+    "about": "The agent-ready issues nobody works on. With the routing label on every issue the factory takes the free ones and the local board offers none. Without it, the board offers them and the factory takes none. Both ask GitHub for the list with the query below, the factory with the routing label added after ready-for-agent.",
     "query": "issues?labels=ready-for-agent&state=open&per_page=100",
     "routing_label": "factory",
     "issues": [
