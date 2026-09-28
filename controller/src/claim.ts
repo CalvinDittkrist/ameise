@@ -77,22 +77,28 @@ export function branchType(names: string[]): string {
 // branchName is the branch a claim of the issue creates: <type>/<number>-<slug>.
 export const branchName = (number: number, title: string, names: string[]) => `${branchType(names)}/${number}-${slug(title)}`
 
-// A process record, as the state directory holds it in processes/<id>.json.
-export interface WorkRecord {
+// The record an action writes for a new process in processes/<id>.json: what every kind of process has.
+// The board reads records in the looser shape of its ProcessRecord.
+export interface CreatedRecord {
   id: string
   project: string
-  kind: 'work'
+  kind: string
   branch: string
   issue: number
   worktree: string
   base: string
-  mode: Mode
-  env: Record<string, string>
   stage: string
   state: string
   note: string
   created_at: string
   updated_at: string
+}
+
+// A work process on an issue, as a claim writes it.
+export interface WorkRecord extends CreatedRecord {
+  kind: 'work'
+  mode: Mode
+  env: Record<string, string>
 }
 
 export interface ClaimRequest {
@@ -158,6 +164,30 @@ export function writeAtomic(path: string, body: string) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, body)
   renameSync(tmp, path)
+}
+
+// writeProcess writes the record of a new process and the first line of its event log. A process that
+// cannot be written is no process: it removes what it wrote, runs undo for what the action created
+// elsewhere and refuses with the reason.
+export async function writeProcess(stateDir: string, record: CreatedRecord, event: Record<string, unknown>, undo: () => Promise<void>, action: string): Promise<void> {
+  const dir = recordsDir(stateDir)
+  const file = join(dir, `${record.id}.json`)
+  const events = join(dir, `${record.id}.events.jsonl`)
+  try {
+    mkdirSync(dir, { recursive: true })
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
+    appendFileSync(events, JSON.stringify({ at: record.created_at, ...event }) + '\n')
+  } catch (err) {
+    for (const f of [file, events, `${file}.${process.pid}.tmp`]) {
+      try {
+        rmSync(f, { force: true })
+      } catch {
+        // a path that is no file is left alone
+      }
+    }
+    await undo()
+    throw new Refusal(`could not write the process of #${record.issue}: ${(err as Error).message}; the ${action} is undone`, 500)
+  }
 }
 
 // addWorktree creates the worktree of a branch inside the checkout, where the local workflow keeps them
@@ -330,25 +360,10 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     created_at: now,
     updated_at: now,
   }
-  const file = join(recordsDir(stateDir), `${id}.json`)
-  const events = join(recordsDir(stateDir), `${id}.events.jsonl`)
-  try {
-    mkdirSync(recordsDir(stateDir), { recursive: true })
-    writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
-    appendFileSync(events, JSON.stringify({ at: now, event: 'claimed', issue: n, branch, base: start, mode: req.mode, env: req.env, warnings }) + '\n')
-  } catch (err) {
-    // A process that cannot be written is no process: the claim is undone on GitHub and in the checkout.
-    for (const f of [file, events, `${file}.${process.pid}.tmp`]) {
-      try {
-        rmSync(f, { force: true })
-      } catch {
-        // a path that is no file is left alone
-      }
-    }
+  await writeProcess(stateDir, record, { event: 'claimed', issue: n, branch, base: start, mode: req.mode, env: req.env, warnings }, async () => {
     await run(gh, ['issue', 'edit', String(n), '--repo', repo, '--remove-assignee', '@me']).catch(() => undefined)
     await undo()
-    throw new Refusal(`could not write the process of #${n}: ${(err as Error).message}; the claim is undone`, 500)
-  }
+  }, 'claim')
   return { record, warnings }
 }
 
@@ -367,8 +382,9 @@ export function abandon(project: Project, stateDir: string, issue: number, force
 
 async function abandonHeld(project: Project, stateDir: string, n: number, force: boolean): Promise<Abandoned> {
   const top = project.path
-  const tree = (await worktrees(top)).find((t) => ofIssue(t.branch, n))
   const records = recordsOf(stateDir, top, n)
+  // A plan branch names no issue, so its worktree is found through the branch its record holds.
+  const tree = (await worktrees(top)).find((t) => ofIssue(t.branch, n) || records.some(({ record: r }) => r.branch === t.branch))
   if (!tree && records.length === 0) throw new Refusal(`#${n} has no process in ${top}`, 404)
   const branch = tree?.branch ?? records[0]?.record.branch ?? ''
   if (tree && !force) {
