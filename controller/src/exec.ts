@@ -1,5 +1,5 @@
-// run starts a command and answers its output without the line ending it closes with, or an error that carries what it wrote on
-// stderr.
+// run starts a command and answers its output without the line ending it closes with, or an
+// error that carries what it wrote on stderr.
 import { execFile } from 'node:child_process'
 
 export function run(cmd: string, args: string[]): Promise<string> {
