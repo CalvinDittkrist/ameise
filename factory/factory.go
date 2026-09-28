@@ -647,8 +647,8 @@ func (f *Factory) dispatch(ctx context.Context) {
 	from := f.readFrom
 	f.mu.Unlock()
 	for _, r := range f.runs.list() {
-		// A run that ended while this poll read the line may have closed a ticket the line still
-		// counts as open, and so still blocks the next ticket of its spec. The wake its end sent polls
+		// A run that ended while this poll read the line may have closed a ticket the line counts as
+		// open. That ticket then still blocks the next one of its spec. The wake its end sent polls
 		// again at once, and that poll starts the head of the line it reads.
 		if r.EndedAt == nil || r.EndedAt.After(from) {
 			return

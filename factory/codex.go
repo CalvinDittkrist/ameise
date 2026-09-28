@@ -59,7 +59,7 @@ func (s session) on() string {
 // with a stdin that is no terminal has it print "Reading additional input from stdin..." on its error
 // output, which the factory records as an error of the session, and append whatever stdin holds
 // (resolve_root_prompt in codex-rs/exec/src/lib.rs, rust-v0.155.0, checked on 2026-09-28). It also
-// keeps a long brief clear of the 128 KiB Linux allows one argument. The configured worker arguments
+// keeps a long brief clear of the 128 KiB Linux holds an argument to. The configured worker arguments
 // are Claude Code's and go to no Codex call.
 func codexCommand(ctx context.Context, s session, claim claimed) *exec.Cmd {
 	args := []string{"exec", "--sandbox", "read-only", "--cd", claim.worktree, "--ephemeral", "--skip-git-repo-check",

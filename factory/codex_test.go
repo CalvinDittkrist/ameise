@@ -150,9 +150,9 @@ func codexPanel(data string) config {
 
 // A repository whose panel names codex runs a Codex reviewer beside the Claude one in every round: in
 // the run's worktree, in the read-only sandbox, with the reviewer's schema as the output schema file,
-// its last message to a file, its model named and its standard input closed. Its findings go to the
-// round and to the fix session like any reviewer's, and the record names the runtime and the model of
-// every session.
+// its last message to a file, its model named and its prompt on standard input, closed after it. Its
+// findings go to the round and to the fix session like any reviewer's, and the record names the
+// runtime and the model of every session.
 func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 	t.Parallel()
 	gh, data := panelClaim(t, "@echo the gate of the panel passes")
