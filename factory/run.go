@@ -42,10 +42,10 @@ const (
 // are work this factory already holds and continues in the worktree of that claim: the one
 // automatic resume after an interruption or after an outage of the permission check, the resume
 // after the quota reset that a run which ran out of it waits for, the run a person asked for by
-// taking the assignee off an issue the factory holds ([ADR 0026]), the run a writer's review that asks for changes on the pull request queues
-// ([ADR 0023]), and the run a bot's review that leaves an unresolved thread on it queues ([ADR 0051]).
-// The signals of an issue's runs are what the next run of it is decided from, which is why every run
-// records its own.
+// taking the assignee off an issue the factory holds ([ADR 0026]), the run a writer's review that
+// asks for changes on the pull request queues ([ADR 0023]), and the run a bot's review that leaves
+// an unresolved thread on it queues ([ADR 0051]). The signals of an issue's runs are what the next
+// run of it is decided from, which is why every run records its own.
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
@@ -61,8 +61,8 @@ const (
 )
 
 // The kinds of run the vocabulary names (docs/glossary.md): a first run claims its issue, a resumed
-// run continues what an interruption, an outage or a release left in the worktree of that claim, and a
-// follow-up run answers a review on the pull request a run of the issue opened. The kind is the
+// run continues what an interruption, an outage or a release left in the worktree of that claim,
+// and a follow-up run answers a review on the pull request a run of the issue opened. The kind is the
 // signal read as a word, so the two can never disagree about what a run was.
 const (
 	kindFirst    = "first"
@@ -116,10 +116,10 @@ type Run struct {
 	// Signal is what queued this run: routed, interruption, outage, quota, release, changes-requested
 	// or bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of
 	// the run that saw the outage or ran out of quota, the moment the assignee came off, or the moment
-	// the review was submitted). It is the answer this run is: a signal of an issue is acted on once, and a signal no
-	// later than the one its records already carry has been answered already. That is what keeps the
-	// factory from resuming the same release, or answering the same review, for as long as GitHub
-	// reports it, without a clock of its own.
+	// the review was submitted). It is the answer this run is: a signal of an issue is acted on once,
+	// and a signal no later than the one its records already carry has been answered already. That is
+	// what keeps the factory from resuming the same release, or answering the same review, for as long
+	// as GitHub reports it, without a clock of its own.
 	Signal   string    `json:"signal"`
 	SignalAt time.Time `json:"signalAt"`
 	// Kind is what this run is in the vocabulary: a first, a resumed or a follow-up run. It says the
