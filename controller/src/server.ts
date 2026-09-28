@@ -164,7 +164,7 @@ export function serve(o: Options): Server {
   // A process page follows its process: the record and the conversation so far at once, then every
   // change as it is written, as server-sent events. The record comes with the context size at which
   // the session compacts.
-  function follow(req: IncomingMessage, res: ServerResponse, url: URL) {
+  function follow(res: ServerResponse, url: URL) {
     const record = recorded(url.searchParams.get('id'))
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', [identity]: '1' })
     const out = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -298,7 +298,7 @@ export function serve(o: Options): Server {
         case 'POST /api/processes/seen':
           return opened(req, res)
         case 'GET /api/processes/events':
-          return follow(req, res, url)
+          return follow(res, url)
         case 'POST /api/processes/message':
           return message(req, res)
         case 'POST /api/processes/answer':

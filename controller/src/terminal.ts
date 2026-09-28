@@ -3,10 +3,9 @@
 // session's settings.
 import { execFile } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { WorkRecord } from './claim.js'
 import { Refusal } from './project.js'
-import { settings } from './session.js'
+import { commandFile, settings } from './session.js'
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
@@ -33,7 +32,7 @@ export async function open(record: WorkRecord, stateDir: string, terminal: strin
   if (!record.session_id) throw new Refusal('the process has no session yet; wait until its session has started', 409)
   // A session id is a word of letters, digits and hyphens; any other would reach no session.
   if (!/^[A-Za-z0-9-]+$/.test(record.session_id)) throw new Refusal(`the session id ${JSON.stringify(record.session_id)} is not the id of a session`, 409)
-  const file = join(stateDir, 'processes', `${record.id}.command`)
+  const file = commandFile(stateDir, record.id)
   writeFileSync(file, script(record, claude, worker), { mode: 0o700 })
   chmodSync(file, 0o700)
   const cmd = terminal === '' ? native(file) : ([terminal, [file]] as [string, string[]])

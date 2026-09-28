@@ -195,8 +195,10 @@ function runtimeEnv(): Record<string, string> {
 
 const recordFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.json`)
 export const eventsFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.events.jsonl`)
+export const commandFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.command`)
 
-// No id names a file outside the processes.
+// processId checks that an id has the shape of a process id, so no id names a file outside the
+// processes.
 export function processId(id: unknown): string {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) throw new Refusal('id is not the id of a process; send the id the board names')
   return id
@@ -221,11 +223,11 @@ export function update(stateDir: string, id: string, change: Partial<WorkRecord>
   return record
 }
 
-// The record, the event log and the terminal script go.
+// forget removes a process's record, its event log and its terminal script.
 export function forget(stateDir: string, id: string) {
   rmSync(recordFile(stateDir, id), { force: true })
   rmSync(eventsFile(stateDir, id), { force: true })
-  rmSync(join(stateDir, 'processes', `${id}.command`), { force: true })
+  rmSync(commandFile(stateDir, id), { force: true })
   tell(id, { gone: true })
 }
 
