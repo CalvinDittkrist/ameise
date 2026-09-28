@@ -29,9 +29,8 @@ export function serve(o: Options): Server {
     )
 
   async function add(req: IncomingMessage, res: ServerResponse) {
-    const body = await readJSON(req)
-    const path = typeof body?.path === 'string' ? body.path : ''
-    if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
+    const path = await bodyPath(req, res)
+    if (!path) return
     const project = await derive(resolve(path), o.gh)
     // The file is read again before each write, so a change made to it by hand while the server
     // runs is kept. The server takes over only the projects: it stays on the address it listens on.
@@ -43,9 +42,8 @@ export function serve(o: Options): Server {
   }
 
   async function remove(req: IncomingMessage, res: ServerResponse) {
-    const body = await readJSON(req)
-    const path = typeof body?.path === 'string' ? body.path : ''
-    if (!path || !isAbsolute(path)) return send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
+    const path = await bodyPath(req, res)
+    if (!path) return
     // A checkout names itself by its top, so a path inside one removes the project it belongs to.
     // The top is asked before the file is read, so no other change lands between the read and the
     // write.
@@ -118,6 +116,15 @@ export const identity = 'x-workflows'
 function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json', [identity]: '1' })
   res.end(JSON.stringify(body) + '\n')
+}
+
+// bodyPath is the absolute path the body names, or undefined once the refusal is sent.
+async function bodyPath(req: IncomingMessage, res: ServerResponse): Promise<string | undefined> {
+  const body = await readJSON(req)
+  const path = typeof body?.path === 'string' ? body.path : ''
+  if (path && isAbsolute(path)) return path
+  send(res, 400, { error: 'path is not an absolute path; name the checkout as an absolute path' })
+  return undefined
 }
 
 // A body is a path and nothing more, so one past this size is refused before it fills the memory.
