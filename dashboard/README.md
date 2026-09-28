@@ -15,7 +15,12 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A process row shows its state as a dot, its issue and branch, its note, stage and age, and its one primary action.
 - A project's page, at `#project=<path of its checkout>`, has its actions and the sections processes and ready to start.
   - Ready for acceptance follows when a spec of the project is.
-- A process's page, at `#process=<id>`, shows its facts. Its branch on the row opens it, and opening it clears the badge.
+- A process's page, at `#process=<id>`, follows the process live through `GET /api/processes/events`. Its branch on the row opens it, and so do the actions Answer, Approve, Continue and Open. Opening it clears the badge.
+  - Its facts are the repository, the branch, the mode, the age and the context the session holds, against where it compacts. The stage pills follow.
+  - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
+  - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
+  - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
+  - Open in terminal resumes the session in a terminal window of this machine.
 - A project whose checkout no longer derives shows the controller's reason. What GitHub did not answer shows as a note above the sections.
 - Claim on a ready-to-start row opens a dialog for the mode, manual or yolo, and the worker knobs to override, one `NAME=VALUE` per line.
   - Force claims an issue the controller refuses as not agent-ready, routed, held in a spec run or claimed on origin.
@@ -23,7 +28,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A runtime whose quota is below the minimum is a warning in the dialog, whose button then reads Claim anyway. Nothing waits for the reset.
 - The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
   - Force abandons work not on origin.
-- The controller carries out no other action yet. Until it does, the other actions are disabled.
+- The controller carries out no other action yet. Until it does, the other actions on a row are disabled.
 - Light and dark follow the system.
 
 ## Development
@@ -35,6 +40,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
+  - A process record carries a fixture event log with an answered question and an open permission request, so the process page shows both cards.
+  - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and a question, which the live test answers from the page.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:

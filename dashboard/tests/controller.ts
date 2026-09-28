@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url"
 
 // The browser test watches the real thing: the built controller, started in fake mode on a machine of
 // its own. That machine is a temporary directory with the configuration, the state, a claude that only
-// answers its version, a browser that opens nothing and a canned GitHub. Its projects are two
+// answers its version, a browser that opens nothing, a terminal that writes down what it was asked to
+// run and a canned GitHub. The sessions run on the controller's scripted claude, whose play a test
+// writes into WORKFLOWS_FAKE_CLAUDE. Its projects are two
 // checkouts whose origin is on GitHub and one directory that is no checkout, so the sidebar shows both
 // kinds. The checkouts hold worktrees and process records. The canned GitHub holds their pull requests,
 // agent-ready issues and specs. So the board has a row of every kind. A scripted quota-axi answers that
@@ -23,6 +25,12 @@ export default async function start() {
   mkdirSync(bin)
   script(join(bin, "claude"), 'echo "2.0.0 (Claude Code, scripted)"')
   script(join(bin, "browser"), "exit 0")
+  const terminal = join(root, "terminal.log")
+  script(join(bin, "terminal"), `printf '%s\\n' "$1" >> '${terminal}'`)
+  process.env.WORKFLOWS_TERMINAL_LOG = terminal
+  const claude = join(root, "claude")
+  mkdirSync(claude)
+  process.env.WORKFLOWS_FAKE_CLAUDE = claude
   const quota = join(root, "quota.json")
   writeFileSync(quota, JSON.stringify(report(8, new Date(Date.now() + 2.5 * 3_600_000).toISOString())))
   script(join(bin, "quota-axi"), `cat '${quota}'`)
@@ -47,7 +55,7 @@ export default async function start() {
   const port = await freePort()
   const config = join(root, "config", "workflows", "config.json")
   mkdirSync(join(root, "config", "workflows"), { recursive: true })
-  writeFileSync(config, JSON.stringify({ listen: `127.0.0.1:${port}`, quota_axi: join(bin, "quota-axi"), quota_minimum: 12, projects }, null, 2) + "\n")
+  writeFileSync(config, JSON.stringify({ listen: `127.0.0.1:${port}`, quota_axi: join(bin, "quota-axi"), quota_minimum: 12, notifications: false, terminal: join(bin, "terminal"), projects }, null, 2) + "\n")
 
   const server = spawn(process.execPath, [controller, "--fake"], {
     env: {
@@ -57,6 +65,7 @@ export default async function start() {
       XDG_DATA_HOME: join(root, "data"),
       BROWSER: join(bin, "browser"),
       WORKFLOWS_FAKE_GH: github,
+      WORKFLOWS_FAKE_CLAUDE: claude,
     },
     stdio: ["ignore", "pipe", "inherit"],
   })
@@ -128,9 +137,11 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   process.env.WORKFLOWS_BACKTEST = backtest
   const record = (id: string, r: Record<string, unknown>) => writeFileSync(join(records, `${id}.json`), JSON.stringify(r))
   record("p118", {
-    project: sensors, kind: "work", branch: "feat/118-refuse-a-project-without-origin", issue: 118, worktree: blocked,
-    stage: "implement", state: "blocked", note: "Asks: keep the project in the file, or drop it?", updated_at: ago(2),
+    project: sensors, kind: "work", branch: "feat/118-refuse-a-project-without-origin", issue: 118, worktree: blocked, base: "origin/main", mode: "manual", env: {},
+    stage: "implement", state: "approval", note: "Bash wants to run: git remote set-url origin git@github.com:acme/edge-sensors.git",
+    session_id: "7f3c9a2e-5b1d-4e8a-9c6f-2d4b8e1a0f37", context: 84213, updated_at: ago(2),
   })
+  conversation(join(records, "p118.events.jsonl"), blocked)
   record("p142", {
     project: sensors, kind: "work", branch: "feat/142-read-the-configuration", issue: 142, worktree: running,
     stage: "implement", state: "running", note: "Writing the config reader, tests green", updated_at: ago(1),
@@ -155,7 +166,11 @@ function board(root: string, github: string, sensors: string, backtest: string) 
     ],
     [issue(100, "Offline mode", ["spec"], v("v0.12.0")), issue(101, "Notifications", ["spec"])],
   )
-  // The issue the claim test claims, as gh issue view answers it, and the branches of origin.
+  // The issues the claim test and the session test claim, as gh issue view answers them, and the branches of origin.
+  writeFileSync(
+    join(github, "repos", "acme/edge-sensors", "issues", "144.json"),
+    JSON.stringify({ number: 144, title: "Board lists every project with its processes", state: "OPEN", labels: [{ name: "ready-for-agent" }] }),
+  )
   writeFileSync(
     join(github, "repos", "acme/edge-sensors", "issues", "145.json"),
     JSON.stringify({ number: 145, title: "Claim from the frontier by one action", state: "OPEN", labels: [{ name: "ready-for-agent" }] }),
@@ -170,6 +185,56 @@ function board(root: string, github: string, sensors: string, backtest: string) 
     [issue(91, "Backfill candles after a gap", ["ready-for-agent"], v("v2.4.0"))],
     [],
   )
+}
+
+// conversation writes the event log of a session that asked a question, was answered, went on and now
+// waits for a permission, so the process page shows every kind of turn.
+function conversation(file: string, tree: string) {
+  const said = (text: string, ...tools: [string, object][]) => ({
+    event: "stream",
+    message: {
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { content: [{ type: "text", text }, ...tools.map(([name, input]) => ({ type: "tool_use", name, input }))], usage: { input_tokens: 84000 } },
+    },
+  })
+  const question = "A project without an origin is refused. Should the controller keep it in the file, marked unusable, or drop it from the file?"
+  const log = [
+    { event: "claimed", issue: 118 },
+    { event: "session-start", stage: "implement" },
+    said(
+      "I read the issue and AGENTS.md. The reader needs the listen address, the quota command and the projects; owner and name come from origin. Starting with a failing test.",
+      ["Read", { file_path: `${tree}/src/config.ts` }],
+      ["Edit", { file_path: `${tree}/test/config.test.ts` }],
+      ["Bash", { command: "npx vitest run test/config.test.ts" }],
+    ),
+    {
+      event: "question",
+      request: "toolu-ask",
+      questions: [
+        {
+          question,
+          header: "Origin",
+          options: [{ label: "Keep, marked unusable", description: "The board shows why." }, { label: "Drop it", description: "The file loses the path." }],
+          multiSelect: false,
+        },
+      ],
+    },
+    { event: "answer", request: "toolu-ask", text: "Keep it, marked unusable, and say why on the board." },
+    said("Keeping it in the file and marking it unusable. Adding the case to the test.", ["Edit", { file_path: `${tree}/src/config.ts` }], ["Bash", { command: "npx vitest run" }]),
+    { event: "allowed", tool: "Bash", detail: "npx vitest run" },
+    { event: "message", text: "Read the URL, never change it. An ssh URL and an https URL name the same repository." },
+    said("Understood: parsing both forms and changing nothing. The remote of this checkout still names the old repository, though."),
+    {
+      event: "permission",
+      request: "toolu-remote",
+      tool: "Bash",
+      detail: "git remote set-url origin git@github.com:acme/edge-sensors.git",
+      title: "Bash wants to run",
+      reason: "The classifier did not settle it: the command rewrites the remote of the checkout.",
+    },
+  ]
+  writeFileSync(file, log.map((l) => JSON.stringify(l)).join("\n") + "\n")
 }
 
 // can cans a repository's open pull requests, agent-ready issues and open specs on the fake GitHub.
