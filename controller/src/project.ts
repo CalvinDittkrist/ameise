@@ -67,7 +67,7 @@ export async function derive(path: string, gh: string): Promise<Project> {
 //   2. the head origin points at,
 //   3. the default branch GitHub names,
 //   4. main.
-// contract/base-branch.json states its cases, and the controller's tests hold this function to them.
+// contract/base-branch.json states its cases, and the tests of the controller and the factory hold both to them.
 export async function baseBranch(top: string, repository: string, gh: string): Promise<string> {
   const declared = await declaredBase(top)
   if (declared) return declared
