@@ -15,7 +15,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - Claim on a ready-to-start row opens a dialog for the mode, manual or yolo, and the worker knobs to override, one `NAME=VALUE` per line.
   - Force claims an issue the controller refuses as not agent-ready, routed, held in a spec run or claimed on origin.
   - The controller's reason for a refusal shows in the dialog.
-- The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay. Force abandons work not on origin.
+- The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
+  - Force abandons work not on origin.
 - The controller carries out no other action and reads no quota yet. Until it does, the other actions are disabled.
 - Light and dark follow the system.
 
