@@ -6,8 +6,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
-import { implement } from './session.js'
+import { abandon, abandonRequest, adopt, claim, claimRequest, projectPath, resumable } from './claim.js'
+import { implement, recover } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -89,6 +89,27 @@ export function serve(o: Options): Server {
     send(res, 200, done)
   }
 
+  // A resume goes on with the session of an interrupted process in its worktree, by its session id.
+  async function resumed(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const { issue } = abandonRequest(body)
+    const project = await known(body)
+    // The check and the start run in one go, so a second resume finds the process running.
+    const record = implement(resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir })
+    log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
+    send(res, 200, { record })
+  }
+
+  // An adopt takes a worktree this controller did not start into a process, which a resume starts.
+  async function adopted(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const { issue } = abandonRequest(body)
+    const project = await known(body)
+    const record = await adopt(project, o.stateDir, issue)
+    log({ event: 'adopted', project: project.path, issue, branch: record.branch })
+    send(res, 201, { record })
+  }
+
   async function add(req: IncomingMessage, res: ServerResponse) {
     const path = await bodyPath(req, res)
     if (!path) return
@@ -150,6 +171,10 @@ export function serve(o: Options): Server {
           return claimed(req, res)
         case 'DELETE /api/processes':
           return abandoned(req, res)
+        case 'POST /api/processes/resume':
+          return resumed(req, res)
+        case 'POST /api/processes/adopt':
+          return adopted(req, res)
         default:
           if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })
@@ -157,7 +182,7 @@ export function serve(o: Options): Server {
     }
     handle().catch((err: Error) => {
       if (err instanceof TooLarge) send(res, 413, { error: err.message })
-      else if (err instanceof Refusal) send(res, err.status, { error: err.message })
+      else if (err instanceof Refusal) send(res, err.status, { ...err.more, error: err.message })
       else send(res, 500, { error: err.message })
     })
   })
@@ -165,6 +190,8 @@ export function serve(o: Options): Server {
   // the CLI reads it from the state directory rather than from the configuration.
   const record = join(o.stateDir, 'listen')
   server.on('listening', () => {
+    // The processes are read before the first request: a session the last run left running is gone.
+    recover(o.stateDir)
     writeFileSync(record, o.listen + '\n')
     log({ event: 'started', fake: o.fake })
   })

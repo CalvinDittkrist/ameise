@@ -16,10 +16,12 @@ export interface Project {
 export type Listed = Project | { path: string; error: string }
 
 // A Refusal is a request the controller turns down, with the reason and the HTTP status that answers it.
+// more is what the answer carries beside the reason, such as the process a claim ran into.
 export class Refusal extends Error {
   constructor(
     message: string,
     readonly status = 400,
+    readonly more: Record<string, unknown> = {},
   ) {
     super(message)
   }

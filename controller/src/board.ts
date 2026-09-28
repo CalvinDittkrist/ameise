@@ -20,12 +20,22 @@ export const frontierQuery = `issues?labels=${labels.ready}&state=open&per_page=
 
 export type Kind = 'work' | 'plan' | 'hunt' | 'standardize'
 
-// The states of a process. The first four wait for a person, each with the one action that answers it,
+// The states of a process. The first six wait for a person, each with the one action that answers it,
 // and a failed one waits for a person who opens it to read the reason. A process in any other state runs
 // on its own and is opened to be watched. A claimed process is created until its first session starts.
-export const states = ['blocked', 'approval', 'ready', 'input', 'failed', 'running', 'waiting', 'created'] as const
+// An interrupted one had its session stopped with the controller, and resumes by its session id. A
+// foreign one is a worktree of an issue the state does not know, which a person adopts or removes.
+export const states = ['blocked', 'approval', 'ready', 'input', 'interrupted', 'foreign', 'failed', 'running', 'waiting', 'created'] as const
 export type State = (typeof states)[number]
-const actions: Partial<Record<State, string>> = { blocked: 'Answer', approval: 'Approve', ready: 'Merge', input: 'Continue', failed: 'Open' }
+const actions: Partial<Record<State, string>> = {
+  blocked: 'Answer',
+  approval: 'Approve',
+  ready: 'Merge',
+  input: 'Continue',
+  interrupted: 'Resume',
+  foreign: 'Adopt',
+  failed: 'Open',
+}
 
 export type Checks = 'none' | 'pending' | 'pass' | 'fail'
 
@@ -167,7 +177,9 @@ export function checksOf(pr: PullRequest): Checks {
 const firstStage: Record<Kind, string> = { work: 'implement', plan: 'plan', hunt: 'hunt', standardize: 'audit' }
 
 // derived joins what a record says with what git and GitHub say. The record decides state, stage and
-// note; a worktree without a record is read from its pull request.
+// note. A work worktree without a record is foreign, which its pull request does not change. A worktree
+// of another kind without a record is read from its pull request, as the controller runs no process of
+// that kind yet.
 function derived(branch: string, record: ProcessRecord | undefined, tree: Worktree | undefined, pr: PullRequest | undefined, since: string | undefined): Process {
   const kind = record?.kind ?? kindOf(branch) ?? 'work'
   const checks = pr ? checksOf(pr) : null
@@ -178,6 +190,10 @@ function derived(branch: string, record: ProcessRecord | undefined, tree: Worktr
     state = states.includes(record.state as State) ? (record.state as State) : 'running'
     stage = record.stage || firstStage[kind]
     note = oneLine(record.note ?? '')
+  } else if (kind === 'work') {
+    stage = pr ? 'ci' : firstStage.work
+    state = 'foreign'
+    note = `not started by this controller${pr ? `; PR #${pr.number}${pr.isDraft ? ' draft' : ''}, checks ${checks}` : ''}; adopt it or remove it`
   } else if (pr) {
     stage = 'ci'
     state = checks === 'pass' && !pr.isDraft ? 'ready' : checks === 'pending' ? 'waiting' : 'running'
