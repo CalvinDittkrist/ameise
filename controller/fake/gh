@@ -8,6 +8,7 @@
 #     repos/<owner>/<name>/pulls.json      the open pull requests gh pr list answers for it
 #     repos/<owner>/<name>/issues/<n>.json the issue gh issue view answers
 #     repos/<owner>/<name>/unassignable    present: gh issue edit --add-assignee fails for it
+#                                          (gh issue edit --remove-assignee @me always holds)
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   WORKFLOWS_FAKE_GH_LOG  every call, one request per line
@@ -54,6 +55,8 @@ case "$*" in
       printf 'failed to update https://github.com/%s/issues/%s: could not assign\n' "$5" "$3" >&2
       exit 1
     fi
+    printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
+  'issue edit '*' --repo '*' --remove-assignee @me')
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
   'api '*)
     endpoint=${!#}
