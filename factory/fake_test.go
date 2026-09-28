@@ -66,8 +66,21 @@ func TestFakeModeWorksTheCannedSpecRunFromItsClaimToItsSpecPullRequest(t *testin
 		}
 	}
 
-	pull := f.ended(t, len(tickets)+1)
-	specPull := fmt.Sprintf("https://github.com/acme/firmware/pull/%d", cannedPull(cannedSpec.number))
+	// The spec pull request is due once a poll reads the last ticket closed, so a run of the canned
+	// queue may start before it: its run is the first after the tickets' that works the spec.
+	var pull apiRun
+	f.eventually(t, 90*time.Second, "the run of the spec pull request to end", func() bool {
+		for id := len(tickets) + 1; !f.missing(t, id); id++ {
+			var run apiRun
+			f.get(t, fmt.Sprintf("/api/runs/%d", id), &run)
+			if run.Issue == cannedSpec.number && run.Repository == "acme/firmware" {
+				pull = run
+				return run.State == "ended"
+			}
+		}
+		return false
+	})
+	specPull :=fmt.Sprintf("https://github.com/acme/firmware/pull/%d", cannedPull(cannedSpec.number))
 	if pull.Issue != cannedSpec.number || pull.Spec != cannedSpec.number || pull.Outcome != outcomeReady || pull.PullRequest != specPull {
 		t.Errorf("run %d worked #%d of spec #%d, ended %q with %q, want the spec pull request %s of #%d ready",
 			pull.ID, pull.Issue, pull.Spec, pull.Outcome, pull.PullRequest, specPull, cannedSpec.number)
