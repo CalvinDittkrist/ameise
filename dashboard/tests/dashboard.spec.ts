@@ -1,3 +1,5 @@
+import { rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { test as base, expect, type Page } from "@playwright/test"
 
 // The dashboard read the way the maintainer reads it: in a browser, against the real controller in fake
@@ -78,6 +80,25 @@ test("the Orchestrator page sorts the processes of every project into needs you 
   // The page shows what the API answers, derived again on every request.
   const board = await (await fetch(url("/api/board"))).json()
   expect(board.projects.map((p: { frontier?: { number: number }[] }) => p.frontier?.map((i) => i.number))).toEqual([[144, 145], [91], undefined])
+})
+
+test("a process whose session failed waits under needs you with its reason, a dark red dot and Open", async ({ page }) => {
+  const file = join(process.env.WORKFLOWS_RECORDS!, "p77.json")
+  writeFileSync(file, JSON.stringify({
+    project: process.env.WORKFLOWS_BACKTEST!, kind: "work", branch: "fix/77-drop-stale-ticks", issue: 77,
+    stage: "implement", state: "failed", note: "the implement session exited without a result", updated_at: new Date().toISOString(),
+  }))
+  try {
+    await page.goto(url())
+    const row = section(page, "Needs you").locator("[data-slot=item][aria-label='fix/77-drop-stale-ticks']")
+    await expect(row).toHaveCount(1)
+    await expect(row).toContainText("backtest#77fix/77-drop-stale-ticksthe implement session exited without a resultimplement")
+    await expect(row.locator("[title=failed]")).toHaveClass(/bg-red-700/)
+    await expect(row.getByRole("button", { name: /^(?!Abandon #)/ })).toHaveText(["Open"])
+    await expect(section(page, "Running").locator("[aria-label='fix/77-drop-stale-ticks']")).toHaveCount(0)
+  } finally {
+    rmSync(file, { force: true })
+  }
 })
 
 test("while the board is derived the sections wait, and never say they are empty", async ({ page }) => {
@@ -218,10 +239,10 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
     await dialog.getByRole("button", { name: "Done" }).click()
     await expect(dialog).toBeHidden()
     const row = section(page, "Running").locator(`[aria-label="${branch}"]`)
-    await expect(row).toContainText(`edge-sensors#145${branch}claimed; no session yetimplement`)
+    await expect(row).toContainText(`edge-sensors#145${branch}implement session runningimplement`)
     await expect(section(page, "Ready to start").locator('[aria-label="#145"]')).toHaveCount(0)
     const board = await (await fetch(url("/api/board?" + new URLSearchParams({ project })))).json()
-    expect(board.processes.find((p: { issue: number }) => p.issue === 145)).toMatchObject({ branch, state: "created" })
+    expect(board.processes.find((p: { issue: number }) => p.issue === 145)).toMatchObject({ branch, state: "running", stage: "implement" })
 
     await row.getByRole("button", { name: "Abandon #145" }).click()
     const abandon = page.getByRole("dialog", { name: "Abandon #145" })

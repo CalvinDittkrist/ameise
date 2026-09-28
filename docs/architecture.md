@@ -39,7 +39,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - `workflows claim` refuses the same, sessionless ([claim and abandon](../controller/README.md#claim-and-abandon)).
+   - The controller's `workflows claim` refuses the same and starts a headless session ([implement session](../controller/README.md#implement-session)).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).

@@ -1,13 +1,14 @@
 // Claim and abandon: a claim takes an agent-ready issue of a project into a work process, an abandon
 // drops the process again. A claim creates the issue's branch and its worktree, assigns the issue, and
-// writes the process record and its event log; no session starts yet. An abandon removes the worktree
+// writes the process record and its event log; the server then starts its implement session. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
 import { ghApi, issueFromBranch, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
 import { type Project, Refusal } from './project.js'
+import { event, stop, update } from './session.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
 // claim itself sets the mode and the issue, and the base branch follows the base branch rule.
@@ -86,10 +87,15 @@ export interface CreatedRecord {
   branch: string
   issue: number
   worktree: string
+  // base is the ref the branch merges into, origin/<base> where origin has it.
   base: string
+  // start is the ref the worktree started from: the base, or the branch on origin a forced claim adopted.
+  start?: string
   stage: string
   state: string
   note: string
+  // session_id is the id of the implement session, once it has started.
+  session_id?: string
   created_at: string
   updated_at: string
 }
@@ -313,6 +319,10 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
   let base = project.base
   const specBranch = spec !== undefined && human ? remote?.find((b) => b.startsWith(`spec/${spec}-`)) : undefined
   if (specBranch) base = specBranch
+  // The base is what the branch merges into; the start is what its worktree starts from, which is the
+  // base unless the claim adopts a branch on origin.
+  const fetched = await fetch(top, base, fake)
+  const baseRef = (await exists(top, `origin/${base}`)) ? `origin/${base}` : (await exists(top, base)) ? base : `origin/${base}`
   let start: string
   if (adopted) {
     branch = adopted
@@ -323,8 +333,8 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
       throw new Refusal(`the local branch ${branch} is not what origin has; go on with it by hand, or remove it with git branch -D ${branch} and claim again`, 409)
     }
   } else {
-    if (!(await fetch(top, base, fake))) warnings.push(`could not fetch ${base} from origin; branching from what this checkout has of it`)
-    start = (await exists(top, `origin/${base}`)) ? `origin/${base}` : base
+    if (!fetched) warnings.push(`could not fetch ${base} from origin; branching from what this checkout has of it`)
+    start = baseRef
     if (!(await exists(top, start))) throw new Refusal(`the base ${base} is neither on origin nor in ${top}; fetch it and claim again`, 409)
   }
 
@@ -351,7 +361,8 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     branch,
     issue: n,
     worktree: path,
-    base: start,
+    base: baseRef,
+    start,
     mode: req.mode,
     env: req.env,
     stage: 'implement',
@@ -360,7 +371,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     created_at: now,
     updated_at: now,
   }
-  await writeProcess(stateDir, record, { event: 'claimed', issue: n, branch, base: start, mode: req.mode, env: req.env, warnings }, async () => {
+  await writeProcess(stateDir, record, { event: 'claimed', issue: n, branch, base: baseRef, start, mode: req.mode, env: req.env, warnings }, async () => {
     await run(gh, ['issue', 'edit', String(n), '--repo', repo, '--remove-assignee', '@me']).catch(() => undefined)
     await undo()
   }, 'claim')
@@ -387,12 +398,32 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
   const tree = (await worktrees(top)).find((t) => ofIssue(t.branch, n) || records.some(({ record: r }) => r.branch === t.branch))
   if (!tree && records.length === 0) throw new Refusal(`#${n} has no process in ${top}`, 404)
   const branch = tree?.branch ?? records[0]?.record.branch ?? ''
-  if (tree && !force) {
+  // clean refuses a worktree with work that is on no branch of origin, unless force is given.
+  const clean = async () => {
+    if (!tree || force) return
     const unpushed = Number(await git(top, 'rev-list', '--count', branch, '--not', '--remotes=origin'))
     if (unpushed > 0) throw new Refusal(`${branch} has ${unpushed} commit(s) not on origin; push them, or abandon with force to lose them`, 409)
     if ((await git(tree.path, 'status', '--porcelain')) !== '') {
       throw new Refusal(`${tree.path} has changes not committed; commit and push them, or abandon with force to lose them`, 409)
     }
+  }
+  await clean()
+  // A session still running in the worktree is stopped, and its runtime has exited, before the worktree
+  // is checked again and removed: what it wrote until then is refused like any other work.
+  const stopped: string[] = []
+  for (const { file } of records) {
+    const id = basename(file, '.json')
+    if (await stop(id)) stopped.push(id)
+  }
+  try {
+    await clean()
+  } catch (err) {
+    const note = `the implement session was stopped by an abandon that was refused: ${(err as Error).message}`
+    for (const id of stopped) {
+      update(stateDir, id, { state: 'failed', note })
+      event(stateDir, id, { event: 'session-end', stage: 'implement', state: 'failed', note })
+    }
+    throw err
   }
   if (tree) {
     await git(top, 'worktree', 'remove', '--force', tree.path)
