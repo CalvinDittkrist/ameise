@@ -57,6 +57,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
     - A merge outside the default branch also closes the issue.
+    - The controller's `workflows merge` merges and cleans up by the same rules, and refuses work not on origin ([merge](../controller/README.md#merge)).
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.
 
 ### Test hunt

@@ -11,7 +11,10 @@
   - It prints a line per project, then one per process, frontier issue, spec ready for acceptance and note.
 - `workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]` claims the issue into a work process; see [Claim and abandon](#claim-and-abandon).
 - `workflows abandon <issue> [--force] [--project <path>]` removes the issue's worktree and process.
-  - Without `--project` both act on the project of the current directory.
+- `workflows merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
+- `workflows release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
+- `workflows accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+  - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
@@ -60,7 +63,7 @@ The board is derived on every request from the state directory, git and GitHub, 
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
   - The tests hold it to the frontier of the [contract fixture](../contract/fixture.json).
-- `acceptance`: the open specs that have sub-issues, all of them closed.
+- `acceptance`: the open specs that have sub-issues, all of them closed, and no process of this machine.
 - `notes`: what GitHub did not answer, so an empty section reads as unknown and not as idle.
 
 ## Claim and abandon
@@ -86,6 +89,31 @@ No session starts yet. In fake mode the claim fetches nothing and branches from 
 
 An abandon removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced.
 
+## Merge
+A merge takes a ready pull request of a project into its base, by the rules of the orchestrator's merge. It refuses, with the reason and `409`, a pull request that is:
+- not open, a draft, or in conflict, or whose conflicts GitHub has not computed yet,
+- not green: a check failed or pending, or a merge state other than `CLEAN`,
+- asked for changes.
+
+It refuses a worktree of the branch with commits on no branch of origin, or changes not committed, since the merge removes it. Then it:
+1. squash-merges the pull request and deletes its branch on origin,
+2. removes the worktree, the local branch, the record and the event log of its process,
+3. closes the issue of the head branch when the base is not the default branch, since GitHub closes a linked issue only there, with a comment that names the pull request.
+
+A promotion from `dev` or `main` gets a merge commit and keeps its branch. A pull request from a fork keeps every local branch and closes no issue.
+
+## Release
+A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milestone that is missing, closed or has open issues, and a tag of that name that exists. The default branch decides the model:
+- `main`: the release tags the head of `main`.
+- `dev`: it opens the promotion `chore(release): <milestone>` from `dev` to `main`, or finds it, and merges it as a merge does. It tags the merge commit.
+  - A promotion that is not green answers `waiting` with the reason; the next release goes on from it.
+  - Another open promotion is refused.
+
+Then it publishes the release with generated notes and closes the milestone.
+
+## Acceptance start
+An acceptance start opens a plan process on a spec ready for acceptance: its branch `plan/<slug of the title>` from `origin/<base>`, its worktree, and a record with the route `accept` in the state `created`. It refuses, with `409`, an issue that is not an open spec, a spec without tickets or with a ticket open, and a spec that has a process. The spec then leaves `acceptance`. No session starts yet.
+
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
 - Without that build `/` answers `404` with the command, and the API works.
@@ -98,6 +126,11 @@ An abandon removes the worktree, the record and the event log. It leaves the bra
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
+- `POST /api/merges` with `{"project": "<path>", "pr": <n>}`: merges the pull request and answers `200` with `{pr, title, method, base, branch, kept, worktree, closed, warnings}`.
+  - `409` refuses a pull request that is not ready or work not on origin, `502` a GitHub that does not answer.
+- `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
+  - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
+- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.

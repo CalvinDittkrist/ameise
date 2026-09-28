@@ -121,7 +121,7 @@ export function claimRequest(body: Record<string, unknown>): ClaimRequest {
 // abandonRequest reads the body of an abandon, or refuses it with the reason before anything is removed.
 export const abandonRequest = (body: Record<string, unknown>): { issue: number; force: boolean } => target(body)
 
-const recordsDir = (stateDir: string) => join(stateDir, 'processes')
+export const recordsDir = (stateDir: string) => join(stateDir, 'processes')
 
 // recordsOf are the records of a project's issue, each with the path of its file, as the board reads them.
 function recordsOf(stateDir: string, project: string, issue: number) {
@@ -132,11 +132,11 @@ function recordsOf(stateDir: string, project: string, issue: number) {
 // and the number spelled as the branch spells it, so feat/0104-x is no branch of #104.
 const ofIssue = (branch: string, issue: number) => issueFromBranch(branch) === String(issue)
 
-async function git(top: string, ...args: string[]): Promise<string> {
+export async function git(top: string, ...args: string[]): Promise<string> {
   return run('git', ['-C', top, ...args])
 }
 
-async function exists(top: string, ref: string): Promise<boolean> {
+export async function exists(top: string, ref: string): Promise<boolean> {
   return git(top, 'rev-parse', '-q', '--verify', ref + '^{commit}').then(
     () => true,
     () => false,
@@ -145,7 +145,7 @@ async function exists(top: string, ref: string): Promise<boolean> {
 
 // fetch updates a remote-tracking branch from origin. It may fail, as offline: the caller decides what
 // the ref it has left is worth.
-async function fetch(top: string, branch: string, fake: boolean): Promise<boolean> {
+export async function fetch(top: string, branch: string, fake: boolean): Promise<boolean> {
   if (fake) return true
   return git(top, 'fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`).then(
     () => true,
@@ -154,10 +154,34 @@ async function fetch(top: string, branch: string, fake: boolean): Promise<boolea
 }
 
 // writeAtomic replaces a file whole, through a rename, so a reader sees the old one or the new one.
-function writeAtomic(path: string, body: string) {
+export function writeAtomic(path: string, body: string) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, body)
   renameSync(tmp, path)
+}
+
+// addWorktree creates the worktree of a branch inside the checkout, where the local workflow keeps them
+// and git ignores them. It creates the branch from start unless it exists, and says whether it did.
+export async function addWorktree(top: string, branch: string, start: string): Promise<{ path: string; created: boolean }> {
+  const dir = join(top, '.claude', 'worktrees')
+  const path = join(dir, branch.replace(/\//g, '-'))
+  if (existsSync(path)) throw new Refusal(`${path} exists already; remove it and try again`, 409)
+  mkdirSync(dir, { recursive: true })
+  const common = resolve(top, await git(top, 'rev-parse', '--git-common-dir'))
+  const exclude = join(common, 'info', 'exclude')
+  const excluded = existsSync(exclude) ? readFileSync(exclude, 'utf8') : ''
+  if (!excluded.split('\n').includes('.claude/worktrees/')) {
+    mkdirSync(join(common, 'info'), { recursive: true })
+    appendFileSync(exclude, (excluded && !excluded.endsWith('\n') ? '\n' : '') + '.claude/worktrees/\n')
+  }
+  const created = !(await exists(top, `refs/heads/${branch}`))
+  try {
+    if (created) await git(top, 'worktree', 'add', '-q', '--no-track', '-b', branch, path, start)
+    else await git(top, 'worktree', 'add', '-q', path, branch)
+  } catch (err) {
+    throw new Refusal(`could not create the worktree ${path}: ${(err as Error).message}`, 500)
+  }
+  return { path, created }
 }
 
 export interface Claimed {
@@ -166,12 +190,14 @@ export interface Claimed {
   warnings: string[]
 }
 
-// The claims and abandons under way, per project and issue, so two at once cannot both pass the checks.
+// The actions under way, per project and what they act on, so two at once cannot both pass the checks.
 const busy = new Set<string>()
 
-async function held<T>(project: Project, issue: number, f: () => Promise<T>): Promise<T> {
-  const key = `${project.path}#${issue}`
-  if (busy.has(key)) throw new Refusal(`a claim or abandon of #${issue} is under way; try again when it is done`, 409)
+// held runs f while no other action of the project holds the same key: an issue, a pull request or a
+// milestone. Another action of that key meanwhile is refused.
+export async function held<T>(project: Project, key: string, f: () => Promise<T>): Promise<T> {
+  key = `${project.path}#${key}`
+  if (busy.has(key)) throw new Refusal(`an action on ${key.slice(project.path.length + 1)} is under way; try again when it is done`, 409)
   busy.add(key)
   try {
     return await f()
@@ -185,7 +211,7 @@ async function held<T>(project: Project, issue: number, f: () => Promise<T>): Pr
 // the factory, held in a spec run or claimed on origin; each of those it lifts is a warning.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
 export function claim(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
-  return held(project, req.issue, () => claimHeld(project, stateDir, gh, fake, req))
+  return held(project, `#${req.issue}`, () => claimHeld(project, stateDir, gh, fake, req))
 }
 
 async function claimHeld(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
@@ -272,25 +298,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     if (!(await exists(top, start))) throw new Refusal(`the base ${base} is neither on origin nor in ${top}; fetch it and claim again`, 409)
   }
 
-  // The worktrees live inside the checkout, where the local workflow keeps them, and git ignores them.
-  const dir = join(top, '.claude', 'worktrees')
-  const path = join(dir, branch.replace(/\//g, '-'))
-  if (existsSync(path)) throw new Refusal(`${path} exists already; remove it and claim again`, 409)
-  mkdirSync(dir, { recursive: true })
-  const common = resolve(top, await git(top, 'rev-parse', '--git-common-dir'))
-  const exclude = join(common, 'info', 'exclude')
-  const excluded = existsSync(exclude) ? readFileSync(exclude, 'utf8') : ''
-  if (!excluded.split('\n').includes('.claude/worktrees/')) {
-    mkdirSync(join(common, 'info'), { recursive: true })
-    appendFileSync(exclude, (excluded && !excluded.endsWith('\n') ? '\n' : '') + '.claude/worktrees/\n')
-  }
-  const created = !(await exists(top, `refs/heads/${branch}`))
-  try {
-    if (created) await git(top, 'worktree', 'add', '-q', '--no-track', '-b', branch, path, start)
-    else await git(top, 'worktree', 'add', '-q', path, branch)
-  } catch (err) {
-    throw new Refusal(`could not create the worktree ${path}: ${(err as Error).message}`, 500)
-  }
+  const { path, created } = await addWorktree(top, branch, start)
 
   // undo removes the worktree and the branch the claim created, so nothing of a failed claim stays.
   const undo = async () => {
@@ -354,7 +362,7 @@ export interface Abandoned {
 // refuses a worktree with commits that are on no branch of origin, or with changes not committed,
 // unless force is given.
 export function abandon(project: Project, stateDir: string, issue: number, force: boolean): Promise<Abandoned> {
-  return held(project, issue, () => abandonHeld(project, stateDir, issue, force))
+  return held(project, `#${issue}`, () => abandonHeld(project, stateDir, issue, force))
 }
 
 async function abandonHeld(project: Project, stateDir: string, n: number, force: boolean): Promise<Abandoned> {

@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
 import type { Process, ProjectBoard } from './board.js'
+import type { Merged, PlanRecord, Released } from './actions.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
@@ -21,6 +22,12 @@ const usage = `usage:
                                      claim the issue into a work process of the project
   workflows abandon <issue> [--force] [--project <path>]
                                      remove the issue's worktree and process; branch and issue stay
+  workflows merge <pr> [--project <path>]
+                                     merge the ready pull request and remove its branch, worktree and process
+  workflows release <vX.Y.Z> [--project <path>]
+                                     tag the finished milestone, publish its release and close it
+  workflows accept <spec> [--project <path>]
+                                     open a plan process on the spec with the acceptance route
 
 --project names the checkout of the project; without it the project is the checkout of the current
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
@@ -218,9 +225,43 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
   process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)
 }
 
+// actionCommand runs merge, release or accept: what it acts on, then --project in any order.
+async function actionCommand(command: 'merge' | 'release' | 'accept', args: string[]) {
+  let target: string | undefined
+  let project = process.cwd()
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string
+    if (a === '--project') {
+      const v = args[++i]
+      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      project = resolve(v)
+    } else if (target === undefined && (command === 'release' ? /^v[0-9]+\.[0-9]+\.[0-9]+$/ : /^#?[0-9]+$/).test(a)) target = a.replace(/^#/, '')
+    else die(`unexpected argument ${a}; workflows help lists the commands`)
+  }
+  const what = { merge: 'a pull request number', release: 'a milestone such as v1.2.3', accept: 'a spec number' }[command]
+  if (target === undefined) die(`${command} needs ${what}; workflows help lists the commands`)
+  if (command === 'merge') {
+    const m = (await call('POST', '/api/merges', { project, pr: Number(target) })) as Merged
+    for (const w of m.warnings) process.stderr.write(`warning: ${w}\n`)
+    const branch = m.kept ? `${m.branch} kept (${m.kept})` : `${m.branch} deleted`
+    const closed = m.closed === null ? '' : `  closed #${m.closed}`
+    process.stdout.write(`merged PR #${m.pr} (${m.method}) into ${m.base}  ${branch}  worktree ${m.worktree ?? 'none'} removed${closed}\n`)
+    return
+  }
+  if (command === 'release') {
+    const r = (await call('POST', '/api/releases', { project, milestone: target })) as Released
+    if (r.status === 'waiting') process.stdout.write(`waiting ${r.milestone}  promotion ${r.promotion}  ${r.reason}\n`)
+    else process.stdout.write(`released ${r.milestone}  ${r.model}  target ${r.target}  ${r.release}${r.promotion ? '  promotion ' + r.promotion : ''}  milestone closed\n`)
+    return
+  }
+  const a = (await call('POST', '/api/acceptances', { project, spec: Number(target) })) as { record: PlanRecord }
+  process.stdout.write(`accept #${a.record.issue}  ${a.record.branch}  from ${a.record.base}  ${a.record.state}\n  ${a.record.worktree}\n`)
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
   if (command === 'claim' || command === 'abandon') return processCommand(command, argv.slice(1))
+  if (command === 'merge' || command === 'release' || command === 'accept') return actionCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {
     if (sub !== undefined) die(`unexpected argument ${sub}; workflows help lists the commands`)
     return start(command === '--fake')
