@@ -1,7 +1,7 @@
 # Architecture
 
 ## Purpose
-This repository packages Claude Code plugins, beside the factory, a Go service for unattended delivery. It optimises for throughput, tokens, consistency and safety. The why is in the [vision](vision.md).
+This repository packages Claude Code plugins, beside the factory, a Go service for unattended delivery. The why is in the [vision](vision.md).
 
 ## Components
 | Component | Responsibility | Entry point |
