@@ -51,6 +51,8 @@ export default async function start() {
     },
     stdio: ["ignore", "pipe", "inherit"],
   })
+  // The exit is awaited from spawn on, so a controller that dies before teardown ends teardown too.
+  const ended = new Promise((done) => server.once("exit", done))
   const stop = () => {
     if (server.exitCode === null) server.kill("SIGTERM")
   }
@@ -77,7 +79,6 @@ export default async function start() {
   // The tests run in processes of their own, which inherit this environment.
   process.env.WORKFLOWS_URL = `http://127.0.0.1:${port}`
   return async () => {
-    const ended = new Promise((done) => server.once("exit", done))
     stop()
     await ended
     rmSync(root, { recursive: true, force: true })
