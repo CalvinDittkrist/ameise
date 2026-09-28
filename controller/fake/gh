@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# The scripted gh of the controller's fake mode (workflows --fake): it answers the calls the controller
+# makes from a canned GitHub in a directory, so the real server runs with no GitHub behind it.
+#
+#   WORKFLOWS_FAKE_GH      the canned GitHub; without it every login holds and no repository answers
+#     logged-out                           present: gh auth status fails as a machine without a login does
+#     repos/<owner>/<name>/default-branch  the default branch GitHub names for that repository
+#   WORKFLOWS_FAKE_GH_LOG  every call, one request per line
+#
+# A request without an answer fails, as a GitHub that does not answer does.
+set -euo pipefail
+
+printf '%s\n' "$*" >> "${WORKFLOWS_FAKE_GH_LOG:-/dev/null}"
+canned=${WORKFLOWS_FAKE_GH:-}
+
+case "$*" in
+  --version)
+    printf 'gh version 0.0.0 (workflows fake)\n' ;;
+  'auth status')
+    if [ -n "$canned" ] && [ -e "$canned/logged-out" ]; then
+      printf 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n' >&2
+      exit 1
+    fi
+    printf 'github.com\n  Logged in to github.com account fake (workflows fake)\n' ;;
+  'repo view '*' --json defaultBranchRef --jq .defaultBranchRef.name')
+    repo=$3
+    file="$canned/repos/$repo/default-branch"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'error: no canned repository %s\n' "$repo" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  *)
+    printf 'error: the fake gh has no answer to: gh %s\n' "$*" >&2
+    exit 1 ;;
+esac
