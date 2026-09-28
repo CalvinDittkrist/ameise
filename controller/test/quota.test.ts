@@ -98,3 +98,13 @@ test.each([
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   expect((r.body as { quota: string[] }).quota).toEqual([])
 })
+
+test('a quota_axi that hangs holds neither the claim nor its session', async () => {
+  script(join(m.root, 'hanging'), 'exec /bin/sleep 25')
+  configure({ quota_axi: join(m.root, 'hanging') })
+  const began = Date.now()
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  expect(Date.now() - began).toBeLessThan(10000)
+  expect(r.body).toMatchObject({ record: { state: 'running', stage: 'implement' }, quota: [] })
+})

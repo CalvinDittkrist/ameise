@@ -4,11 +4,11 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
-import { address, readConfig, writeConfig } from './config.js'
+import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
 import { notify } from './notify.js'
-import { readQuota, warnings } from './quota.js'
+import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { type Announce, implement, seen } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
@@ -23,6 +23,20 @@ export interface Options {
   runtime: { claude: string; worker: string }
   // dashboard is the directory of the dashboard's build, which the server serves at its root.
   dashboard: string
+}
+
+// quotaShare bounds how long a claim's answer waits for the quota after the claim is done, so a
+// quota-axi that hangs on its provider delays the answer by no more than this.
+const quotaShare = 2000
+
+// within answers what p resolves to, or undefined once ms have passed without it.
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms)
+    timer.unref()
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
 export function serve(o: Options): Server {
@@ -45,9 +59,15 @@ export function serve(o: Options): Server {
   }
 
   // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
-  const quota = () => {
-    const c = readConfig(o.configPath)
-    return readQuota(c.quota_axi, c.quota_minimum)
+  // Like readQuota it never rejects: a file that cannot be read makes every runtime unknown.
+  const quota = async (): Promise<Quota> => {
+    try {
+      const c = readConfig(o.configPath)
+      return await readQuota(c.quota_axi, c.quota_minimum)
+    } catch (err) {
+      const reason = `the configuration cannot be read: ${(err as Error).message}`
+      return { minimum: defaults.quota_minimum, runtimes: runtimes.map((runtime) => ({ runtime, known: false, reason, below: false })) }
+    }
   }
 
   // The list reads the file as add and remove do, so a project added or removed by hand shows at once.
@@ -95,13 +115,16 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const request = claimRequest(body)
     const project = await known(body)
-    // The quota is read beside the claim and never holds it: below the minimum the claim goes on and
-    // its answer says so.
-    const [done, q] = await Promise.all([claim(project, o.stateDir, o.gh, o.fake, request), quota()])
+    // The quota is read beside the claim and never holds it: the session starts once the claim is
+    // done, and the answer waits for the reading no longer than the quota's share allows. Below the
+    // minimum the claim goes on and its answer says so.
+    const reading = quota()
+    const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.
     const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir, announce })
-    send(res, 201, { ...done, record, quota: warnings(q) })
+    const q = await within(reading, quotaShare)
+    send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
   }
 
   async function abandoned(req: IncomingMessage, res: ServerResponse) {
@@ -116,7 +139,7 @@ export function serve(o: Options): Server {
   // A process page that is opened marks its process seen, which clears its badge.
   async function opened(req: IncomingMessage, res: ServerResponse) {
     const id = ((await readJSON(req)) ?? {}).id
-    if (typeof id !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) return send(res, 400, { error: 'id is not the id of a process; send the id the board names' })
+    if (typeof id !== 'string') return send(res, 400, { error: 'id is not the id of a process; send the id the board names' })
     if (!seen(o.stateDir, id)) return send(res, 404, { error: `${id} is not a process of this machine` })
     send(res, 200, { id })
   }
