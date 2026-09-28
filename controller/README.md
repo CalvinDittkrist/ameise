@@ -29,12 +29,14 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
   "quota_axi": "",
   "quota_minimum": 12,
   "notifications": true,
+  "notifier": "",
   "projects": ["/home/me/src/repo"]
 }
 ```
 
 - `listen` is a loopback address; the controller is never reachable from another machine.
-- `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage.
+- `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage; see [Quota](#quota).
+- `notifications` switches the native notifications on or off. `notifier` names the command they are sent through; empty is the platform's own. See [Notifications](#notifications).
 - A project is the absolute path of a checkout, stored as the top of its working tree.
 - Listing, adding and removing projects read this file again, so a change made by hand while the server runs shows at once and is kept.
 - The rewrite fills in any field the file lacks with its default.
@@ -52,9 +54,11 @@ All of them are derived on every read and never stored. A path that is no git ch
 ## Board
 The board is derived on every request from the state directory, git and GitHub, and stored nowhere. A project's board is its facts and:
 - `processes`: one per worktree of the checkout whose branch names a process kind, and one per process record in the state directory.
-  - Each has `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
+  - Each has `id`, `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
   - A record decides state, stage and note. A worktree without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
+  - `id` names its record, the file `processes/<id>.json`, and is null for a worktree without one.
+  - `unseen` says it turned `blocked`, `ready` or `failed` and its page has not been opened since.
   - A claimed process is `created` until its first session starts.
   - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
@@ -86,6 +90,8 @@ A claim then:
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
+The claim reads the [quota](#quota) beside these steps and never waits for it. Its answer carries `quota`: one line per runtime below the minimum, which the CLI prints as a warning. The claim goes on either way.
+
 In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 
 An abandon stops the process's session and waits for its runtime to exit, then removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced. It checks before the stop and again after it, so work the session wrote until it stopped is refused too; a refusal after the stop ends the process `failed`.
@@ -107,7 +113,23 @@ The session has no status line, so the worker's checkpoint answers unavailable a
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
 
+A session that ends `blocked`, `ready` or `failed` marks its record `unseen` and sends one [notification](#notifications).
+
 In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
+
+## Quota
+The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request, reads the `all_models` scope of quota-axi's report in schema version 5, and answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
+
+A reading is unknown, with the reason, when `quota_axi` is empty, not installed, fails, takes longer than 30 seconds or prints a report it cannot read. An unknown quota warns of nothing and holds no claim.
+
+## Notifications
+A process that turns `blocked`, `ready` or `failed` gets one native notification: the project, the issue and the state as the title, the note as the body. The event log `events.jsonl` records a `turned` event for it.
+- The notifier is the command `notifier` names, called as `<notifier> <title> <body>`.
+- Without one it is `osascript` on macOS and `notify-send` on Linux. Other platforms get none.
+- With `notifications` false nothing is sent, and the process is marked all the same.
+- A notifier that fails is told on the controller's stderr and changes nothing of the process.
+
+The record keeps `unseen` until the process's page is opened, so the dashboard shows a badge until then. A yolo process that ends ready is gone with its record, so it gets the notification and no badge.
 
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
@@ -117,8 +139,10 @@ In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUD
 - `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project and answers `200`. `400` with `{error}` refuses a path that is not absolute, `404` says it is no project.
 - `GET /api/board`: the [board](#board) of every project, `{projects: [...]}`, each a project's board or `{path, error}`.
 - `GET /api/board?project=<path>`: the board of the project at that checkout; `404` says it is no project.
-- `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings}`.
+- `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings, quota}`.
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
+- `POST /api/processes/seen` with `{"id": "<id>"}`: marks the process seen, which clears its badge, and answers `200` with `{id}`. `400` refuses a malformed id, `404` an id that is no process.
+- `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}`. Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - A body larger than 64 KiB is refused with `413`.
