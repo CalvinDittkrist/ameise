@@ -276,9 +276,10 @@ func (f *Factory) command(ctx context.Context, s session, entry Entry, claim cla
 // declares would run a command at the session's start, which no tool list holds back. Of the
 // configured worker arguments it takes the model alone: a session without an agent runs on the
 // worker's, the model worker_args name or workerModel (modelOf); a reviewer runs on the model its
-// definition names. worker_args is written for the worker, and an argument that gives it a capability (an MCP server through --mcp-config, which
-// --strict-mcp-config still loads, a plugin directory, an added directory or tools) would give it to a
-// session that reads text somebody else wrote as well
+// definition names. worker_args is written for the worker, and an argument that gives it a
+// capability (an MCP server through --mcp-config, which --strict-mcp-config still loads, a plugin
+// directory, an added directory or tools) would give it to a session that reads text somebody else
+// wrote as well
 // (https://code.claude.com/docs/en/cli-reference.md, checked on 2026-09-24). It keeps what every session
 // keeps: the session's settings, the auto permission mode and the worktree as its directory, which it
 // reads.

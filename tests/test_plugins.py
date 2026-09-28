@@ -32,7 +32,7 @@ class ManifestTests(unittest.TestCase):
                 self.assertIn(f"name: {agent.stem}\n", fm, agent)
 
     def test_agent_models_and_efforts_match_their_role(self):
-        """The model and effort of an agent are a decision: a session agent names its own model, every subagent runs on sonnet at its effort and none inherits."""
+        """The model and effort of an agent are a decision. A session agent names its own model; every subagent runs on sonnet at its effort and none inherits."""
         sessions = {
             "orchestrator/agents/orchestrator.md": ("sonnet", "low"),
             "worker/agents/worker.md": ("opus", None),
