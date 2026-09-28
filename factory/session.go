@@ -60,6 +60,10 @@ type session struct {
 	read func(json.RawMessage) (result, error)
 	// began is called once the session's process is up, or once it is known that it never will be.
 	began func()
+	// hold is closed once every session of the round this one runs in is up; the factory reads none of
+	// this session's output before then, so the log of a round opens with every session's start in the
+	// round's order. It is nil for a session that runs alone.
+	hold <-chan struct{}
 }
 
 // stageImplement is the stage of the implement session.

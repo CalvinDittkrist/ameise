@@ -1239,6 +1239,11 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	}
 	f.runs.event(r, started)
 	began()
+	// A session that runs beside others is not read before every session of its round is up: until then
+	// what it writes waits in the pipe, and its first line cannot come before a later session's start.
+	if s.hold != nil {
+		<-s.hold
+	}
 
 	var readers sync.WaitGroup
 	readers.Add(2)
