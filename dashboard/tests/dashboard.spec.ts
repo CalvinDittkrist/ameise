@@ -134,7 +134,7 @@ test("a project page whose projects cannot be read says why, not that the projec
   await expect(main(page)).not.toContainText("No such project")
 })
 
-test("add project refuses a path with the controller's reason and adds a checkout", async ({ page }) => {
+test("add project refuses a path with the controller's reason and adds a checkout, whose notes both pages show", async ({ page }) => {
   const spare = process.env.WORKFLOWS_SPARE!
   await page.goto(url())
   try {
@@ -149,6 +149,12 @@ test("add project refuses a path with the controller's reason and adds a checkou
     await expect(dialog).toBeHidden()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("firmware")
     await expect(projects(page).getByRole("link")).toHaveText(["edge-sensors", "backtest", "notes", "firmware"])
+
+    // GitHub does not answer the open specs of firmware, and both pages say so above the sections.
+    const note = "firmware: could not read the open specs; ready for acceptance is empty, not idle"
+    await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
+    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
   } finally {
     await fetch(url("/api/projects"), {
       method: "DELETE",

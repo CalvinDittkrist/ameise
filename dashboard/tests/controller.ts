@@ -36,7 +36,8 @@ export default async function start() {
   process.env.WORKFLOWS_NOT_A_CHECKOUT = projects[2]
   mkdirSync(github)
   board(root, github, projects[0]!, projects[1]!)
-  for (const repository of ["acme/firmware"]) can(github, repository, [], [], [])
+  // Its open specs are left uncanned, so GitHub does not answer them and its board carries a note.
+  can(github, "acme/firmware", [], [])
 
   const port = await freePort()
   const config = join(root, "config", "workflows", "config.json")
@@ -143,11 +144,12 @@ function board(root: string, github: string, sensors: string, backtest: string) 
 }
 
 // can cans a repository's open pull requests, agent-ready issues and open specs on the fake GitHub.
-function can(github: string, repository: string, pulls: object[], ready: object[], specs: object[]) {
+// Specs left out stay uncanned, and the fake GitHub answers them with an error.
+function can(github: string, repository: string, pulls: object[], ready: object[], specs?: object[]) {
   mkdirSync(join(github, "repos", repository), { recursive: true })
   writeFileSync(join(github, "repos", repository, "pulls.json"), JSON.stringify(pulls))
   api(github, `repos/${repository}/issues?labels=ready-for-agent&state=open&per_page=100`, ready)
-  api(github, `repos/${repository}/issues?labels=spec&state=open&per_page=100`, specs)
+  if (specs) api(github, `repos/${repository}/issues?labels=spec&state=open&per_page=100`, specs)
 }
 
 function api(github: string, endpoint: string, answer: unknown) {
