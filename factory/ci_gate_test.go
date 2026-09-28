@@ -442,12 +442,7 @@ func TestACancelDuringAFixSessionOfAGateOnCIEndsIt(t *testing.T) {
 func TestFakeModeGatesOnCannedChecks(t *testing.T) {
 	t.Parallel()
 	f := start(t, config{"deadline": "30s", "poll": "100ms", "repositories": []any{"acme/edge-sensors"}, "gate": map[string]any{"command": "ci"}})
-	var run apiRun
-	f.eventually(t, 150*time.Second, "the ready run to end", func() bool {
-		run = apiRun{}
-		f.get(t, "/api/runs/1", &run)
-		return run.EndedAt != nil
-	})
+	run := f.endedWithin(t, 1, 150*time.Second)
 	if got := factoryTitles(run, "gate on CI: ", "opened the draft", "briefed a fix session of the gate"); strings.Join(got, " | ") !=
 		"opened the draft https://github.com/acme/edge-sensors/pull/204 | gate on CI: waiting | gate on CI: checks-failed | briefed a fix session of the gate, 1 of 3 | "+
 			"gate on CI: waiting | gate on CI: green | gate on CI: waiting | gate on CI: green" {
