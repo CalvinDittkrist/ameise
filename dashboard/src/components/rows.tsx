@@ -16,8 +16,8 @@ const dot: Record<Process["state"], string> = {
 // The actions are the controller's to carry out, and it serves none yet, so each row shows its one
 // primary action disabled.
 
-// ProcessRow is one process: its state as a dot, its issue and branch, the note, the stage, the time
-// since it last changed and the one action that moves it on.
+// ProcessRow is one process: its state as a dot, its issue and branch, the note, the stage and the
+// time since it last changed. It shows the one action that moves it on.
 export function ProcessRow({ p, project }: { p: Process; project?: ProjectBoard }) {
   return (
     <Item variant="outline" size="sm" aria-label={p.branch}>

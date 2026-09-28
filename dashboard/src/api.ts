@@ -63,8 +63,8 @@ export type Board =
   | { state: "failed"; error: string }
   | { state: "loaded"; projects: BoardEntry[] }
 
-// useBoard reads the board of every project when the page opens, whenever the window comes back into
-// focus and every half minute, since the controller derives it from git and GitHub on each request.
+// useBoard reads the board of every project when the page opens, on focus and every half minute.
+// The controller derives it from git and GitHub on each request.
 export function useBoard(): [Board, () => Promise<void>] {
   const [board, setBoard] = useState<Board>({ state: "loading" })
   const reload = useCallback(async () => {

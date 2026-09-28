@@ -20,7 +20,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - `npm --prefix dashboard run dev` serves it with hot reload. It sends `/api` to a controller on the default address.
 - `make dashboard` runs eslint, the type check, the build and the browser test.
 - The browser test starts the built controller in fake mode with two checkouts and a directory that is no checkout.
-  - The checkouts hold worktrees and process records, and the canned GitHub their pull requests, issues and specs, so the board has a row of every kind.
+  - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
+  - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:
