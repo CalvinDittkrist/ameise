@@ -1,6 +1,6 @@
 // The tests' way to the controller: the built binary, started in fake mode on a machine of its own
-// (configuration, state, PATH and canned GitHub in a temporary directory), watched over its API, its
-// files and its output.
+// and watched over its API, its files and its output. That machine is a temporary directory with the
+// configuration, the state, a PATH and a canned GitHub.
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
