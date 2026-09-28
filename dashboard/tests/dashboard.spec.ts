@@ -95,6 +95,30 @@ test("a process that turned blocked carries a badge on its row and on the Orches
   }
 })
 
+test("a process page whose mark fails tries it again until the badge clears", async ({ page }) => {
+  const file = join(process.env.WORKFLOWS_RECORDS!, "p79.json")
+  writeFileSync(file, JSON.stringify({
+    project: process.env.WORKFLOWS_BACKTEST!, kind: "work", branch: "fix/79-retry-the-mark", issue: 79,
+    stage: "implement", state: "ready", note: "Done", unseen: true, updated_at: new Date().toISOString(),
+  }))
+  try {
+    // The first mark is lost, as while the controller restarts; the next one reaches it.
+    let marks = 0
+    await page.route("**/api/processes/seen", (r) => (++marks === 1 ? r.abort() : r.continue()))
+    await page.goto(url())
+    const orchestrator = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Orchestrator" }) })
+    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    await section(page, "Needs you").getByRole("link", { name: "fix/79-retry-the-mark" }).click()
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("#79 fix/79-retry-the-mark")
+    await expect.poll(() => marks).toBe(1)
+    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0, { timeout: 10_000 })
+    expect(marks).toBe(2)
+  } finally {
+    rmSync(file, { force: true })
+  }
+})
+
 // section is the card of that title, its rows each the item the row names.
 const section = (page: Page, title: string) => main(page).locator(`[data-slot=card][aria-label="${title}"]`)
 const rows = (page: Page, title: string) => section(page, title).locator("[data-slot=item]")
