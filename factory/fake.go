@@ -601,8 +601,6 @@ func cannedValidation(scenario, validator string, round int) []map[string]any {
 // reviewerStagger is how far apart the scripted reviewers of one round report. The factory logs every
 // start of a round before it reads any reviewer's output, so the stagger only keeps two reports apart:
 // they stay in the order of the panel while two consecutive starts are less than the stagger apart.
-// On the factory host, a Raspberry Pi 4, consecutive starts were 36 to 76 ms apart (measured
-// 2026-09-28).
 const reviewerStagger = 250 * time.Millisecond
 
 // scriptedReviewer is one reviewer of the panel, or one validator, in one round: it reads the change
