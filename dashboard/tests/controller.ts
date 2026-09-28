@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url"
 // answers its version, a browser that opens nothing and a canned GitHub. Its projects are two
 // checkouts whose origin is on GitHub and one directory that is no checkout, so the sidebar shows both
 // kinds. The checkouts hold worktrees and process records. The canned GitHub holds their pull requests,
-// agent-ready issues and specs. So the board has a row of every kind. The controller serves the
+// agent-ready issues and specs. So the board has a row of every kind. A scripted quota-axi answers that
+// Claude has 8% left, below the minimum of 12%, until a reset two and a half hours on. The controller serves the
 // dashboard build it finds in its own build, which make dashboard writes before this runs.
 
 const controller = fileURLToPath(new URL("../../controller/dist/main.js", import.meta.url))
@@ -22,6 +23,9 @@ export default async function start() {
   mkdirSync(bin)
   script(join(bin, "claude"), 'echo "2.0.0 (Claude Code, scripted)"')
   script(join(bin, "browser"), "exit 0")
+  const quota = join(root, "quota.json")
+  writeFileSync(quota, JSON.stringify(report(8, new Date(Date.now() + 2.5 * 3_600_000).toISOString())))
+  script(join(bin, "quota-axi"), `cat '${quota}'`)
 
   const github = join(root, "github")
   const sources = join(root, "src")
@@ -43,7 +47,7 @@ export default async function start() {
   const port = await freePort()
   const config = join(root, "config", "workflows", "config.json")
   mkdirSync(join(root, "config", "workflows"), { recursive: true })
-  writeFileSync(config, JSON.stringify({ listen: `127.0.0.1:${port}`, projects }, null, 2) + "\n")
+  writeFileSync(config, JSON.stringify({ listen: `127.0.0.1:${port}`, quota_axi: join(bin, "quota-axi"), quota_minimum: 12, projects }, null, 2) + "\n")
 
   const server = spawn(process.execPath, [controller, "--fake"], {
     env: {
@@ -93,6 +97,21 @@ export default async function start() {
 
 // runningRecord writes the record of the process whose session runs, once the controller listens.
 let runningRecord = () => {}
+
+// report is quota-axi's JSON report of Claude with the percentage left and the reset of its session window.
+function report(remaining: number, reset: string) {
+  return {
+    schemaVersion: 5,
+    providers: [
+      {
+        provider: "claude",
+        state: { stale: false, error: "" },
+        windows: [{ id: "five_hour", resetsAt: reset }],
+        quotaSemantics: { effectiveAvailability: [{ scope: "all_models", status: "known", effectivePercentRemaining: remaining, limitingWindowIds: ["five_hour"] }] },
+      },
+    ],
+  }
+}
 
 // ago is an instant the given hours before now, half an hour later still, so the age the board shows
 // stays the same while the tests run.

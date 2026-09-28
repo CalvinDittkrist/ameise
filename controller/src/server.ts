@@ -3,11 +3,13 @@
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { extname, isAbsolute, join, resolve, sep } from 'node:path'
-import { address, readConfig, writeConfig } from './config.js'
+import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
+import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
-import { implement, recover } from './session.js'
+import { notify } from './notify.js'
+import { type Quota, readQuota, runtimes, warnings } from './quota.js'
+import { type Announce, implement, recover, seen } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -23,10 +25,55 @@ export interface Options {
   dashboard: string
 }
 
+// quotaShare bounds how long a claim's answer waits for the quota after the claim is done, so a
+// quota-axi that hangs on its provider delays the answer by no more than this.
+const quotaShare = 2000
+
+// within answers what p resolves to, or undefined once ms have passed without it.
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms)
+    timer.unref()
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+
 export function serve(o: Options): Server {
   mkdirSync(o.stateDir, { recursive: true })
   const log = (event: Record<string, unknown>) =>
     appendFileSync(join(o.stateDir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n')
+
+  // announce sends the notification of a process that turned blocked, ready or failed, unless the
+  // configuration switches notifications off. It reads the file each time, as the list does, and a
+  // notification that cannot be sent changes nothing of the process.
+  const announce: Announce = (r) => {
+    try {
+      const c = readConfig(o.configPath)
+      // An event log that cannot be written is told and still leaves the notification to be sent.
+      try {
+        log({ event: 'turned', process: r.id, state: r.state, notified: c.notifications })
+      } catch (err) {
+        process.stderr.write(`warning: ${r.id}: the turn to ${r.state} was not logged: ${(err as Error).message}\n`)
+      }
+      if (!c.notifications) return
+      void notify(c.notifier, { title: `${basename(r.project)} #${r.issue} ${r.state}`, body: r.note })
+    } catch (err) {
+      process.stderr.write(`warning: ${r.id}: no notification of ${r.state} was sent: ${(err as Error).message}\n`)
+    }
+  }
+
+  // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
+  // Like readQuota it never rejects: a file that cannot be read makes every runtime unknown.
+  const quota = async (): Promise<Quota> => {
+    try {
+      const c = readConfig(o.configPath)
+      return await readQuota(c.quota_axi, c.quota_minimum)
+    } catch (err) {
+      const reason = `the configuration cannot be read: ${(err as Error).message}`
+      return { minimum: defaults.quota_minimum, runtimes: runtimes.map((runtime) => ({ runtime, known: false, reason, below: false })) }
+    }
+  }
 
   // The list reads the file as add and remove do, so a project added or removed by hand shows at once.
   const list = (): Promise<Listed[]> =>
@@ -73,18 +120,23 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const request = claimRequest(body)
     const project = await known(body)
+    // The quota is read beside the claim and never holds it: the session starts once the claim is
+    // done, and the answer waits for the reading no longer than the quota's share allows. Below the
+    // minimum the claim goes on and its answer says so.
+    const reading = quota()
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.
-    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir })
-    send(res, 201, { ...done, record })
+    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir, announce })
+    const q = await within(reading, quotaShare)
+    send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
   }
 
   async function abandoned(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue, force } = abandonRequest(body)
     const project = await known(body)
-    const done = await abandon(project, o.stateDir, issue, force)
+    const done = await abandon(project, o.stateDir, issue, force, announce)
     log({ event: 'abandoned', project: project.path, issue, branch: done.branch, force })
     send(res, 200, done)
   }
@@ -96,7 +148,7 @@ export function serve(o: Options): Server {
     const { issue } = abandonRequest(body)
     const project = await known(body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const record = implement(await resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir })
+    const record = implement(await resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir, announce })
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }
@@ -109,6 +161,14 @@ export function serve(o: Options): Server {
     const record = await adopt(project, o.stateDir, issue, branch)
     log({ event: 'adopted', project: project.path, issue, branch: record.branch })
     send(res, 201, { record })
+  }
+
+  // A process page that is opened marks its process seen, which clears its badge.
+  async function opened(req: IncomingMessage, res: ServerResponse) {
+    const id = ((await readJSON(req)) ?? {}).id
+    if (typeof id !== 'string') return send(res, 400, { error: 'id is not the id of a process; send the id the board names' })
+    if (!seen(o.stateDir, id)) return send(res, 404, { error: `${id} is not a process of this machine` })
+    send(res, 200, { id })
   }
 
   async function add(req: IncomingMessage, res: ServerResponse) {
@@ -176,6 +236,10 @@ export function serve(o: Options): Server {
           return resumed(req, res)
         case 'POST /api/processes/adopt':
           return adopted(req, res)
+        case 'POST /api/processes/seen':
+          return opened(req, res)
+        case 'GET /api/quota':
+          return send(res, 200, await quota())
         default:
           if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })

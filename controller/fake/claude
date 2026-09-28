@@ -9,6 +9,8 @@
 #       blocked <message>        the session reports blocked with the message as its question
 #       silent                   the session ends without a result
 #       broken <message>         the runtime cannot start: it prints the message on stderr and exits 1
+#       litter <file>            the session runs until its input closes, then writes <file> in its
+#                                directory and leaves it uncommitted, as a session stopped mid-change does
 #       (none)                   the session runs until its input closes, as a long session does
 #   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
@@ -72,3 +74,6 @@ while IFS= read -r line; do
       esac ;;
   esac
 done
+
+# A littering session leaves a change behind as it is stopped.
+if [ "$word" = litter ]; then printf 'unfinished\n' > "$message"; fi

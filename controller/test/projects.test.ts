@@ -62,7 +62,7 @@ test('adding a project through the CLI and the API writes its path alone into th
     body: { path: b, owner: 'owner', name: 'b', base: 'trunk' },
   })
 
-  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 12, notifications: true, projects: [a, b] })
+  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 12, notifications: true, notifier: '', projects: [a, b] })
   expect(snapshot(m.state)).toEqual(state)
   expect(snapshot(join(m.root, 'src'))).toEqual(sources)
   expect(readdirSync(join(m.root, 'config', 'workflows'))).toEqual(['config.json'])
@@ -124,11 +124,11 @@ test('adding and removing a project keeps a change made to the configuration by 
   const b = checkout(m, 'b', { origin: 'https://github.com/owner/b.git', originHead: 'main' })
   writeFileSync(m.config, JSON.stringify({ listen: m.listen, quota_minimum: 30, notifications: false }, null, 2) + '\n')
   expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
-  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 30, notifications: false, projects: [a] })
+  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 30, notifications: false, notifier: '', projects: [a] })
   const edited = JSON.parse(read(m.config)) as Record<string, unknown>
   writeFileSync(m.config, JSON.stringify({ ...edited, quota_minimum: 40, projects: [a, b] }, null, 2) + '\n')
   expect((await api(m, 'DELETE', '/api/projects', { path: a })).status).toBe(200)
-  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 40, notifications: false, projects: [b] })
+  expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 40, notifications: false, notifier: '', projects: [b] })
 })
 
 test('adding and removing a project keeps a private configuration private', async () => {
