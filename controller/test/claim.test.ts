@@ -96,7 +96,7 @@ const refusals: { name: string; arrange: () => void; reason: RegExp }[] = [
       can(150, 'Loose idea', ['ready-for-agent'])
       branches(['main', 'fix/150-loose-idea-seen-elsewhere'])
       // What this checkout fetched of that branch: one commit past main.
-      const tip = git(dir, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'remote work')
+      const tip = git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'remote work')
       git(dir, 'update-ref', 'refs/remotes/origin/fix/150-loose-idea-seen-elsewhere', tip)
     },
     reason: /#150 is claimed on origin already: the branch fix\/150-loose-idea-seen-elsewhere exists there/,
