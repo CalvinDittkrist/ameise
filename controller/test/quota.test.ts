@@ -25,10 +25,21 @@ function configure(fields: Record<string, unknown>) {
   writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), ...fields }, null, 2) + '\n')
 }
 
+interface Report {
+  schemaVersion: number
+  providers: {
+    provider: string
+    state: { stale: boolean; error: string }
+    windows: { id: string; resetsAt: string }[]
+    quotaSemantics: { effectiveAvailability: { scope: string; status: string; effectivePercentRemaining: number | null; limitingWindowIds: string[] }[] }
+  }[]
+}
+
 // quotaAxi installs a scripted quota-axi that answers the report of Claude with the percentage left and
-// the reset of its session window, and writes down what it was called with.
-function quotaAxi(remaining: number, reset: string): string {
-  const report = {
+// the reset of its session window, and writes down what it was called with. change alters the report
+// before it is written, so a case can break one part of it.
+function quotaAxi(remaining: number, reset: string, change: (report: Report) => void = () => undefined): string {
+  const report: Report = {
     schemaVersion: 5,
     providers: [
       {
@@ -47,6 +58,7 @@ function quotaAxi(remaining: number, reset: string): string {
       },
     ],
   }
+  change(report)
   const file = join(m.root, 'quota.json')
   writeFileSync(file, JSON.stringify(report))
   const path = join(m.root, 'quota-axi')
@@ -85,6 +97,23 @@ test.each([
   ['no quota_axi is configured', (): [string, string] => ['', 'no quota_axi is configured']],
   ['a quota_axi that is not installed', (): [string, string] => [join(m.root, 'missing'), `${join(m.root, 'missing')} is not installed`]],
   ['a quota_axi that fails', (): [string, string] => (script(join(m.root, 'failing'), 'echo "no credential" >&2; exit 3'), [join(m.root, 'failing'), 'no credential'])],
+  ['a stale reading', (): [string, string] => [quotaAxi(40, '2026-09-28T14:30:00Z', (r) => (r.providers[0]!.state.stale = true)), 'reading of claude is stale']],
+  [
+    'a report without the all_models scope',
+    (): [string, string] => [
+      quotaAxi(40, '2026-09-28T14:30:00Z', (r) => {
+        const p = r.providers[0]!
+        p.state.error = 'rate limited'
+        p.quotaSemantics.effectiveAvailability = p.quotaSemantics.effectiveAvailability.filter((x) => x.scope !== 'all_models')
+      }),
+      'no all_models scope for claude: rate limited',
+    ],
+  ],
+  [
+    'an all_models scope of unknown status',
+    (): [string, string] => [quotaAxi(40, '2026-09-28T14:30:00Z', (r) => (r.providers[0]!.quotaSemantics.effectiveAvailability[0]!.status = 'unknown')), 'does not know how much of claude is left'],
+  ],
+  ['a report that is not JSON', (): [string, string] => (script(join(m.root, 'garbled'), 'echo "Claude: 40% left"'), [join(m.root, 'garbled'), 'not its JSON report'])],
   ['a report of another schema', (): [string, string] => (script(join(m.root, 'old'), 'echo \'{"schemaVersion": 4}\''), [join(m.root, 'old'), 'schema version 4'])],
 ])('with %s the quota is unknown with the reason and a claim goes through without a warning', async (_, install) => {
   const [command, reason] = install()
