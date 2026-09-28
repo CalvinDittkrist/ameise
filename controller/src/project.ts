@@ -41,9 +41,9 @@ function redacted(origin: string): string {
     const url = new URL(origin)
     if (url.host) return `${url.protocol}//${url.host}${url.pathname}`
   } catch {
-    // no URL: an scp-like address such as user@host:path
+    // no URL: an scp-like address such as user@host:path, or a malformed one such as https://user:token@bad host/path
   }
-  return origin.replace(/^[^/]*@/, '').replace(/[?#].*$/, '')
+  return origin.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)?[^/]*@/, '$1').replace(/[?#].*$/, '')
 }
 
 // derive reads the facts of the checkout at path. A path that is no checkout, or whose origin is

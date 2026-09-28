@@ -106,6 +106,10 @@ test('a checkout whose origin is not on GitHub, or that has none, is refused by 
   const cleaned = `the origin of ${query} is https://gitlab.com/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository`
   expect(cli(m, ['projects', 'add', query]).stderr).toBe(`error: ${cleaned}\n`)
   expect(await api(m, 'POST', '/api/projects', { path: query })).toEqual({ status: 400, body: { error: cleaned } })
+  const malformed = checkout(m, 'malformed', { origin: 'https://alice:secret@bad host/owner/repo.git' })
+  const hidden = `the origin of ${malformed} is https://bad host/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository`
+  expect(cli(m, ['projects', 'add', malformed]).stderr).toBe(`error: ${hidden}\n`)
+  expect(await api(m, 'POST', '/api/projects', { path: malformed })).toEqual({ status: 400, body: { error: hidden } })
   expect(read(m.config)).toBe(before)
 })
 
