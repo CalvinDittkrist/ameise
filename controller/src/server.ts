@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { abandon, claim, claimRequest, projectPath } from './claim.js'
+import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -77,12 +77,10 @@ export function serve(o: Options): Server {
 
   async function abandoned(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
-    const issue = body.issue
-    if (typeof issue !== 'number' || !Number.isInteger(issue) || issue < 1) throw new Refusal('issue is not an issue number; send it as a whole number, such as 42')
-    if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
+    const { issue, force } = abandonRequest(body)
     const project = await known(body)
-    const done = await abandon(project, o.stateDir, issue, body.force === true)
-    log({ event: 'abandoned', project: project.path, issue, branch: done.branch, force: body.force === true })
+    const done = await abandon(project, o.stateDir, issue, force)
+    log({ event: 'abandoned', project: project.path, issue, branch: done.branch, force })
     send(res, 200, done)
   }
 

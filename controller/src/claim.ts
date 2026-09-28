@@ -3,10 +3,10 @@
 // writes the process record and its event log; no session starts yet. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
-import { issueOf, kindOf, labels, pages, type GitHubIssue } from './board.js'
+import { ghApi, issueOf, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
 import { type Project, Refusal } from './project.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
@@ -77,8 +77,6 @@ export function branchType(names: string[]): string {
 // branchName is the branch a claim of the issue creates: <type>/<number>-<slug>.
 export const branchName = (number: number, title: string, names: string[]) => `${branchType(names)}/${number}-${slug(title)}`
 
-const labelNames = (i: GitHubIssue) => (i.labels ?? []).map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
-
 // A process record, as the state directory holds it in processes/<id>.json.
 export interface WorkRecord {
   id: string
@@ -104,52 +102,30 @@ export interface ClaimRequest {
   force: boolean
 }
 
-// claimRequest reads the body of a claim, or refuses it with the reason before anything is created.
-export function claimRequest(body: Record<string, unknown>): ClaimRequest {
+// target reads the issue and force of a claim's or an abandon's body, or refuses them with the reason.
+function target(body: Record<string, unknown>): { issue: number; force: boolean } {
   const issue = body.issue
   if (typeof issue !== 'number' || !Number.isInteger(issue) || issue < 1) throw new Refusal('issue is not an issue number; send it as a whole number, such as 42')
+  if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
+  return { issue, force: body.force === true }
+}
+
+// claimRequest reads the body of a claim, or refuses it with the reason before anything is created.
+export function claimRequest(body: Record<string, unknown>): ClaimRequest {
+  const { issue, force } = target(body)
   const mode = body.mode ?? 'manual'
   if (!modes.includes(mode as Mode)) throw new Refusal(`mode ${JSON.stringify(mode)} is neither manual nor yolo`)
-  if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
-  return { issue, mode: mode as Mode, env: overrides(body.env), force: body.force === true }
+  return { issue, mode: mode as Mode, env: overrides(body.env), force }
 }
 
-interface Worktree {
-  path: string
-  branch: string
-}
-
-async function worktrees(top: string): Promise<Worktree[]> {
-  const out: Worktree[] = []
-  let path = ''
-  for (const line of (await run('git', ['-C', top, 'worktree', 'list', '--porcelain'])).split('\n')) {
-    if (line.startsWith('worktree ')) path = line.slice('worktree '.length)
-    else if (line.startsWith('branch refs/heads/') && path !== top) out.push({ path, branch: line.slice('branch refs/heads/'.length) })
-  }
-  return out
-}
+// abandonRequest reads the body of an abandon, or refuses it with the reason before anything is removed.
+export const abandonRequest = (body: Record<string, unknown>): { issue: number; force: boolean } => target(body)
 
 const recordsDir = (stateDir: string) => join(stateDir, 'processes')
 
-// recordsOf are the work records of a project's issue, each with the name of its file.
-function recordsOf(stateDir: string, project: string, issue: number): { file: string; record: Partial<WorkRecord> }[] {
-  const dir = recordsDir(stateDir)
-  let names: string[]
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith('.json'))
-  } catch {
-    return []
-  }
-  const out: { file: string; record: Partial<WorkRecord> }[] = []
-  for (const name of names.sort()) {
-    try {
-      const r = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Partial<WorkRecord>
-      if (r && r.project === project && typeof r.branch === 'string' && (r.issue ?? issueOf(r.branch)) === issue) out.push({ file: join(dir, name), record: r })
-    } catch {
-      // a record that cannot be read is skipped, as the board skips it
-    }
-  }
-  return out
+// recordsOf are the records of a project's issue, each with the path of its file, as the board reads them.
+function recordsOf(stateDir: string, project: string, issue: number) {
+  return recordFiles(stateDir, project).filter(({ record: r }) => (r.issue ?? issueOf(r.branch)) === issue)
 }
 
 // A work branch of the issue: a branch of the contract that is no plan and no spec branch.
@@ -227,10 +203,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
   const recorded = recordsOf(stateDir, top, n)[0]
   if (recorded) throw new Refusal(`#${n} has a process already on ${recorded.record.branch}; abandon it first`, 409)
 
-  const api = async <T>(endpoint: string, paginate = false): Promise<T> => {
-    const out = await run(gh, ['api', ...(paginate ? ['--paginate'] : []), `repos/${repo}/${endpoint}`])
-    return (paginate ? pages(out) : JSON.parse(out)) as T
-  }
+  const api = ghApi(gh, repo)
   let issue: { number: number; title: string; state: string; labels: { name: string }[] }
   try {
     issue = JSON.parse(await run(gh, ['issue', 'view', String(n), '--repo', repo, '--json', 'number,title,state,labels'])) as typeof issue
