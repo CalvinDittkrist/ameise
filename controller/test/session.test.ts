@@ -37,8 +37,8 @@ interface Record {
   session_id?: string
 }
 
-const claim = async (): Promise<Record> => {
-  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode: 'yolo', env: ['WF_REVIEWERS=2'] })
+const claim = async (mode: 'manual' | 'yolo' = 'manual'): Promise<Record> => {
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode, env: ['WF_REVIEWERS=2'] })
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   return (r.body as { record: Record }).record
 }
@@ -90,7 +90,7 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(flag('--permission-mode')).toBe('auto')
   expect(args).toContain('--setting-sources=user,project,local')
   const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown }
-  expect(settings.env).toMatchObject({ WF_MODE: 'yolo', WF_ISSUE: '144', WF_BASE_BRANCH: 'main', WF_REVIEWERS: '2', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' })
+  expect(settings.env).toMatchObject({ WF_MODE: 'manual', WF_ISSUE: '144', WF_BASE_BRANCH: 'main', WF_REVIEWERS: '2', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' })
   expect(settings.autoCompactWindow).toBe(312500)
   // No status line: the worker's checkpoint answers unavailable and no handoff is attempted.
   expect(settings.statusLine).toBeUndefined()
@@ -102,6 +102,17 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(env).toContain('HOME')
 
   expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'implement', note: 'Pull request #7 is green and waits for your merge', needs: true, action: 'Merge' }])
+})
+
+test('a yolo session that reports ready has merged, so its process is done and its record goes', async () => {
+  play(m, 'ready Merged pull request #7')
+  const r = await claim('yolo')
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  for (let i = 0; i < 200 && existsSync(file); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(existsSync(file)).toBe(false)
+  expect(existsSync(join(m.state, 'processes', `${r.id}.events.jsonl`))).toBe(false)
+  const { args } = started()
+  expect((JSON.parse(args[args.indexOf('--settings') + 1] ?? '{}') as { env: { [k: string]: string } }).env.WF_MODE).toBe('yolo')
 })
 
 test('the brief names the issue, the branch, the base and the read of the issue, and carries no text of it', async () => {
@@ -160,15 +171,15 @@ test('a runtime that cannot start ends the process failed with the reason', asyn
   expect(events(r.id).at(-1)).toMatchObject({ event: 'session-end', state: 'failed' })
 })
 
-test('an abandon stops the running session, which writes nothing after it', async () => {
+test('an abandon stops the running session and waits for its runtime to exit before it removes the worktree', async () => {
   // Without a play the session runs until it is stopped.
   const r = await claim()
   for (let i = 0; i < 100 && !recordOf(r.id).session_id; i++) await new Promise((done) => setTimeout(done, 50))
   const sessionId = recordOf(r.id).session_id ?? ''
   expect(sessionId).toMatch(/^fake-session-\d+$/)
-  const a = await api(m, 'DELETE', '/api/processes', { project: dir, issue: 144, force: true })
+  // A clean worktree needs no force: the abandon stops the session and checks the worktree again.
+  const a = await api(m, 'DELETE', '/api/processes', { project: dir, issue: 144 })
   expect(a.status, JSON.stringify(a.body)).toBe(200)
-  await new Promise((done) => setTimeout(done, 300))
   expect(existsSync(join(m.state, 'processes', `${r.id}.json`))).toBe(false)
   expect(existsSync(join(m.state, 'processes', `${r.id}.events.jsonl`))).toBe(false)
   expect(readFileSync(m.claudeLog, 'utf8')).toContain('"type":"user"')
@@ -182,6 +193,6 @@ test('an abandon stops the running session, which writes nothing after it', asyn
       return false
     }
   }
-  for (let i = 0; i < 100 && alive(); i++) await new Promise((done) => setTimeout(done, 50))
+  // The abandon answered only once the session's runtime had exited.
   expect(alive()).toBe(false)
 })

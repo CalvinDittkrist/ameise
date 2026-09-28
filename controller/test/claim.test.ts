@@ -125,6 +125,8 @@ for (const r of refusals) {
       // Force adopts the branch on origin: the worktree goes on from its work.
       expect(c.record.branch).toBe('fix/150-loose-idea-seen-elsewhere')
       expect(git(c.record.worktree, 'log', '-1', '--format=%s')).toBe('remote work')
+      // The adopted branch is where the worktree starts; it still merges into the project's base.
+      expect(c.record).toMatchObject({ base: 'origin/main', start: 'origin/fix/150-loose-idea-seen-elsewhere' })
     }
   })
 }

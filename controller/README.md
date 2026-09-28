@@ -18,7 +18,7 @@
 The start stops with one `error:` line that names the fix when:
 - the configuration is malformed,
 - `gh` is missing or not logged in,
-- `claude` is missing.
+- `claude` is missing, outside fake mode, which runs on the scripted `fake/claude` it ships.
 
 ## Configuration
 One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/workflows/config.json`. Without it the defaults hold.
@@ -80,13 +80,13 @@ A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
 2. creates it from `origin/<base>` and its worktree in `.claude/worktrees/` of the checkout, which git ignores through `.git/info/exclude`,
 3. assigns the issue to the user gh is logged in as, and undoes the two when GitHub refuses,
-4. writes the process record `processes/<id>.json` with the mode and the overrides, in the state `created`,
+4. writes the process record `processes/<id>.json` with the mode and the overrides, in the state `created`: its `base` is the ref the branch merges into, its `start` the ref the worktree started from, which a forced claim that adopts a branch on origin sets to that branch,
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
 In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 
-An abandon stops the process's session, then removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced.
+An abandon stops the process's session and waits for its runtime to exit, then removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced. It checks before the stop and again after it, so work the session wrote until it stopped is refused too; a refusal after the stop ends the process `failed`.
 
 ## Implement session
 A claimed process runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
@@ -101,6 +101,8 @@ The session has no status line, so the worker's checkpoint answers unavailable a
 
 - The stream goes into the event log, each message as a `stream` event, and the session id into the record as `session_id`.
 - The session reports through a structured result: `ready` or `blocked`, each with a message that becomes the note.
+- A `yolo` session that reports `ready` has merged its pull request, and the worker removes its worktree, so its record and event log go with it.
+- A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
 
 In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
