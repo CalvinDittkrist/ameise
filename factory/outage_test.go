@@ -34,9 +34,10 @@ func TestARunBlockedOnAnOutageOfThePermissionCheckIsResumedOnceByItself(t *testi
 			gh.workerMeetsOutage(t, c.outages)
 			gh.workerReportsBlocked(t, "Bash failed on every call: the auto-mode safety check returned no verdict")
 
+			// The poll is far longer than the outage wait: the factory wakes for the resume, not for a poll.
 			data := filepath.Join(t.TempDir(), "data")
 			gh.cloneInto(t, data, "acme/edge-sensors")
-			f := gh.work(t, config{"poll": "50ms", "deadline": "90s", "outage_wait": wait.String(), "data_dir": data,
+			f := gh.work(t, config{"poll": "1h", "deadline": "90s", "outage_wait": wait.String(), "data_dir": data,
 				"repositories": []string{"acme/edge-sensors"}, "notify": maintainers})
 
 			first := f.ended(t, 1)

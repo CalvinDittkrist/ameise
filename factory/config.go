@@ -295,7 +295,7 @@ func Load(path string) (Settings, error) {
 	if c.OutageWait != "" {
 		d, err := time.ParseDuration(c.OutageWait)
 		if err != nil || d < 0 {
-			return bad("outage_wait %q is not a duration; write it as \"15m\", or \"0s\" to resume at the next poll", c.OutageWait)
+			return bad("outage_wait %q is not a duration; write it as \"15m\", or \"0s\" to resume at once", c.OutageWait)
 		}
 		s.OutageWait = d
 	}

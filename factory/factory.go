@@ -156,6 +156,9 @@ type Factory struct {
 	// quotaUntil is the reset the factory waits for when the quota check found too little left, and
 	// empty while it does not wait (quota.go).
 	quotaUntil *time.Time
+	// outageUntil is when the outage resume the line waits for may start, and nil while the line
+	// waits for none (dispatch). Work wakes for it, since outage_wait may be shorter than a poll.
+	outageUntil *time.Time
 	// delivered is the runs whose ending this process has taken on to notify (deliver), so an unpause
 	// and the run that ends in the same moment cannot both make the call.
 	delivered map[int]bool
@@ -319,12 +322,21 @@ func (f *Factory) Work(ctx context.Context) {
 		f.letSpecsGo(ctx, read.letGoSpecs)
 		f.waitForPeople(ctx)
 		f.refreshReviews(ctx)
+		f.mu.Lock()
+		f.outageUntil = nil
+		f.mu.Unlock()
 		f.dispatch(ctx)
 		// A factory that waits for quota checks again once the reset has passed, not at the first poll
-		// after it.
+		// after it, and starts an outage resume once its wait has passed.
 		next := f.settings.Poll
 		if until, ahead := f.waitingForQuota(time.Now()); ahead && time.Until(until) < next {
 			next = time.Until(until)
+		}
+		f.mu.Lock()
+		outage := f.outageUntil
+		f.mu.Unlock()
+		if outage != nil && time.Until(*outage) < next {
+			next = time.Until(*outage)
 		}
 		select {
 		case <-ctx.Done():
@@ -681,6 +693,9 @@ func (f *Factory) dispatch(ctx context.Context) {
 		// An outage of the permission check is not the issue's: the next issue would meet it too, and
 		// block on it in minutes. So the whole line waits for it, as it does for a used-up quota.
 		if entry.NotBefore != nil && time.Now().Before(*entry.NotBefore) {
+			f.mu.Lock()
+			f.outageUntil = entry.NotBefore
+			f.mu.Unlock()
 			return
 		}
 		allowed, warning := f.quotaAllows(ctx, entry)

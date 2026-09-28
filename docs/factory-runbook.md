@@ -222,7 +222,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `label` | `factory` | The routing label that puts an issue in the line. |
 | `deadline` | `120m` | How long one run may take, as a Go duration (`90m`, `2h30m`); a run past it is ended with its process group. |
 | `poll` | `60s` | How often GitHub is asked for the line, as a Go duration. |
-| `outage_wait` | `15m` | How long a run that ended on an outage of the permission check waits before the factory resumes it, as a Go duration; `0s` resumes it at the next poll ([Outages of the permission check](#outages-of-the-permission-check)). |
+| `outage_wait` | `15m` | How long a run that ended on an outage of the permission check waits before the factory resumes it, as a Go duration; `0s` resumes it at once ([Outages of the permission check](#outages-of-the-permission-check)). |
 | `data_dir` | none, required | Where the clones, the run records and the locks live ([The data directory](#the-data-directory)). |
 | `worker_args` | `[]` | Arguments added to the worker's `claude` command line, such as `["--model", "opus"]`. See the rules below the table. |
 | `ci` | see below | The knobs of the ci stage ([The ci stage](#the-ci-stage)). |
