@@ -1234,6 +1234,10 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	defer f.runs.update(r, func() { r.ungrouped(pid) })
 	started := Event{Kind: "factory", Title: "worker started",
 		Body: fmt.Sprintf("runtime %s, model %s\n%v", sessioned.Runtime, sessioned.Model, cmd.Args)}
+	if codex {
+		// A Codex session takes its prompt on stdin, where the call names it -; the record shows it after the call.
+		started.Body += "\nprompt on stdin:\n" + s.prompt
+	}
 	if label != "" {
 		started.Title = label + ": " + started.Title
 	}
