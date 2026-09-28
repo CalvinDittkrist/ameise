@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
-import { api, cleanup, cli, freePort, machine, read, start } from './controller.js'
+import { api, cleanup, cli, freePort, machine, read, script, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -37,10 +37,19 @@ test('a missing gh login stops the start with one line that says to log in', asy
 test('a missing claude stops the start with one line that says how to install it', async () => {
   const m = await machine()
   rmSync(join(m.bin, 'claude'))
-  const s = await start(m)
+  // Out of fake mode the controller asks the gh on its PATH, which is logged in here.
+  script(join(m.bin, 'gh'), 'exit 0')
+  const s = await start(m, [])
   expect(s.running).toBe(false)
   expect(s.code).not.toBe(0)
   expect(s.stderr).toBe('error: claude is not installed; npm install -g @anthropic-ai/claude-code\n')
+})
+
+test('fake mode starts without a claude on the machine, on the scripted claude it ships', async () => {
+  const m = await machine()
+  rmSync(join(m.bin, 'claude'))
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
 })
 
 test.each([
