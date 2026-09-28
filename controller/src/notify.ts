@@ -3,9 +3,6 @@
 // notification that cannot be sent is told on the controller's stderr and changes nothing else.
 import { execFile } from 'node:child_process'
 
-// The states a notification is sent on: each waits for a person.
-export const notified = ['blocked', 'ready', 'failed'] as const
-
 // A notice is what a notification says: the title names the process, the body its state and note.
 export interface Notice {
   title: string
@@ -18,7 +15,8 @@ function native(n: Notice): [string, string[]] | undefined {
     // The texts go in as arguments, so no quote in a note reaches the script.
     return ['osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', n.title, n.body]]
   }
-  if (process.platform === 'linux') return ['notify-send', [n.title, n.body]]
+  // The -- ends the options, so a note that starts with a dash is shown and never read as one.
+  if (process.platform === 'linux') return ['notify-send', ['--', n.title, n.body]]
   return undefined
 }
 

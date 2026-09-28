@@ -97,6 +97,19 @@ test('a notifier that fails leaves the process as it ended and says so on stderr
   expect(stderr).toMatch(/^warning: the notification "repo #144 ready" was not sent: .*notifier: no display$/m)
 })
 
+test('with no notifier configured the platform notifier shows the note, even one that starts with a dash', async () => {
+  // Scripted stand-ins for the platform notifiers write down each argument they are given, one a line.
+  for (const tool of ['notify-send', 'osascript']) script(join(m.bin, tool), `for a in "$@"; do printf '%s\\n' "$a"; done >> '${sent}'`)
+  writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), notifier: '' }, null, 2) + '\n')
+  play(m, 'blocked --urgency=critical')
+  expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
+  expect(await settled(1)).toMatchObject({ state: 'blocked', unseen: true })
+  const script_ = ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run']
+  const args = process.platform === 'darwin' ? [...script_, 'repo #144 blocked', '--urgency=critical'] : ['--', 'repo #144 blocked', '--urgency=critical']
+  for (let i = 0; i < 100 && notifications().length < args.length; i++) await new Promise((done) => setTimeout(done, 50))
+  expect(notifications()).toEqual(args)
+})
+
 test('seen refuses an id that is no process', async () => {
   expect(await api(m, 'POST', '/api/processes/seen', { id: 'work-1-deadbeef' })).toEqual({ status: 404, body: { error: 'work-1-deadbeef is not a process of this machine' } })
   expect((await api(m, 'POST', '/api/processes/seen', { id: '../config' })).status).toBe(400)
