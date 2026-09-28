@@ -75,7 +75,8 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 - a ticket of a spec run without `ready-for-human`: it carries `factory:spec-run`, or its parent does,
 - an issue whose branch is on origin already, which another claimer created,
 - an issue that has a process on this machine already: a worktree of its branch or a process record.
-  - The answer names the process and carries it as `process`: `{id, branch, worktree, state}`, with `id` null and `state` `foreign` for a worktree without a record.
+  - The answer names the process and carries it as `process`: `{id, branch, worktree, state}`.
+  - For a worktree without a record, `id` is null and `state` is `foreign`.
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 

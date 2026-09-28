@@ -97,7 +97,7 @@ export async function stopAll(stateDir: string) {
 
 // recover reads the records as the controller starts, when no session of its own runs yet. A work
 // process whose record says its session runs, or is about to, lost it when the controller last stopped
-// without stopping it, so it is marked interrupted. Every other record stays as it was.
+// without stopping it. Such a process is marked interrupted. Every other record stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
   try {
