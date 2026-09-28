@@ -137,3 +137,25 @@ test('a quota_axi that hangs holds neither the claim nor its session', async () 
   expect(Date.now() - began).toBeLessThan(10000)
   expect(r.body).toMatchObject({ record: { state: 'running', stage: 'implement' }, quota: [] })
 })
+
+test('a quota_axi whose children outlive its deadline is killed with them and the quota answers unknown', async () => {
+  // The check leaves a child behind that ignores the signal to stop and holds the check's output open.
+  const pid = join(m.root, 'child.pid')
+  script(join(m.root, 'stubborn'), `trap '' TERM\n/bin/sleep 120 &\necho $! > '${pid}'\nwait`)
+  configure({ quota_axi: join(m.root, 'stubborn') })
+  const began = Date.now()
+  const q = (await quota()) as { runtimes: { known: boolean; reason: string }[] }
+  expect(Date.now() - began).toBeLessThan(40000)
+  expect(q.runtimes).toEqual([expect.objectContaining({ known: false, reason: expect.stringMatching(/gave no reading within 30 seconds/) })])
+  const child = Number(read(pid).trim())
+  let alive = true
+  for (let i = 0; i < 40 && alive; i++) {
+    try {
+      process.kill(child, 0)
+      await new Promise((done) => setTimeout(done, 50))
+    } catch {
+      alive = false
+    }
+  }
+  expect(alive).toBe(false)
+}, 60000)

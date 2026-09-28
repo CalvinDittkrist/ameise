@@ -2,7 +2,7 @@
 // work process spends the runtimes named below, and the board shows each with its reset, marked when it
 // is below the configured minimum. The quota informs a claim and never holds one: a reading that cannot
 // be had is unknown, and a claim below the minimum goes on with a warning.
-import { execFile } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 
 // runtimes are the runtimes a work process spends, as quota-axi names its providers. The implement
 // session runs on Claude Code, and the worker's pipeline runs inside that session.
@@ -13,6 +13,9 @@ const schema = 5
 
 // timeout bounds one reading, so a quota-axi that hangs on its provider holds no answer for longer.
 const timeout = 30000
+
+// maxBuffer bounds the report quota-axi may print.
+const maxBuffer = 4 * 1024 * 1024
 
 // A reading of one runtime: known with the percentage left of its all-models scope and the latest
 // reset of the windows that limit it, or unknown with the reason.
@@ -61,19 +64,57 @@ export function parse(raw: string, runtime: string): { remaining: number; reset:
 }
 
 // readOne runs quota-axi for one runtime and answers its reading. It never throws: whatever keeps the
-// number from being read is the reason of an unknown reading.
+// number from being read is the reason of an unknown reading. The check runs in a process group of its
+// own, and at the deadline the whole group is killed and the reading answered at once, so neither a
+// quota-axi that ignores its signal nor a child of it that holds its output keeps the answer waiting.
 function readOne(command: string, runtime: string, minimum: number): Promise<Reading> {
   return new Promise((resolve) => {
-    execFile(command, ['--provider', runtime, '--json'], { encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        const why = (err as NodeJS.ErrnoException).code === 'ENOENT' ? `${command} is not installed` : `${command} failed: ${(stderr || err.message).trim()}`
-        return resolve({ runtime, known: false, reason: why, below: false })
+    let settled = false
+    const done = (r: Reading) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(r)
+    }
+    const unknown = (reason: string) => done({ runtime, known: false, reason, below: false })
+    let child: ChildProcess
+    try {
+      child = spawn(command, ['--provider', runtime, '--json'], { detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      return resolve({ runtime, known: false, reason: `${command} failed: ${(err as Error).message}`, below: false })
+    }
+    const kill = () => {
+      try {
+        if (process.platform !== 'win32' && child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        // The group is gone already.
       }
+    }
+    const timer = setTimeout(() => {
+      kill()
+      unknown(`${command} gave no reading within ${timeout / 1000} seconds`)
+    }, timeout)
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.setEncoding('utf8').on('data', (d: string) => {
+      stdout += d
+      if (stdout.length > maxBuffer) {
+        kill()
+        unknown(`${command} printed more than ${maxBuffer} bytes`)
+      }
+    })
+    child.stderr?.setEncoding('utf8').on('data', (d: string) => {
+      if (stderr.length < maxBuffer) stderr += d
+    })
+    child.on('error', (err: NodeJS.ErrnoException) => unknown(err.code === 'ENOENT' ? `${command} is not installed` : `${command} failed: ${err.message}`))
+    child.on('close', (code, signal) => {
+      if (code !== 0) return unknown(`${command} failed: ${(stderr || `it exited with ${signal ?? code}`).trim()}`)
       try {
         const r = parse(stdout, runtime)
-        resolve({ runtime, known: true, ...r, below: r.remaining < minimum })
+        done({ runtime, known: true, ...r, below: r.remaining < minimum })
       } catch (e) {
-        resolve({ runtime, known: false, reason: (e as Error).message, below: false })
+        unknown((e as Error).message)
       }
     })
   })
