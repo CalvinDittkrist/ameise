@@ -126,14 +126,35 @@ for (const r of refusals) {
 
 test('a claim refuses a closed issue and one GitHub does not know, force or not', async () => {
   can(160, 'Done already', ['ready-for-agent'], 'CLOSED')
-  const closed = await claim({ issue: 160, force: true })
-  expect(closed.status).toBe(409)
-  expect((closed.body as { error: string }).error).toBe('#160 of owner/repo is CLOSED, not open')
+  for (const force of [false, true]) {
+    const closed = await claim({ issue: 160, force })
+    expect(closed.status).toBe(409)
+    expect((closed.body as { error: string }).error).toBe('#160 of owner/repo is CLOSED, not open')
+  }
+  expect((await claim({ issue: 161 })).status).toBe(502)
   const unknown = await claim({ issue: 161, force: true })
   expect(unknown.status).toBe(502)
   expect((unknown.body as { error: string }).error).toMatch(/^could not read #161 of owner\/repo: /)
   nothing()
 })
+
+for (const labelled of [false, true]) {
+  test(`a claim of a ready-for-human ticket of a spec run branches from the spec branch, the ticket labelled ${labelled ? 'too' : 'or not'}`, async () => {
+    can(150, 'Loose idea', ['ready-for-agent', 'ready-for-human', ...(labelled ? ['factory:spec-run'] : [])])
+    canApi(m, 'repos/owner/repo/issues/150/parent', issue(100, 'Offline mode', ['spec', 'factory:spec-run']))
+    branches(['main', 'spec/99-other-spec', 'spec/100-offline-mode'])
+    // What this checkout fetched of the spec branch: one commit past main.
+    const tip = git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'spec work')
+    git(dir, 'update-ref', 'refs/remotes/origin/spec/100-offline-mode', tip)
+
+    const r = await claim({ issue: 150 })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    const c = r.body as Claimed
+    expect(c.warnings).toEqual([])
+    expect(c.record.base).toBe('origin/spec/100-offline-mode')
+    expect(git(c.record.worktree, 'rev-parse', 'HEAD')).toBe(tip)
+  })
+}
 
 test('a claim refuses an issue that has a process, with or without force', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
