@@ -25,9 +25,9 @@ import (
 
 // readyLabel says that an issue is ready for an agent. It is the workflow's label vocabulary
 // restated in Go, and together with the routing label it is what makes an issue the factory's; the
-// contract fixture holds the restatement and its original to one vocabulary ([ADR 0022]).
+// contract fixture holds the restatement and its original to one vocabulary ([ADR 0062]).
 //
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
+// [ADR 0062]: ../docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md
 const readyLabel = "ready-for-agent"
 
 // ghTimeout bounds one read from GitHub. A request that hangs would hold the whole line and the stop
@@ -115,9 +115,9 @@ type ghEvent struct {
 // It is the Go restatement of the rule the orchestrator's board applies to free agent-ready issues
 // (plugins/orchestrator/scripts/board.sh), which is the same rule with the routing label the other
 // way round: what the board leaves to the factory is exactly what the factory takes. The contract
-// fixture states that split over one set of issues, and each side's test holds it there ([ADR 0022]).
+// fixture states that split over one set of issues, and each side's test holds it there ([ADR 0062]).
 //
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
+// [ADR 0062]: ../docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md
 func routed(issue ghIssue, routingLabel string) bool {
 	return issue.PullRequest == nil &&
 		issue.State == "open" &&
