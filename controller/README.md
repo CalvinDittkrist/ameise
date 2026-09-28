@@ -122,9 +122,12 @@ In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUD
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
-- A permission the `auto` classifier does not settle reaches the controller through the SDK's permission callback. It becomes a `permission` event with the tool, the call and the reason, and the process turns `approval` with the request and the call as its note.
+- A permission the `auto` classifier does not settle reaches the controller through the SDK's permission callback.
+  - It becomes a `permission` event with the tool, the call and the reason.
+  - The process turns `approval`, with the request and the call as its note.
   - The session waits until it is answered: `once` allows the call, `deny` refuses it, and `process` allows it and every call like it for the rest of the process.
-  - `process` keeps the rules the runtime suggests for the call in the record's `allowed`, or the call itself when it suggests none. A later call they cover runs without a card, as an `allowed` event.
+  - `process` keeps the rules the runtime suggests for the call in the record's `allowed`, or the call itself when it suggests none.
+  - A later call they cover runs without a card, as an `allowed` event.
   - Those rules reach the session for its own lifetime and never a settings file.
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
@@ -160,8 +163,11 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings, quota}`.
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
 - `POST /api/processes/seen` with `{"id": "<id>"}`: marks the process seen, which clears its badge, and answers `200` with `{id}`. `400` refuses a malformed id, `404` an id that is no process.
-- `GET /api/processes/events?id=<id>`: the process page's stream of server-sent events. It sends `record` with the record and `compact_at`, the context size at which the session compacts. Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
-  - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from. The kinds are `text` and `tool` of the session, `you` for a message, `permission`, `question`, `answer`, `allowed` and `closed` for the requests, and `start` and `end` for each session.
+- `GET /api/processes/events?id=<id>`: the process page's stream of server-sent events.
+  - It sends `record` with the record and `compact_at`, the context size at which the session compacts.
+  - Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
+  - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from.
+  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.

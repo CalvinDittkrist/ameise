@@ -15,7 +15,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A process row shows its state as a dot, its issue and branch, its note, stage and age, and its one primary action.
 - A project's page, at `#project=<path of its checkout>`, has its actions and the sections processes and ready to start.
   - Ready for acceptance follows when a spec of the project is.
-- A process's page, at `#process=<id>`, follows the process live through `GET /api/processes/events`. Its branch on the row opens it, and so do the actions Answer, Approve, Continue and Open. Opening it clears the badge.
+- A process's page, at `#process=<id>`, follows the process live through `GET /api/processes/events`. Opening it clears the badge.
+  - Its branch on the row opens it, and so do the actions Answer, Approve, Continue and Open.
   - Its facts are the repository, the branch, the mode, the age and the context the session holds, against where it compacts. The stage pills follow.
   - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
