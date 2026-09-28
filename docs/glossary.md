@@ -82,7 +82,7 @@ Terms the code, the issues and the docs use, one row each.
 | controller | The local program `workflows`: holds the projects, their worktrees and processes, runs every session headless and serves the local dashboard. The local peer of the factory ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)). |
 | process | One worktree with its chain of sessions, of one process kind; the unit the board shows. |
 | process kind | `plan`, `work`, `hunt` or `standardize`: what a process does and the branch it works on. |
-| interrupted process | A process whose session stopped with the controller, or an adopted one with no session yet. A stopped one keeps its session id, and a resume goes on with that session in its worktree. An adopted one starts a fresh session. |
+| interrupted process | A process whose session stopped with the controller, or an adopted one with no session yet. A resume goes on with the stopped one's session in its worktree, and starts a fresh session for an adopted one. |
 | foreign worktree | A work worktree of a project that no process record names, as one the controller did not start. It is adopted into a process or removed. |
 | project | A configured checkout of a connected repository on this machine. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
 | board | The controller's central view: every project, its processes, the frontier and the specs ready for acceptance. |
