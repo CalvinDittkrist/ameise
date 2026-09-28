@@ -70,15 +70,18 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - `claude plugin validate <dir>` validates a manifest, or a skills/agents directory; run it on both (see the `validate` target in the `Makefile`).
 - Skill and agent frontmatter is checked by the runtime; unknown fields fail `--strict`.
 - Herdr commands need `HERDR_ENV=1`; the orchestrator scripts refuse outside Herdr by design.
-- The factory is the one part that is not shell: a Go module in `factory/` with no dependencies.
+- The factory is the one Go part: a module in `factory/` with no dependencies.
   - Its tests start the real binary through one helper, `factoryCommand` in `factory/process_test.go`, and watch it over HTTP and its data directory.
   - On Linux that helper has the kernel kill the binary with the test process, so a `go test` that times out or is killed leaves no factory behind.
   - `staticcheck` is pinned in the `factory` target's error line.
-- The dashboard is the one part that is neither shell nor Go ([ADR 0033](docs/adr/0033-the-dashboard-is-built-into-the-factory-binary.md)): npm in `factory/ui`.
+- The dashboard is the factory's npm part ([ADR 0033](docs/adr/0033-the-dashboard-is-built-into-the-factory-binary.md)): npm in `factory/ui`.
   - The binary embeds its build in `factory/ui/dist/app`, so the Go tests need `make ui` first.
   - `factory/ui/dist` stays in git with a placeholder, because Go refuses an embed pattern that matches nothing.
   - `factory/go.mod` ignores `./ui/node_modules`, because npm packages ship Go files of their own.
   - The browser test starts the real binary in fake mode twice, on free ports. It compares an approved screenshot per operating system (`factory/ui/tests/screenshots/dashboard-<platform>.png`).
+- The controller is TypeScript on npm in `controller/`, apart from the factory and its dashboard.
+  - Its tests start the built `dist/main.js --fake`, so `npm test` builds first through `pretest`.
+  - Its helper `controller/test/controller.ts` gives each test a machine of its own: a temporary configuration, state, PATH and scripted gh.
 - A skill's `` !`command` `` runs through the permission system.
   - Forked skills (`context: fork`) fail silently without a matching `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x.sh)` rule.
   - So every injection calls a plugin script and lists it there (tested).
