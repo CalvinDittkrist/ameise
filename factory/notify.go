@@ -51,7 +51,9 @@ const maxNotifyReason = 2000
 // ready and the three endings that wait for a person do. lost does not: another claimer owns the
 // issue and this factory touched nothing. Neither does an interruption the factory answers itself
 // (the one automatic resume), because nothing waits on the maintainer there; a second interruption
-// has spent that resume and waits, exactly as a failure does ([ADR 0026]). quota does not either: a
+// has spent that resume and waits, exactly as a failure does ([ADR 0026]). The same goes for a run
+// that ended blocked or failed on an outage of the permission check, which spends that same resume.
+// quota does not either: a
 // run the quota stopped keeps everything it holds and is queued again after the reset ([ADR 0037]).
 // Neither does cancelled: the routing label taken off the issue or the issue closed is the
 // maintainer's own decision, and they are the one who made it ([ADR 0023]).
@@ -61,9 +63,9 @@ const maxNotifyReason = 2000
 // [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
 func notifies(r Run, held holding) bool {
 	switch r.Outcome {
-	case outcomeReady, outcomeBlocked, outcomeFailed, outcomeTimeout:
+	case outcomeReady, outcomeTimeout:
 		return true
-	case outcomeInterrupted:
+	case outcomeBlocked, outcomeFailed, outcomeInterrupted:
 		return held.resumes == ""
 	default:
 		return false
@@ -144,6 +146,13 @@ func (f *Factory) owes(r Run, outcome string) bool {
 	if !f.notifying() || r.Notified != "" {
 		return false
 	}
+	ended, held := f.endingAs(r, outcome)
+	return notifies(ended, held)
+}
+
+// endingAs is a run as it will stand once it has ended with this outcome, and what the records say
+// about its issue then: whether the factory resumes it by itself is a question about that very run.
+func (f *Factory) endingAs(r Run, outcome string) (Run, holding) {
 	ended := time.Now()
 	r.State, r.Outcome, r.EndedAt = "ended", outcome, &ended
 	runs := f.runs.list()
@@ -152,7 +161,7 @@ func (f *Factory) owes(r Run, outcome string) bool {
 			runs[i] = r
 		}
 	}
-	return notifies(r, holdings(runs)[r.key()])
+	return r, holdings(runs)[r.key()]
 }
 
 // owe marks an ending that is already on the disk, which is the ending of a run this start found

@@ -1,7 +1,7 @@
 # 0026. The factory never deletes work on its own
 
 Date: 2026-09-21
-Status: accepted; amended 2026-09-23, 2026-09-25
+Status: accepted; amended 2026-09-23, 2026-09-25, 2026-09-28
 
 ## Context
 - An unattended run stops half way, unwatched.
@@ -14,6 +14,7 @@ The factory never deletes work on its own: whatever a run ends with, its branch,
 ## Consequences
 - It resumes by itself once per issue after an interruption. A second one is a failure: a comment mentions the maintainer, and the run waits.
 - `quota` does not use up that resume.
+- Amended 2026-09-28: a run that ends `blocked` or `failed` after the auto mode classifier gave no verdict (`Classifier unavailable`) resumes on that same resume, after `outage_wait`. The outage is the check's, not the issue's.
 - The release signal, removing the assignee from an issue the factory holds, queues a resumed run in its worktree.
 - Worktree and local branch go once the pull request is merged or closed, the issue closed, or the routing label removed.
 - The factory pushes a worktree's commits before removing it, and deletes a remote branch with no commit beyond its base.

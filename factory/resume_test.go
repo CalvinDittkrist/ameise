@@ -484,6 +484,11 @@ func TestTheAutomaticResumeIsOnePerIssueAndOnlyAReleaseGivesItBack(t *testing.T)
 	run := func(id int, signal, outcome string, holding bool) Run {
 		return record(id, 104, "Retry the upload", signal, outcome, holding, ended.Add(-time.Hour), ended)
 	}
+	outage := func(id int, signal, outcome string) Run {
+		r := run(id, signal, outcome, true)
+		r.Outage = true
+		return r
+	}
 	const never = ""
 	for _, c := range []struct {
 		name    string
@@ -546,6 +551,34 @@ func TestTheAutomaticResumeIsOnePerIssueAndOnlyAReleaseGivesItBack(t *testing.T)
 			run(2, signalQuota, outcomeFailed, true)}, never},
 		{"a claim that ran out of quota before it held anything", []Run{
 			run(1, signalRouted, outcomeQuota, false)}, never},
+		// A run that ended blocked or failed after the permission check gave no verdict stopped on the
+		// check, not on the issue, and is resumed on the budget an interruption spends.
+		{"a run that ended blocked on an outage", []Run{
+			outage(1, signalRouted, outcomeBlocked)}, signalOutage},
+		{"a run that failed on an outage", []Run{
+			outage(1, signalRouted, outcomeFailed)}, signalOutage},
+		{"a follow-up run that ended blocked on an outage", []Run{
+			run(1, signalRouted, outcomeReady, true),
+			outage(2, signalChangesRequested, outcomeBlocked)}, signalOutage},
+		{"an outage resume that met the outage again", []Run{
+			outage(1, signalRouted, outcomeBlocked),
+			outage(2, signalOutage, outcomeBlocked)}, never},
+		{"an outage after the automatic resume was spent on an interruption", []Run{
+			run(1, signalRouted, outcomeInterrupted, true),
+			outage(2, signalInterruption, outcomeBlocked)}, never},
+		{"an interruption after the automatic resume was spent on an outage", []Run{
+			outage(1, signalRouted, outcomeBlocked),
+			run(2, signalOutage, outcomeInterrupted, true)}, never},
+		{"an outage after a release", []Run{
+			outage(1, signalRouted, outcomeBlocked),
+			outage(2, signalOutage, outcomeBlocked),
+			outage(3, signalRelease, outcomeBlocked)}, signalOutage},
+		{"a run that saw an outage and still reached a pull request", []Run{
+			outage(1, signalRouted, outcomeReady)}, never},
+		{"a run that saw an outage and ran out of time", []Run{
+			outage(1, signalRouted, outcomeTimeout)}, never},
+		{"a claim that ended blocked on an outage before it held anything", []Run{
+			func() Run { r := outage(1, signalRouted, outcomeBlocked); r.Holding = false; return r }()}, never},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			held := holdings(c.runs)["acme/edge-sensors#104"]

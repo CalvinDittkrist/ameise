@@ -15,10 +15,14 @@ import (
 // Config is the configuration file, the whole of it. The factory is configured by this file alone:
 // nothing is read from the environment and nothing is written back.
 type Config struct {
-	Listen     string   `json:"listen"`
-	Label      string   `json:"label"`
-	Deadline   string   `json:"deadline"`
-	Poll       string   `json:"poll"`
+	Listen   string `json:"listen"`
+	Label    string `json:"label"`
+	Deadline string `json:"deadline"`
+	Poll     string `json:"poll"`
+	// OutageWait is how long a run that ended on an outage of the permission check waits before the
+	// factory resumes it (holdings): long enough for the check to come back, which it did within half
+	// an hour both times a host met it.
+	OutageWait string   `json:"outage_wait"`
 	DataDir    string   `json:"data_dir"`
 	WorkerArgs []string `json:"worker_args"`
 	// Paused is a pointer because its default is not the zero value: a file that does not name it
@@ -101,6 +105,7 @@ type Settings struct {
 	Label        string
 	Deadline     time.Duration
 	Poll         time.Duration
+	OutageWait   time.Duration
 	DataDir      string
 	WorkerArgs   []string
 	Paused       bool // as the file said when it was read; a running factory asks Factory.Paused
@@ -127,9 +132,10 @@ const (
 	defaultLabel        = "factory"
 	defaultDeadline     = 120 * time.Minute
 	defaultPoll         = 60 * time.Second
+	defaultOutageWait   = 15 * time.Minute
 	defaultQuotaMinimum = 12
 
-	configFields = "listen, label, deadline, poll, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate, validate"
+	configFields = "listen, label, deadline, poll, outage_wait, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate, validate"
 )
 
 // A repository is named as owner/name; the factory never takes a URL or a local path, because the
@@ -245,6 +251,7 @@ func Load(path string) (Settings, error) {
 		Label:        defaultLabel,
 		Deadline:     defaultDeadline,
 		Poll:         defaultPoll,
+		OutageWait:   defaultOutageWait,
 		WorkerArgs:   c.WorkerArgs,
 		Paused:       c.Paused == nil || *c.Paused,
 		AutoUpdate:   c.AutoUpdate,
@@ -285,6 +292,13 @@ func Load(path string) (Settings, error) {
 			return bad("poll %q is not a positive duration; write it as \"60s\" or \"2m\"", c.Poll)
 		}
 		s.Poll = d
+	}
+	if c.OutageWait != "" {
+		d, err := time.ParseDuration(c.OutageWait)
+		if err != nil || d < 0 {
+			return bad("outage_wait %q is not a duration; write it as \"15m\", or \"0s\" to resume at the next poll", c.OutageWait)
+		}
+		s.OutageWait = d
 	}
 	for _, arg := range c.WorkerArgs {
 		if flag := factoryOwns(arg); flag == "--plugin-dir" {

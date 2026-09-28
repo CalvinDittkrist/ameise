@@ -40,8 +40,8 @@ const (
 
 // What put a run in the line. routed is an issue taken from the queue of routed issues; the others
 // are work this factory already holds and continues in the worktree of that claim: the one
-// automatic resume after an interruption, the resume after the quota reset that a run which ran out
-// of it waits for, the run a person asked for by taking the assignee off an issue the factory holds
+// automatic resume after an interruption or after an outage of the permission check, the resume after
+// the quota reset that a run which ran out of it waits for, the run a person asked for by taking the assignee off an issue the factory holds
 // ([ADR 0026]), the run a writer's review that asks for changes on the pull request queues
 // ([ADR 0023]), and the run a bot's review that leaves an unresolved thread on it queues ([ADR 0051]).
 // The signals of an issue's runs are what the next run of it is decided from, which is why every run
@@ -53,6 +53,7 @@ const (
 const (
 	signalRouted           = "routed"
 	signalInterruption     = "interruption"
+	signalOutage           = "outage"
 	signalQuota            = "quota"
 	signalRelease          = "release"
 	signalChangesRequested = "changes-requested"
@@ -60,7 +61,7 @@ const (
 )
 
 // The kinds of run the vocabulary names (docs/glossary.md): a first run claims its issue, a resumed
-// run continues what an interruption or a release left in the worktree of that claim, and a
+// run continues what an interruption, an outage or a release left in the worktree of that claim, and a
 // follow-up run answers a review on the pull request a run of the issue opened. The kind is the
 // signal read as a word, so the two can never disagree about what a run was.
 const (
@@ -71,7 +72,7 @@ const (
 
 func kindOf(signal string) string {
 	switch signal {
-	case signalInterruption, signalQuota, signalRelease:
+	case signalInterruption, signalOutage, signalQuota, signalRelease:
 		return kindResumed
 	case signalChangesRequested, signalBotReview:
 		return kindFollowUp
@@ -112,9 +113,9 @@ type Run struct {
 	//
 	// [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 	LetGoAt *time.Time `json:"letGoAt"`
-	// Signal is what queued this run: routed, interruption, quota, release, changes-requested or
-	// bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of the
-	// run that ran out of quota, the moment the assignee came off, or the moment the review was
+	// Signal is what queued this run: routed, interruption, outage, quota, release, changes-requested
+	// or bot-review. SignalAt is when that signal happened (the routing, the interruption, the end of
+	// the run that saw the outage or ran out of quota, the moment the assignee came off, or the moment the review was
 	// submitted). It is the answer this run is: a signal of an issue is acted on once, and a signal no
 	// later than the one its records already carry has been answered already. That is what keeps the
 	// factory from resuming the same release, or answering the same review, for as long as GitHub
@@ -164,7 +165,12 @@ type Run struct {
 	Answered []string `json:"answered,omitempty"`
 	// Replied is the review threads on that pull request the run replied to and could not resolve, by
 	// their id: every later reading, of this run or a later one, resolves them and asks no session again.
-	Replied   []string   `json:"replied,omitempty"`
+	Replied []string `json:"replied,omitempty"`
+	// Outage says a session of this run was told that the permission check gave no verdict: Claude
+	// Code's auto mode classifier was unavailable, and the tool call was denied without a judgement
+	// about it. A run that saw that and ends blocked or failed stopped on the outage rather than on the
+	// issue, and the factory resumes it by itself (holdings).
+	Outage    bool       `json:"outage,omitempty"`
 	Reason    string     `json:"reason"`
 	Model     string     `json:"model"`
 	SessionID string     `json:"sessionId"`

@@ -11,8 +11,8 @@ import (
 )
 
 // Resuming work the factory already holds. Nothing here deletes anything and nothing here retries by
-// itself more than once: the factory resumes an interruption exactly once per issue, and after that
-// the issue waits for a person, whose gesture is taking the assignee off it ([ADR 0026]). The resume
+// itself more than once: the factory resumes an interruption or an outage of the permission check
+// exactly once per issue, and after that the issue waits for a person, whose gesture is taking the assignee off it ([ADR 0026]). The resume
 // after a quota reset is counted apart, once in a row, because running out of quota once says
 // nothing about the issue (quota.go).
 //
@@ -90,9 +90,10 @@ type holding struct {
 	last  Run  // the latest run of the issue
 	idle  bool // that run has ended, so another one of this issue may be queued
 	// resumes is the signal the factory resumes the issue on by itself, or empty: interruption when
-	// that run was interrupted and the one automatic resume is still there to be spent, quota when it
-	// ran out of quota, which is resumed whatever that budget says, unless that run was itself the
-	// resume after a reset.
+	// that run was interrupted and the one automatic resume is still there to be spent, outage when it
+	// ended blocked or failed after the permission check gave no verdict and that resume is still
+	// there, quota when it ran out of quota, which is resumed whatever that budget says, unless that
+	// run was itself the resume after a reset.
 	resumes string
 	// let is the latest run of the issue this factory let go, and letGo says the issue is out of its
 	// hands: the worktree and the local branch are gone, the branch may still be on the remote, and
@@ -126,9 +127,14 @@ type holding struct {
 //
 // The automatic resume is a budget of one per issue, spent by the resumed run it pays for and given
 // back by every signal that is a person's decision: a claim carries one, a release hands the issue
-// back with one, and so does the routing of an issue this factory had let go. An interruption is the
-// only signal that spends and never gives, so a factory that loses power twice over one issue stops
-// after the second time and waits. A quota resume neither spends it nor gives it back: its cause
+// back with one, and so does the routing of an issue this factory had let go. An interruption and an
+// outage are the signals that spend and never give, so a factory that loses power twice over one
+// issue, or meets the permission check down twice, stops after the second time and waits.
+//
+// An outage is a run that ended blocked or failed after a session was told the permission check gave
+// no verdict (Run.Outage). The session cannot tell that from a reason of the issue's to stop, and
+// says blocked because nothing it needed would run. The factory can: the check failed, not the work,
+// so the run is resumed in its worktree like an interruption, on the same budget. A quota resume neither spends it nor gives it back: its cause
 // passes by itself and has nothing to do with the issue. It is one in a row all the same: a resumed
 // run that runs out of quota again is an issue that uses up a whole window by itself, and the next
 // one after it is the maintainer's to decide on, so that issue waits for a person too.
@@ -156,7 +162,7 @@ func holdings(runs []Run) map[string]holding {
 			h.run, h.holds, h.letGo = run, true, false
 		}
 		switch run.Signal {
-		case signalInterruption:
+		case signalInterruption, signalOutage:
 			budget[key]--
 		case signalQuota:
 		default:
@@ -179,6 +185,8 @@ func holdings(runs []Run) map[string]holding {
 			h.resumes = signalQuota
 		case h.last.Outcome == outcomeInterrupted && budget[key] > 0:
 			h.resumes = signalInterruption
+		case (h.last.Outcome == outcomeBlocked || h.last.Outcome == outcomeFailed) && h.last.Outage && budget[key] > 0:
+			h.resumes = signalOutage
 		}
 		out[key] = h
 	}
@@ -280,6 +288,7 @@ func (f *Factory) resume(ctx context.Context, r *Run, e Entry) (claimed, error) 
 // work rather than claiming it.
 var resuming = map[string]string{
 	signalInterruption:     "the one automatic resume after an interruption",
+	signalOutage:           "the one automatic resume after an outage of the permission check",
 	signalQuota:            "the resume after the reset of the quota the run before ran out of",
 	signalRelease:          "a person released the issue by removing the assignee",
 	signalChangesRequested: "a review asked for changes on the pull request",
@@ -313,7 +322,7 @@ func (h holding) released(issue Issue, routed bool) bool {
 	return issue.unassignedAt.After(issue.assignedAt)
 }
 
-// signalAt is when the interruption or the quota run this resume answers ended.
+// signalAt is when the interruption, the outage or the quota run this resume answers ended.
 func (h holding) signalAt() time.Time {
 	if h.last.EndedAt == nil {
 		return h.last.StartedAt
