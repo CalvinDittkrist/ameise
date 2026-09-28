@@ -116,7 +116,6 @@ func TestThePanelRunsTheFactorysReviewersReadOnlyBesideEachOther(t *testing.T) {
 	}
 
 	reviewers := gh.reviewerSessions(t)
-	models := map[string]string{"code": "sonnet", "security": "inherit", "docs": "sonnet", "tests": "sonnet", "senior": "inherit"}
 	seen := []string{}
 	for _, r := range reviewers {
 		agent, def := agentOf(t, r)
@@ -128,13 +127,13 @@ func TestThePanelRunsTheFactorysReviewersReadOnlyBesideEachOther(t *testing.T) {
 		if plugins := r.settings(t).EnabledPlugins; plugins["worker@workflows"] {
 			t.Errorf("the %s reviewer carries the worker plugin", name)
 		}
-		if def["model"] != models[name] || !strings.Contains(text(def["prompt"]), "read-only") || !equal(anyStrings(def["tools"]), []string{"Read", "Grep", "Glob", "StructuredOutput"}) {
-			t.Errorf("the %s reviewer runs as %v, want its own prompt, Read, Grep, Glob and the tool of its result, and the model %s", name, def, models[name])
+		if def["model"] != "sonnet" || def["effort"] != "high" || !strings.Contains(text(def["prompt"]), "read-only") || !equal(anyStrings(def["tools"]), []string{"Read", "Grep", "Glob", "StructuredOutput"}) {
+			t.Errorf("the %s reviewer runs as %v, want its own prompt, Read, Grep, Glob and the tool of its result, the model sonnet and the effort high", name, def)
 		}
-		// A reviewer whose definition names its model runs on it; one that inherits runs on the model
-		// the host's worker_args name.
-		if onHost := r.started("--model", "claude-opus-5"); onHost != (models[name] == "inherit") {
-			t.Errorf("the %s reviewer, whose model is %s, was started with %v", name, models[name], r.args)
+		// Every reviewer runs on the model its definition names, so the model in worker_args moves the
+		// worker alone.
+		if slices.Contains(r.args, "--model") {
+			t.Errorf("the %s reviewer was started with %v, want no model beside its definition's", name, r.args)
 		}
 		if r.cwd != workers[0].cwd {
 			t.Errorf("the %s reviewer ran in %s, want the run's worktree %s", name, r.cwd, workers[0].cwd)
@@ -157,32 +156,6 @@ func TestThePanelRunsTheFactorysReviewersReadOnlyBesideEachOther(t *testing.T) {
 	want := "review_rounds: 1\npanel: code=PASS security=PASS docs=PASS tests=PASS senior=PASS\nfixed: 0 (S1 0, S2 0, S3 0)\ndisputed: none"
 	if len(pulls) != 1 || !strings.Contains(pulls[0].Body, want) || strings.Contains(pulls[0].Body, "did not pass") {
 		t.Errorf("the factory opened %+v, want one pull request with the panel that passed", pulls)
-	}
-}
-
-// A host whose worker_args name no model leaves no session's model to the account default of its
-// Claude login: a reviewer that inherits its model runs on the worker's, opus, and one that names its
-// own keeps it.
-func TestInheritingReviewersRunOnTheWorkersModelWithoutWorkerArgs(t *testing.T) {
-	t.Parallel()
-	gh, data := panelClaim(t, "@echo the gate of a host without worker_args passes")
-	f := gh.work(t, ciConfig(data, nil))
-	run := f.ended(t, 1)
-	if run.Outcome != outcomeReady {
-		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
-	}
-	want := map[string]string{"code": "sonnet", "security": "opus", "docs": "sonnet", "tests": "sonnet", "senior": "opus"}
-	reviewers := gh.reviewerSessions(t)
-	if len(reviewers) != 5 {
-		t.Fatalf("the factory started %d reviewer sessions, want the five of the panel", len(reviewers))
-	}
-	for _, r := range reviewers {
-		agent, _ := agentOf(t, r)
-		name := strings.TrimSuffix(agent, "-reviewer")
-		inherits := want[name] == "opus"
-		if r.started("--model", "opus") != inherits || slices.Contains(r.args, "--model") != inherits {
-			t.Errorf("the %s reviewer was started with %v, want the model %s", name, r.args, want[name])
-		}
 	}
 }
 

@@ -48,9 +48,8 @@ type session struct {
 	// schema is the JSON schema the session's result is held to, resultSchema when it is empty.
 	schema string
 	// agent and agents are the inline agent a read-only session runs as (--agents, --agent): a reviewer
-	// of the panel, whose prompt, tools and model the definition carries. model is that definition's
-	// model; a session whose agent inherits it runs on the worker's model. A Codex session has no agent,
-	// and model is the model the call names.
+	// of the panel, whose prompt, tools, model and effort the definition carries. model is that
+	// definition's model. A Codex session has no agent, and model is the model the call names.
 	agent, agents, model string
 	// commits is a session the factory briefs to commit its work on the branch, which the factory then
 	// pushes or gates by its commit: one that reports complete with changes it did not commit has not
@@ -275,9 +274,9 @@ func (f *Factory) command(ctx context.Context, s session, entry Entry, claim cla
 // readTools, and its own schema. The settings of the worktree it runs in are not loaded
 // (--setting-sources user): the branch is the work under review, and a hook its .claude/settings.json
 // declares would run a command at the session's start, which no tool list holds back. Of the
-// configured worker arguments it takes the model alone: a session whose agent names no model of its own
-// runs on the worker's, the model worker_args name or workerModel (modelOf). worker_args is written for
-// the worker, and an argument that gives it a capability (an MCP server through --mcp-config, which
+// configured worker arguments it takes the model alone: a session without an agent runs on the
+// worker's, the model worker_args name or workerModel (modelOf); a reviewer runs on the model its
+// definition names. worker_args is written for the worker, and an argument that gives it a capability (an MCP server through --mcp-config, which
 // --strict-mcp-config still loads, a plugin directory, an added directory or tools) would give it to a
 // session that reads text somebody else wrote as well
 // (https://code.claude.com/docs/en/cli-reference.md, checked on 2026-09-24). It keeps what every session
@@ -298,8 +297,7 @@ func (f *Factory) readOnlyCommand(ctx context.Context, s session, claim claimed,
 		// read-only whatever the definition says (https://code.claude.com/docs/en/cli-reference.md and
 		// https://code.claude.com/docs/en/sub-agents.md, checked on 2026-09-24).
 		args = append(args, "--agents", s.agents, "--agent", s.agent)
-	}
-	if s.agent == "" || s.model == "inherit" {
+	} else {
 		// A session without a model of its own runs on the worker's, named here: without --model it
 		// would run on the account default of the host's Claude login, which the factory does not
 		// decide (https://code.claude.com/docs/en/model-config.md, checked on 2026-09-26).
