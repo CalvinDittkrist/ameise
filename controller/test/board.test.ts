@@ -220,6 +220,26 @@ test('a process waiting for approval needs a person, and a draft, red or uncheck
   ])
 })
 
+test('a fork pull request on a branch of the same name is not the process\'s, and a milestone is kept to one line', async () => {
+  const dir = await project('repo')
+  worktree(dir, 'feat/13-mine')
+  canPulls(m, 'owner/repo', [
+    { number: 30, headRefName: 'feat/13-mine', isCrossRepository: true, isDraft: false, url: 'https://github.com/owner/repo/pull/30', statusCheckRollup: [{ conclusion: 'SUCCESS' }] },
+  ])
+  canApi(m, `repos/owner/repo/${fixture.query}`, [issue(8, 'Free', ['ready-for-agent'], { milestone: { title: 'v1\nforged line\u001b[31m' } })])
+
+  const b = await boardOf(dir)
+  expect(b.processes.map((p) => [p.branch, p.pr, p.checks, p.action])).toEqual([['feat/13-mine', null, null, 'Open']])
+  expect(b.frontier).toEqual([{ number: 8, title: 'Free', milestone: 'v1 forged line [31m' }])
+})
+
+test('a path inside a project asks for the board of the project it belongs to', async () => {
+  const dir = await project('repo')
+  const inner = join(dir, 'sub')
+  mkdirSync(inner)
+  expect((await boardOf(inner)).path).toBe(dir)
+})
+
 test('a standardize worktree is a process of its own, and a record of another kind or half written is left out', async () => {
   const dir = await project('repo')
   const tree = worktree(dir, 'chore/standardize')

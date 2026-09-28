@@ -137,6 +137,7 @@ async function committed(top: string): Promise<Map<string, string>> {
 interface PullRequest {
   number: number
   headRefName: string
+  isCrossRepository?: boolean
   isDraft: boolean
   url: string
   statusCheckRollup?: { conclusion?: string | null; state?: string | null; status?: string | null }[]
@@ -274,7 +275,7 @@ export function pages<T>(out: string): T[] {
   return all
 }
 
-const issue = (i: GitHubIssue): Issue => ({ number: i.number, title: oneLine(i.title), milestone: i.milestone?.title ?? null })
+const issue = (i: GitHubIssue): Issue => ({ number: i.number, title: oneLine(i.title), milestone: i.milestone?.title ? oneLine(i.milestone.title) : null })
 
 // board derives the board of one project.
 export async function board(project: Project, stateDir: string, gh: string): Promise<ProjectBoard> {
@@ -288,7 +289,7 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
   const [trees, times, prs] = await Promise.all([
     worktrees(project.path),
     committed(project.path),
-    run(gh, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', '100', '--json', 'number,headRefName,isDraft,url,statusCheckRollup'])
+    run(gh, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', '100', '--json', 'number,headRefName,isCrossRepository,isDraft,url,statusCheckRollup'])
       .then((out) => JSON.parse(out) as PullRequest[])
       .catch(() => {
         notes.push('could not read the pull requests; processes show none')
@@ -303,7 +304,8 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
       b,
       recorded.find((r) => r.branch === b),
       trees.find((t) => t.branch === b),
-      prs.find((p) => p.headRefName === b),
+      // A pull request from a fork may carry the same branch name, but it is not this checkout's.
+      prs.find((p) => p.headRefName === b && !p.isCrossRepository),
       times.get(b),
     ),
   )
