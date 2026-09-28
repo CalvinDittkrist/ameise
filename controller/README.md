@@ -146,7 +146,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
-The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux.
+The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
 
 While the headless session still runs, the terminal is a second runtime on the same session. Its turns stay out of the process's event log.
 

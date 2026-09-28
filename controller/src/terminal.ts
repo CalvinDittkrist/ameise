@@ -1,7 +1,7 @@
 // Open in terminal: the session of a process opened in a terminal window of this machine.
 // The runtime resumes it by its id in the process's worktree, with the bundled worker plugin and the
 // session's settings.
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import type { WorkRecord } from './claim.js'
 import { Refusal } from './project.js'
@@ -24,10 +24,14 @@ function native(file: string): [string, string[]] | undefined {
   return undefined
 }
 
+// started is how long a terminal command runs before it counts as open. A command that exits in that
+// time has opened its window or failed; one that runs on holds its window, and is left running.
+const started = 2000
+
 // open writes the script of the process's session into the state directory and has the terminal run
 // it: the configured command, called as <terminal> <script>, or the platform's own when none is
-// configured. It answers once the command has exited, which a terminal does as soon as its window is
-// open, and refuses a process without a session or a terminal that fails.
+// configured. It answers once the command has exited, or once it has run a while and stays with its
+// window, and refuses a process without a session or a terminal that fails.
 export async function open(record: WorkRecord, stateDir: string, terminal: string, claude: string, worker: string): Promise<string> {
   if (!record.session_id) throw new Refusal('the process has no session yet; wait until its session has started', 409)
   // A session id is a word of letters, digits and hyphens; any other would reach no session.
@@ -38,13 +42,29 @@ export async function open(record: WorkRecord, stateDir: string, terminal: strin
   const cmd = terminal === '' ? native(file) : ([terminal, [file]] as [string, string[]])
   if (!cmd) throw new Refusal(`this platform has no terminal the controller knows; set terminal in the configuration to a command that runs ${file}`, 501)
   await new Promise<void>((resolve, reject) => {
+    const failed = (why: string) => reject(new Refusal(`the terminal did not open: ${cmd[0]}: ${why.trim()}`, 502))
+    let stderr = ''
     try {
-      execFile(cmd[0], cmd[1], { timeout: 10000 }, (err, _out, stderr) => {
-        if (err) reject(new Refusal(`the terminal did not open: ${cmd[0]}: ${(stderr || err.message).trim()}`, 502))
-        else resolve()
+      // The command runs in a group of its own, so it outlives the controller and its window stays.
+      const child = spawn(cmd[0], cmd[1], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] })
+      child.stderr.on('data', (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2000)))
+      const running = setTimeout(() => {
+        child.removeAllListeners()
+        child.stderr.destroy()
+        child.unref()
+        resolve()
+      }, started)
+      child.once('error', (err) => {
+        clearTimeout(running)
+        failed(err.message)
+      })
+      child.once('close', (code, signal) => {
+        clearTimeout(running)
+        if (code === 0) resolve()
+        else failed(stderr || `it exited with ${code ?? signal}`)
       })
     } catch (err) {
-      reject(new Refusal(`the terminal did not open: ${cmd[0]}: ${(err as Error).message}`, 502))
+      failed((err as Error).message)
     }
   })
   return file

@@ -218,13 +218,14 @@ export function serve(o: Options): Server {
   // the session compacts.
   function follow(res: ServerResponse, url: URL) {
     const record = recorded(url.searchParams.get('id'))
+    // The log is read and the watch is set within one turn of the loop, so no line falls between them.
+    // It is read before the stream starts, so a log that cannot be read is an error of the request.
+    const file = eventsFile(o.stateDir, record.id)
+    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', [identity]: '1' })
     const out = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
     const shown = (r: WorkRecord) => ({ ...r, compact_at: compactAt })
     out('record', shown(record))
-    // The log is read and the watch is set within one turn of the loop, so no line falls between them.
-    const file = eventsFile(o.stateDir, record.id)
-    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []
     let seq = 0
     const of = (e: Record<string, unknown>): Entry[] => entries(e, seq++, record.worktree)
     out(
@@ -459,7 +460,9 @@ export function buildFile(dir: string, pathname: string): string | undefined {
   return file.startsWith(dir + sep) && types[extname(file)] ? file : undefined
 }
 
+// send answers the request with the body, or ends a response that has already started, such as a stream.
 function send(res: ServerResponse, status: number, body: unknown) {
+  if (res.headersSent) return void res.end()
   res.writeHead(status, { 'content-type': 'application/json', [identity]: '1' })
   res.end(JSON.stringify(body) + '\n')
 }
