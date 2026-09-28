@@ -89,7 +89,8 @@ export function serve(o: Options): Server {
     send(res, 200, done)
   }
 
-  // A resume goes on with the session of an interrupted process in its worktree, by its session id.
+  // A resume goes on with the session of an interrupted process in its worktree by its session id when
+  // it has one, and starts a fresh session otherwise.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue } = abandonRequest(body)

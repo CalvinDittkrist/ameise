@@ -3,7 +3,8 @@
 // by reporting ready or blocked through a structured result. Its stream goes into the process's event
 // log and its session id into the record. A session that ends without a result, or a runtime that
 // cannot start, ends the process as failed with the reason. A session the controller's stop cuts off
-// ends the process as interrupted, and a resume goes on with it by its session id.
+// ends the process as interrupted. A resume goes on with it by its session id when it has one, and
+// starts a fresh session otherwise.
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
