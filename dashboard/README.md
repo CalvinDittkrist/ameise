@@ -17,6 +17,11 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The controller's reason for a refusal shows in the dialog.
 - The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
   - Force abandons work not on origin.
+- Merge on a ready process, Accept on a spec ready for acceptance and Release on a project's page each ask once in a dialog before they change anything.
+  - Merge takes the pull request into its base and removes its branch, worktree and process.
+  - Accept opens a plan process on the spec with the acceptance route.
+  - Release asks for the milestone. A promotion that is not green yet shows why the release waits.
+  - The controller's reason for a refusal shows in the dialog, and a merge's warnings show until they are closed.
 - The controller carries out no other action and reads no quota yet. Until it does, the other actions are disabled.
 - Light and dark follow the system.
 
@@ -28,6 +33,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
+  - The test of merge, accept and release answers their requests in the browser, so the fake's state stays as it is; the controller's tests cover what they do.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:

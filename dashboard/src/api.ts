@@ -113,6 +113,22 @@ export const claim = (path: string, issue: number, mode: "manual" | "yolo", env:
 export const abandon = (path: string, issue: number, force: boolean) =>
   call<{ branch: string }>("DELETE", "/api/processes", { project: path, issue, force })
 
+// merge takes a ready pull request of the project at path into its base and removes its branch, worktree
+// and process. It answers what went through, or throws the controller's reason.
+export const merge = (path: string, pr: number) =>
+  call<{ branch: string; base: string; closed: number | null; warnings: string[] }>("POST", "/api/merges", { project: path, pr })
+
+// A release is published, or waits for its promotion from dev to main to be green.
+export type Released =
+  | { status: "released"; milestone: string; release: string; target: string; promotion: string | null }
+  | { status: "waiting"; milestone: string; promotion: string; reason: string }
+
+// release tags a finished milestone of the project at path, publishes its release and closes it.
+export const release = (path: string, milestone: string) => call<Released>("POST", "/api/releases", { project: path, milestone })
+
+// accept opens a plan process with the acceptance route on a spec of the project at path.
+export const accept = (path: string, spec: number) => call<{ record: { branch: string } }>("POST", "/api/acceptances", { project: path, spec })
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
   try {
