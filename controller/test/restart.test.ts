@@ -1,4 +1,4 @@
-import { type ChildProcess } from 'node:child_process'
+import { type ChildProcess, execFileSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -157,4 +157,31 @@ test('a worktree the state does not know is foreign, a claim of its issue names 
   // The other foreign worktree is removed as an abandon removes any.
   expect((await api(m, 'DELETE', '/api/processes', { project: dir, issue: 12 })).status).toBe(200)
   expect((await api(m, 'POST', '/api/processes/adopt', { project: dir, issue: 12 })).status).toBe(404)
+})
+
+test('an adopt takes the worktree on the branch it names, and a resume refuses a worktree path reused for another branch', async () => {
+  const first = worktree(dir, 'fix/8-by-hand')
+  const second = worktree(dir, 'feat/8-again')
+  canIssue(m, 'owner/repo', 8, 'By hand', ['ready-for-agent'])
+
+  const unnamed = await api(m, 'POST', '/api/processes/adopt', { project: dir, issue: 8 })
+  expect(unnamed.status).toBe(409)
+  expect((unnamed.body as { error: string }).error).toMatch(/^#8 has more than one worktree: .*; name the branch to adopt$/)
+  expect((await api(m, 'POST', '/api/processes/adopt', { project: dir, issue: 8, branch: 'feat/8-other' })).status).toBe(404)
+
+  const a = await api(m, 'POST', '/api/processes/adopt', { project: dir, issue: 8, branch: 'feat/8-again' })
+  expect(a.status, JSON.stringify(a.body)).toBe(201)
+  const adopted = (a.body as { record: Record }).record
+  expect(adopted).toMatchObject({ branch: 'feat/8-again', worktree: second })
+
+  // The adopted worktree is removed by hand and its path taken by the other branch.
+  execFileSync('git', ['-C', dir, 'worktree', 'remove', '--force', first], { stdio: 'pipe' })
+  execFileSync('git', ['-C', dir, 'worktree', 'remove', '--force', second], { stdio: 'pipe' })
+  execFileSync('git', ['-C', dir, 'worktree', 'add', '-q', second, 'fix/8-by-hand'], { stdio: 'pipe' })
+  const refused = await api(m, 'POST', '/api/processes/resume', { project: dir, issue: 8 })
+  expect(refused.status).toBe(409)
+  expect((refused.body as { error: string }).error).toBe(
+    `the worktree ${second} of #8 is on fix/8-by-hand, not on feat/8-again, so its session cannot go on there; abandon #8`,
+  )
+  expect(recordOf(adopted.id).state).toBe('interrupted')
 })

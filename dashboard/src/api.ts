@@ -116,8 +116,10 @@ export const abandon = (path: string, issue: number, force: boolean) =>
 // resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
 export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
 
-// adopt takes the issue's worktree the controller did not start into a process, or throws its reason.
-export const adopt = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/adopt", { project: path, issue })
+// adopt takes the issue's worktree on the branch, one the controller did not start, into a process, or
+// throws its reason.
+export const adopt = (path: string, issue: number, branch: string) =>
+  call<{ record: unknown }>("POST", "/api/processes/adopt", { project: path, issue, branch })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response

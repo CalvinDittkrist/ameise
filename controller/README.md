@@ -146,9 +146,12 @@ In fake mode the scripted claude plays a resumed session under the id it resumes
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
-  - `404` says the issue has no process, `409` refuses one that is not interrupted or whose worktree is gone.
-- `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>}`: adopts the issue's foreign worktree and answers `201` with `{record}`.
-  - `404` says the issue has no worktree, `409` refuses an issue that has a process.
+  - `404` says the issue has no process.
+  - `409` refuses one that is not interrupted, or whose worktree is gone or no longer on its branch.
+- `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>, "branch": "<branch>"}`: adopts the issue's foreign worktree on the branch and answers `201` with `{record}`.
+  - The branch may be left out when the issue has one worktree.
+  - `404` says the issue has no such worktree.
+  - `409` refuses an issue that has a process, and one with more than one worktree when no branch is named.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.

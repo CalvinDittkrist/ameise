@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
-import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
+import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
 import { type Project, Refusal } from './project.js'
 import { event, stop, update } from './session.js'
 
@@ -127,6 +127,15 @@ export function claimRequest(body: Record<string, unknown>): ClaimRequest {
 
 // abandonRequest reads the body of an abandon, or refuses it with the reason before anything is removed.
 export const abandonRequest = (body: Record<string, unknown>): { issue: number; force: boolean } => target(body)
+
+// adoptRequest reads the body of an adopt: the issue, and the branch of the worktree to adopt when the
+// board names the row it was sent from.
+export function adoptRequest(body: Record<string, unknown>): { issue: number; branch?: string } {
+  const { issue } = target(body)
+  const branch = body.branch
+  if (branch !== undefined && (typeof branch !== 'string' || branch === '')) throw new Refusal('branch is not a branch name; send the branch of the worktree to adopt')
+  return { issue, branch }
+}
 
 const recordsDir = (stateDir: string) => join(stateDir, 'processes')
 
@@ -432,17 +441,22 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
 
 // adopt makes a foreign worktree of the issue, one this controller did not start, a work process of the
 // project. The process is interrupted with no session yet, so a resume starts its implement session in
-// the worktree. It refuses an issue without a worktree and one that has a process already.
-export function adopt(project: Project, stateDir: string, issue: number): Promise<WorkRecord> {
-  return held(project, issue, () => adoptHeld(project, stateDir, issue))
+// the worktree. It refuses an issue without a worktree and one that has a process already. A branch
+// names the worktree to adopt; without one, an issue with more than one worktree is refused.
+export function adopt(project: Project, stateDir: string, issue: number, branch?: string): Promise<WorkRecord> {
+  return held(project, issue, () => adoptHeld(project, stateDir, issue, branch))
 }
 
-async function adoptHeld(project: Project, stateDir: string, n: number): Promise<WorkRecord> {
+async function adoptHeld(project: Project, stateDir: string, n: number, branch?: string): Promise<WorkRecord> {
   const top = project.path
   const recorded = recordsOf(stateDir, top, n)[0]
   if (recorded) throw new Refusal(`#${n} has a process already: ${basename(recorded.file, '.json')} on ${recorded.record.branch}; there is nothing to adopt`, 409)
-  const tree = (await worktrees(top)).find((t) => ofIssue(t.branch, n) && kindOf(t.branch) === 'work')
-  if (!tree) throw new Refusal(`#${n} has no worktree in ${top} to adopt; claim it instead`, 404)
+  const trees = (await worktrees(top)).filter((t) => ofIssue(t.branch, n) && kindOf(t.branch) === 'work' && (branch === undefined || t.branch === branch))
+  if (trees.length === 0) {
+    throw new Refusal(branch === undefined ? `#${n} has no worktree in ${top} to adopt; claim it instead` : `#${n} has no worktree on ${branch} in ${top} to adopt`, 404)
+  }
+  if (trees.length > 1) throw new Refusal(`#${n} has more than one worktree: ${trees.map((t) => t.branch).join(', ')}; name the branch to adopt`, 409)
+  const [tree] = trees as [Worktree]
   const now = new Date().toISOString()
   const id = processId(top, n)
   const base = await refOf(top, project.base)
@@ -462,20 +476,37 @@ async function adoptHeld(project: Project, stateDir: string, n: number): Promise
     created_at: now,
     updated_at: now,
   }
+  const file = join(recordsDir(stateDir), `${id}.json`)
+  const events = join(recordsDir(stateDir), `${id}.events.jsonl`)
   try {
     mkdirSync(recordsDir(stateDir), { recursive: true })
-    writeAtomic(join(recordsDir(stateDir), `${id}.json`), JSON.stringify(record, null, 2) + '\n')
-    appendFileSync(join(recordsDir(stateDir), `${id}.events.jsonl`), JSON.stringify({ at: now, event: 'adopted', issue: n, branch: tree.branch, base }) + '\n')
+    // The events are written before the record, so a record never stands without its adopted event.
+    appendFileSync(events, JSON.stringify({ at: now, event: 'adopted', issue: n, branch: tree.branch, base }) + '\n')
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
   } catch (err) {
+    // A failed adopt leaves nothing behind, so the worktree stays foreign and the adopt can be tried again.
+    rmSync(file, { force: true })
+    rmSync(events, { force: true })
     throw new Refusal(`could not write the process of #${n}: ${(err as Error).message}`, 500)
   }
   return record
 }
 
 // resumable is the record of the issue's interrupted process, whose session a resume goes on with, or
-// the refusal that says why it cannot. It reads the state and the worktree at once, so nothing else
-// runs between the check and the start of the session.
-export function resumable(project: Project, stateDir: string, n: number): WorkRecord {
+// the refusal that says why it cannot. It refuses a worktree that git no longer has on the process's
+// branch, such as a path reused for other work. It reads the state again after asking git, so the
+// last check and the start of the session run in one go when the caller starts it at once.
+export async function resumable(project: Project, stateDir: string, n: number): Promise<WorkRecord> {
+  const r = interrupted(project, stateDir, n)
+  const tree = (await worktrees(project.path)).find((t) => t.path === r.worktree)
+  if (tree?.branch !== r.branch) {
+    const now = tree ? `on ${tree.branch}` : 'no worktree of git'
+    throw new Refusal(`the worktree ${r.worktree} of #${n} is ${now}, not on ${r.branch}, so its session cannot go on there; abandon #${n}`, 409)
+  }
+  return interrupted(project, stateDir, n)
+}
+
+function interrupted(project: Project, stateDir: string, n: number): WorkRecord {
   const top = project.path
   if (busy.has(`${top}#${n}`)) throw new Refusal(`a claim or abandon of #${n} is under way; try again when it is done`, 409)
   const recorded = recordsOf(stateDir, top, n)[0]

@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { abandon, abandonRequest, adopt, claim, claimRequest, projectPath, resumable } from './claim.js'
+import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
 import { implement, recover } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
@@ -96,7 +96,7 @@ export function serve(o: Options): Server {
     const { issue } = abandonRequest(body)
     const project = await known(body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const record = implement(resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir })
+    const record = implement(await resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir })
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }
@@ -104,9 +104,9 @@ export function serve(o: Options): Server {
   // An adopt takes a worktree this controller did not start into a process, which a resume starts.
   async function adopted(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
-    const { issue } = abandonRequest(body)
+    const { issue, branch } = adoptRequest(body)
     const project = await known(body)
-    const record = await adopt(project, o.stateDir, issue)
+    const record = await adopt(project, o.stateDir, issue, branch)
     log({ event: 'adopted', project: project.path, issue, branch: record.branch })
     send(res, 201, { record })
   }

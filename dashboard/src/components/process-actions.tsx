@@ -238,7 +238,15 @@ export function Abandon({ issue, branch, path, reload }: { issue: number; branch
 export function ProcessAction({ p, path, reload }: { p: Process; path: string; reload: () => Promise<void> }) {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const act = p.issue === null ? undefined : p.action === "Resume" ? resume : p.action === "Adopt" ? adopt : undefined
+  // Adopt names the row's branch, so it takes this worktree when another names the same issue.
+  const act =
+    p.issue === null
+      ? undefined
+      : p.action === "Resume"
+        ? resume
+        : p.action === "Adopt"
+          ? (path: string, issue: number) => adopt(path, issue, p.branch)
+          : undefined
 
   async function run() {
     if (!act || p.issue === null) return
