@@ -140,10 +140,10 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 		}
 	}
 	// The compact pin reaches the session, which is the only safety net it has: nothing hands a
-	// factory session over, so it has to compact at 80 % of a 312 500 token window, ADR 0034.
-	if settings.AutoCompactWindow != 312500 || settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != "80" {
-		t.Errorf("the worker compacts at %q%% of %d, want 80%% of 312500, the factory's pin",
-			settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], settings.AutoCompactWindow)
+	// factory session over, so it has to compact where the factory's pin says (docs/token-budget.md).
+	if settings.AutoCompactWindow != compactWindow || settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != compactPercentage {
+		t.Errorf("the worker compacts at %q%% of %d, want %s%% of %d, the factory's pin",
+			settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], settings.AutoCompactWindow, compactPercentage, compactWindow)
 	}
 
 	// Its own process group, so that the deadline and the stop reach everything the session starts.
