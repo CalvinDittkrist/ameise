@@ -2,7 +2,19 @@
 // and watched over its API, its files and its output. That machine is a temporary directory with the
 // configuration, the state, a PATH and a canned GitHub.
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
-import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
@@ -53,13 +65,17 @@ export interface Machine {
   bin: string
   url: string
   listen: string
+  // binary is the controller this machine runs: the build itself, or a copy with a dashboard of the
+  // test's own (see dashboard).
+  binary: string
 }
 
 // machine makes a machine with a free loopback port in its configuration, a logged-in canned GitHub,
 // a claude on its PATH and a browser that writes down the address it was opened on. Its PATH holds
 // only the tools the controller calls, so a test can take one away.
 export async function machine(): Promise<Machine> {
-  const root = mkdtempSync(join(tmpdir(), 'workflows-'))
+  // The real path, as git names a checkout's top: on macOS the temporary directory is behind a link.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'workflows-')))
   made.push(root)
   const bin = join(root, 'bin')
   mkdirSync(bin)
@@ -85,7 +101,21 @@ export async function machine(): Promise<Machine> {
     WORKFLOWS_FAKE_GH: github,
     WORKFLOWS_FAKE_GH_LOG: ghLog,
   }
-  return { root, env, config, state: join(root, 'data', 'workflows'), github, ghLog, opened, bin, url: `http://${listen}`, listen }
+  return { root, env, config, state: join(root, 'data', 'workflows'), github, ghLog, opened, bin, url: `http://${listen}`, listen, binary }
+}
+
+// dashboard gives the machine a copy of the controller whose dashboard build is the files given, each
+// a path under the build and its content, or no build at all when there are none. The copy stands
+// beside the scripted gh as the build does, so it runs the same way.
+export function dashboard(m: Machine, files: Record<string, string> = {}) {
+  const dist = join(m.root, 'controller', 'dist')
+  cpSync(dirname(binary), dist, { recursive: true, filter: (from) => from !== join(dirname(binary), 'dashboard') })
+  symlinkSync(fileURLToPath(new URL('../fake', import.meta.url)), join(m.root, 'controller', 'fake'))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dist, 'dashboard', path)), { recursive: true })
+    writeFileSync(join(dist, 'dashboard', path), content)
+  }
+  m.binary = join(dist, 'main.js')
 }
 
 export function script(path: string, body: string) {
@@ -101,13 +131,13 @@ export interface Exit {
 
 // cli runs one command of the binary to its end.
 export function cli(m: Machine, args: string[], cwd?: string): Exit {
-  const r = spawnSync(process.execPath, [binary, ...args], { env: m.env, cwd, encoding: 'utf8', timeout: 20000 })
+  const r = spawnSync(process.execPath, [m.binary, ...args], { env: m.env, cwd, encoding: 'utf8', timeout: 20000 })
   return { code: r.status, stdout: r.stdout, stderr: r.stderr }
 }
 
 // start starts the server in fake mode and returns once it listens, or with how it exited.
 export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean; process: ChildProcess }> {
-  const p = spawn(process.execPath, [binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [m.binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'] })
   started.push(p)
   let stdout = ''
   let stderr = ''
