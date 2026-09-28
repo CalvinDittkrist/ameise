@@ -3,11 +3,13 @@
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { extname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
-import { implement } from './session.js'
+import { notify } from './notify.js'
+import { readQuota, warnings } from './quota.js'
+import { type Announce, implement, seen } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -27,6 +29,26 @@ export function serve(o: Options): Server {
   mkdirSync(o.stateDir, { recursive: true })
   const log = (event: Record<string, unknown>) =>
     appendFileSync(join(o.stateDir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n')
+
+  // announce sends the notification of a process that turned blocked, ready or failed, unless the
+  // configuration switches notifications off. It reads the file each time, as the list does, and a
+  // notification that cannot be sent changes nothing of the process.
+  const announce: Announce = (r) => {
+    try {
+      const c = readConfig(o.configPath)
+      log({ event: 'turned', process: r.id, state: r.state, notified: c.notifications })
+      if (!c.notifications) return
+      void notify(c.notifier, { title: `${basename(r.project)} #${r.issue} ${r.state}`, body: r.note })
+    } catch (err) {
+      process.stderr.write(`warning: ${r.id}: no notification of ${r.state} was sent: ${(err as Error).message}\n`)
+    }
+  }
+
+  // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
+  const quota = () => {
+    const c = readConfig(o.configPath)
+    return readQuota(c.quota_axi, c.quota_minimum)
+  }
 
   // The list reads the file as add and remove do, so a project added or removed by hand shows at once.
   const list = (): Promise<Listed[]> =>
@@ -73,20 +95,30 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const request = claimRequest(body)
     const project = await known(body)
-    const done = await claim(project, o.stateDir, o.gh, o.fake, request)
+    // The quota is read beside the claim and never holds it: below the minimum the claim goes on and
+    // its answer says so.
+    const [done, q] = await Promise.all([claim(project, o.stateDir, o.gh, o.fake, request), quota()])
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.
-    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir })
-    send(res, 201, { ...done, record })
+    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir, announce })
+    send(res, 201, { ...done, record, quota: warnings(q) })
   }
 
   async function abandoned(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue, force } = abandonRequest(body)
     const project = await known(body)
-    const done = await abandon(project, o.stateDir, issue, force)
+    const done = await abandon(project, o.stateDir, issue, force, announce)
     log({ event: 'abandoned', project: project.path, issue, branch: done.branch, force })
     send(res, 200, done)
+  }
+
+  // A process page that is opened marks its process seen, which clears its badge.
+  async function opened(req: IncomingMessage, res: ServerResponse) {
+    const id = ((await readJSON(req)) ?? {}).id
+    if (typeof id !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) return send(res, 400, { error: 'id is not the id of a process; send the id the board names' })
+    if (!seen(o.stateDir, id)) return send(res, 404, { error: `${id} is not a process of this machine` })
+    send(res, 200, { id })
   }
 
   async function add(req: IncomingMessage, res: ServerResponse) {
@@ -150,6 +182,10 @@ export function serve(o: Options): Server {
           return claimed(req, res)
         case 'DELETE /api/processes':
           return abandoned(req, res)
+        case 'POST /api/processes/seen':
+          return opened(req, res)
+        case 'GET /api/quota':
+          return send(res, 200, await quota())
         default:
           if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })

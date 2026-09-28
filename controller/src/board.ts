@@ -2,7 +2,7 @@
 // start and the specs ready for acceptance. It is derived on every request from the state directory,
 // git and GitHub, and stored nowhere.
 import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { run } from './exec.js'
 import type { Project } from './project.js'
 
@@ -30,6 +30,8 @@ const actions: Partial<Record<State, string>> = { blocked: 'Answer', approval: '
 export type Checks = 'none' | 'pending' | 'pass' | 'fail'
 
 export interface Process {
+  // id is the process's record, the name of its file without .json, or null for a worktree without one.
+  id: string | null
   kind: Kind
   state: State
   stage: string
@@ -43,6 +45,8 @@ export interface Process {
   note: string
   needs: boolean
   action: string
+  // unseen says the process turned blocked, ready or failed and its page has not been opened since.
+  unseen: boolean
 }
 
 export interface Issue {
@@ -93,6 +97,7 @@ export interface ProcessRecord {
   stage?: string
   state?: string
   note?: string
+  unseen?: boolean
   updated_at?: string
 }
 
@@ -118,7 +123,8 @@ export function recordFiles(stateDir: string, project: string): { file: string; 
   return out
 }
 
-const records = (stateDir: string, project: string): ProcessRecord[] => recordFiles(stateDir, project).map((r) => r.record)
+const records = (stateDir: string, project: string): (ProcessRecord & { id: string })[] =>
+  recordFiles(stateDir, project).map((r) => ({ ...r.record, id: basename(r.file, '.json') }))
 
 export interface Worktree {
   path: string
@@ -168,7 +174,7 @@ const firstStage: Record<Kind, string> = { work: 'implement', plan: 'plan', hunt
 
 // derived joins what a record says with what git and GitHub say. The record decides state, stage and
 // note; a worktree without a record is read from its pull request.
-function derived(branch: string, record: ProcessRecord | undefined, tree: Worktree | undefined, pr: PullRequest | undefined, since: string | undefined): Process {
+function derived(branch: string, record: (ProcessRecord & { id: string }) | undefined, tree: Worktree | undefined, pr: PullRequest | undefined, since: string | undefined): Process {
   const kind = record?.kind ?? kindOf(branch) ?? 'work'
   const checks = pr ? checksOf(pr) : null
   let state: State
@@ -188,6 +194,7 @@ function derived(branch: string, record: ProcessRecord | undefined, tree: Worktr
     note = 'no process record; no pull request yet'
   }
   return {
+    id: record?.id ?? null,
     kind,
     state,
     stage,
@@ -200,6 +207,7 @@ function derived(branch: string, record: ProcessRecord | undefined, tree: Worktr
     note,
     needs: actions[state] !== undefined,
     action: actions[state] ?? 'Open',
+    unseen: record?.unseen === true,
   }
 }
 

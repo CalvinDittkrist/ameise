@@ -11,6 +11,7 @@ export interface Config {
   quota_axi: string
   quota_minimum: number
   notifications: boolean
+  notifier: string
   projects: string[]
 }
 
@@ -19,6 +20,7 @@ export const defaults: Config = {
   quota_axi: '',
   quota_minimum: 12,
   notifications: true,
+  notifier: '',
   projects: [],
 }
 
@@ -86,6 +88,10 @@ function validate(path: string, parsed: unknown): Config {
   if ('notifications' in c) {
     if (typeof c.notifications !== 'boolean') throw bad('notifications is not true or false; write it as true or false')
     config.notifications = c.notifications
+  }
+  if ('notifier' in c) {
+    if (typeof c.notifier !== 'string') throw bad('notifier is not a string; name the command a notification is sent through, or "" for the platform\'s own')
+    config.notifier = c.notifier
   }
   if ('projects' in c) {
     const p = c.projects

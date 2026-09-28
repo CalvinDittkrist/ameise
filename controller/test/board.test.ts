@@ -124,7 +124,7 @@ test('the board joins the process records and the worktrees with their pull requ
   const blocked = worktree(dir, 'feat/118-refuse-a-project')
   record(m, 'p118', {
     project: dir, kind: 'work', branch: 'feat/118-refuse-a-project', issue: 118, worktree: blocked,
-    stage: 'implement', state: 'blocked', note: 'Asks: keep the project\nin the file?', updated_at: minutesAgo(41),
+    stage: 'implement', state: 'blocked', note: 'Asks: keep the project\nin the file?', unseen: true, updated_at: minutesAgo(41),
   })
   record(m, 'plan1', {
     project: dir, kind: 'plan', branch: 'plan/open-20260928-0011', stage: 'plan', state: 'input', note: 'Waiting for you', updated_at: minutesAgo(5),
@@ -152,25 +152,25 @@ test('the board joins the process records and the worktrees with their pull requ
   const rows = b.processes.map(({ since, ...p }) => ({ ...p, since: typeof since }))
   expect(rows).toEqual([
     {
-      kind: 'work', state: 'blocked', stage: 'implement', issue: 118, branch: 'feat/118-refuse-a-project', worktree: blocked,
+      id: 'p118', unseen: true, kind: 'work', state: 'blocked', stage: 'implement', issue: 118, branch: 'feat/118-refuse-a-project', worktree: blocked,
       pr: null, checks: null, since: 'string', note: 'Asks: keep the project in the file?', needs: true, action: 'Answer',
     },
     {
-      kind: 'work', state: 'waiting', stage: 'ci', issue: 142, branch: 'feat/142-read-the-configuration', worktree: pending,
+      id: null, unseen: false, kind: 'work', state: 'waiting', stage: 'ci', issue: 142, branch: 'feat/142-read-the-configuration', worktree: pending,
       pr: { number: 251, url: 'https://github.com/owner/repo/pull/251', draft: false }, checks: 'pending', since: 'string',
       note: 'PR #251, checks pending', needs: false, action: 'Open',
     },
     {
-      kind: 'work', state: 'ready', stage: 'ci', issue: 131, branch: 'fix/131-log-the-sensor-drift', worktree: green,
+      id: null, unseen: false, kind: 'work', state: 'ready', stage: 'ci', issue: 131, branch: 'fix/131-log-the-sensor-drift', worktree: green,
       pr: { number: 250, url: 'https://github.com/owner/repo/pull/250', draft: false }, checks: 'pass', since: 'string',
       note: 'PR #250, checks pass', needs: true, action: 'Merge',
     },
     {
-      kind: 'hunt', state: 'running', stage: 'hunt', issue: null, branch: 'hunt/tests-2026-09-27', worktree: bare,
+      id: null, unseen: false, kind: 'hunt', state: 'running', stage: 'hunt', issue: null, branch: 'hunt/tests-2026-09-27', worktree: bare,
       pr: null, checks: null, since: 'string', note: 'no process record; no pull request yet', needs: false, action: 'Open',
     },
     {
-      kind: 'plan', state: 'input', stage: 'plan', issue: null, branch: 'plan/open-20260928-0011', worktree: null,
+      id: 'plan1', unseen: false, kind: 'plan', state: 'input', stage: 'plan', issue: null, branch: 'plan/open-20260928-0011', worktree: null,
       pr: null, checks: null, since: 'string', note: 'Waiting for you', needs: true, action: 'Continue',
     },
   ])
