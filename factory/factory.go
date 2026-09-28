@@ -134,11 +134,14 @@ type Factory struct {
 	// reviewsEarly says that reviews was read while a run was going: a run that ends between
 	// that reading and the start of the next one has not been asked about yet.
 	reviewsEarly bool
-	unreadable   map[string]string
-	polledAt     time.Time
-	connecting   bool
-	user         string          // the login this host's gh is logged in as, read once and kept
-	held         map[string]bool // repositories this factory claims nothing from, so the log says it once
+	// lineEarly says that the queue, the tickets and the sub-issues were read while a run was going: the
+	// run that ends before the next dispatch may have closed a ticket that reading still has open.
+	lineEarly  bool
+	unreadable map[string]string
+	polledAt   time.Time
+	connecting bool
+	user       string          // the login this host's gh is logged in as, read once and kept
+	held       map[string]bool // repositories this factory claims nothing from, so the log says it once
 	// cancelling is how a poll ends a run that is still going: the cancel of the context that run
 	// works under, by run, put there when the run starts and taken out when it ends or is cancelled.
 	// Only a run of this factory is in it, so a record of an older start can never be signalled here.
@@ -420,6 +423,7 @@ func sortRouted(issues []Issue) {
 //
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
 func (f *Factory) refreshQueue(ctx context.Context) poll {
+	early := slices.ContainsFunc(f.runs.list(), func(r Run) bool { return r.EndedAt == nil })
 	held := f.heldIssuesDue()
 	if !f.Paused() {
 		held = append(held, f.heldSpecs()...)
@@ -431,7 +435,7 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	sortTickets(read.tickets)
 	f.mu.Lock()
 	f.queue, f.specQueue, f.tickets, f.unreadable, f.polledAt = queue, read.specs, read.tickets, read.unreadable, time.Now()
-	f.subIssues = read.subIssues
+	f.subIssues, f.lineEarly = read.subIssues, early
 	f.mu.Unlock()
 	return read
 }
@@ -643,11 +647,18 @@ func (f *Factory) dispatch(ctx context.Context) {
 			return
 		}
 	}
+	f.mu.Lock()
+	stale, early := f.lineEarly, f.reviewsEarly
+	f.mu.Unlock()
+	// The run that was going when this poll read the line has ended since. A ticket it closed may be
+	// what makes the next ticket or the spec pull request due, which the reading does not show yet, so
+	// nothing starts from it: the end of the run has woken the loop, and its next poll reads the line
+	// again.
+	if stale {
+		return
+	}
 	// The run that was going when this poll read the reviews has ended since, and a review of its pull
 	// request would stand behind whatever the line starts next if it were not read now.
-	f.mu.Lock()
-	early := f.reviewsEarly
-	f.mu.Unlock()
 	if early {
 		f.refreshReviews(ctx)
 	}
