@@ -129,6 +129,19 @@ test('a merge refuses a worktree with commits not on origin', async () => {
   expect(existsSync(path)).toBe(true)
 })
 
+test('a merge refuses a local branch without a worktree that has commits not on origin', async () => {
+  const branch = 'feat/144-board-lists-every-project'
+  const path = process(branch, 144)
+  git(path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'local work')
+  git(dir, 'worktree', 'remove', '--force', path)
+  canPull(17, branch, 'main')
+  const r = await merge(17)
+  expect(r.status).toBe(409)
+  expect(error(r)).toMatch(/has 1 commit\(s\) not on origin/)
+  expect(calls('pr merge')).toEqual([])
+  expect(git(dir, 'branch', '--list', branch)).not.toBe('')
+})
+
 // canRelease cans a finished milestone v1.0.0 and the head of main.
 function canRelease(over: Record<string, unknown> = {}) {
   canPages(m, 'repos/owner/repo/milestones?state=all&per_page=100', [[{ number: 3, title: 'v1.0.0', state: 'open', open_issues: 0, closed_issues: 5, ...over }]])

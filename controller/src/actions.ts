@@ -96,11 +96,12 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
 
   // A fork's branch may carry the name of one of ours, so it names no worktree and no process here.
   const tree = kept ? undefined : (await worktrees(top)).find((t) => t.branch === branch)
-  if (tree) {
+  // The merge deletes the local branch, with or without a worktree, so either must hold nothing unpushed.
+  if (!kept && (await exists(top, `refs/heads/${branch}`))) {
     const unpushed = Number(await git(top, 'rev-list', '--count', branch, '--not', '--remotes=origin'))
     if (unpushed > 0) throw new Refusal(`${branch} has ${unpushed} commit(s) not on origin, which the merge would lose; push them first`, 409)
-    if ((await git(tree.path, 'status', '--porcelain')) !== '') throw new Refusal(`${tree.path} has changes not committed, which the merge would lose; commit and push them first`, 409)
   }
+  if (tree && (await git(tree.path, 'status', '--porcelain')) !== '') throw new Refusal(`${tree.path} has changes not committed, which the merge would lose; commit and push them first`, 409)
 
   try {
     await run(gh, ['pr', 'merge', String(n), '--repo', repo, `--${method}`, ...(kept ? [] : ['--delete-branch'])])
@@ -109,9 +110,14 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
   }
 
   if (!kept) {
+    // The pull request is merged already, so a cleanup that fails is a warning, never an error.
     if (tree) {
-      await git(top, 'worktree', 'remove', '--force', tree.path)
-      await git(top, 'worktree', 'prune')
+      try {
+        await git(top, 'worktree', 'remove', '--force', tree.path)
+      } catch (err) {
+        warnings.push(`PR #${n} is merged, but ${tree.path} could not be removed: ${(err as Error).message}; remove it by hand`)
+      }
+      await git(top, 'worktree', 'prune').catch(() => undefined)
     }
     await git(top, 'branch', '-D', branch).catch(() => undefined)
     for (const { file } of recordFiles(stateDir, top).filter((r) => r.record.branch === branch)) {
@@ -161,7 +167,7 @@ export type Released =
   | { status: 'waiting'; milestone: string; model: 'dev+main'; promotion: string; reason: string }
 
 // The shape of a milestone a release tags, as the orchestrator's release takes it.
-const version = /^v[0-9]+\.[0-9]+\.[0-9]+$/
+export const version = /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 // releaseRequest reads the milestone of a release's body, or refuses it.
 export function releaseRequest(body: Record<string, unknown>): string {
@@ -287,6 +293,13 @@ export interface PlanRecord {
   note: string
   created_at: string
   updated_at: string
+}
+
+// mergeRequest reads the pull request of a merge's body, or refuses it.
+export function mergeRequest(body: Record<string, unknown>): number {
+  const pr = body.pr
+  if (typeof pr !== 'number' || !Number.isInteger(pr) || pr < 1) throw new Refusal('pr is not a pull request number; send it as a whole number, such as 42')
+  return pr
 }
 
 // specRequest reads the spec of an acceptance start's body, or refuses it.
