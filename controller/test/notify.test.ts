@@ -76,6 +76,23 @@ test.each([
   expect(notifications()).toHaveLength(1)
 })
 
+test('a session stopped by an abandon that is then refused ends failed and sends one notification', async () => {
+  // The session runs until it is stopped and leaves a change behind as it stops, so the abandon refuses.
+  play(m, 'litter unfinished.txt')
+  const claimed = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect(claimed.status, JSON.stringify(claimed.body)).toBe(201)
+  const file = join(m.state, 'processes', `${(claimed.body as { record: { id: string } }).record.id}.json`)
+  for (let i = 0; i < 100 && !(JSON.parse(read(file)) as { session_id?: string }).session_id; i++) await new Promise((done) => setTimeout(done, 50))
+  const refused = await api(m, 'DELETE', '/api/processes', { project: dir, issue: 144 })
+  expect(refused.status, JSON.stringify(refused.body)).toBe(409)
+  expect(refused.body).toMatchObject({ error: expect.stringMatching(/changes not committed/) })
+  const r = await settled(1)
+  expect(r).toMatchObject({ state: 'failed', unseen: true })
+  expect(notifications()).toEqual([expect.stringMatching(/^repo #144 failed \| the implement session was stopped by an abandon that was refused: /)])
+  await new Promise((done) => setTimeout(done, 200))
+  expect(notifications()).toHaveLength(1)
+})
+
 test('a yolo process that ends ready sends one notification though its record is gone', async () => {
   play(m, 'ready Merged pull request #7')
   const claimed = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode: 'yolo' })
