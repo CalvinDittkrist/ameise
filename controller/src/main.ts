@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
+import type { Process, ProjectBoard } from './board.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
@@ -15,6 +16,7 @@ const usage = `usage:
   workflows projects                 list the projects
   workflows projects add <path>      add the checkout at <path> as a project
   workflows projects remove <path>   remove the project at <path>
+  workflows board [<path>]           print the board of every project, or of the project at <path>
 
 --fake answers GitHub with the scripted gh the tests use, so nothing reaches GitHub.`
 
@@ -141,6 +143,36 @@ function line(p: Listed): string {
   return 'error' in p ? `${p.path}  error: ${p.error}` : `${p.path}  ${p.owner}/${p.name}  base ${p.base}`
 }
 
+// age is the time since an instant, in its largest whole unit.
+export function age(since: string | null, now = Date.now()): string {
+  const t = since === null ? NaN : Date.parse(since)
+  if (Number.isNaN(t)) return '-'
+  const s = Math.max(0, Math.floor((now - t) / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
+
+function processLine(p: Process): string {
+  const pr = p.pr ? `PR #${p.pr.number}${p.pr.draft ? ' draft' : ''} ${p.checks}` : 'no PR'
+  const issue = p.issue === null ? '-' : `#${p.issue}`
+  return `  ${p.needs ? 'needs you' : 'running  '}  ${p.kind}  ${issue}  ${p.branch}  ${p.stage}  ${p.state}  ${pr}  ${age(p.since)}  ${p.note || '-'}  [${p.action}]`
+}
+
+// boardLines is the board as text: a line per project, then one per process, frontier issue, spec
+// ready for acceptance and note.
+function boardLines(b: ProjectBoard | { path: string; error: string }): string[] {
+  if ('error' in b) return [`${b.path}  error: ${b.error}`]
+  return [
+    `${b.path}  ${b.owner}/${b.name}  base ${b.base}`,
+    ...b.processes.map(processLine),
+    ...b.frontier.map((i) => `  ready      #${i.number}  ${i.milestone ?? '-'}  ${i.title}  [Claim]`),
+    ...b.acceptance.map((i) => `  accept     #${i.number}  ${i.milestone ?? '-'}  ${i.title}  [Accept]`),
+    ...b.notes.map((n) => `  note: ${n}`),
+  ]
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
   if (command === undefined || command === '--fake') {
@@ -149,6 +181,15 @@ async function main(argv: string[]) {
   }
   if (command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write(usage + '\n')
+    return
+  }
+  if (command === 'board') {
+    if (arg !== undefined) die(`unexpected argument ${arg}; workflows help lists the commands`)
+    const boards =
+      sub === undefined
+        ? ((await call('GET', '/api/board')) as { projects: (ProjectBoard | { path: string; error: string })[] }).projects
+        : [(await call('GET', '/api/board?' + new URLSearchParams({ project: resolve(sub) }).toString())) as ProjectBoard]
+    for (const b of boards) process.stdout.write(boardLines(b).map((l) => l + '\n').join(''))
     return
   }
   if (command !== 'projects' || rest.length > 0) die(`unknown command ${argv.join(' ')}; workflows help lists the commands`)

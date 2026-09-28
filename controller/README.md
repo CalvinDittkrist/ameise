@@ -7,6 +7,7 @@
 - `workflows --fake` does the same against the scripted `fake/gh`, so nothing reaches GitHub.
 - `workflows projects` lists the projects with their derived facts.
 - `workflows projects add <path>` adds the checkout at `<path>`; `workflows projects remove <path>` removes it.
+- `workflows board [<path>]` prints the board of every project, or of the project at `<path>`: a line per project, then one per process, frontier issue, spec ready for acceptance and note.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
@@ -44,18 +45,30 @@ Owner and name come from the checkout's origin, which must be on GitHub. The bas
 
 All of them are derived on every read and never stored. A path that is no git checkout, or whose origin is missing or not on GitHub, is refused with the reason.
 
+## Board
+The board is derived on every request from the state directory, git and GitHub, and stored nowhere. A project's board is its facts and:
+- `processes`: one per worktree of the checkout whose branch names a process kind, and one per process record in the state directory. Each has `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
+  - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
+  - A record decides state, stage and note. A worktree without one is read from its pull request: green is `ready`, pending checks `waiting`, anything else `running`.
+  - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`. Every other process runs, with the action `Open`.
+- `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine. A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too. The tests hold it to the frontier of the [contract fixture](../contract/fixture.json).
+- `acceptance`: the open specs whose sub-issues are all closed.
+- `notes`: what GitHub did not answer, so an empty section reads as unknown and not as idle.
+
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
 - Without that build `/` answers `404` with the command, and the API works.
 - `GET /api/projects`: the projects, each `{path, owner, name, base}`, or `{path, error}` when its checkout no longer derives.
 - `POST /api/projects` with `{"path": "<absolute path>"}`: adds a project and answers `201`. `400` with `{error}` refuses it, `409` says it is a project already.
 - `DELETE /api/projects` with `{"path": "<absolute path>"}`: removes a project and answers `200`. `400` with `{error}` refuses a path that is not absolute, `404` says it is no project.
+- `GET /api/board`: the [board](#board) of every project, `{projects: [...]}`, each a project's board or `{path, error}`.
+- `GET /api/board?project=<path>`: the board of the project at that checkout; `404` says it is no project.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
 
 ## State
-One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl` and, while the server runs, `listen`: the address it started on, which the CLI reads first.
+One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`, a record per process in `processes/<id>.json` and, while the server runs, `listen`: the address it started on, which the CLI reads first.
 
 ## Development
 - `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.

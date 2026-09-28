@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
+import { board, type ProjectBoard } from './board.js'
 import { checkout, derive, type Listed, Refusal } from './project.js'
 
 export interface Options {
@@ -30,6 +31,26 @@ export function serve(o: Options): Server {
         derive(path, o.gh).catch((err: Error): Listed => ({ path, error: err.message })),
       ),
     )
+
+  // The board is derived from the state directory, git and GitHub on every request and kept nowhere.
+  // Without a project it is every project's; ?project=<path> asks for the project at that checkout.
+  async function boards(res: ServerResponse, url: URL) {
+    const wanted = url.searchParams.get('project')
+    const paths = readConfig(o.configPath).projects
+    if (wanted !== null) {
+      if (!paths.includes(wanted)) return send(res, 404, { error: `${wanted} is not a project; workflows projects lists them` })
+      const project = await derive(wanted, o.gh)
+      return send(res, 200, await board(project, o.stateDir, o.gh))
+    }
+    const all = await Promise.all(
+      paths.map((path) =>
+        derive(path, o.gh)
+          .then((p) => board(p, o.stateDir, o.gh))
+          .catch((err: Error): ProjectBoard | { path: string; error: string } => ({ path, error: err.message })),
+      ),
+    )
+    send(res, 200, { projects: all })
+  }
 
   async function add(req: IncomingMessage, res: ServerResponse) {
     const path = await bodyPath(req, res)
@@ -82,6 +103,8 @@ export function serve(o: Options): Server {
       switch (route) {
         case 'GET /api/projects':
           return send(res, 200, await list())
+        case 'GET /api/board':
+          return boards(res, url)
         case 'POST /api/projects':
           return add(req, res)
         case 'DELETE /api/projects':
