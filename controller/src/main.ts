@@ -82,7 +82,11 @@ async function start(fake: boolean) {
     process.stdout.write(`workflows on ${url} (fake=${fake}, config ${path})\n`)
     browse(url)
   })
-  const stop = () => server.close(() => process.exit(0))
+  // A process page follows its log over a connection that never ends on its own, so a stop closes it.
+  const stop = () => {
+    server.close(() => process.exit(0))
+    server.closeAllConnections()
+  }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
 }

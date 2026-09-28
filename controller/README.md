@@ -30,6 +30,7 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
   "quota_minimum": 12,
   "notifications": true,
   "notifier": "",
+  "terminal": "",
   "projects": ["/home/me/src/repo"]
 }
 ```
@@ -37,6 +38,7 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
 - `listen` is a loopback address; the controller is never reachable from another machine.
 - `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage; see [Quota](#quota).
 - `notifications` switches the native notifications on or off. `notifier` names the command they are sent through; empty is the platform's own. See [Notifications](#notifications).
+- `terminal` names the command that opens a session in a terminal window; empty is the platform's own. See [Open in terminal](#open-in-terminal).
 - A project is the absolute path of a checkout, stored as the top of its working tree.
 - Listing, adding and removing projects read this file again, so a change made by hand while the server runs shows at once and is kept.
 - The rewrite fills in any field the file lacks with its default.
@@ -108,6 +110,7 @@ The brief runs `/worker:work` and names the issue, the branch, its base and the 
 The session has no status line, so the worker's checkpoint answers unavailable and nothing is handed over. The worker runs its own pipeline after implement, as the sandbox path does, and the process stays in the stage `implement`.
 
 - The stream goes into the event log, each message as a `stream` event, and the session id into the record as `session_id`.
+- The record's `context` is the size of the session's context in tokens: input, cached input and output of its latest message, leaving out subagents.
 - The session reports through a structured result: `ready` or `blocked`, each with a message that becomes the note.
 - A `yolo` session that reports `ready` has merged its pull request, and the worker removes its worktree, so its record and event log go with it.
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
@@ -115,7 +118,22 @@ The session has no status line, so the worker's checkpoint answers unavailable a
 
 A session that ends `blocked`, `ready` or `failed` marks its record `unseen` and sends one [notification](#notifications).
 
-In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
+In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does, and `resume` what it does when resumed (see the script).
+
+## Conversation
+The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
+- A permission the `auto` classifier does not settle reaches the controller through the SDK's permission callback. It becomes a `permission` event with the tool, the call and the reason, and the process turns `approval` with the request as its note.
+  - The session waits until it is answered: `once` allows the call, `deny` refuses it, and `process` allows it and every call like it for the rest of the process.
+  - `process` keeps the rules the runtime suggests for the call in the record's `allowed`, or the call itself when it suggests none. A later call they cover runs without a card, as an `allowed` event.
+  - Those rules reach the session for its own lifetime and never a settings file.
+- A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
+- Each answer is an `answer` event. Once no request waits, the process is `running` again.
+- A message to a running session with no question waiting is its next turn, as a `message` event.
+- A message to a process whose session has ended resumes that session by its id, with the message as its turn.
+- A request its session leaves unanswered as it ends is `closed`.
+
+## Open in terminal
+The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. Then it runs `<terminal> <script>`. Without a `terminal` that is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux.
 
 ## Quota
 The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
@@ -142,6 +160,14 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings, quota}`.
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
 - `POST /api/processes/seen` with `{"id": "<id>"}`: marks the process seen, which clears its badge, and answers `200` with `{id}`. `400` refuses a malformed id, `404` an id that is no process.
+- `GET /api/processes/events?id=<id>`: the process page's stream of server-sent events. It sends `record` with the record and `compact_at`, the context size at which the session compacts. Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
+  - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from. The kinds are `text` and `tool` of the session, `you` for a message, `permission`, `question`, `answer`, `allowed` and `closed` for the requests, and `start` and `end` for each session.
+  - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
+- `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
+  - `400` refuses an empty text, `409` a process without a session.
+- `POST /api/processes/answer` with `{"id": "<id>", "request": "<request>", "answer": "once"|"process"|"deny"}`: answers a permission request and answers `200`. `409` says no such request waits.
+- `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`. `409` refuses a process without a session, `502` a terminal that fails.
+- Each of these refuses a malformed id with `400` and an id that is no process with `404`.
 - `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}`. Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
@@ -150,7 +176,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
 
 ## State
-One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`, a record per process in `processes/<id>.json` with its event log `processes/<id>.events.jsonl` and, while the server runs, `listen`: the address it started on, which the CLI reads first.
+One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`, a record per process in `processes/<id>.json` with its event log `processes/<id>.events.jsonl` and the script that opens its session in a terminal, `processes/<id>.command`, and while the server runs, `listen`: the address it started on, which the CLI reads first.
 
 ## Development
 - `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.

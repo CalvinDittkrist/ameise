@@ -1,6 +1,6 @@
 // The configuration of this machine: one file in the user's configuration directory. It holds what
-// only the maintainer can say (where the server listens, the quota check, notifications, the
-// checkouts that are projects) and nothing that git or GitHub can say instead.
+// only the maintainer can say (where the server listens, the quota check, notifications, the terminal,
+// the checkouts that are projects) and nothing that git or GitHub can say instead.
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
@@ -12,6 +12,7 @@ export interface Config {
   quota_minimum: number
   notifications: boolean
   notifier: string
+  terminal: string
   projects: string[]
 }
 
@@ -21,6 +22,7 @@ export const defaults: Config = {
   quota_minimum: 12,
   notifications: true,
   notifier: '',
+  terminal: '',
   projects: [],
 }
 
@@ -92,6 +94,10 @@ function validate(path: string, parsed: unknown): Config {
   if ('notifier' in c) {
     if (typeof c.notifier !== 'string') throw bad('notifier is not a string; name the command a notification is sent through, or "" for the platform\'s own')
     config.notifier = c.notifier
+  }
+  if ('terminal' in c) {
+    if (typeof c.terminal !== 'string') throw bad('terminal is not a string; name the command that runs a script in a terminal window, or "" for the platform\'s own')
+    config.terminal = c.terminal
   }
   if ('projects' in c) {
     const p = c.projects

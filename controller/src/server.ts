@@ -1,6 +1,6 @@
 // The server: the local API every client talks to, the dashboard and the CLI alike. It is the one
 // writer of the configuration file.
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -9,7 +9,10 @@ import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
 import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
-import { type Announce, implement, seen } from './session.js'
+import { answers, type Answer, entries, type Entry } from './conversation.js'
+import { type Announce, answer, compactAt, eventsFile, implement, processId, readRecord, type Runtime, say, seen, watch } from './session.js'
+import { open } from './terminal.js'
+import type { WorkRecord } from './claim.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -62,6 +65,8 @@ export function serve(o: Options): Server {
       process.stderr.write(`warning: ${r.id}: no notification of ${r.state} was sent: ${(err as Error).message}\n`)
     }
   }
+
+  const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, announce }
 
   // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
   // Like readQuota it never rejects: a file that cannot be read makes every runtime unknown.
@@ -127,7 +132,7 @@ export function serve(o: Options): Server {
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.
-    const record = implement(done.record, project, { ...o.runtime, stateDir: o.stateDir, announce })
+    const record = implement(done.record, project, rt)
     const q = await within(reading, quotaShare)
     send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
   }
@@ -147,6 +152,86 @@ export function serve(o: Options): Server {
     if (typeof id !== 'string') return send(res, 400, { error: 'id is not the id of a process; send the id the board names' })
     if (!seen(o.stateDir, id)) return send(res, 404, { error: `${id} is not a process of this machine` })
     send(res, 200, { id })
+  }
+
+  // recorded is the record of the process a body or a query names, or a refusal.
+  const recorded = (id: unknown): WorkRecord => {
+    const r = readRecord(o.stateDir, processId(id))
+    if (!r) throw new Refusal(`${String(id)} is not a process of this machine`, 404)
+    return r
+  }
+
+  // A process page follows its process: the record and the conversation so far at once, then every
+  // change as it is written, as server-sent events. The record comes with the context size at which
+  // the session compacts.
+  function follow(req: IncomingMessage, res: ServerResponse, url: URL) {
+    const record = recorded(url.searchParams.get('id'))
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', [identity]: '1' })
+    const out = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
+    const shown = (r: WorkRecord) => ({ ...r, compact_at: compactAt })
+    out('record', shown(record))
+    // The log is read and the watch is set within one turn of the loop, so no line falls between them.
+    const file = eventsFile(o.stateDir, record.id)
+    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []
+    let seq = 0
+    const of = (e: Record<string, unknown>): Entry[] => entries(e, seq++, record.worktree)
+    out(
+      'entries',
+      lines.flatMap((l) => {
+        try {
+          return of(JSON.parse(l) as Record<string, unknown>)
+        } catch {
+          seq++
+          return []
+        }
+      }),
+    )
+    const unwatch = watch(record.id, (c) => {
+      if ('gone' in c) {
+        out('gone', {})
+        res.end()
+      } else if ('record' in c) out('record', shown(c.record))
+      else {
+        const list = of(c.event)
+        if (list.length > 0) out('entries', list)
+      }
+    })
+    // A comment now and then keeps a connection open through whatever would close an idle one.
+    const ping = setInterval(() => res.write(': ping\n\n'), 20000)
+    ping.unref()
+    res.on('close', () => {
+      unwatch()
+      clearInterval(ping)
+    })
+  }
+
+  // A message goes to the process's session: it answers the question that waits, is the next turn of
+  // the session that runs, or resumes the session that has ended.
+  async function message(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const record = recorded(body.id)
+    const text = typeof body.text === 'string' ? body.text.trim() : ''
+    if (text === '') throw new Refusal('text is empty; write the message to send')
+    const how = await say(record, text, rt, () => known({ project: record.project }))
+    send(res, 200, { id: record.id, delivered: how })
+  }
+
+  // An answer settles a permission request of the process's session: once, for the process, or deny.
+  async function answered(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const record = recorded(body.id)
+    if (typeof body.request !== 'string' || body.request === '') throw new Refusal('request is not the id of a request; send the id its card names')
+    if (!answers.includes(body.answer as Answer)) throw new Refusal(`answer ${JSON.stringify(body.answer)} is none of ${answers.join(', ')}`)
+    answer(record.id, body.request, body.answer as Answer)
+    send(res, 200, { id: record.id, request: body.request, answer: body.answer })
+  }
+
+  // Open in terminal resumes the process's session by its id in a terminal window.
+  async function terminal(req: IncomingMessage, res: ServerResponse) {
+    const record = recorded(((await readJSON(req)) ?? {}).id)
+    const script = await open(record, o.stateDir, readConfig(o.configPath).terminal, o.runtime.claude, o.runtime.worker)
+    log({ event: 'terminal', process: record.id, session: record.session_id })
+    send(res, 200, { id: record.id, script })
   }
 
   async function add(req: IncomingMessage, res: ServerResponse) {
@@ -212,6 +297,14 @@ export function serve(o: Options): Server {
           return abandoned(req, res)
         case 'POST /api/processes/seen':
           return opened(req, res)
+        case 'GET /api/processes/events':
+          return follow(req, res, url)
+        case 'POST /api/processes/message':
+          return message(req, res)
+        case 'POST /api/processes/answer':
+          return answered(req, res)
+        case 'POST /api/processes/terminal':
+          return terminal(req, res)
         case 'GET /api/quota':
           return send(res, 200, await quota())
         default:

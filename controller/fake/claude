@@ -4,16 +4,25 @@
 # the session a canned directory names. The real server so runs a session with no model behind it.
 #
 #   WORKFLOWS_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
-#     play                     one line, the session to play: its first word, then a message
-#       ready <message>          the session reports ready with the message
-#       blocked <message>        the session reports blocked with the message as its question
-#       silent                   the session ends without a result
-#       broken <message>         the runtime cannot start: it prints the message on stderr and exits 1
-#       litter <file>            the session runs until its input closes, then writes <file> in its
-#                                directory and leaves it uncommitted, as a session stopped mid-change does
-#       (none)                   the session runs until its input closes, as a long session does
+#     play                     the session to play, one step a line; the first word of a line is the step
+#     resume                   the session to play when it is resumed with --resume <id>, whose id it keeps
 #   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
+#
+# The session says "Working on it." when its first message arrives, then plays its steps in order:
+#   say <text>          it writes the text
+#   usage <tokens>      its messages from here on used that many tokens of input
+#   permit <command>    it asks for the permission to run the command in Bash, then says whether it ran
+#   ask <question>      it asks the question with the options Keep and Drop, then says the answer
+#   wait                it waits for the next message, then says what it read
+# A line with one of these words ends it:
+#   ready <message>     it reports ready with the message
+#   blocked <message>   it reports blocked with the message as its question
+#   silent              it ends without a result
+#   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
+#   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
+#                       it uncommitted, as a session stopped mid-change does
+# Without an end it runs until its input closes, as a long session does.
 #
 # --version answers as a claude does, whatever the play.
 set -euo pipefail
@@ -26,12 +35,31 @@ fi
 printf '%s\n' "$@" >> "$log"
 if [ "$log" != /dev/null ]; then export -p > "$log.env"; fi
 
-play=''
+session=fake-session-$$
+file=play
+previous=''
+for arg in "$@"; do
+  case "$previous $arg" in
+    '--resume '*) session=$arg && file=resume ;;
+    *' --resume='*) session=${arg#--resume=} && file=resume ;;
+  esac
+  previous=$arg
+done
+
+steps=()
 canned=${WORKFLOWS_FAKE_CLAUDE:-}
-if [ -n "$canned" ] && [ -f "$canned/play" ]; then IFS= read -r play < "$canned/play" || true; fi
-word=${play%% *}
+if [ -n "$canned" ] && [ -f "$canned/$file" ]; then
+  while IFS= read -r step || [ -n "$step" ]; do
+    if [ -n "$step" ]; then steps+=("$step"); fi
+  done < "$canned/$file"
+fi
+last=''
+if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
+ending=''
+case "${last%% *}" in ready | blocked | silent | broken | litter) ending=$last ;; esac
+word=${ending%% *}
 message=''
-case "$play" in *' '*) message=${play#* } ;; esac
+case "$ending" in *' '*) message=${ending#* } ;; esac
 
 if [ "$word" = broken ]; then
   printf '%s\n' "$message" >&2
@@ -47,29 +75,106 @@ json() {
   printf '"%s"' "$s"
 }
 
-session=fake-session-$$
 say() { printf '%s\n' "$1"; }
+n=0
+tokens=1
 
-# The SDK sends its initialize request, then the prompt; the session answers the one and plays the other.
-while IFS= read -r line; do
+# assistant writes a message of the session with the content blocks given as JSON.
+assistant() {
+  n=$((n + 1))
+  say "{\"type\":\"assistant\",\"session_id\":\"$session\",\"uuid\":\"$session-$n\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"msg-$n\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"fake\",\"content\":[$1],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":$tokens,\"output_tokens\":1}}}"
+}
+text() { assistant "{\"type\":\"text\",\"text\":$(json "$1")}"; }
+
+# field reads the string after "<name>":" in a line, up to the next quote.
+field() {
+  local rest=${2#*"\"$1\":\""}
+  if [ "$rest" = "$2" ]; then return 0; fi
+  printf '%s' "${rest%%\"*}"
+}
+
+# next reads one line of input, answers the SDK's initialize request, and fails once the input closes.
+next() {
+  IFS= read -r line || return 1
   printf '< %s\n' "$line" >> "$log"
   case "$line" in
     *'"subtype":"initialize"'*)
-      id=${line#*\"request_id\":\"}
-      id=${id%%\"*}
-      say "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$id\",\"response\":{}}}" ;;
+      say "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$(field request_id "$line")\",\"response\":{}}}" ;;
+  esac
+}
+
+# A message that arrives while the session waits for an answer is kept for the next wait.
+kept=''
+# answer waits for the SDK's answer to the control request with the given id and leaves it in $line.
+answer() {
+  while next; do
+    case "$line" in
+      *'"type":"control_response"'*"\"request_id\":\"$1\""*) return 0 ;;
+      *'"type":"user"'*) kept=$(field content "$line") ;;
+    esac
+  done
+  return 1
+}
+
+# ask sends a permission request of the tool with the input, the suggestions and the reason.
+ask() {
+  local tool=$1 input=$2 suggestions=$3
+  n=$((n + 1))
+  assistant "{\"type\":\"tool_use\",\"id\":\"toolu-$n\",\"name\":\"$tool\",\"input\":$input}"
+  say "{\"type\":\"control_request\",\"request_id\":\"ask-$n\",\"request\":{\"subtype\":\"can_use_tool\",\"tool_name\":\"$tool\",\"input\":$input,\"tool_use_id\":\"toolu-$n\",\"permission_suggestions\":$suggestions,\"decision_reason\":\"The classifier did not settle it.\"}}"
+  answer "ask-$n"
+}
+
+play() {
+  local step rest
+  for step in "${steps[@]+"${steps[@]}"}"; do
+    rest=''
+    case "$step" in *' '*) rest=${step#* } ;; esac
+    case "${step%% *}" in
+      say) text "$rest" ;;
+      usage) tokens=$rest ;;
+      permit)
+        ask Bash "{\"command\":$(json "$rest")}" "[{\"type\":\"addRules\",\"rules\":[{\"toolName\":\"Bash\",\"ruleContent\":$(json "$rest")}],\"behavior\":\"allow\",\"destination\":\"localSettings\"}]" || return 1
+        case "$line" in
+          *'"behavior":"allow"'*) text "Ran $rest." ;;
+          *) text "Did not run $rest." ;;
+        esac ;;
+      ask)
+        ask AskUserQuestion "{\"questions\":[{\"question\":$(json "$rest"),\"header\":\"Question\",\"options\":[{\"label\":\"Keep\",\"description\":\"Keep it as it is.\"},{\"label\":\"Drop\",\"description\":\"Take it out.\"}],\"multiSelect\":false}]}" '[]' || return 1
+        local answers=${line#*\"answers\":\{}
+        text "You answered: $(field "$rest" "{$answers")." ;;
+      wait)
+        if [ -z "$kept" ]; then
+          while next; do
+            case "$line" in *'"type":"user"'*) kept=$(field content "$line") && break ;; esac
+          done
+        fi
+        text "You wrote: $kept."
+        kept='' ;;
+    esac
+  done
+}
+
+# The SDK sends its initialize request, then the first message; the session answers the one and plays
+# the other.
+while next; do
+  case "$line" in
     *'"type":"user"'*)
       say "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"uuid\":\"$session-init\",\"cwd\":$(json "$PWD"),\"tools\":[],\"mcp_servers\":[],\"model\":\"fake\",\"permissionMode\":\"auto\",\"slash_commands\":[],\"apiKeySource\":\"none\",\"output_style\":\"default\"}"
-      say "{\"type\":\"assistant\",\"session_id\":\"$session\",\"uuid\":\"$session-1\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"fake\",\"content\":[{\"type\":\"text\",\"text\":\"Working on it.\"}],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+      text 'Working on it.'
+      play || break
       case "$word" in
-        ready|blocked)
+        ready | blocked)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":\"\",\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
           exit 0 ;;
         silent)
           exit 0 ;;
-      esac ;;
+      esac
+      break ;;
   esac
 done
+# The session runs until its input closes.
+while next; do :; done
 
 # A littering session leaves a change behind as it is stopped.
 if [ "$word" = litter ]; then printf 'unfinished\n' > "$message"; fi
