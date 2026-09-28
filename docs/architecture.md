@@ -34,6 +34,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
 5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance. It keeps no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests (closing reference, else head branch) and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
+   - `workflows accept` opens the same plan process with the route `accept` but starts no session ([acceptance start](../controller/README.md#acceptance-start)).
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
@@ -110,6 +111,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 2. `/orchestrator:release vX.Y.Z`: `release.sh` refuses while the milestone is missing or has open issues, or the tag exists.
 3. With `dev` plus `main` it opens the promotion pull request, which `merge.sh` merges with a merge commit, and tags that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
 4. With `main` alone it tags the head of `main`. It publishes the GitHub release and closes the milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)).
+   - `workflows release` does the same by the same rules ([release](../controller/README.md#release)).
 
 ## Boundaries and constraints
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.

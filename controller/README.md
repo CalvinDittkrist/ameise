@@ -95,10 +95,10 @@ A merge takes a ready pull request of a project into its base, by the rules of t
 - not green: a check failed or pending, or a merge state other than `CLEAN`,
 - asked for changes.
 
-It refuses a worktree of the branch with commits on no branch of origin, or changes not committed, since the merge removes it. Then it:
+It refuses a local branch with commits on no branch of origin, and a worktree with changes not committed, since the merge removes both. Then it:
 1. squash-merges the pull request and deletes its branch on origin,
 2. removes the worktree, the local branch, the record and the event log of its process,
-3. closes the issue of the head branch, with a comment that names the pull request, when the base is not the default branch: GitHub closes a linked issue only there.
+3. closes the issue of the head branch, with a comment that names the pull request, when the base is not the default branch. GitHub closes a linked issue only there.
 
 A promotion from `dev` or `main` gets a merge commit and keeps its branch. A pull request from a fork keeps every local branch and closes no issue.
 
@@ -112,7 +112,12 @@ A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milesto
 Then it publishes the release with generated notes and closes the milestone.
 
 ## Acceptance start
-An acceptance start opens a plan process on a spec ready for acceptance: its branch `plan/<slug of the title>` from `origin/<base>`, its worktree, and a record with the route `accept` in the state `created`. It refuses, with `409`, an issue that is not an open spec, a spec without tickets or with a ticket open, and a spec that has a process. The spec then leaves `acceptance`. No session starts yet.
+An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the state `created`. It refuses, with `409`:
+- an issue that is not an open spec,
+- a spec without tickets or with a ticket open,
+- a spec that has a process.
+
+The spec then leaves `acceptance`. No session starts yet.
 
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
