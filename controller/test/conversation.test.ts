@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, record, script, start } from './controller.js'
@@ -222,6 +222,21 @@ test('a message to a blocked process resumes its session by its id', async () =>
   page.close()
 })
 
+test('a message to a blocked process whose runtime has not exited yet resumes it only once it has', async () => {
+  play(m, 'blocked Keep the old flag, or drop it?')
+  writeFileSync(join(m.claude, 'resume'), 'ready Dropped the flag\n')
+  const linger = join(m.claude, 'linger')
+  writeFileSync(linger, '')
+  const r = await claim()
+  await inState(r.id, 'blocked')
+  const sent = api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Drop it' })
+  await new Promise((done) => setTimeout(done, 500))
+  expect(read(m.claudeLog)).not.toContain('--resume')
+  rmSync(linger)
+  expect((await sent).body).toMatchObject({ delivered: 'resumed' })
+  expect(await inState(r.id, 'ready')).toMatchObject({ note: 'Dropped the flag' })
+})
+
 test('the context size follows the usage of the session', async () => {
   play(m, 'usage 84000\nsay Read the files.\nwait\nusage 120000\nsay Wrote the reader.\nready done')
   const r = await claim()
@@ -297,6 +312,19 @@ test('open in terminal resumes the session by its id in the worktree, and tells 
   expect(body).toMatch(new RegExp(`^exec '[^']+/fake/claude' '--resume' '${done.session_id}' '--plugin-dir' '[^']+/plugins/worker' '--agent' 'worker' '--settings' '\\{"env":\\{"WF_MODE":"manual","WF_ISSUE":"144"`, 'm'))
 })
 
+test('open in terminal answers once a terminal that stays with its window has started, and leaves it running', async () => {
+  play(m, 'blocked Which name?')
+  const r = await claim()
+  await inState(r.id, 'blocked')
+  const pid = join(m.root, 'terminal.pid')
+  terminal(`echo $$ > '${pid}'; exec /bin/sleep 30`)
+  const t = await api(m, 'POST', '/api/processes/terminal', { id: r.id })
+  expect(t.status, JSON.stringify(t.body)).toBe(200)
+  const window = Number(read(pid).trim())
+  expect(() => process.kill(window, 0)).not.toThrow()
+  process.kill(window)
+})
+
 test('open in terminal refuses a process whose session never started', async () => {
   const opened = join(m.root, 'terminal.log')
   terminal(`printf '%s\\n' "$1" >> '${opened}'`)
@@ -305,6 +333,17 @@ test('open in terminal refuses a process whose session never started', async () 
   await inState(r.id, 'failed')
   expect(await api(m, 'POST', '/api/processes/terminal', { id: r.id })).toMatchObject({ status: 409, body: { error: 'the process has no session yet; wait until its session has started' } })
   expect(existsSync(opened)).toBe(false)
+})
+
+test('a process page whose log cannot be read is refused, and the controller goes on', async () => {
+  play(m, 'blocked Which name?')
+  const r = await claim()
+  await inState(r.id, 'blocked')
+  const log = join(m.state, 'processes', `${r.id}.events.jsonl`)
+  rmSync(log)
+  mkdirSync(log)
+  expect((await fetch(`${m.url}/api/processes/events?id=${r.id}`)).status).toBe(500)
+  expect((await api(m, 'GET', '/api/projects')).status).toBe(200)
 })
 
 test('the conversation routes refuse what names no process, no text and no answer', async () => {

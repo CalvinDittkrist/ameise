@@ -7,6 +7,7 @@
 #     play                     the session to play, one step a line; the first word of a line is the step
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays play
+#     linger                   while it is there, a session that has reported its end has not exited yet
 #   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
 #
@@ -169,6 +170,9 @@ while next; do
       case "$word" in
         ready | blocked)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":\"\",\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
+          # A lingering runtime shrugs off the SDK's TERM as it closes the session.
+          trap '' TERM
+          while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done
           exit 0 ;;
         silent)
           exit 0 ;;

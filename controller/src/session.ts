@@ -97,16 +97,19 @@ interface Request {
 }
 
 // A session running: the abort that stops it, its end, its input and the requests that wait for an
-// answer. Its end settles once the session has written its last and its runtime has exited.
+// answer. Its end settles once the session has written its last and its runtime has exited. It is over
+// once it has reported its end or been stopped, while its runtime may still be exiting.
 interface Running {
   abort: AbortController
   done: Promise<void>
   input: Input
   requests: Map<string, Request>
+  over: boolean
 }
 
 // The sessions running, by process id, so an abandon can stop its process's session and a message or an
-// answer reaches it.
+// answer reaches it. A session stays here until its runtime has exited, so a resume waits for it and two
+// runtimes never share a worktree.
 const running = new Map<string, Running>()
 
 // stop ends the session of a process, if one runs, and settles once its runtime process has exited, so
@@ -114,7 +117,7 @@ const running = new Map<string, Running>()
 export async function stop(id: string): Promise<boolean> {
   const s = running.get(id)
   if (!s) return false
-  running.delete(id)
+  s.over = true
   s.abort.abort()
   await s.done
   return true
@@ -342,10 +345,11 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime, mes
   const requests = new Map<string, Request>()
   let exited: Promise<void> = Promise.resolve()
   const spawned = (p: Promise<void>) => (exited = p)
-  const live = () => running.get(id)?.abort === abort
+  const s: Running = { abort, done: Promise.resolve(), input, requests, over: false }
+  const live = () => running.get(id) === s && !s.over
   const end = ({ state, note }: Ended) => {
     if (!live()) return
-    running.delete(id)
+    s.over = true
     input.close()
     for (const [request, r] of requests) {
       r.close()
@@ -370,7 +374,7 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime, mes
     } catch (err) {
       warn(id, `could not write the end of its session (${r.state})`, err)
       try {
-        running.delete(id)
+        s.over = true
         const failed = update(rt.stateDir, id, { state: 'failed', note: `could not write the end of the implement session: ${(err as Error).message}`, unseen: true })
         if (failed) rt.announce(failed)
       } catch (again) {
@@ -380,12 +384,14 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime, mes
   }
   if (message === undefined) input.push(brief(record, `${project.owner}/${project.name}`))
   else input.push(message)
-  const s: Running = { abort, done: Promise.resolve(), input, requests }
   running.set(id, s)
   s.done = session(record, rt, s, live, spawned)
     .then(settle, (err: Error) => settle({ state: 'failed', note: `the implement session failed: ${err.message}` }))
     .catch((err: unknown) => warn(id, 'its session ended unexpectedly', err))
     .then(() => exited)
+    .finally(() => {
+      if (running.get(id) === s) running.delete(id)
+    })
   return started
 }
 
@@ -395,7 +401,7 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime, mes
 export async function say(record: WorkRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
   const s = running.get(id)
-  if (s && !s.input.closed) {
+  if (s && !s.over) {
     const question = [...s.requests.values()].find((r) => r.kind === 'question')
     if (question) {
       question.answer({ text })
@@ -405,7 +411,7 @@ export async function say(record: WorkRecord, text: string, rt: Runtime, project
     s.input.push(text)
     return 'sent'
   }
-  // A session that has reported its end is let finish before it is resumed, so two never run at once.
+  // A session that is over is let exit before it is resumed, so two never run at once.
   if (s) await s.done
   const p = await project()
   // Another message may have resumed the session meanwhile; this one is then its next turn.
