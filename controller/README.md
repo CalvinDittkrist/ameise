@@ -98,7 +98,7 @@ A merge takes a ready pull request of a project into its base, by the rules of t
 It refuses a worktree of the branch with commits on no branch of origin, or changes not committed, since the merge removes it. Then it:
 1. squash-merges the pull request and deletes its branch on origin,
 2. removes the worktree, the local branch, the record and the event log of its process,
-3. closes the issue of the head branch when the base is not the default branch, since GitHub closes a linked issue only there, with a comment that names the pull request.
+3. closes the issue of the head branch, with a comment that names the pull request, when the base is not the default branch: GitHub closes a linked issue only there.
 
 A promotion from `dev` or `main` gets a merge commit and keeps its branch. A pull request from a fork keeps every local branch and closes no issue.
 
