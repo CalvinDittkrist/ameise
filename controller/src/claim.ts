@@ -8,7 +8,7 @@ import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
 import { ghApi, issueFromBranch, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
 import { type Project, Refusal } from './project.js'
-import { event, stop, update } from './session.js'
+import { type Announce, event, stop, update } from './session.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
 // claim itself sets the mode and the issue, and the base branch follows the base branch rule.
@@ -96,6 +96,8 @@ export interface CreatedRecord {
   note: string
   // session_id is the id of the implement session, once it has started.
   session_id?: string
+  // unseen says the process turned blocked, ready or failed and its page has not been opened since.
+  unseen?: boolean
   created_at: string
   updated_at: string
 }
@@ -387,11 +389,12 @@ export interface Abandoned {
 // abandon removes the worktree and the process of the issue and leaves its branch and the issue. It
 // refuses a worktree with commits that are on no branch of origin, or with changes not committed,
 // unless force is given.
-export function abandon(project: Project, stateDir: string, issue: number, force: boolean): Promise<Abandoned> {
-  return held(project, `#${issue}`, () => abandonHeld(project, stateDir, issue, force))
+// A session it stopped for an abandon that is then refused ends failed, which announce is told of.
+export function abandon(project: Project, stateDir: string, issue: number, force: boolean, announce: Announce): Promise<Abandoned> {
+  return held(project, `#${issue}`, () => abandonHeld(project, stateDir, issue, force, announce))
 }
 
-async function abandonHeld(project: Project, stateDir: string, n: number, force: boolean): Promise<Abandoned> {
+async function abandonHeld(project: Project, stateDir: string, n: number, force: boolean, announce: Announce): Promise<Abandoned> {
   const top = project.path
   const records = recordsOf(stateDir, top, n)
   // A plan branch names no issue, so its worktree is found through the branch its record holds.
@@ -420,8 +423,9 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
   } catch (err) {
     const note = `the implement session was stopped by an abandon that was refused: ${(err as Error).message}`
     for (const id of stopped) {
-      update(stateDir, id, { state: 'failed', note })
+      const failed = update(stateDir, id, { state: 'failed', note, unseen: true })
       event(stateDir, id, { event: 'session-end', stage: 'implement', state: 'failed', note })
+      if (failed) announce(failed)
     }
     throw err
   }

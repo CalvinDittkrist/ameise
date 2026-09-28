@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { createContext, useCallback, useEffect, useState } from "react"
 
 // A project as GET /api/projects answers it: the facts derived from its checkout, or the reason its
 // checkout no longer derives.
@@ -39,8 +39,10 @@ export function useProjects(): [Projects, () => Promise<void>] {
 }
 
 // A process as the board answers it: the worktree and the record of one process, joined with its pull
-// request. needs says it waits for a person, action names what answers it.
+// request. needs says it waits for a person, action names what answers it. id names its record, which a
+// worktree without one lacks. unseen says it turned blocked, ready or failed and its page is not opened yet.
 export type Process = {
+  id: string | null
   kind: "work" | "plan" | "hunt" | "standardize"
   state: "blocked" | "approval" | "ready" | "input" | "failed" | "running" | "waiting" | "created"
   stage: string
@@ -53,6 +55,7 @@ export type Process = {
   note: string
   needs: boolean
   action: string
+  unseen: boolean
 }
 export type Issue = { number: number; title: string; milestone: string | null }
 export type ProjectBoard = Project & { processes: Process[]; frontier: Issue[]; acceptance: Issue[]; notes: string[] }
@@ -88,6 +91,47 @@ export function useBoard(): [Board, () => Promise<void>] {
   return [board, reload]
 }
 
+// A reading of a runtime's quota as GET /api/quota answers it: the percentage left and when the windows
+// that limit it reset, marked below when it is under the configured minimum, or unknown with the reason.
+export type Reading =
+  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
+  | { runtime: string; known: false; reason: string; below: false }
+export type Quota = { state: "loading" } | { state: "failed"; error: string } | { state: "loaded"; minimum: number; runtimes: Reading[] }
+
+// useQuota reads the quota when the page opens, on focus and every minute. The controller runs the
+// configured quota-axi on each request.
+export function useQuota(): Quota {
+  const [quota, setQuota] = useState<Quota>({ state: "loading" })
+  const reload = useCallback(async () => {
+    try {
+      setQuota({ state: "loaded", ...(await call<{ minimum: number; runtimes: Reading[] }>("GET", "/api/quota")) })
+    } catch (err) {
+      setQuota({ state: "failed", error: (err as Error).message })
+    }
+  }, [])
+  useEffect(() => {
+    // The first read is started from here, and its answer lands after this effect has returned.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload()
+    addEventListener("focus", reload)
+    const timer = setInterval(reload, 60_000)
+    return () => {
+      removeEventListener("focus", reload)
+      clearInterval(timer)
+    }
+  }, [reload])
+  return quota
+}
+
+// QuotaContext carries the quota to the claim dialogs, deep in the rows of the board.
+export const QuotaContext = createContext<Quota>({ state: "loading" })
+
+// runtimeName is how the dashboard names a runtime quota-axi names as a provider.
+export const runtimeName = (runtime: string) => (runtime === "claude" ? "Claude" : runtime)
+
+// until is the time to an instant, in its largest whole unit, as age tells the time since one.
+export const until = (at: string, now = Date.now()) => age(new Date(now).toISOString(), Date.parse(at))
+
 // age is the time since an instant, in its largest whole unit, as the CLI prints it.
 export function age(since: string | null, now = Date.now()): string {
   const t = since === null ? NaN : Date.parse(since)
@@ -104,10 +148,13 @@ export function age(since: string | null, now = Date.now()): string {
 export const addProject = (path: string) => call<Listed>("POST", "/api/projects", { path })
 
 // claim takes an issue of the project at path into a work process, in manual or yolo mode with the
-// worker knobs it overrides, each NAME=VALUE. It answers the warnings of what force lifted, or throws
-// the controller's reason for refusing it.
+// worker knobs it overrides, each NAME=VALUE. It answers the warnings of what force lifted and the
+// runtimes below the quota's minimum, or throws the controller's reason for refusing it.
 export const claim = (path: string, issue: number, mode: "manual" | "yolo", env: string[], force: boolean) =>
-  call<{ warnings: string[] }>("POST", "/api/processes", { project: path, issue, mode, env, force })
+  call<{ warnings: string[]; quota: string[] }>("POST", "/api/processes", { project: path, issue, mode, env, force })
+
+// seen marks the process with that id as seen, which clears its badge.
+export const seen = (id: string) => call<{ id: string }>("POST", "/api/processes/seen", { id })
 
 // abandon removes the worktree and the process of the issue, or throws the controller's reason.
 export const abandon = (path: string, issue: number, force: boolean) =>

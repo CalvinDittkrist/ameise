@@ -224,8 +224,9 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
   const c = (await call('POST', '/api/processes', { project, issue, mode, env, force })) as {
     record: { branch: string; worktree: string; base: string; start?: string; mode: string; env: Record<string, string>; state: string }
     warnings: string[]
+    quota: string[]
   }
-  for (const w of c.warnings) process.stderr.write(`warning: ${w}\n`)
+  for (const w of [...c.warnings, ...c.quota]) process.stderr.write(`warning: ${w}\n`)
   const r = c.record
   const knobs = Object.entries(r.env).map(([k, v]) => `${k}=${v}`)
   process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.start ?? r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)

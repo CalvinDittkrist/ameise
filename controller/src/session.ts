@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { writeAtomic, type WorkRecord } from './claim.js'
-import type { Project } from './project.js'
+import { type Project, Refusal } from './project.js'
 
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
@@ -17,7 +17,13 @@ export interface Runtime {
   // worker is the directory of the bundled worker plugin.
   worker: string
   stateDir: string
+  // announce tells the maintainer that a process turned blocked, ready or failed (notify.ts).
+  announce: Announce
 }
+
+// Announce is told of a process once it has turned blocked, ready or failed, with its record as it
+// ended. A yolo process that ended ready is told of although its record is gone.
+export type Announce = (record: WorkRecord) => void
 
 // The worker plugin ships with the controller: dist/session.js reaches plugins/worker of the checkout.
 export const bundledWorker = fileURLToPath(new URL('../../plugins/worker', import.meta.url))
@@ -123,6 +129,18 @@ export function update(stateDir: string, id: string, change: Partial<WorkRecord>
   return record
 }
 
+// seen marks a process as seen, once its page is opened, and answers whether it has a record. It leaves
+// the time of the record's last change alone, since the process itself did not change.
+// It refuses an id that is not the shape of a process id, so no id names a file outside the processes.
+export function seen(stateDir: string, id: string): boolean {
+  if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) throw new Refusal('id is not the id of a process; send the id the board names')
+  const file = recordFile(stateDir, id)
+  if (!existsSync(file)) return false
+  const record = JSON.parse(readFileSync(file, 'utf8')) as WorkRecord
+  if (record.unseen) writeAtomic(file, JSON.stringify({ ...record, unseen: false }, null, 2) + '\n')
+  return true
+}
+
 export function event(stateDir: string, id: string, e: Record<string, unknown>) {
   if (existsSync(recordFile(stateDir, id))) appendFileSync(eventsFile(stateDir, id), JSON.stringify({ at: new Date().toISOString(), ...e }) + '\n')
 }
@@ -154,10 +172,13 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime): Wo
       // The event log goes first, so whoever sees the record gone sees the whole process gone.
       rmSync(eventsFile(rt.stateDir, id), { force: true })
       rmSync(recordFile(rt.stateDir, id), { force: true })
+      rt.announce({ ...record, state, note })
       return
     }
-    update(rt.stateDir, id, { state, note })
+    // The process is unseen until its page is opened, so the dashboard marks it until then.
+    const ended = update(rt.stateDir, id, { state, note, unseen: true })
     event(rt.stateDir, id, { event: 'session-end', stage: 'implement', state, note })
+    if (ended) rt.announce(ended)
   }
   // A write that fails, as on a full or read-only disk, ends this process failed where it still can and
   // is told on stderr; it never reaches the controller as an unhandled rejection.
@@ -168,7 +189,8 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime): Wo
       warn(id, `could not write the end of its session (${r.state})`, err)
       try {
         running.delete(id)
-        update(rt.stateDir, id, { state: 'failed', note: `could not write the end of the implement session: ${(err as Error).message}` })
+        const failed = update(rt.stateDir, id, { state: 'failed', note: `could not write the end of the implement session: ${(err as Error).message}`, unseen: true })
+        if (failed) rt.announce(failed)
       } catch (again) {
         warn(id, 'could not mark it failed', again)
       }
