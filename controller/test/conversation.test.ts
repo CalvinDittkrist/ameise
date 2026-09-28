@@ -123,7 +123,7 @@ test('a permission request is a card of the page that waits for its answer, and 
   expect(permission).toMatchObject({ tool: 'Bash', detail: 'git push origin HEAD', title: 'Bash wants to run', reason: 'The classifier did not settle it.' })
 
   // The session waits, and the process waits for the maintainer under needs you.
-  await inState(r.id, 'approval')
+  expect(await inState(r.id, 'approval')).toMatchObject({ note: 'Bash wants to run: git push origin HEAD' })
   await new Promise((done) => setTimeout(done, 500))
   expect(recordOf(r.id).state).toBe('approval')
   const board = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: { state: string; needs: boolean; action: string }[] }

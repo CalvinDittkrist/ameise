@@ -122,7 +122,7 @@ In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUD
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
-- A permission the `auto` classifier does not settle reaches the controller through the SDK's permission callback. It becomes a `permission` event with the tool, the call and the reason, and the process turns `approval` with the request as its note.
+- A permission the `auto` classifier does not settle reaches the controller through the SDK's permission callback. It becomes a `permission` event with the tool, the call and the reason, and the process turns `approval` with the request and the call as its note.
   - The session waits until it is answered: `once` allows the call, `deny` refuses it, and `process` allows it and every call like it for the rest of the process.
   - `process` keeps the rules the runtime suggests for the call in the record's `allowed`, or the call itself when it suggests none. A later call they cover runs without a card, as an `allowed` event.
   - Those rules reach the session for its own lifetime and never a settings file.

@@ -458,7 +458,7 @@ async function session(
       return { behavior: 'allow', updatedInput: input }
     }
     const reason = [o.decisionReason || o.description || '', o.blockedPath ? `It reaches ${o.blockedPath}.` : ''].filter(Boolean).join(' ')
-    return ask(request, { kind: 'permission', note: title }, { event: 'permission', tool, detail: shown, title, reason }, (a) => {
+    return ask(request, { kind: 'permission', note: shown ? `${title}: ${shown}` : title }, { event: 'permission', tool, detail: shown, title, reason }, (a) => {
       if (typeof a !== 'string' || a === 'deny') return { behavior: 'deny', message: 'The maintainer denied this call in the process view.' }
       if (a === 'once') return { behavior: 'allow', updatedInput: input }
       const now = readRecord(rt.stateDir, id)?.allowed ?? []
