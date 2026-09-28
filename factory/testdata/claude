@@ -84,16 +84,6 @@
 #   CLAUDE_SHIM_VERSION_HANG   seconds --version waits before it answers, as a binary that hangs
 set -u
 
-eager=""
-if [ -n "${CLAUDE_SHIM_REVIEW_EAGER:-}" ]; then
-  case " $* " in
-    *'-reviewer '*)
-      eager=1
-      printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
-      ;;
-  esac
-fi
-
 host="${CLAUDE_SHIM_HOST_LOG:-/dev/null}"
 case "${1:-}" in
   --version)
@@ -134,6 +124,12 @@ done
 [ -z "$reviewer" ] || author=""
 [ -z "$author" ] || log="${CLAUDE_SHIM_AUTHOR_LOG:-/dev/null}"
 [ -z "$reviewer" ] || log="${CLAUDE_SHIM_REVIEW_LOG:-/dev/null}"
+reviewer_init='{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
+eager=""
+if [ -n "$reviewer" ] && [ -n "${CLAUDE_SHIM_REVIEW_EAGER:-}" ]; then
+  eager=1
+  printf '%s\n' "$reviewer_init"
+fi
 # Reviewers run beside each other, so a record is written under a lock that keeps them whole.
 tries=0
 while ! mkdir "$log.lock" 2>/dev/null && [ "$tries" -lt 200 ]; do tries=$((tries + 1)); sleep 0.05; done
@@ -156,7 +152,7 @@ rmdir "$log.lock" 2>/dev/null
 issue=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | sed -n 's#^[a-z][a-z]*/\([0-9][0-9]*\)-.*#\1#p')
 
 if [ -n "$reviewer" ]; then
-  [ -n "$eager" ] || printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
+  [ -n "$eager" ] || printf '%s\n' "$reviewer_init"
   if [ -n "${CLAUDE_SHIM_REVIEW_BARRIER:-}" ]; then
     waited=0
     while [ "$(grep -c '^call$' "$log")" -lt "$CLAUDE_SHIM_REVIEW_BARRIER" ]; do
