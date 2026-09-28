@@ -162,7 +162,7 @@ interface PullRequest {
   statusCheckRollup?: { conclusion?: string | null; state?: string | null; status?: string | null }[]
 }
 
-export function checksOf(pr: PullRequest): Checks {
+export function checksOf(pr: Pick<PullRequest, 'statusCheckRollup'>): Checks {
   const c = (pr.statusCheckRollup ?? []).map((x) => x.conclusion || x.state || 'PENDING')
   if (c.length === 0) return 'none'
   if (c.some((s) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(s))) return 'fail'
@@ -367,7 +367,8 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
             }),
         )
         const note = unknown ? `could not read the sub-issues of ${unknown} spec(s); they are not listed` : undefined
-        return { issues: ready.filter((s): s is GitHubIssue => s !== undefined).map(issue), note }
+        // A spec whose acceptance is under way is a process of its own and no longer waits for it.
+        return { issues: ready.filter((s): s is GitHubIssue => s !== undefined && !claimed.has(s.number)).map(issue), note }
       })
       .catch(() => ({ issues: [] as Issue[], note: 'could not read the open specs; ready for acceptance is empty, not idle' })),
   ])

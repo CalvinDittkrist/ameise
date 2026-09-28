@@ -9,6 +9,18 @@
 #     repos/<owner>/<name>/issues/<n>.json the issue gh issue view answers
 #     repos/<owner>/<name>/unassignable    present: gh issue edit --add-assignee fails for it
 #                                          (gh issue edit --remove-assignee @me always holds)
+#     repos/<owner>/<name>/pulls/<n>.json  the pull request gh pr view answers
+#     repos/<owner>/<name>/pulls/<n>.merged.json
+#                                          what gh pr view answers of it once gh pr merge merged it
+#     repos/<owner>/<name>/pulls/<n>.merged
+#                                          written by gh pr merge, which holds for a canned pull request
+#     repos/<owner>/<name>/pulls/<n>.threads.json
+#                                          the review threads of it, such as [{"isResolved": false}],
+#                                          which gh api graphql answers; absent, it has none
+#     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
+#     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
+#                                          (gh issue close, gh release create and gh api --method PATCH
+#                                          always hold)
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   WORKFLOWS_FAKE_GH_LOG  every call, one request per line
@@ -36,6 +48,42 @@ case "$*" in
       exit 1
     fi
     cat "$file" ;;
+  'pr list --repo '*' --base main --head dev --state all --limit 100 --json '*)
+    file="$canned/repos/$4/promotions.json"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'error: no canned promotions of %s\n' "$4" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  'pr view '*' --repo '*' --json '*)
+    file="$canned/repos/$5/pulls/$3.json"
+    if [ -n "$canned" ] && [ -e "$canned/repos/$5/pulls/$3.merged" ] && [ -f "$canned/repos/$5/pulls/$3.merged.json" ]; then
+      file="$canned/repos/$5/pulls/$3.merged.json"
+    fi
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'GraphQL: Could not resolve to a PullRequest with the number of %s. (repository.pullRequest)\n' "$3" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  'pr merge '*' --repo '*)
+    if [ -z "$canned" ] || [ ! -f "$canned/repos/$5/pulls/$3.json" ]; then
+      printf 'GraphQL: Could not resolve to a PullRequest with the number of %s. (repository.pullRequest)\n' "$3" >&2
+      exit 1
+    fi
+    : > "$canned/repos/$5/pulls/$3.merged" ;;
+  'pr create --repo '*' --base main --head dev '*)
+    file="$canned/repos/$4/next-pull"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'pull request create failed: no canned next pull request of %s\n' "$4" >&2
+      exit 1
+    fi
+    printf 'https://github.com/%s/pull/%s\n' "$4" "$(cat "$file")" ;;
+  'release create '*' --repo '*)
+    printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
+  'issue close '*' --repo '*)
+    printf 'Closed issue %s#%s\n' "$5" "$3" ;;
+  'api --method PATCH '*)
+    printf '{}\n' ;;
   'pr list --repo '*' --state open --limit 100 --json '*)
     file="$canned/repos/$4/pulls.json"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
@@ -58,6 +106,11 @@ case "$*" in
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
   'issue edit '*' --repo '*' --remove-assignee @me')
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
+  'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
+    file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
+    threads='[]'
+    if [ -n "$canned" ] && [ -f "$file" ]; then threads=$(cat "$file"); fi
+    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s}}}}}\n' "$threads" ;;
   'api '*)
     endpoint=${!#}
     file="$canned/api/$endpoint"

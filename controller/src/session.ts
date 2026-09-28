@@ -169,8 +169,9 @@ export function implement(record: WorkRecord, project: Project, rt: Runtime): Wo
     if (!live()) return
     running.delete(id)
     if (record.mode === 'yolo' && state === 'ready') {
-      rmSync(recordFile(rt.stateDir, id), { force: true })
+      // The event log goes first, so whoever sees the record gone sees the whole process gone.
       rmSync(eventsFile(rt.stateDir, id), { force: true })
+      rmSync(recordFile(rt.stateDir, id), { force: true })
       rt.announce({ ...record, state, note })
       return
     }

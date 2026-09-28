@@ -7,6 +7,7 @@ import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
+import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { type Announce, implement, seen } from './session.js'
@@ -141,6 +142,35 @@ export function serve(o: Options): Server {
     send(res, 200, done)
   }
 
+  // A merge takes a ready pull request into its base; a release tags a finished milestone; an acceptance
+  // start opens a plan process on a spec whose tickets are all closed.
+  async function merged(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const pr = mergeRequest(body)
+    const project = await known(body)
+    const done = await merge(project, o.stateDir, o.gh, o.fake, pr)
+    log({ event: 'merged', project: project.path, pr, branch: done.branch, method: done.method, base: done.base })
+    send(res, 200, done)
+  }
+
+  async function released(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const milestone = releaseRequest(body)
+    const project = await known(body)
+    const done = await release(project, o.stateDir, o.gh, o.fake, milestone)
+    log({ event: done.status === 'released' ? 'released' : 'release waiting', project: project.path, milestone })
+    send(res, done.status === 'released' ? 201 : 202, done)
+  }
+
+  async function accepted(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const spec = specRequest(body)
+    const project = await known(body)
+    const record = await accept(project, o.stateDir, o.gh, o.fake, spec)
+    log({ event: 'accept', project: project.path, issue: spec, branch: record.branch })
+    send(res, 201, { record })
+  }
+
   // A process page that is opened marks its process seen, which clears its badge.
   async function opened(req: IncomingMessage, res: ServerResponse) {
     const id = ((await readJSON(req)) ?? {}).id
@@ -210,6 +240,12 @@ export function serve(o: Options): Server {
           return claimed(req, res)
         case 'DELETE /api/processes':
           return abandoned(req, res)
+        case 'POST /api/merges':
+          return merged(req, res)
+        case 'POST /api/releases':
+          return released(req, res)
+        case 'POST /api/acceptances':
+          return accepted(req, res)
         case 'POST /api/processes/seen':
           return opened(req, res)
         case 'GET /api/quota':

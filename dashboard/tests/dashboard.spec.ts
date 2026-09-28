@@ -206,9 +206,10 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(actions(page, "Processes")).toHaveText(["Open", "Open"])
   await expect(rows(page, "Processes").first()).not.toContainText("backtest")
   await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
-  for (const action of ["Plan", "Standardize", "Hunt tests", "Release"]) {
+  for (const action of ["Plan", "Standardize", "Hunt tests"]) {
     await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeDisabled()
   }
+  await expect(page.getByRole("button", { name: "Release", exact: true })).toBeEnabled()
   await expect(projects(page).getByRole("link", { name: "backtest" })).toHaveAttribute("data-active", "true")
 
   await page.reload()
@@ -339,6 +340,62 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
       body: JSON.stringify({ project, issue: 145, force: true }),
     })
   }
+})
+
+// answer answers the next request to an API path with the status and body given, and keeps the body the
+// dashboard sent, so a test reads what an action asked for without changing the fake's state.
+async function answer(page: Page, path: string, status: number, body: unknown): Promise<() => unknown> {
+  let sent: unknown
+  await page.route(`**${path}`, async (r) => {
+    sent = r.request().postDataJSON()
+    await r.fulfill({ status, json: body })
+  })
+  return () => sent
+}
+
+test("merge, accept and release each ask once, show the controller's refusal, and send the action", async ({ page }) => {
+  const project = process.env.WORKFLOWS_SENSORS!
+  await page.goto(url())
+
+  // Merge on a ready process: the controller's refusal shows in the dialog, a merge closes it.
+  const ready = section(page, "Needs you").locator('[aria-label="fix/131-log-the-sensor-drift"]')
+  const pr = (await (await fetch(url("/api/board?" + new URLSearchParams({ project })))).json()).processes.find(
+    (p: { branch: string }) => p.branch === "fix/131-log-the-sensor-drift",
+  ).pr.number
+  await ready.getByRole("button", { name: "Merge" }).click()
+  const merge = page.getByRole("dialog", { name: `Merge PR #${pr}` })
+  await expect(merge).toContainText("deletes fix/131-log-the-sensor-drift and removes its worktree and process")
+  await answer(page, "/api/merges", 409, { error: `PR #${pr} has checks still pending; merge it once they pass` })
+  await merge.getByRole("button", { name: "Merge" }).click()
+  await expect(merge.getByRole("alert")).toHaveText(`PR #${pr} has checks still pending; merge it once they pass`)
+  await page.unroute("**/api/merges")
+  let sent = await answer(page, "/api/merges", 200, { branch: "fix/131-log-the-sensor-drift", base: "main", closed: null, warnings: [] })
+  await merge.getByRole("button", { name: "Merge" }).click()
+  await expect(merge).toBeHidden()
+  expect(sent()).toEqual({ project, pr })
+
+  // Accept on a spec ready for acceptance opens a plan process.
+  await section(page, "Needs you").locator('[aria-label="#100"]').getByRole("button", { name: "Accept" }).click()
+  const acceptance = page.getByRole("dialog", { name: "Accept #100" })
+  await expect(acceptance).toContainText("Opens a plan process on Offline mode with the acceptance route.")
+  sent = await answer(page, "/api/acceptances", 201, { record: { branch: "plan/offline-mode" } })
+  await acceptance.getByRole("button", { name: "Start acceptance" }).click()
+  await expect(acceptance).toBeHidden()
+  expect(sent()).toEqual({ project, spec: 100 })
+
+  // Release on the project page: a promotion that is not green says why it waits.
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+  await page.getByRole("button", { name: "Release", exact: true }).click()
+  const release = page.getByRole("dialog", { name: "Release" })
+  await release.getByLabel("Milestone").fill("v0.12.0")
+  const reason = "PR #7 has checks still pending; merge it once they pass; release v0.12.0 again once it is green"
+  sent = await answer(page, "/api/releases", 202, { status: "waiting", milestone: "v0.12.0", promotion: "https://github.com/acme/edge-sensors/pull/7", reason })
+  await release.getByRole("button", { name: "Release" }).click()
+  const waiting = page.getByRole("dialog", { name: "Release v0.12.0" })
+  await expect(waiting.getByRole("status", { name: "Warnings" })).toHaveText(reason)
+  expect(sent()).toEqual({ project, milestone: "v0.12.0" })
+  await waiting.getByRole("button", { name: "Done" }).click()
+  await expect(waiting).toBeHidden()
 })
 
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {
