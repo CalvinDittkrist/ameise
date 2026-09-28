@@ -50,6 +50,9 @@ export function stop(id: string) {
   running.delete(id)
 }
 
+// safeRef is a branch name the brief carries: letters, digits and . _ / - only.
+const safeRef = /^[A-Za-z0-9._/-]+$/
+
 // brief is the first prompt: the worker's pipeline with the facts the session needs to read GitHub and
 // git itself. It carries no text of the issue.
 export function brief(record: WorkRecord, repo: string): string {
@@ -141,6 +144,11 @@ async function session(
   live: () => boolean,
 ): Promise<{ state: 'ready' | 'blocked' | 'failed'; note: string }> {
   if (!existsSync(join(rt.worker, 'skills', 'work', 'SKILL.md'))) return { state: 'failed', note: `the bundled worker plugin is missing at ${rt.worker}; reinstall workflows` }
+  // The brief names the branch and the base in commands the session runs; a name from origin with a
+  // shell character in it does not reach the prompt.
+  for (const name of [record.branch, record.base]) {
+    if (!safeRef.test(name)) return { state: 'failed', note: `the branch name ${JSON.stringify(name)} has characters the brief does not carry; rename it on origin` }
+  }
   let stderr = ''
   const q = query({
     prompt: brief(record, `${project.owner}/${project.name}`),
