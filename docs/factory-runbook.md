@@ -473,14 +473,17 @@ The factory is steered on GitHub alone; its interface never writes ([ADR 0023](a
 The logins in `notify` are asked for a review when a run ends `ready`. They are mentioned on the issue when a run waits for a person.
 
 ### Outages of the permission check
-- Claude Code's auto mode classifier sometimes gives no verdict on a tool call. The call is denied with the reason `Classifier unavailable`, and the run's log shows the error event "the classifier denied Bash".
-- A session can do nothing without Bash, so it reports `blocked` or ends `failed`, and it cannot tell the outage from a reason to stop.
-- The factory can. A run that saw such a denial and ends `blocked` or `failed` records `outage` and logs "outage of the permission check".
-- The factory resumes it once by itself, in the same worktree, on the signal `outage`, after `outage_wait`. The whole line waits for it meanwhile, because the next issue would meet the same outage. Nobody is notified of that first ending.
-- That resume is the one an interruption spends too. A second outage, or an outage after an interruption, holds the issue and notifies as a block does.
+- Claude Code's auto mode classifier sometimes gives no verdict on a tool call. The call is denied with the reason `Classifier unavailable`.
+  - The run's log shows the error event "the classifier denied Bash".
+- Without Bash a session reports `blocked` or ends `failed`. It cannot tell the outage from a reason to stop.
+- The factory can. Such a run records `outage` and logs "outage of the permission check".
+- The factory resumes it once, in the same worktree, on the signal `outage`, after `outage_wait`. Nobody is notified of the first ending.
+  - The whole line waits meanwhile, because the next issue would meet the same outage.
+- That resume is the one an interruption spends. A second outage, or one after an interruption, holds the issue and notifies as a block does.
 
 ### Releasing a held issue
-- An issue is held when its run ended `blocked`, `failed`, on the deadline, or interrupted twice. A block or failure after an outage of the permission check is held only once its automatic resume is spent.
+- An issue is held when its run ended `blocked`, `failed`, on the deadline, or interrupted twice.
+  - After an outage of the permission check, a block or failure is held once its automatic resume is spent.
 - Its branch, worktree and assignee stay, and it is out of the line until you remove the assignee.
 - The run's ending pushed the worktree's HEAD to the branch, so the branch on the remote carries every commit of the last run.
 - A push that failed is a warning on the run, and the comment on the issue names it.
