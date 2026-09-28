@@ -672,12 +672,17 @@ func (f *Factory) verdicts(parent, ctx context.Context, r *Run, entry Entry, cla
 	}
 	answers := make([]answer, len(due))
 	var wg sync.WaitGroup
+	// No session's output is read before every session of the round is up (hold), so the round's log
+	// opens with every start in the configured order on any host. A session that could not be started
+	// counts as up, so a failed start never holds the round.
+	all := make(chan struct{})
 	for i, name := range due {
 		// Each is started once the one before it is up, so the sessions start in the configured order and
 		// the log names them in it; they run beside each other from there on.
 		up := make(chan struct{})
 		s := sessionOf(name)
 		s.began = func() { close(up) }
+		s.hold = all
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -686,6 +691,7 @@ func (f *Factory) verdicts(parent, ctx context.Context, r *Run, entry Entry, cla
 		}()
 		<-up
 	}
+	close(all)
 	wg.Wait()
 	for i, name := range due {
 		if ended := answers[i].ended; ended != nil {
