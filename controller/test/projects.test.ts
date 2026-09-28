@@ -102,6 +102,10 @@ test('a checkout whose origin is not on GitHub, or that has none, is refused by 
     status: 400,
     body: { error: `the origin of ${token} is https://gitlab.com/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository` },
   })
+  const query = checkout(m, 'query', { origin: 'https://gitlab.com/owner/repo.git?access_token=secret#frag' })
+  const cleaned = `the origin of ${query} is https://gitlab.com/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository`
+  expect(cli(m, ['projects', 'add', query]).stderr).toBe(`error: ${cleaned}\n`)
+  expect(await api(m, 'POST', '/api/projects', { path: query })).toEqual({ status: 400, body: { error: cleaned } })
   expect(read(m.config)).toBe(before)
 })
 
@@ -143,6 +147,14 @@ test('a listen changed by hand while the server runs does not lock the running s
   expect((await api(m, 'POST', '/api/projects', { path: a })).status).toBe(201)
   expect((await api(m, 'POST', '/api/projects', { path: b })).status).toBe(201)
   expect((await api(m, 'GET', '/api/projects')).status).toBe(200)
+  expect(cli(m, ['projects'])).toEqual({ code: 0, stdout: `${a}  owner/a  base main\n${b}  owner/b  base main\n`, stderr: '' })
+})
+
+test('a project added to the configuration by hand while the server runs is listed at once', async () => {
+  const a = checkout(m, 'a', { origin: 'https://github.com/owner/a.git', originHead: 'main' })
+  const edited = JSON.parse(read(m.config)) as Record<string, unknown>
+  writeFileSync(m.config, JSON.stringify({ ...edited, projects: [a] }, null, 2) + '\n')
+  expect(await api(m, 'GET', '/api/projects')).toEqual({ status: 200, body: [{ path: a, owner: 'owner', name: 'a', base: 'main' }] })
 })
 
 test('a body larger than a path needs is refused with 413 and changes nothing', async () => {

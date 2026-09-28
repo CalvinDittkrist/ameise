@@ -31,9 +31,9 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
 - `listen` is a loopback address; the controller is never reachable from another machine.
 - `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage.
 - A project is the absolute path of a checkout, stored as the top of its working tree.
-- Adding and removing a project reads this file again and rewrites its `projects`, so a change made by hand while the server runs is kept.
+- Listing, adding and removing projects read this file again, so a change made by hand while the server runs shows at once and is kept.
 - The rewrite fills in any field the file lacks with its default.
-- A changed `listen` takes effect at the next start.
+- A changed `listen` takes effect at the next start. Until then the CLI finds the server at the address it started on.
 
 ## Projects
 Owner and name come from the checkout's origin, which must be on GitHub. The base branch follows the base branch rule, whose cases [`contract/base-branch.json`](../contract/base-branch.json) states:
@@ -53,7 +53,7 @@ All of them are derived on every read and never stored. A path that is no git ch
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
 
 ## State
-One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`.
+One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl` and, while the server runs, `listen`: the address it started on, which the CLI reads first.
 
 ## Development
 - `make controller` runs eslint, the type check and the tests.

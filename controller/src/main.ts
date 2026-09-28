@@ -2,10 +2,12 @@
 // workflows: with no command it starts the controller's server and opens the browser on it; every
 // other command is a client of that running server.
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
+import type { Listed } from './project.js'
 import { serve } from './server.js'
 
 const usage = `usage:
@@ -83,35 +85,44 @@ function browse(url: string) {
   child.unref()
 }
 
-// call sends one request to the running server and dies with the fix when none runs.
-async function call(method: string, path: string, body?: unknown): Promise<unknown> {
-  const file = configPath()
-  const { url } = address(config(file).listen)
-  let res: Response
+// running is the address the server wrote into the state directory when it started, or '' when
+// there is none.
+function running(): string {
   try {
-    res = await fetch(url + path, {
-      method,
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
+    return readFileSync(join(stateDir(), 'listen'), 'utf8').trim()
   } catch {
-    die(`workflows is not running on ${url}; start it with workflows`)
+    return ''
   }
+}
+
+// call sends one request to the running server and dies with the fix when none runs. It tries the
+// address the server started on first, since a listen changed in the file takes effect only at the
+// next start. The configured address comes after it, since a server that was killed leaves its record.
+async function call(method: string, path: string, body?: unknown): Promise<unknown> {
+  const { url } = address(config(configPath()).listen)
+  const started = running()
+  const urls = [...new Set([...(started ? [address(started).url] : []), url])]
+  let res: Response | undefined
+  for (const u of urls) {
+    try {
+      res = await fetch(u + path, {
+        method,
+        headers: body === undefined ? {} : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      break
+    } catch {
+      // nothing listens there: the next address is tried
+    }
+  }
+  if (!res) die(`workflows is not running on ${url}; start it with workflows`)
   const answer = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) die(answer.error ?? `${method} ${path} answered ${res.status}`)
   return answer
 }
 
-interface Listed {
-  path: string
-  owner?: string
-  name?: string
-  base?: string
-  error?: string
-}
-
 function line(p: Listed): string {
-  return p.error ? `${p.path}  error: ${p.error}` : `${p.path}  ${p.owner}/${p.name}  base ${p.base}`
+  return 'error' in p ? `${p.path}  error: ${p.error}` : `${p.path}  ${p.owner}/${p.name}  base ${p.base}`
 }
 
 async function main(argv: string[]) {
@@ -133,7 +144,7 @@ async function main(argv: string[]) {
   if ((sub === 'add' || sub === 'remove') && arg !== undefined) {
     const path = resolve(arg)
     if (sub === 'add') process.stdout.write('added ' + line((await call('POST', '/api/projects', { path })) as Listed) + '\n')
-    else process.stdout.write(`removed ${((await call('DELETE', '/api/projects', { path })) as Listed).path}\n`)
+    else process.stdout.write(`removed ${((await call('DELETE', '/api/projects', { path })) as { path: string }).path}\n`)
     return
   }
   die(`unknown command ${argv.join(' ')}; workflows help lists the commands`)

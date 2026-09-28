@@ -1,10 +1,10 @@
 // The server: the local API every client talks to, the dashboard and the CLI alike. It is the one
 // writer of the configuration file.
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isAbsolute, join, resolve } from 'node:path'
 import { address, type Config, readConfig, writeConfig } from './config.js'
-import { checkout, derive, Refusal } from './project.js'
+import { checkout, derive, type Listed, Refusal } from './project.js'
 
 export interface Options {
   config: Config
@@ -14,17 +14,16 @@ export interface Options {
   fake: boolean
 }
 
-type ProjectView = Awaited<ReturnType<typeof derive>> | { path: string; error: string }
-
 export function serve(o: Options): Server {
   mkdirSync(o.stateDir, { recursive: true })
   const log = (event: Record<string, unknown>) =>
     appendFileSync(join(o.stateDir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...event }) + '\n')
 
-  const list = (): Promise<ProjectView[]> =>
+  // The list reads the file as add and remove do, so a project added or removed by hand shows at once.
+  const list = (): Promise<Listed[]> =>
     Promise.all(
-      o.config.projects.map((path) =>
-        derive(path, o.gh).catch((err: Error): ProjectView => ({ path, error: err.message })),
+      readConfig(o.configPath).projects.map((path) =>
+        derive(path, o.gh).catch((err: Error): Listed => ({ path, error: err.message })),
       ),
     )
 
@@ -90,7 +89,14 @@ export function serve(o: Options): Server {
       else send(res, 500, { error: err.message })
     })
   })
-  server.on('listening', () => log({ event: 'started', fake: o.fake }))
+  // The address the server listens on stays until it stops, whatever the file says meanwhile, so
+  // the CLI reads it from the state directory rather than from the configuration.
+  const record = join(o.stateDir, 'listen')
+  server.on('listening', () => {
+    writeFileSync(record, o.config.listen + '\n')
+    log({ event: 'started', fake: o.fake })
+  })
+  server.on('close', () => rmSync(record, { force: true }))
   return server
 }
 
