@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { writeAtomic, type WorkRecord } from './claim.js'
-import type { Project } from './project.js'
+import { type Project, Refusal } from './project.js'
 
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
@@ -131,7 +131,9 @@ export function update(stateDir: string, id: string, change: Partial<WorkRecord>
 
 // seen marks a process as seen, once its page is opened, and answers whether it has a record. It leaves
 // the time of the record's last change alone, since the process itself did not change.
+// It refuses an id that is not the shape of a process id, so no id names a file outside the processes.
 export function seen(stateDir: string, id: string): boolean {
+  if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) throw new Refusal('id is not the id of a process; send the id the board names')
   const file = recordFile(stateDir, id)
   if (!existsSync(file)) return false
   const record = JSON.parse(readFileSync(file, 'utf8')) as WorkRecord
