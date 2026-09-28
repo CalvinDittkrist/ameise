@@ -42,7 +42,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 // request. needs says it waits for a person, action names what answers it.
 export type Process = {
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "running" | "waiting"
+  state: "blocked" | "approval" | "ready" | "input" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
@@ -102,6 +102,16 @@ export function age(since: string | null, now = Date.now()): string {
 // addProject adds the checkout at an absolute path and answers the project, or throws the controller's
 // reason for refusing it.
 export const addProject = (path: string) => call<Listed>("POST", "/api/projects", { path })
+
+// claim takes an issue of the project at path into a work process, in manual or yolo mode with the
+// worker knobs it overrides, each NAME=VALUE. It answers the warnings of what force lifted, or throws
+// the controller's reason for refusing it.
+export const claim = (path: string, issue: number, mode: "manual" | "yolo", env: string[], force: boolean) =>
+  call<{ warnings: string[] }>("POST", "/api/processes", { project: path, issue, mode, env, force })
+
+// abandon removes the worktree and the process of the issue, or throws the controller's reason.
+export const abandon = (path: string, issue: number, force: boolean) =>
+  call<{ branch: string }>("DELETE", "/api/processes", { project: path, issue, force })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response

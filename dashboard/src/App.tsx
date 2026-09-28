@@ -33,7 +33,7 @@ export default function App() {
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
           {route.page === "orchestrator" ? (
-            <Orchestrator board={board} />
+            <Orchestrator board={board} reload={reloadBoard} />
           ) : (
             <ProjectView
               path={route.path}
@@ -41,6 +41,7 @@ export default function App() {
               loading={projects.state === "loading"}
               failed={projects.state === "failed" ? projects.error : undefined}
               board={board}
+              reload={reloadBoard}
             />
           )}
         </div>

@@ -12,7 +12,11 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - A project's page, at `#project=<path of its checkout>`, has its actions and the sections processes and ready to start.
   - Ready for acceptance follows when a spec of the project is.
 - A project whose checkout no longer derives shows the controller's reason. What GitHub did not answer shows as a note above the sections.
-- The controller carries out no action and reads no quota yet. Until it does, the actions are disabled.
+- Claim on a ready-to-start row opens a dialog for the mode, manual or yolo, and the worker knobs to override, one `NAME=VALUE` per line.
+  - Force claims an issue the controller refuses as not agent-ready, routed, held in a spec run or claimed on origin.
+  - The controller's reason for a refusal shows in the dialog.
+- The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay. Force abandons work not on origin.
+- The controller carries out no other action and reads no quota yet. Until it does, the other actions are disabled.
 - Light and dark follow the system.
 
 ## Development
@@ -22,6 +26,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - The browser test starts the built controller in fake mode with two checkouts and a directory that is no checkout.
   - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
+  - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:

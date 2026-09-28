@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
+import { Abandon, Claim } from "@/components/process-actions"
 import { age, type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
 
@@ -11,14 +12,16 @@ const dot: Record<Process["state"], string> = {
   approval: "bg-amber-500",
   input: "bg-violet-500",
   ready: "bg-emerald-500",
+  created: "border-2 border-blue-500",
 }
 
-// The actions are the controller's to carry out, and it serves none yet, so each row shows its one
-// primary action disabled.
+// The controller carries out claim and abandon. Every other action it serves not yet, so a row shows
+// it disabled.
 
-// ProcessRow is one process: its state as a dot, its issue and branch, the note, the stage and the
-// time since it last changed. It shows the one action that moves it on.
-export function ProcessRow({ p, project }: { p: Process; project?: ProjectBoard }) {
+// ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
+// the stage and the time since it last changed. It shows the one action that moves it on, and a work
+// process the action that abandons it.
+export function ProcessRow({ p, project, path, reload }: { p: Process; project?: ProjectBoard; path: string; reload: () => Promise<void> }) {
   return (
     <Item variant="outline" size="sm" aria-label={p.branch}>
       <ItemMedia>
@@ -40,14 +43,27 @@ export function ProcessRow({ p, project }: { p: Process; project?: ProjectBoard 
         <Button size="sm" variant={p.needs ? "default" : "ghost"} disabled>
           {p.action}
         </Button>
+        {p.kind === "work" && p.issue !== null && <Abandon issue={p.issue} branch={p.branch} path={path} reload={reload} />}
       </ItemActions>
     </Item>
   )
 }
 
-// IssueRow is an issue of the frontier, which a claim starts, or a spec whose tickets are all closed,
-// which waits for its acceptance.
-export function IssueRow({ i, project, accept }: { i: Issue; project?: ProjectBoard; accept?: boolean }) {
+// IssueRow is an issue of the frontier of the project at path, which a claim starts, or a spec whose
+// tickets are all closed, which waits for its acceptance.
+export function IssueRow({
+  i,
+  project,
+  accept,
+  path,
+  reload,
+}: {
+  i: Issue
+  project?: ProjectBoard
+  accept?: boolean
+  path: string
+  reload: () => Promise<void>
+}) {
   return (
     <Item variant="outline" size="sm" aria-label={`#${i.number}`}>
       <ItemMedia>
@@ -67,7 +83,7 @@ export function IssueRow({ i, project, accept }: { i: Issue; project?: ProjectBo
           <Button size="sm" disabled>Accept</Button>
         ) : (
           <>
-            <Button size="sm" variant="outline" disabled>Claim</Button>
+            <Claim i={i} path={path} reload={reload} />
             <Button size="sm" variant="ghost" disabled>Plan</Button>
           </>
         )}

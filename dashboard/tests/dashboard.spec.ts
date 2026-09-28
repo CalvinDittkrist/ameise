@@ -45,6 +45,8 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
 // section is the card of that title, its rows each the item the row names.
 const section = (page: Page, title: string) => main(page).locator(`[data-slot=card][aria-label="${title}"]`)
 const rows = (page: Page, title: string) => section(page, title).locator("[data-slot=item]")
+// actions are the primary actions of rows: every button but the one that abandons a work process.
+const actions = (page: Page, title: string) => rows(page, title).getByRole("button", { name: /^(?!Abandon #)/ })
 
 test("the Orchestrator page sorts the processes of every project into needs you and running, beside the frontier", async ({ page }) => {
   await page.goto(url())
@@ -56,14 +58,16 @@ test("the Orchestrator page sorts the processes of every project into needs you 
     "plan/open-20260928-0011",
     "#100",
   ])
-  await expect(rows(page, "Needs you").getByRole("button")).toHaveText(["Answer", "Merge", "Continue", "Accept"])
+  await expect(actions(page, "Needs you")).toHaveText(["Answer", "Merge", "Continue", "Accept"])
   await expect(rows(page, "Needs you").first()).toContainText("edge-sensors#118feat/118-refuse-a-project-without-originAsks: keep the project in the file, or drop it?implement2h")
   expect(await rows(page, "Running").evaluateAll((r) => r.map((x) => x.getAttribute("aria-label")))).toEqual([
     "feat/142-read-the-configuration",
     "feat/88-reconnect-the-broker-stream",
     "hunt/tests-2026-09-27",
   ])
-  await expect(rows(page, "Running").getByRole("button")).toHaveText(["Open", "Open", "Open"])
+  await expect(actions(page, "Running")).toHaveText(["Open", "Open", "Open"])
+  // A work process can be abandoned from its row, a hunt cannot.
+  await expect(rows(page, "Running").getByRole("button", { name: /^Abandon #/ })).toHaveCount(2)
   await expect(rows(page, "Running").nth(1)).toContainText("PR #251, checks pendingci1h")
   await expect(rows(page, "Ready to start")).toHaveText([
     /^edge-sensors#144Board lists every project with its processesv0\.12\.0ClaimPlan$/,
@@ -98,7 +102,7 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
   await expect(page.getByText("acme · base dev")).toBeVisible()
   await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Processes2", "Ready to start1"])
-  await expect(rows(page, "Processes").getByRole("button")).toHaveText(["Open", "Open"])
+  await expect(actions(page, "Processes")).toHaveText(["Open", "Open"])
   await expect(rows(page, "Processes").first()).not.toContainText("backtest")
   await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
   for (const action of ["Plan", "Standardize", "Hunt tests", "Release"]) {
@@ -176,6 +180,44 @@ test("add project refuses a path with the controller's reason and adds a checkou
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ path: spare }),
+    })
+  }
+})
+
+test("a ready-to-start row claims its issue with mode and knobs, and the process row abandons it", async ({ page }) => {
+  const project = process.env.WORKFLOWS_SENSORS!
+  const branch = "feat/145-claim-from-the-frontier-by-one-action"
+  await page.goto(url())
+  try {
+    await section(page, "Ready to start").locator('[aria-label="#145"]').getByRole("button", { name: "Claim" }).click()
+    const dialog = page.getByRole("dialog", { name: "Claim #145" })
+    await expect(dialog).toContainText("Claim from the frontier by one action")
+    await dialog.getByLabel("Knobs").fill("WF_NOPE=1")
+    await dialog.getByRole("button", { name: "Claim" }).click()
+    await expect(dialog.getByRole("alert")).toContainText("WF_NOPE is not a worker knob a claim can set")
+
+    await dialog.getByRole("radio", { name: "Yolo" }).click()
+    await dialog.getByLabel("Knobs").fill("WF_REVIEWERS=2\nWF_PR_BOT_REVIEWERS=")
+    await dialog.getByRole("button", { name: "Claim" }).click()
+    await expect(dialog).toBeHidden()
+    const row = section(page, "Running").locator(`[aria-label="${branch}"]`)
+    await expect(row).toContainText(`edge-sensors#145${branch}claimed; no session yetimplement`)
+    await expect(section(page, "Ready to start").locator('[aria-label="#145"]')).toHaveCount(0)
+    const board = await (await fetch(url("/api/board?" + new URLSearchParams({ project })))).json()
+    expect(board.processes.find((p: { issue: number }) => p.issue === 145)).toMatchObject({ branch, state: "created" })
+
+    await row.getByRole("button", { name: "Abandon #145" }).click()
+    const abandon = page.getByRole("dialog", { name: "Abandon #145" })
+    await expect(abandon).toContainText("The branch and the issue stay as they are.")
+    await abandon.getByRole("button", { name: "Abandon" }).click()
+    await expect(abandon).toBeHidden()
+    await expect(section(page, "Running").locator(`[aria-label="${branch}"]`)).toHaveCount(0)
+    await expect(section(page, "Ready to start").locator('[aria-label="#145"]')).toHaveCount(1)
+  } finally {
+    await fetch(url("/api/processes"), {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project, issue: 145, force: true }),
     })
   }
 })
