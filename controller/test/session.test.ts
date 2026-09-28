@@ -138,11 +138,24 @@ test('an abandon stops the running session, which writes nothing after it', asyn
   // Without a play the session runs until it is stopped.
   const r = await claim()
   for (let i = 0; i < 100 && !recordOf(r.id).session_id; i++) await new Promise((done) => setTimeout(done, 50))
-  expect(recordOf(r.id).session_id).toMatch(/^fake-session-/)
+  const sessionId = recordOf(r.id).session_id ?? ''
+  expect(sessionId).toMatch(/^fake-session-\d+$/)
   const a = await api(m, 'DELETE', '/api/processes', { project: dir, issue: 144, force: true })
   expect(a.status, JSON.stringify(a.body)).toBe(200)
   await new Promise((done) => setTimeout(done, 300))
   expect(existsSync(join(m.state, 'processes', `${r.id}.json`))).toBe(false)
   expect(existsSync(join(m.state, 'processes', `${r.id}.events.jsonl`))).toBe(false)
   expect(readFileSync(m.claudeLog, 'utf8')).toContain('"type":"user"')
+  // The scripted claude names its session by its pid; the abandon has ended that process.
+  const pid = Number(sessionId.replace('fake-session-', ''))
+  const alive = () => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  for (let i = 0; i < 100 && alive(); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(alive()).toBe(false)
 })
