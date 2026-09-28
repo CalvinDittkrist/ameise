@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, claim, type Issue, QuotaContext, runtimeName, until } from "@/api"
+import { abandon, claim, type Issue, QuotaContext, type Reading, runtimeName, until } from "@/api"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -84,7 +84,7 @@ export function ClaimWarnings() {
 // a warning in the dialog: the claim goes on when it is confirmed, and nothing waits for the reset.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   const quota = useContext(QuotaContext)
-  const low = quota.state === "loaded" ? quota.runtimes.filter((r) => r.known && r.below) : []
+  const low = quota.state === "loaded" ? quota.runtimes.filter((r): r is Extract<Reading, { known: true }> => r.known && r.below) : []
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"manual" | "yolo">("manual")
   const [knobs, setKnobs] = useState("")
@@ -165,7 +165,8 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
           </Force>
           {low.length > 0 && quota.state === "loaded" && (
             <ul role="status" aria-label="Quota" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
-              {low.map((r) => r.known && (
+              {/* The sentence of the controller's quota warning, with the reset as a time from now. */}
+              {low.map((r) => (
                 <li key={r.runtime}>
                   {runtimeName(r.runtime)} has {Math.round(r.remaining)}% of its quota left, below the minimum of {quota.minimum}%
                   {r.reset ? `; it resets in ${until(r.reset)}` : ""}. Claim anyway?
