@@ -82,6 +82,8 @@ Terms the code, the issues and the docs use, one row each.
 | controller | The local program `workflows`: holds the projects, their worktrees and processes, runs every session headless and serves the local dashboard. The local peer of the factory ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)). |
 | process | One worktree with its chain of sessions, of one process kind; the unit the board shows. |
 | process kind | `plan`, `work`, `hunt` or `standardize`: what a process does and the branch it works on. |
+| interrupted process | A process whose session stopped with the controller. It keeps its session id, and a resume goes on with that session in its worktree. |
+| foreign worktree | A work worktree of a project that no process record names, as one the controller did not start. It is adopted into a process or removed. |
 | project | A configured checkout of a connected repository on this machine. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
 | board | The controller's central view: every project, its processes, the frontier and the specs ready for acceptance. |
 | controller tool | A tool the controller registers in a session for one GitHub write, such as create issue or set labels. It owns the label vocabulary ([ADR 0059](adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)). |

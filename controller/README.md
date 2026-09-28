@@ -11,7 +11,9 @@
   - It prints a line per project, then one per process, frontier issue, spec ready for acceptance and note.
 - `workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]` claims the issue into a work process; see [Claim and abandon](#claim-and-abandon).
 - `workflows abandon <issue> [--force] [--project <path>]` removes the issue's worktree and process.
-  - Without `--project` both act on the project of the current directory.
+- `workflows resume <issue> [--project <path>]` goes on with the interrupted session of the issue's process; see [Restart](#restart).
+- `workflows adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
+  - Without `--project` these act on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
@@ -54,9 +56,11 @@ The board is derived on every request from the state directory, git and GitHub, 
 - `processes`: one per worktree of the checkout whose branch names a process kind, and one per process record in the state directory.
   - Each has `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
-  - A record decides state, stage and note. A worktree without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
+  - A record decides state, stage and note.
+  - A work worktree without one is `foreign`: this controller did not start it, and its note names its pull request.
+  - A worktree of another kind without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
   - A claimed process is `created` until its first session starts.
-  - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`.
+  - `blocked`, `approval`, `ready`, `input`, `interrupted` and `foreign` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume` or `Adopt`.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
@@ -71,6 +75,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 - a ticket of a spec run without `ready-for-human`: it carries `factory:spec-run`, or its parent does,
 - an issue whose branch is on origin already, which another claimer created,
 - an issue that has a process on this machine already: a worktree of its branch or a process record.
+  - The answer names the process and carries it as `process`: `{id, branch, worktree, state}`, with `id` null and `state` `foreign` for a worktree without a record.
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
@@ -109,6 +114,21 @@ The session has no status line, so the worker's checkpoint answers unavailable a
 
 In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
 
+## Restart
+Stopping and starting the controller loses no process.
+- A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
+- The start reads every record before it answers a request. A work process still `running` or `created` lost its session with the last run, as after a kill, and is marked `interrupted` too.
+  - Its note says so, or that its worktree is gone, in which case only an abandon helps.
+- Every other process shows as it was. An interrupted one keeps its `session_id`.
+- A resume goes on with an interrupted process: it starts the implement session again in the worktree with the runtime's resume by that session id, and a short brief to go on.
+  - A process without a session id starts a fresh session with the usual brief.
+  - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
+- An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project, `interrupted` without a session, which a resume starts.
+  - It refuses an issue that has a process already and one without a work worktree.
+  - A foreign worktree is removed by an abandon, as any other.
+
+In fake mode the scripted claude plays a resumed session under the id it resumes.
+
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
 - Without that build `/` answers `404` with the command, and the API works.
@@ -121,6 +141,10 @@ In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUD
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
+- `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
+  - `404` says the issue has no process, `409` refuses one that is not interrupted or whose worktree is gone.
+- `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>}`: adopts the issue's foreign worktree and answers `201` with `{record}`.
+  - `404` says the issue has no worktree, `409` refuses an issue that has a process.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
