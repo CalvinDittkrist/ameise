@@ -152,7 +152,7 @@ export function checksOf(pr: PullRequest): Checks {
 
 const firstStage: Record<Kind, string> = { work: 'implement', plan: 'plan', hunt: 'hunt', standardize: 'audit' }
 
-// process joins what a record says with what git and GitHub say. The record decides state, stage and
+// derived joins what a record says with what git and GitHub say. The record decides state, stage and
 // note; a worktree without a record is read from its pull request.
 function derived(branch: string, record: ProcessRecord | undefined, tree: Worktree | undefined, pr: PullRequest | undefined, since: string | undefined): Process {
   const kind = record?.kind ?? kindOf(branch) ?? 'work'
@@ -210,9 +210,10 @@ export interface GitHubIssue {
 
 const names = (i: GitHubIssue) => (i.labels ?? []).map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
 
-// frontier is the frontier rule over the agent-ready issues: the ones without assignee, open blocker,
-// routing label or a process of this machine, and not held in a spec run. An issue is in a spec run when
-// it or its parent carries the spec-run label, and it is held there unless it carries the human label.
+// frontier is the frontier rule over the agent-ready issues. It keeps the ones without assignee, open
+// blocker, routing label or a process of this machine. It leaves out the ones held in a spec run.
+// An issue is in a spec run when it or its parent carries the spec-run label. It is held there unless
+// it carries the human label.
 // A parent that cannot be read holds the issue, since a ticket of a spec run is the factory's.
 // parent answers the parent of an issue, or throws when it cannot be read.
 export async function frontier(
@@ -220,28 +221,30 @@ export async function frontier(
   claimed: Set<number>,
   parent: (n: number) => Promise<GitHubIssue>,
 ): Promise<{ free: GitHubIssue[]; unknown: number }> {
-  const free: GitHubIssue[] = []
   let unknown = 0
-  for (const i of issues) {
-    const l = names(i)
-    if (i.pull_request || (i.assignees ?? []).length > 0 || (i.issue_dependencies_summary?.blocked_by ?? 0) > 0) continue
-    if (l.includes(labels.routing) || claimed.has(i.number)) continue
-    const human = l.includes(labels.human)
-    if (l.includes(labels.specRun) && !human) continue
-    if (i.parent_issue_url && !human) {
-      let p: GitHubIssue
-      try {
-        p = await parent(i.number)
-        if (!(p.number > 0)) throw new Error('no issue')
-      } catch {
-        unknown++
-        continue
+  // The parents are read at once, and the issues keep their order.
+  const kept = await Promise.all(
+    issues.map(async (i) => {
+      const l = names(i)
+      if (i.pull_request || (i.assignees ?? []).length > 0 || (i.issue_dependencies_summary?.blocked_by ?? 0) > 0) return undefined
+      if (l.includes(labels.routing) || claimed.has(i.number)) return undefined
+      const human = l.includes(labels.human)
+      if (l.includes(labels.specRun) && !human) return undefined
+      if (i.parent_issue_url && !human) {
+        let p: GitHubIssue
+        try {
+          p = await parent(i.number)
+          if (!(p.number > 0)) throw new Error('no issue')
+        } catch {
+          unknown++
+          return undefined
+        }
+        if (names(p).includes(labels.specRun)) return undefined
       }
-      if (names(p).includes(labels.specRun)) continue
-    }
-    free.push(i)
-  }
-  return { free, unknown }
+      return i
+    }),
+  )
+  return { free: kept.filter((i): i is GitHubIssue => i !== undefined), unknown }
 }
 
 // pages reads the output of gh api --paginate, which writes one JSON array per page, into one array.
@@ -306,17 +309,17 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
   )
   const claimed = new Set(processes.map((p) => p.issue).filter((n): n is number => n !== null))
 
+  // Both reads run at once and each answers its own note, so the notes keep one order however they settle.
   const [free, acceptance] = await Promise.all([
     api<GitHubIssue[]>(frontierQuery)
       .then(async (ready) => {
         const f = await frontier(ready, claimed, (n) => api<GitHubIssue>(`issues/${n}/parent`))
-        if (f.unknown) notes.push(`could not read the parent of ${f.unknown} ready-for-agent issue(s); they are left out, since a ticket of a spec run is the factory's`)
-        return f.free.map(issue)
+        const note = f.unknown
+          ? `could not read the parent of ${f.unknown} ready-for-agent issue(s); they are left out, since a ticket of a spec run is the factory's`
+          : undefined
+        return { issues: f.free.map(issue), note }
       })
-      .catch(() => {
-        notes.push('could not read the agent-ready issues; the frontier is empty, not idle')
-        return [] as Issue[]
-      }),
+      .catch(() => ({ issues: [] as Issue[], note: 'could not read the agent-ready issues; the frontier is empty, not idle' })),
     api<GitHubIssue[]>(`issues?labels=${labels.spec}&state=open&per_page=100`, true)
       .then(async (specs) => {
         let unknown = 0
@@ -333,13 +336,11 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
               }
             }),
         )
-        if (unknown) notes.push(`could not read the sub-issues of ${unknown} spec(s); they are not listed`)
-        return ready.filter((s): s is GitHubIssue => s !== undefined).map(issue)
+        const note = unknown ? `could not read the sub-issues of ${unknown} spec(s); they are not listed` : undefined
+        return { issues: ready.filter((s): s is GitHubIssue => s !== undefined).map(issue), note }
       })
-      .catch(() => {
-        notes.push('could not read the open specs; ready for acceptance is empty, not idle')
-        return [] as Issue[]
-      }),
+      .catch(() => ({ issues: [] as Issue[], note: 'could not read the open specs; ready for acceptance is empty, not idle' })),
   ])
-  return { ...project, processes, frontier: free, acceptance, notes }
+  for (const n of [free.note, acceptance.note]) if (n) notes.push(n)
+  return { ...project, processes, frontier: free.issues, acceptance: acceptance.issues, notes }
 }
