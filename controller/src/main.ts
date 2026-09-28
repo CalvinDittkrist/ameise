@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
-import { address, type Config, ConfigError, configPath, readConfig, stateDir } from './config.js'
+import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
@@ -104,7 +104,7 @@ function running(): string {
 async function call(method: string, path: string, body?: unknown): Promise<unknown> {
   const { url } = address(config(configPath()).listen)
   const started = running()
-  const candidates = [...(started ? [{ url: address(started).url, record: true }] : []), { url, record: false }]
+  const candidates = [...(started && loopback(started) ? [{ url: address(started).url, record: true }] : []), { url, record: false }]
   let found: string | undefined
   for (const c of candidates) {
     if (await workflows(c.url)) {

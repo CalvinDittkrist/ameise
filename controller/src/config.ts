@@ -102,12 +102,20 @@ function validate(path: string, parsed: unknown): Config {
 // loopback says whether host:port names this machine alone: the controller is never reachable from
 // elsewhere.
 export function loopback(listen: string): boolean {
-  const m = /^(?:\[([^\]]+)\]|([^:]+)):(\d{1,5})$/.exec(listen)
-  if (!m) return false
-  const host = m[1] ?? m[2] ?? ''
-  const port = Number(m[3])
-  if (port < 1 || port > 65535) return false
+  const parsed = parseListen(listen)
+  if (!parsed) return false
+  const { host } = parsed
   return host === 'localhost' || host === '::1' || (isIP(host) === 4 && host.startsWith('127.'))
+}
+
+// parseListen is the one reader of a listen address: host:port, or [host]:port for IPv6, with a port
+// node can listen on. It is undefined for anything else.
+export function parseListen(listen: string): { host: string; port: number } | undefined {
+  const m = /^(?:\[([^\]]+)\]|([^:]+)):(\d{1,5})$/.exec(listen)
+  if (!m) return undefined
+  const port = Number(m[3])
+  if (port < 1 || port > 65535) return undefined
+  return { host: m[1] ?? m[2] ?? '', port }
 }
 
 // writeConfig replaces the file whole, through a rename, so a crash leaves the old file or the new
@@ -128,9 +136,9 @@ export function writeConfig(path: string, config: Config): void {
 }
 
 // host and port of the listen address, as node's server and a URL take them.
+// A listen the configuration let through always parses; one that does not is refused here.
 export function address(listen: string): { host: string; port: number; url: string } {
-  const i = listen.lastIndexOf(':')
-  const host = listen.slice(0, i).replace(/^\[|\]$/g, '')
-  const port = Number(listen.slice(i + 1))
-  return { host, port, url: `http://${listen}` }
+  const parsed = parseListen(listen)
+  if (!parsed) throw new ConfigError(`${listen} is not a listen address; write it as host:port, such as 127.0.0.1:7420`)
+  return { ...parsed, url: `http://${listen}` }
 }
