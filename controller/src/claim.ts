@@ -1,6 +1,7 @@
 // Claim and abandon: a claim takes an agent-ready issue of a project into a work process, an abandon
-// drops the process again. An adopt takes a worktree the controller did not start into a process. A claim creates the issue's branch and its worktree, assigns the issue, and
-// writes the process record and its event log; the server then starts its implement session. An abandon removes the worktree
+// drops the process again. An adopt takes a worktree the controller did not start into a process. A
+// claim creates the issue's branch and its worktree, assigns the issue, and writes the process record
+// and its event log; the server then starts its implement session. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
