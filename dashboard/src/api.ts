@@ -148,10 +148,10 @@ export function age(since: string | null, now = Date.now()): string {
 export const addProject = (path: string) => call<Listed>("POST", "/api/projects", { path })
 
 // claim takes an issue of the project at path into a work process, in manual or yolo mode with the
-// worker knobs it overrides, each NAME=VALUE. It answers the warnings of what force lifted, or throws
-// the controller's reason for refusing it.
+// worker knobs it overrides, each NAME=VALUE. It answers the warnings of what force lifted and the
+// runtimes below the quota's minimum, or throws the controller's reason for refusing it.
 export const claim = (path: string, issue: number, mode: "manual" | "yolo", env: string[], force: boolean) =>
-  call<{ warnings: string[] }>("POST", "/api/processes", { project: path, issue, mode, env, force })
+  call<{ warnings: string[]; quota: string[] }>("POST", "/api/processes", { project: path, issue, mode, env, force })
 
 // seen marks the process with that id as seen, which clears its badge.
 export const seen = (id: string) => call<{ id: string }>("POST", "/api/processes/seen", { id })

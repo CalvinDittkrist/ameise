@@ -107,7 +107,8 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
     try {
       const env = knobs.split("\n").map((l) => l.trim()).filter((l) => l !== "")
       const done = await claim(path, i.number, mode, env, force)
-      // What a claim lifted with force or could not check stays on screen until it is closed.
+      // What a claim lifted with force or could not check stays on screen until it is closed. Its quota
+      // lines are not shown again: the dialog warned of a quota below the minimum before the claim.
       if (done.warnings.length > 0) warn({ issue: i.number, warnings: done.warnings })
       change(false)
       await reload()
