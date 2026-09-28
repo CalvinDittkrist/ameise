@@ -1864,16 +1864,16 @@ class HandoffTests(ShimTest):
     def test_a_note_that_cannot_be_marked_is_not_injected_at_all(self):
         # The mark is what keeps one note from reaching two contexts. If it cannot be written, injecting
         # anyway would fail open on exactly that: this context and the next one would both resume the stage.
+        # A directory where the marked record is written blocks the write for every user. A state directory
+        # without write permission would not: root, as in a cloud container, writes into it anyway.
         self.assertEqual(self.handoff().returncode, 0)
-        state = self.record.parent
-        mode = state.stat().st_mode
-        state.chmod(0o500)
-        self.addCleanup(state.chmod, mode)
+        blocker = self.record.with_name(self.record.name + ".tmp")
+        blocker.mkdir()
         ctx = self.hook()
         self.assertIn("#12", ctx, "the session still starts, with the issue")
         self.assertNotIn("the note lives in the worktree's git directory", ctx)
         self.assertNotIn("resume_stage", self.facts(), "so nothing resumes a stage on an unmarked note")
-        state.chmod(mode)
+        blocker.rmdir()
         self.assertIn("the note lives in the worktree's git directory", self.hook(),
                       "and the note is still there for the next context")
 

@@ -13,6 +13,8 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Factory: the dashboard's lint and build, gofmt, vet, staticcheck, the Go tests, the dashboard's browser test.
   - Controller: eslint, the TypeScript type check, the vitest suite.
   - Dashboard: eslint, the TypeScript type check, the build, the browser test against the controller.
+  - In a container whose PID 1 reaps orphans late, such as a Claude Code cloud session, run `scripts/reap.sh make check`.
+  - Its tests end processes and check at once that they are gone, which a zombie that is not reaped yet answers wrong.
 - Factory without tokens, git or GitHub: `make ui && go -C factory run . -fake -config <file>` works a canned queue with scripted workers.
   - Against real GitHub it claims the head of its line by creating the issue's branch. It runs a worker session in a worktree of its own clone.
   - The config file is your own. `factory/factory.example.json` is a host's configuration, paused and rooted at `/var/lib/factory`.
