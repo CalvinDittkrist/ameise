@@ -1484,7 +1484,8 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // The compact pin matters more here than anywhere: a factory session has no hand-over at all, so
 // compaction is its only safety net, and it must fire where the workflow says rather than at a default
 // Claude Code does not document ([ADR 0031], [ADR 0034]). The window and the percentage are the
-// claim's numbers, and the contract fixture binds both to them.
+// factory's own constants; the contract fixture does not bind them, since the pin concerns only the
+// sessions the factory starts.
 //
 // Every plugin of the workflow is switched off, the worker's with the planner's and the
 // orchestrator's: a session runs on the factory's prompts alone, so a plugin a host still carries
@@ -1520,8 +1521,7 @@ var sessionVariables = map[string]string{
 	"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":      compactPercentage,
 }
 
-// The compact pin of the workflow, the two numbers the local claim sets and this one restates
-// ([ADR 0031], [ADR 0034]). Their product is the compact trigger, 250 000 tokens.
+// The factory's compact pin for the sessions it starts ([ADR 0031], [ADR 0034]). Their product is the compact trigger, 250 000 tokens.
 //
 // [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
 // [ADR 0034]: ../docs/adr/0034-the-compact-trigger-is-raised-through-the-window.md

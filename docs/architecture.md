@@ -98,8 +98,10 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 20. The stages came from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
 ### The contract fixture
-1. `contract/fixture.json` states the shared rules as cases with expected outputs: branch names, base branch, frontier, compact pin, labels.
-2. The Go tests and the Python suite read it, not each other's code. A rule changes there first; the side that disagrees names the case.
+1. `contract/fixture.json` states the shared rules as cases: branch contract, base branch, frontier, labels.
+2. Both sides' tests read it, not each other's code. A rule changes there first.
+
+The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 
 ### Release
 1. Tickets and their spec carry a `vX.Y.Z` milestone, so a release waits for the acceptance.

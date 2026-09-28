@@ -10,7 +10,9 @@ Changes: the priorities of `AGENTS.md`, which put the local workflow first
 - Spec #141 moves the delivery lifecycle into the factory ([ADR 0040](0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
 ## Decision
-The local workflow and the factory are peers. The plugins serve hands-on sessions. The factory serves unattended delivery, drives its own pipeline in Go and starts a session only where a stage needs judgement. Neither is a fork of the other, and neither waits on the other's release. A drift test binds what they share: the branch contract, the base branch rule, the frontier rule, the compact pin and the label vocabulary.
+The local workflow and the factory are peers. The plugins serve hands-on sessions. The factory serves unattended delivery, drives its own pipeline in Go and starts a session only where a stage needs judgement. Neither is a fork of the other, and neither waits on the other's release.
+
+A drift test binds what they share: the branch contract, the base branch rule, the frontier rule and the label vocabulary. The compact pin is not one of them: it concerns only the sessions a peer starts itself, not a shared state.
 
 ## Consequences
 - A change to a worker skill no longer reaches an unattended host, and a change to the factory needs no plugin release.

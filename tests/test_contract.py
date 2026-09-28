@@ -123,11 +123,3 @@ class ContractFixtureTests(ShimTest):
                          "frontier: the board asks GitHub for another issue list than the contract fixture's query")
         offered, _ = self.board_frontier(routed=True)
         self.assertEqual(offered, [], f"frontier: the board offers {offered} of the routed issues; they are the factory's")
-
-    def test_the_claim_compacts_at_the_fixtures_pin(self):
-        pin = contract()["compact_pin"]
-        settings = json.loads(self.lib('wf_worker_settings manual 7'))
-        self.assertEqual(settings["autoCompactWindow"], pin["window"],
-                         "compact pin: the claim sets another window than the contract fixture pins")
-        self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], str(pin["percentage"]),
-                         "compact pin: the claim sets another percentage than the contract fixture pins")

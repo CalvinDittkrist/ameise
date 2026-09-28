@@ -140,9 +140,9 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 		}
 	}
 	// The compact pin reaches the session, which is the only safety net it has: nothing hands a
-	// factory session over, so it has to compact where the workflow says.
+	// factory session over, so it has to compact where the factory's pin says (docs/token-budget.md).
 	if settings.AutoCompactWindow != compactWindow || settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != compactPercentage {
-		t.Errorf("the worker compacts at %q%% of %d, want %s%% of %d, the pin the workflow sets",
+		t.Errorf("the worker compacts at %q%% of %d, want %s%% of %d, the factory's pin",
 			settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], settings.AutoCompactWindow, compactPercentage, compactWindow)
 	}
 
