@@ -12,8 +12,20 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
       ? board.projects.flatMap((b) => (broken(b) ? [] : b.processes.filter((p) => p.id === id).map((p) => ({ p, b: b as ProjectBoard }))))[0]
       : undefined
   const unseen = found?.p.unseen === true
+  // A mark that fails, as while the controller restarts, is tried again until it lands or the page closes.
   useEffect(() => {
-    if (unseen) void seen(id).then(reload, () => undefined)
+    if (!unseen) return
+    let live = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const mark = () =>
+      void seen(id).then(reload, () => {
+        if (live) timer = setTimeout(mark, 5000)
+      })
+    mark()
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [id, unseen, reload])
   if (board.state === "loading") return null
   if (board.state === "failed") return <p role="alert" className="text-sm text-destructive">{board.error}</p>
