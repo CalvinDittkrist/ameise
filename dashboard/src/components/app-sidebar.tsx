@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { FolderGit2Icon, LayoutDashboardIcon, TriangleAlertIcon, WorkflowIcon } from "lucide-react"
 import { AddProject } from "@/components/add-project"
 import {
@@ -13,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { broken, label, type Projects } from "@/api"
 import { href, type Route } from "@/route"
@@ -20,6 +22,11 @@ import { href, type Route } from "@/route"
 // The sidebar collapses to its icons. It holds the Orchestrator entry, the projects of this machine and
 // the action that adds one; the quota sits in its footer, which the icon state hides.
 export function AppSidebar({ route, projects, reload }: { route: Route; projects: Projects; reload: () => Promise<void> }) {
+  // On a phone the sidebar is a sheet over the page, so a new page closes it, whichever link or action
+  // led there.
+  const { setOpenMobile } = useSidebar()
+  const at = href(route)
+  useEffect(() => setOpenMobile(false), [at, setOpenMobile])
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>

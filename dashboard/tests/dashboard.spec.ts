@@ -65,6 +65,17 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(page.locator("header")).toHaveText(/Orchestrator3 projects$/)
 })
 
+test("on a phone the sidebar closes on the page it opens, and the project page fits the width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(url())
+  const sheet = page.getByRole("dialog")
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click()
+  await sheet.getByRole("link", { name: "backtest" }).click()
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
+  await expect(sheet).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
 test("a project whose checkout no longer derives shows the controller's reason", async ({ page }) => {
   const path = process.env.WORKFLOWS_NOT_A_CHECKOUT!
   await page.goto(url())

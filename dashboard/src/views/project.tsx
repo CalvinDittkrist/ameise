@@ -57,12 +57,12 @@ export function ProjectView({
   }
   return (
     <>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="text-xl font-semibold">{project.name}</h1>
         <span className="text-sm text-muted-foreground">
           {project.owner} · base {project.base}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           <Button size="sm" variant="outline" disabled>Plan</Button>
           <Button size="sm" variant="outline" disabled>Standardize</Button>
           <Button size="sm" variant="outline" disabled>Hunt tests</Button>
