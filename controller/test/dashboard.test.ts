@@ -65,9 +65,11 @@ test('the root serves the built dashboard and its files, each as its kind, and n
   expect((await api(m, 'GET', '/api/processes')).status).toBe(404)
 })
 
-test('a request target that climbs out of the build reaches none of the controller’s own files', async () => {
+test('a request target that names a file above the build is answered 404, not with the controller’s own files', async () => {
   const m = await running(build)
-  // main.js and config.js stand one directory above the build.
+  // main.js and config.js stand one directory above the build. The URL parser drops the plain dot
+  // segments and leaves the escaped ones undecoded, so none of these reaches a file above the build
+  // today; the targets pin that, and would reach one if the path were ever decoded without the guard.
   for (const target of ['/../main.js', '/assets/../../config.js', '/%2e%2e/main.js', '/..%2fmain.js', '/assets/..%5c..%5cmain.js']) {
     const answer = await raw(m, target)
     expect(answer.split('\r\n')[0], target).toBe('HTTP/1.1 404 Not Found')

@@ -141,7 +141,8 @@ const policy = "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ance
 // page answers a file of the dashboard's build. The root is its index.html, which names every other
 // file by a name that carries its content's hash; the page itself lives in the URL's fragment, so no
 // other path is ever asked for. Without a build the root answers 404 with the command that makes one,
-// and the API works as it does with one.
+// and the API works as it does with one. The URL parser has already dropped every dot segment, and the
+// check that the file stays inside the build holds should that ever change.
 async function page(res: ServerResponse, dir: string, pathname: string) {
   const root = pathname === '/'
   const file = resolve(dir, root ? 'index.html' : '.' + pathname)
