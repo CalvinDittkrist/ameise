@@ -89,7 +89,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
     - [Merge](factory-runbook.md#the-merge-stage): a passed ticket run is squash-merged into the spec branch.
     - The [spec pull request](factory-runbook.md#the-spec-pull-request) follows the last ticket; its merge ends the spec run ([ADR 0055](adr/0055-the-spec-pull-request-ends-the-spec-run.md)).
 13. Each run writes a JSON record and an event log; the HTTP interface and dashboard only read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).
-14. An interrupted run resumes once, in its worktree, as does a block on a classifier outage. Taking the assignee off resumes it.
+14. An interrupted run, or one blocked on a classifier outage, resumes once in its worktree. Taking the assignee off resumes it.
 15. A writer's review asking for changes, or a bot's unresolved thread, queues a follow-up run at address-reviews. Held work comes first.
 16. On `ready` the configured logins get a review request; on `blocked`, `failed`, `timeout` or a second interruption, a mention on the issue.
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
