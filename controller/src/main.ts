@@ -17,6 +17,14 @@ const usage = `usage:
   workflows projects add <path>      add the checkout at <path> as a project
   workflows projects remove <path>   remove the project at <path>
   workflows board [<path>]           print the board of every project, or of the project at <path>
+  workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]
+                                     claim the issue into a work process of the project
+  workflows abandon <issue> [--force] [--project <path>]
+                                     remove the issue's worktree and process; branch and issue stay
+
+--project names the checkout of the project; without it the project is the checkout of the current
+directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
+origin, and abandons a worktree with work not on origin.
 
 --fake answers GitHub with the scripted gh the tests use, so nothing reaches GitHub.`
 
@@ -173,8 +181,46 @@ function boardLines(b: ProjectBoard | { path: string; error: string }): string[]
   ]
 }
 
+// processCommand runs claim or abandon: the issue, then its flags in any order.
+async function processCommand(command: 'claim' | 'abandon', args: string[]) {
+  let issue: number | undefined
+  let project = process.cwd()
+  let force = false
+  let mode = 'manual'
+  const env: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string
+    const value = () => {
+      const v = args[++i]
+      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      return v
+    }
+    if (a === '--force') force = true
+    else if (a === '--yolo' && command === 'claim') mode = 'yolo'
+    else if (a === '--env' && command === 'claim') env.push(value())
+    else if (a === '--project') project = resolve(value())
+    else if (/^#?[0-9]+$/.test(a) && issue === undefined) issue = Number(a.replace(/^#/, ''))
+    else die(`unexpected argument ${a}; workflows help lists the commands`)
+  }
+  if (issue === undefined) die(`${command} needs an issue number; workflows help lists the commands`)
+  if (command === 'abandon') {
+    const a = (await call('DELETE', '/api/processes', { project, issue, force })) as { branch: string; worktree: string | null }
+    process.stdout.write(`abandoned #${issue}  ${a.branch}  worktree ${a.worktree ?? 'none'} removed; the branch and the issue are untouched\n`)
+    return
+  }
+  const c = (await call('POST', '/api/processes', { project, issue, mode, env, force })) as {
+    record: { branch: string; worktree: string; base: string; mode: string; env: Record<string, string>; state: string }
+    warnings: string[]
+  }
+  for (const w of c.warnings) process.stderr.write(`warning: ${w}\n`)
+  const r = c.record
+  const knobs = Object.entries(r.env).map(([k, v]) => `${k}=${v}`)
+  process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
+  if (command === 'claim' || command === 'abandon') return processCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {
     if (sub !== undefined) die(`unexpected argument ${sub}; workflows help lists the commands`)
     return start(command === '--fake')

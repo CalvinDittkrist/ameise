@@ -21,8 +21,9 @@ export const frontierQuery = `issues?labels=${labels.ready}&state=open&per_page=
 export type Kind = 'work' | 'plan' | 'hunt' | 'standardize'
 
 // The states of a process. The first four wait for a person, each with the one action that answers it;
-// a process in any other state runs on its own and is opened to be watched.
-export const states = ['blocked', 'approval', 'ready', 'input', 'running', 'waiting'] as const
+// a process in any other state runs on its own and is opened to be watched. A claimed process is created
+// until its first session starts.
+export const states = ['blocked', 'approval', 'ready', 'input', 'running', 'waiting', 'created'] as const
 export type State = (typeof states)[number]
 const actions: Partial<Record<State, string>> = { blocked: 'Answer', approval: 'Approve', ready: 'Merge', input: 'Continue' }
 

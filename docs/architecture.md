@@ -99,7 +99,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 
 ### The contract fixture
 1. `contract/fixture.json` states the shared rules as cases: branch contract, base branch, frontier, labels.
-2. The Go tests, the Python suite and the controller's frontier tests read it, not each other's code. Rules change there first.
+2. The Go tests, the Python suite and the controller's frontier and branch tests read it, not each other's code. Rules change there first.
 
 The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 

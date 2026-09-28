@@ -6,6 +6,8 @@
 #     logged-out                           present: gh auth status fails as a machine without a login does
 #     repos/<owner>/<name>/default-branch  the default branch GitHub names for that repository
 #     repos/<owner>/<name>/pulls.json      the open pull requests gh pr list answers for it
+#     repos/<owner>/<name>/issues/<n>.json the issue gh issue view answers
+#     repos/<owner>/<name>/unassignable    present: gh issue edit --add-assignee fails for it
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   WORKFLOWS_FAKE_GH_LOG  every call, one request per line
@@ -40,6 +42,19 @@ case "$*" in
       exit 1
     fi
     cat "$file" ;;
+  'issue view '*' --repo '*' --json number,title,state,labels')
+    file="$canned/repos/$5/issues/$3.json"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'GraphQL: Could not resolve to an issue or pull request with the number of %s. (repository.issue)\n' "$3" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  'issue edit '*' --repo '*' --add-assignee @me')
+    if [ -z "$canned" ] || [ -e "$canned/repos/$5/unassignable" ]; then
+      printf 'failed to update https://github.com/%s/issues/%s: could not assign\n' "$5" "$3" >&2
+      exit 1
+    fi
+    printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
   'api '*)
     endpoint=${!#}
     file="$canned/api/$endpoint"

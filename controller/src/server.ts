@@ -6,7 +6,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { checkout, derive, type Listed, Refusal } from './project.js'
+import { abandon, claim, claimRequest, projectPath } from './claim.js'
+import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
   // listen is the address the server listens on; the projects are read from the file on each request.
@@ -53,6 +54,36 @@ export function serve(o: Options): Server {
       ),
     )
     send(res, 200, { projects: all })
+  }
+
+  // known is the project a body names, by its checkout or a path inside it, as the board reads it.
+  async function known(body: Record<string, unknown>): Promise<Project> {
+    const wanted = projectPath(body)
+    const paths = readConfig(o.configPath).projects
+    const top = paths.includes(wanted) ? wanted : await checkout(wanted).catch(() => wanted)
+    if (!paths.includes(top)) throw new Refusal(`${wanted} is not a project; workflows projects lists them`, 404)
+    return derive(top, o.gh)
+  }
+
+  // A claim takes an issue into a work process; an abandon drops the process again.
+  async function claimed(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const request = claimRequest(body)
+    const project = await known(body)
+    const done = await claim(project, o.stateDir, o.gh, o.fake, request)
+    log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
+    send(res, 201, done)
+  }
+
+  async function abandoned(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const issue = body.issue
+    if (typeof issue !== 'number' || !Number.isInteger(issue) || issue < 1) throw new Refusal('issue is not an issue number; send it as a whole number, such as 42')
+    if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
+    const project = await known(body)
+    const done = await abandon(project, o.stateDir, issue, body.force === true)
+    log({ event: 'abandoned', project: project.path, issue, branch: done.branch, force: body.force === true })
+    send(res, 200, done)
   }
 
   async function add(req: IncomingMessage, res: ServerResponse) {
@@ -112,6 +143,10 @@ export function serve(o: Options): Server {
           return add(req, res)
         case 'DELETE /api/projects':
           return remove(req, res)
+        case 'POST /api/processes':
+          return claimed(req, res)
+        case 'DELETE /api/processes':
+          return abandoned(req, res)
         default:
           if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })
@@ -119,7 +154,7 @@ export function serve(o: Options): Server {
     }
     handle().catch((err: Error) => {
       if (err instanceof TooLarge) send(res, 413, { error: err.message })
-      else if (err instanceof Refusal) send(res, 400, { error: err.message })
+      else if (err instanceof Refusal) send(res, err.status, { error: err.message })
       else send(res, 500, { error: err.message })
     })
   })
@@ -214,7 +249,7 @@ async function bodyPath(req: IncomingMessage, res: ServerResponse): Promise<stri
   return undefined
 }
 
-// A body is a path and nothing more, so one past this size is refused before it fills the memory.
+// A body is a path or a claim and nothing more, so one past this size is refused before it fills the memory.
 const bodyLimit = 64 * 1024
 
 class TooLarge extends Error {}
@@ -229,7 +264,7 @@ async function readJSON(req: IncomingMessage): Promise<Record<string, unknown> |
       // The rest of the body is read and dropped, so the answer still reaches the client.
       req.off('data', take)
       req.resume()
-      reject(new TooLarge(`the body is larger than ${bodyLimit} bytes; send {"path": "<checkout>"}`))
+      reject(new TooLarge(`the body is larger than ${bodyLimit} bytes`))
     }
     req.on('data', take)
     req.on('end', () => resolve(body))
@@ -239,6 +274,6 @@ async function readJSON(req: IncomingMessage): Promise<Record<string, unknown> |
   try {
     return JSON.parse(raw) as Record<string, unknown>
   } catch {
-    throw new Refusal('the body is not JSON; send {"path": "<checkout>"}')
+    throw new Refusal('the body is not JSON; send a JSON object')
   }
 }
