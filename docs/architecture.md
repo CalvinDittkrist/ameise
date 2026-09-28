@@ -1,7 +1,7 @@
 # Architecture
 
 ## Purpose
-This repository packages a way of working with coding agents as Claude Code plugins, beside the factory, a Go service for unattended delivery. It optimises for throughput, tokens, consistency and safety. The why is in the [vision](vision.md).
+This repository packages Claude Code plugins for coding agents, beside the factory, a Go service for unattended delivery. It optimises for throughput, tokens, consistency and safety. The why is in the [vision](vision.md).
 
 ## Components
 | Component | Responsibility | Entry point |
@@ -15,6 +15,7 @@ This repository packages a way of working with coding agents as Claude Code plug
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `spec-checker` agent | Judges every checkable statement of a spec against the code during an acceptance. | `plugins/planner/agents/spec-checker.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
+| controller | Serves local projects. | [controller/](../controller/README.md) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | Herdr | Terminal workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |

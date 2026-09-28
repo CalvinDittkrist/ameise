@@ -1,0 +1,10 @@
+{
+  "rule": "The base branch of a repository, the first of these that answers: WF_BASE_BRANCH in the env block of its .claude/settings.json when git accepts it as a branch name, the head origin points at, the default branch GitHub names, main.",
+  "cases": [
+    {"name": "the declared base wins over every other", "declared": "dev", "origin_head": "trunk", "github_default": "develop", "base": "dev"},
+    {"name": "a declared base git refuses reads as none", "declared": "bad..name", "origin_head": "trunk", "github_default": "develop", "base": "trunk"},
+    {"name": "the head of origin comes before GitHub", "declared": null, "origin_head": "trunk", "github_default": "develop", "base": "trunk"},
+    {"name": "GitHub answers when origin names no head", "declared": null, "origin_head": null, "github_default": "develop", "base": "develop"},
+    {"name": "main when nothing answers", "declared": null, "origin_head": null, "github_default": null, "base": "main"}
+  ]
+}
