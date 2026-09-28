@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canPulls, checkout, cleanup, cli, type Machine, machine, read, record, start, worktree } from './controller.js'
+import { api, canApi, canPages, canPulls, checkout, cleanup, cli, type Machine, machine, read, record, start, worktree } from './controller.js'
 
 afterEach(cleanup)
 
@@ -195,6 +195,47 @@ test('the board joins the process records and the worktrees with their pull requ
   // The age of a worktree without a record is seconds since the test made its commit, and runs on.
   const seconds = (text: string) => text.replace(/ {2}\d+s {2}/g, '  Ns  ')
   expect(seconds(cli(m, ['board', dir]).stdout)).toBe(seconds(out.stdout))
+})
+
+test('a process waiting for approval needs a person, and a draft, red or unchecked pull request runs', async () => {
+  const dir = await project('repo')
+  record(m, 'p9', { project: dir, kind: 'work', branch: 'feat/9-approve-me', issue: 9, stage: 'pr', state: 'approval', note: 'Plan ready' })
+  worktree(dir, 'feat/10-draft')
+  worktree(dir, 'feat/11-red')
+  worktree(dir, 'feat/12-unchecked')
+  const pull = (number: number, branch: string, isDraft: boolean, statusCheckRollup: unknown[]) =>
+    ({ number, headRefName: branch, isDraft, url: `https://github.com/owner/repo/pull/${number}`, statusCheckRollup })
+  canPulls(m, 'owner/repo', [
+    pull(20, 'feat/10-draft', true, [{ conclusion: 'SUCCESS' }]),
+    pull(21, 'feat/11-red', false, [{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }]),
+    pull(22, 'feat/12-unchecked', false, []),
+  ])
+
+  const rows = (await boardOf(dir)).processes.map((p) => [p.branch, p.state, p.checks, p.needs, p.action])
+  expect(rows).toEqual([
+    ['feat/10-draft', 'running', 'pass', false, 'Open'],
+    ['feat/11-red', 'running', 'fail', false, 'Open'],
+    ['feat/12-unchecked', 'running', 'none', false, 'Open'],
+    ['feat/9-approve-me', 'approval', null, true, 'Approve'],
+  ])
+})
+
+test('the specs and their sub-issues are read over every page GitHub answers', async () => {
+  const dir = await project('repo')
+  canPages(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [
+    [issue(100, 'Brackets ] and "quotes" [ in a title', ['spec'])],
+    [issue(101, 'On the second page', ['spec']), issue(102, 'Open on the second page', ['spec'])],
+  ])
+  canPages(m, 'repos/owner/repo/issues/100/sub_issues?per_page=100', [[{ ...issue(1, 'a', []), state: 'closed' }], [{ ...issue(2, 'b', []), state: 'closed' }]])
+  canPages(m, 'repos/owner/repo/issues/101/sub_issues?per_page=100', [[{ ...issue(3, 'c', []), state: 'closed' }]])
+  canPages(m, 'repos/owner/repo/issues/102/sub_issues?per_page=100', [[{ ...issue(4, 'd', []), state: 'closed' }], [issue(5, 'e', [])]])
+
+  const b = await boardOf(dir)
+  expect(b.acceptance.map((i) => [i.number, i.title])).toEqual([
+    [100, 'Brackets ] and "quotes" [ in a title'],
+    [101, 'On the second page'],
+  ])
+  expect(b.notes).toEqual([])
 })
 
 test('what GitHub does not answer is a note on the board, not an empty section that reads as idle', async () => {

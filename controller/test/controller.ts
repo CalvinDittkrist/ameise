@@ -205,6 +205,14 @@ export function canApi(m: Machine, endpoint: string, answer: unknown) {
   writeFileSync(file, JSON.stringify(answer))
 }
 
+// canPages cans the answer of gh api --paginate <endpoint> as GitHub writes it over several pages: one
+// JSON array per page, one after the other.
+export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {
+  const file = join(m.github, 'api', endpoint)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, pages.map((p) => JSON.stringify(p)).join('\n'))
+}
+
 // canPulls cans the open pull requests of a repository, as gh pr list answers them.
 export function canPulls(m: Machine, repository: string, pulls: unknown[]) {
   mkdirSync(join(m.github, 'repos', repository), { recursive: true })
