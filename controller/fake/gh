@@ -5,6 +5,9 @@
 #   WORKFLOWS_FAKE_GH      the canned GitHub; without it every login holds and no repository answers
 #     logged-out                           present: gh auth status fails as a machine without a login does
 #     repos/<owner>/<name>/default-branch  the default branch GitHub names for that repository
+#     repos/<owner>/<name>/pulls.json      the open pull requests gh pr list answers for it
+#     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
+#                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   WORKFLOWS_FAKE_GH_LOG  every call, one request per line
 #
 # A request without an answer fails, as a GitHub that does not answer does.
@@ -27,6 +30,22 @@ case "$*" in
     file="$canned/repos/$repo/default-branch"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
       printf 'error: no canned repository %s\n' "$repo" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  'pr list --repo '*' --state open --limit 100 --json '*)
+    file="$canned/repos/$4/pulls.json"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'error: no canned pull requests of %s\n' "$4" >&2
+      exit 1
+    fi
+    cat "$file" ;;
+  'api '*)
+    endpoint=${!#}
+    file="$canned/api/$endpoint"
+    case "$endpoint" in *..*) file='' ;; esac
+    if [ -z "$canned" ] || [ -z "$file" ] || [ ! -f "$file" ]; then
+      printf 'gh: Not Found (HTTP 404): %s\n' "$endpoint" >&2
       exit 1
     fi
     cat "$file" ;;

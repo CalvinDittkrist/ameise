@@ -38,6 +38,67 @@ export function useProjects(): [Projects, () => Promise<void>] {
   return [projects, reload]
 }
 
+// A process as the board answers it: the worktree and the record of one process, joined with its pull
+// request. needs says it waits for a person, action names what answers it.
+export type Process = {
+  kind: "work" | "plan" | "hunt" | "standardize"
+  state: "blocked" | "approval" | "ready" | "input" | "running" | "waiting"
+  stage: string
+  issue: number | null
+  branch: string
+  worktree: string | null
+  pr: { number: number; url: string; draft: boolean } | null
+  checks: "none" | "pending" | "pass" | "fail" | null
+  since: string | null
+  note: string
+  needs: boolean
+  action: string
+}
+export type Issue = { number: number; title: string; milestone: string | null }
+export type ProjectBoard = Project & { processes: Process[]; frontier: Issue[]; acceptance: Issue[]; notes: string[] }
+export type BoardEntry = ProjectBoard | Broken
+
+export type Board =
+  | { state: "loading" }
+  | { state: "failed"; error: string }
+  | { state: "loaded"; projects: BoardEntry[] }
+
+// useBoard reads the board of every project when the page opens, on focus and every half minute.
+// The controller derives it from git and GitHub on each request.
+export function useBoard(): [Board, () => Promise<void>] {
+  const [board, setBoard] = useState<Board>({ state: "loading" })
+  const reload = useCallback(async () => {
+    try {
+      setBoard({ state: "loaded", projects: (await call<{ projects: BoardEntry[] }>("GET", "/api/board")).projects })
+    } catch (err) {
+      setBoard({ state: "failed", error: (err as Error).message })
+    }
+  }, [])
+  useEffect(() => {
+    // The first read is started from here, and its answer lands after this effect has returned.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload()
+    addEventListener("focus", reload)
+    const timer = setInterval(reload, 30_000)
+    return () => {
+      removeEventListener("focus", reload)
+      clearInterval(timer)
+    }
+  }, [reload])
+  return [board, reload]
+}
+
+// age is the time since an instant, in its largest whole unit, as the CLI prints it.
+export function age(since: string | null, now = Date.now()): string {
+  const t = since === null ? NaN : Date.parse(since)
+  if (Number.isNaN(t)) return "-"
+  const s = Math.max(0, Math.floor((now - t) / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
+
 // addProject adds the checkout at an absolute path and answers the project, or throws the controller's
 // reason for refusing it.
 export const addProject = (path: string) => call<Listed>("POST", "/api/projects", { path })
