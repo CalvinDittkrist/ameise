@@ -98,9 +98,9 @@ This repository packages a way of working with coding agents as Claude Code plug
 
 ### The contract fixture
 1. `contract/fixture.json` states the shared rules as cases: branch contract, base branch, frontier, labels.
-2. Both sides' tests read it, not each other's code. A rule changes there first; the side that disagrees names the case.
+2. Both sides' tests read it, not each other's code. A rule changes there first.
 
-The compact pin stays out of it, because it concerns only a peer's own sessions ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
+The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 
 ### Release
 1. Tickets and their spec carry a `vX.Y.Z` milestone, so a release waits for the acceptance.
