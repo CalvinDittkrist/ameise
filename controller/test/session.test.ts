@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +11,8 @@ let m: Machine
 let dir: string
 beforeEach(async () => {
   m = await machine()
+  // The shell that starts the controller may hold the workflow's variables and Herdr's.
+  m.env = { ...m.env, WF_MODE: 'leaked-mode', WF_ISSUE: '999', HERDR_ENV: '1' }
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
@@ -91,6 +94,12 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(settings.autoCompactWindow).toBe(312500)
   // No status line: the worker's checkpoint answers unavailable and no handoff is attempted.
   expect(settings.statusLine).toBeUndefined()
+  // The runtime runs without the controller's own workflow and Herdr variables.
+  const env = read(m.claudeLog + '.env')
+    .split('\n')
+    .map((l) => l.replace(/^declare -x /, '').split('=')[0])
+  expect(env.filter((name) => /^(WF_|HERDR_)/.test(name))).toEqual([])
+  expect(env).toContain('HOME')
 
   expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'implement', note: 'Pull request #7 is green and waits for your merge', needs: true, action: 'Merge' }])
 })
@@ -105,6 +114,23 @@ test('the brief names the issue, the branch, the base and the read of the issue,
   expect(prompt).toContain('origin/main')
   expect(prompt).toContain('gh issue view 144 --repo owner/repo')
   expect(read(m.claudeLog)).not.toMatch(/SECRET-|Board lists every project/)
+})
+
+test('an adopted branch with a shell character in its name ends the process failed before any session starts', async () => {
+  play(m, 'ready done')
+  const branch = 'fix/144-board$(touch${IFS}pwned)'
+  canPages(m, 'repos/owner/repo/branches?per_page=100', [[{ name: 'main' }, { name: branch }]])
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
+  git('update-ref', `refs/remotes/origin/${branch}`, git('rev-parse', 'HEAD'))
+  const c = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode: 'yolo', force: true })
+  expect(c.status, JSON.stringify(c.body)).toBe(201)
+  const r = (c.body as { record: Record }).record
+  expect(r.branch).toBe(branch)
+  const done = await ended(r.id)
+  expect(done.state).toBe('failed')
+  expect(done.note).toMatch(/has characters the brief does not carry/)
+  expect(existsSync(m.claudeLog)).toBe(false)
+  expect(events(r.id).filter((e) => e.event === 'stream')).toEqual([])
 })
 
 test('a blocked report ends the process blocked with the question on the board', async () => {

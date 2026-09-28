@@ -10,7 +10,8 @@
 #       silent                   the session ends without a result
 #       broken <message>         the runtime cannot start: it prints the message on stderr and exits 1
 #       (none)                   the session runs until its input closes, as a long session does
-#   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< '
+#   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
+#                              beside it, <log>.env holds the environment it started with
 #
 # --version answers as a claude does, whatever the play.
 set -euo pipefail
@@ -21,6 +22,7 @@ if [ "${1:-}" = --version ]; then
   exit 0
 fi
 printf '%s\n' "$@" >> "$log"
+if [ "$log" != /dev/null ]; then export -p > "$log.env"; fi
 
 play=''
 canned=${WORKFLOWS_FAKE_CLAUDE:-}
