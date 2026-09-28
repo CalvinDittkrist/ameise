@@ -68,3 +68,4 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0062](0062-the-peers-share-a-contract-fixture-not-code.md) | The peers share a contract fixture, not code | accepted |
 | [0063](0063-plugins-are-skills-and-agents.md) | Plugins are skills and agents | accepted |
 | [0064](0064-the-local-dashboard-is-built-into-the-controller.md) | The local dashboard is built into the controller | accepted |
+| [0065](0065-the-controller-warns-of-the-quota-and-notifies-a-turn.md) | The controller warns of the quota and notifies a turn | accepted |

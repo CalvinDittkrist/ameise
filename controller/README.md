@@ -90,7 +90,7 @@ A claim then:
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
-The claim reads the [quota](#quota) beside these steps and never waits for it. Its answer carries `quota`: one line per runtime below the minimum, which the CLI prints as a warning. The claim goes on either way.
+The claim reads the [quota](#quota) beside these steps, and its session starts without waiting for it. Its answer waits at most two seconds for the reading and carries `quota`: one line per runtime below the minimum, which the CLI prints as a warning. The claim goes on either way.
 
 In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 
@@ -118,7 +118,7 @@ A session that ends `blocked`, `ready` or `failed` marks its record `unseen` and
 In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does (see the script).
 
 ## Quota
-The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request, reads the `all_models` scope of quota-axi's report in schema version 5, and answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
+The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
 
 A reading is unknown, with the reason, when `quota_axi` is empty, not installed, fails, takes longer than 30 seconds or prints a report it cannot read. An unknown quota warns of nothing and holds no claim.
 
