@@ -30,7 +30,10 @@ One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/
 
 - `listen` is a loopback address; the controller is never reachable from another machine.
 - `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage.
-- A project is the absolute path of a checkout, stored as the top of its working tree. Adding and removing a project reads this file again and rewrites its `projects`, so a change made by hand while the server runs is kept. The rewrite fills in any field the file lacks with its default. A changed `listen` takes effect at the next start.
+- A project is the absolute path of a checkout, stored as the top of its working tree.
+- Adding and removing a project reads this file again and rewrites its `projects`, so a change made by hand while the server runs is kept.
+- The rewrite fills in any field the file lacks with its default.
+- A changed `listen` takes effect at the next start.
 
 ## Projects
 Owner and name come from the checkout's origin, which must be on GitHub. The base branch follows the base branch rule, whose cases [`contract/base-branch.json`](../contract/base-branch.json) states:
