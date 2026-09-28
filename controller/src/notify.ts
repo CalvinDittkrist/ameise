@@ -25,10 +25,18 @@ function native(n: Notice): [string, string[]] | undefined {
 export function notify(notifier: string, n: Notice): Promise<void> {
   const cmd: [string, string[]] | undefined = notifier === '' ? native(n) : [notifier, [n.title, n.body]]
   if (!cmd) return Promise.resolve()
+  const warn = (why: string) => process.stderr.write(`warning: the notification "${n.title}" was not sent: ${cmd[0]}: ${why.trim()}\n`)
   return new Promise((resolve) => {
-    execFile(cmd[0], cmd[1], { timeout: 10000 }, (err, _out, stderr) => {
-      if (err) process.stderr.write(`warning: the notification "${n.title}" was not sent: ${cmd[0]}: ${(stderr || err.message).trim()}\n`)
+    // execFile throws at once on an argument it cannot pass, such as one with a NUL in it, and calls
+    // back for every other failure; both are told the same way and resolve.
+    try {
+      execFile(cmd[0], cmd[1], { timeout: 10000 }, (err, _out, stderr) => {
+        if (err) warn(stderr || err.message)
+        resolve()
+      })
+    } catch (err) {
+      warn((err as Error).message)
       resolve()
-    })
+    }
   })
 }

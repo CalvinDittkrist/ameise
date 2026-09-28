@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, script, start } from './controller.js'
@@ -124,6 +124,31 @@ test('a notifier that fails leaves the process as it ended and says so on stderr
   expect(await row()).toMatchObject({ state: 'ready', unseen: true })
   for (let i = 0; i < 100 && !stderr.includes('no display'); i++) await new Promise((done) => setTimeout(done, 50))
   expect(stderr).toMatch(/^warning: the notification "repo #144 ready" was not sent: .*notifier: no display$/m)
+})
+
+test('a notifier that cannot be started leaves the controller running and says so on stderr', async () => {
+  // A NUL in the command name makes the spawn throw before any notifier runs.
+  writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), notifier: 'notifier\u0000x' }, null, 2) + '\n')
+  play(m, 'ready Done')
+  expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
+  for (let i = 0; i < 100 && !stderr.includes('was not sent'); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(stderr).toMatch(/^warning: the notification "repo #144 ready" was not sent: /m)
+  expect(await row()).toMatchObject({ state: 'ready', unseen: true })
+})
+
+test('a turn that cannot be logged still sends its notification', async () => {
+  play(m, 'litter unfinished.txt')
+  const claimed = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect(claimed.status, JSON.stringify(claimed.body)).toBe(201)
+  const file = join(m.state, 'processes', `${(claimed.body as { record: { id: string } }).record.id}.json`)
+  for (let i = 0; i < 100 && !(JSON.parse(read(file)) as { session_id?: string }).session_id; i++) await new Promise((done) => setTimeout(done, 50))
+  // A directory in place of the event log makes every append to it fail.
+  rmSync(join(m.state, 'events.jsonl'))
+  mkdirSync(join(m.state, 'events.jsonl'))
+  expect((await api(m, 'DELETE', '/api/processes', { project: dir, issue: 144 })).status).toBe(409)
+  expect(await settled(1)).toMatchObject({ state: 'failed', unseen: true })
+  expect(notifications()).toEqual([expect.stringMatching(/^repo #144 failed \| /)])
+  expect(stderr).toMatch(/the turn to failed was not logged/)
 })
 
 test('with no notifier configured the platform notifier shows the note, even one that starts with a dash', async () => {
