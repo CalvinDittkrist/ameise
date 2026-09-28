@@ -217,10 +217,10 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
     await dialog.getByRole("button", { name: "Done" }).click()
     await expect(dialog).toBeHidden()
     const row = section(page, "Running").locator(`[aria-label="${branch}"]`)
-    await expect(row).toContainText(`edge-sensors#145${branch}claimed; no session yetimplement`)
+    await expect(row).toContainText(`edge-sensors#145${branch}implement session runningimplement`)
     await expect(section(page, "Ready to start").locator('[aria-label="#145"]')).toHaveCount(0)
     const board = await (await fetch(url("/api/board?" + new URLSearchParams({ project })))).json()
-    expect(board.processes.find((p: { issue: number }) => p.issue === 145)).toMatchObject({ branch, state: "created" })
+    expect(board.processes.find((p: { issue: number }) => p.issue === 145)).toMatchObject({ branch, state: "running", stage: "implement" })
 
     await row.getByRole("button", { name: "Abandon #145" }).click()
     const abandon = page.getByRole("dialog", { name: "Abandon #145" })

@@ -42,7 +42,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 // request. needs says it waits for a person, action names what answers it.
 export type Process = {
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "running" | "waiting" | "created"
+  state: "blocked" | "approval" | "ready" | "input" | "failed" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
