@@ -77,10 +77,6 @@ type contract struct {
 		} `json:"parents"`
 		Free []int `json:"free"`
 	} `json:"frontier"`
-	CompactPin struct {
-		Window     int `json:"window"`
-		Percentage int `json:"percentage"`
-	} `json:"compact_pin"`
 	Labels struct {
 		Vocabulary []struct {
 			Name        string `json:"name"`
@@ -273,19 +269,6 @@ func TestTheFrontierRuleFollowsTheContractFixture(t *testing.T) {
 	want := "api repos/o/r/" + strings.Replace(frontier.Query, "labels="+readyLabel, "labels="+readyLabel+","+frontier.RoutingLabel, 1)
 	if request != want {
 		t.Errorf("frontier: the factory asks GitHub for %q; the contract fixture's query with the routing label is %q", request, want)
-	}
-}
-
-// The compact pin: a session the factory starts compacts where the local workflow's do, which is the
-// only safety net it has, because nothing hands a factory session over.
-func TestTheCompactPinFollowsTheContractFixture(t *testing.T) {
-	t.Parallel()
-	pin := readContract(t).CompactPin
-	if compactWindow != pin.Window {
-		t.Errorf("compact pin: a worker of the factory compacts at a window of %d; the contract fixture pins %d", compactWindow, pin.Window)
-	}
-	if compactPercentage != strconv.Itoa(pin.Percentage) {
-		t.Errorf("compact pin: a worker of the factory compacts at %s%% of its window; the contract fixture pins %d%%", compactPercentage, pin.Percentage)
 	}
 }
 

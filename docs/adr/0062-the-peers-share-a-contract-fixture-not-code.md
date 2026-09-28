@@ -12,7 +12,8 @@ Extends: [0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)
 - One file, `contract/fixture.json`, states the rules the peers share as inputs with expected outputs.
   - The branch contract and the base branch rule.
   - The frontier rule, split by the routing label.
-  - The compact pin and the label vocabulary with colour, description and order.
+  - The label vocabulary with colour, description and order.
+- The compact pin is not in the fixture: it concerns only the sessions a peer starts itself, not a shared state.
 - Each side's tests read the fixture. No test of one side runs the other side's code.
 - A rule changes in the fixture first. The side that disagrees fails and names the case.
 

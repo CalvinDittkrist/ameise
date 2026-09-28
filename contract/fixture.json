@@ -372,11 +372,6 @@
       46
     ]
   },
-  "compact_pin": {
-    "about": "Where a session compacts: at percentage per cent of window, as autoCompactWindow and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE.",
-    "window": 312500,
-    "percentage": 80
-  },
   "labels": {
     "about": "The label vocabulary in order. The planner creates every label but those with planner false.",
     "vocabulary": [

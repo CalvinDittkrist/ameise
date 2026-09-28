@@ -84,7 +84,7 @@ Terms the code, the issues and the docs use, one row each.
 | project | A configured checkout of a connected repository on this machine. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
 | board | The controller's central view: every project, its processes, the frontier and the specs ready for acceptance. |
 | controller tool | A tool the controller registers in a session for one GitHub write, such as create issue or set labels. It owns the label vocabulary ([ADR 0059](adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)). |
-| contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share, as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |
+| contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share (the branch contract, the base branch rule, the frontier rule, the label vocabulary), as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |
 | local dashboard | The page the controller serves, beside the factory's dashboard. |
 | orchestrator | Retired as a plugin ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the agent in a Herdr pane that claimed issues and opened planning sessions. The controller replaces it. |
 | test hunt | One run of `/orchestrator:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
