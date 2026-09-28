@@ -50,7 +50,12 @@ export function serve(o: Options): Server {
   const announce: Announce = (r) => {
     try {
       const c = readConfig(o.configPath)
-      log({ event: 'turned', process: r.id, state: r.state, notified: c.notifications })
+      // An event log that cannot be written is told and still leaves the notification to be sent.
+      try {
+        log({ event: 'turned', process: r.id, state: r.state, notified: c.notifications })
+      } catch (err) {
+        process.stderr.write(`warning: ${r.id}: the turn to ${r.state} was not logged: ${(err as Error).message}\n`)
+      }
       if (!c.notifications) return
       void notify(c.notifier, { title: `${basename(r.project)} #${r.issue} ${r.state}`, body: r.note })
     } catch (err) {
