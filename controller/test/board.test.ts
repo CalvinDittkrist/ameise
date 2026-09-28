@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -218,6 +218,17 @@ test('a process waiting for approval needs a person, and a draft, red or uncheck
     ['feat/12-unchecked', 'running', 'none', false, 'Open'],
     ['feat/9-approve-me', 'approval', null, true, 'Approve'],
   ])
+})
+
+test('a standardize worktree is a process of its own, and a record of another kind or half written is left out', async () => {
+  const dir = await project('repo')
+  const tree = worktree(dir, 'chore/standardize')
+  record(m, 'wrong', { project: dir, kind: 'plan', branch: 'feat/5-shaped-as-work', stage: 'plan', state: 'input', note: 'Wrong kind' })
+  mkdirSync(join(m.state, 'processes'), { recursive: true })
+  writeFileSync(join(m.state, 'processes', 'partial.json'), '{"project": "' + dir + '", "kind": "work", "bra')
+
+  const rows = (await boardOf(dir)).processes.map((p) => [p.kind, p.branch, p.stage, p.worktree])
+  expect(rows).toEqual([['standardize', 'chore/standardize', 'audit', tree]])
 })
 
 test('the specs and their sub-issues are read over every page GitHub answers', async () => {
