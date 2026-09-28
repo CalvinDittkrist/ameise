@@ -15,7 +15,15 @@ export interface Project {
 // Listed is one entry of the project list: the project, or the reason its checkout no longer derives.
 export type Listed = Project | { path: string; error: string }
 
-export class Refusal extends Error {}
+// A Refusal is a request the controller turns down, with the reason and the HTTP status that answers it.
+export class Refusal extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message)
+  }
+}
 
 // checkout is the top of the git working tree at path, or a Refusal that says it is none.
 export async function checkout(path: string): Promise<string> {

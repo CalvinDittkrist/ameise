@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
+import { ClaimWarnings } from "@/components/process-actions"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { label, useBoard, useProjects } from "@/api"
@@ -33,7 +34,7 @@ export default function App() {
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
           {route.page === "orchestrator" ? (
-            <Orchestrator board={board} />
+            <Orchestrator board={board} reload={reloadBoard} />
           ) : (
             <ProjectView
               path={route.path}
@@ -41,10 +42,12 @@ export default function App() {
               loading={projects.state === "loading"}
               failed={projects.state === "failed" ? projects.error : undefined}
               board={board}
+              reload={reloadBoard}
             />
           )}
         </div>
       </SidebarInset>
+      <ClaimWarnings />
     </SidebarProvider>
   )
 }

@@ -38,6 +38,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
+   - The controller's `workflows claim` refuses the same, but starts no session ([claim and abandon](../controller/README.md#claim-and-abandon)).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -52,7 +53,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 12. `panel.sh record` derives the panel summary from the round records. It refuses a head without a round record, or one the gate did not pass.
 13. `/worker:pr` forks into `pr-author`, briefed with the diff, `panel.sh print` and `gate.sh print`. The pull request is never a draft; a failed panel is named in its body.
 14. `/worker:ci` calls `pr-wait.sh`: conflicts first, then checks, bot reviewers and standing change requests, which keep it from green.
-15. `/worker:address-reviews` fixes what reviewers still ask for, replies to and resolves each thread, and answers each review summary with one comment (`pr-answer.sh`).
+15. `/worker:address-reviews` fixes what reviewers still ask for, replies to and resolves each thread, and answers each review summary once (`pr-answer.sh`).
 16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
     - A merge outside the default branch also closes the issue.
@@ -64,7 +65,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 3. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 4. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
 5. A round without a new candidate ends the hunt. Review, pull request and CI follow, with `hunt.sh print` instead of the issue.
-6. A hunt that removed nothing opens no pull request and reports `hunt: nothing removed`.
+6. A hunt that removed nothing reports `hunt: nothing removed` without a pull request.
 
 ### Standardisation
 1. `/repo-standards:standardize` injects `facts.sh`, runs `workspace.sh` as a dry run and launches the six auditors in parallel. Nothing changes.
@@ -76,7 +77,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
 2. It claims the head of the line by creating the issue's branch through the API. An existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
    - A routed spec is held on its spec branch for its [ticket runs](factory-runbook.md#ticket-runs).
-3. The branch contract, the base branch rule and the frontier rule restate the orchestrator's shell in Go, bound by the [contract fixture](#the-contract-fixture) ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)), `WF_BASE_BRANCH` included.
+3. The shared rules restate the orchestrator's shell in Go, bound by the [contract fixture](#the-contract-fixture) ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)), `WF_BASE_BRANCH` included.
 4. It assigns itself, makes a worktree and records the Claude Code version, updating nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
 6. Implement: one session commits the change and pushes nothing.
@@ -99,7 +100,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 
 ### The contract fixture
 1. `contract/fixture.json` states the shared rules as cases: branch contract, base branch, frontier, labels.
-2. The Go tests, the Python suite and the controller's frontier tests read it, not each other's code. Rules change there first.
+2. The Go tests, the Python suite and the controller's tests read it, not each other's code. Rules change there first.
 
 The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 
@@ -111,7 +112,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 
 ## Boundaries and constraints
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.
-- Plugins share no code at runtime; `lib.sh` is duplicated on purpose.
+- Plugins share no code; `lib.sh` is duplicated on purpose.
 - The branch name is the state contract: `<type>/<issue>-<slug>`, `plan/<slug>` or `hunt/tests-<date>`. The rest is derived from git and GitHub, so a crashed session resumes.
 - A local pipeline fact, such as the gate record, lives in the worktree's git directory.
 - Reviewers and auditors never edit or run the gate. The worker never merges in manual mode, the orchestrator never edits code, the planner writes issues only.

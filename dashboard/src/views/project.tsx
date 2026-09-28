@@ -6,7 +6,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { broken, type Board, type Listed, type ProjectBoard } from "@/api"
 
 // The project page: the project's facts and actions, its processes, its frontier and, when there are
-// any, its specs ready for acceptance. The actions wait for the controller to serve them.
+// any, its specs ready for acceptance. Its own actions wait for the controller to serve them.
 // failed is the reason the projects could not be read, which leaves open whether this one is a project.
 export function ProjectView({
   path,
@@ -14,12 +14,14 @@ export function ProjectView({
   loading,
   failed,
   board,
+  reload,
 }: {
   path: string
   project?: Listed
   loading: boolean
   failed?: string
   board: Board
+  reload: () => Promise<void>
 }) {
   if (loading) return null
   if (failed) {
@@ -80,14 +82,14 @@ export function ProjectView({
       {board.state === "failed" && <p role="alert" className="text-sm text-destructive">{board.error}</p>}
       {b && <Notes boards={[b]} />}
       <Section title="Processes" count={b?.processes.length ?? 0} empty="Nothing running" loading={pending}>
-        {b?.processes.map((p) => <ProcessRow key={p.branch} p={p} />)}
+        {b?.processes.map((p) => <ProcessRow key={p.branch} p={p} path={project.path} reload={reload} />)}
       </Section>
       <Section title="Ready to start" count={b?.frontier.length ?? 0} empty="Frontier empty" loading={pending}>
-        {b?.frontier.map((i) => <IssueRow key={i.number} i={i} />)}
+        {b?.frontier.map((i) => <IssueRow key={i.number} i={i} path={project.path} reload={reload} />)}
       </Section>
       {b && b.acceptance.length > 0 && (
         <Section title="Ready for acceptance" count={b.acceptance.length} empty="">
-          {b.acceptance.map((i) => <IssueRow key={i.number} i={i} accept />)}
+          {b.acceptance.map((i) => <IssueRow key={i.number} i={i} path={project.path} reload={reload} accept />)}
         </Section>
       )}
     </>

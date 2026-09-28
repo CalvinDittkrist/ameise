@@ -34,6 +34,7 @@ export default async function start() {
   // A checkout the add-project test adds and removes again.
   process.env.WORKFLOWS_SPARE = checkout(sources, "firmware", "acme/firmware", "main")
   process.env.WORKFLOWS_NOT_A_CHECKOUT = projects[2]
+  process.env.WORKFLOWS_SENSORS = projects[0]
   mkdirSync(github)
   board(root, github, projects[0]!, projects[1]!)
   // Its open specs are left uncanned, so GitHub does not answer them and its board carries a note.
@@ -132,6 +133,12 @@ function board(root: string, github: string, sensors: string, backtest: string) 
     ],
     [issue(100, "Offline mode", ["spec"], v("v0.12.0")), issue(101, "Notifications", ["spec"])],
   )
+  // The issue the claim test claims, as gh issue view answers it, and the branches of origin.
+  writeFileSync(
+    join(github, "repos", "acme/edge-sensors", "issues", "145.json"),
+    JSON.stringify({ number: 145, title: "Claim from the frontier by one action", state: "OPEN", labels: [{ name: "ready-for-agent" }] }),
+  )
+  api(github, "repos/acme/edge-sensors/branches?per_page=100", [{ name: "main" }])
   api(github, "repos/acme/edge-sensors/issues/100/sub_issues?per_page=100", [{ number: 1, state: "closed" }, { number: 2, state: "closed" }])
   api(github, "repos/acme/edge-sensors/issues/101/sub_issues?per_page=100", [{ number: 3, state: "closed" }, { number: 4, state: "open" }])
   can(
@@ -146,7 +153,7 @@ function board(root: string, github: string, sensors: string, backtest: string) 
 // can cans a repository's open pull requests, agent-ready issues and open specs on the fake GitHub.
 // Specs left out stay uncanned, and the fake GitHub answers them with an error.
 function can(github: string, repository: string, pulls: object[], ready: object[], specs?: object[]) {
-  mkdirSync(join(github, "repos", repository), { recursive: true })
+  mkdirSync(join(github, "repos", repository, "issues"), { recursive: true })
   writeFileSync(join(github, "repos", repository, "pulls.json"), JSON.stringify(pulls))
   api(github, `repos/${repository}/issues?labels=ready-for-agent&state=open&per_page=100`, ready)
   if (specs) api(github, `repos/${repository}/issues?labels=spec&state=open&per_page=100`, specs)

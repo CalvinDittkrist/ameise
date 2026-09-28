@@ -21,8 +21,9 @@ export const frontierQuery = `issues?labels=${labels.ready}&state=open&per_page=
 export type Kind = 'work' | 'plan' | 'hunt' | 'standardize'
 
 // The states of a process. The first four wait for a person, each with the one action that answers it;
-// a process in any other state runs on its own and is opened to be watched.
-export const states = ['blocked', 'approval', 'ready', 'input', 'running', 'waiting'] as const
+// a process in any other state runs on its own and is opened to be watched. A claimed process is created
+// until its first session starts.
+export const states = ['blocked', 'approval', 'ready', 'input', 'running', 'waiting', 'created'] as const
 export type State = (typeof states)[number]
 const actions: Partial<Record<State, string>> = { blocked: 'Answer', approval: 'Approve', ready: 'Merge', input: 'Continue' }
 
@@ -74,9 +75,16 @@ export function issueOf(branch: string): number | null {
   return m ? Number(m[1]) : null
 }
 
+// issueFromBranch is the issue a branch belongs to by the branch contract, spelled as the branch spells
+// it, or '' for a branch of no issue. A spec branch belongs to its spec.
+export function issueFromBranch(branch: string): string {
+  if (branch.startsWith('plan/')) return ''
+  return /^[a-z]+\/([0-9]+)-/.exec(branch)?.[1] ?? ''
+}
+
 // A record is what the state directory holds of a process: one JSON file per process under
 // processes/. It names its project by the checkout's path.
-interface ProcessRecord {
+export interface ProcessRecord {
   project: string
   kind: Kind
   branch: string
@@ -88,7 +96,9 @@ interface ProcessRecord {
   updated_at?: string
 }
 
-function records(stateDir: string, project: string): ProcessRecord[] {
+// recordFiles are the process records of a project, each with the path of its file. A record counts
+// when its branch is of the kind it names. The board and a claim read the processes through it alone.
+export function recordFiles(stateDir: string, project: string): { file: string; record: ProcessRecord }[] {
   const dir = join(stateDir, 'processes')
   let names: string[]
   try {
@@ -96,11 +106,11 @@ function records(stateDir: string, project: string): ProcessRecord[] {
   } catch {
     return []
   }
-  const out: ProcessRecord[] = []
+  const out: { file: string; record: ProcessRecord }[] = []
   for (const name of names.sort()) {
     try {
       const r = JSON.parse(readFileSync(join(dir, name), 'utf8')) as ProcessRecord
-      if (r && r.project === project && typeof r.branch === 'string' && kindOf(r.branch) === r.kind) out.push(r)
+      if (r && r.project === project && typeof r.branch === 'string' && kindOf(r.branch) === r.kind) out.push({ file: join(dir, name), record: r })
     } catch {
       // a record that cannot be read is skipped, as one that is being written
     }
@@ -108,12 +118,15 @@ function records(stateDir: string, project: string): ProcessRecord[] {
   return out
 }
 
-interface Worktree {
+const records = (stateDir: string, project: string): ProcessRecord[] => recordFiles(stateDir, project).map((r) => r.record)
+
+export interface Worktree {
   path: string
   branch: string
 }
 
-async function worktrees(top: string): Promise<Worktree[]> {
+// worktrees are the worktrees of a checkout other than the checkout itself, each on its branch.
+export async function worktrees(top: string): Promise<Worktree[]> {
   const out: Worktree[] = []
   let path = ''
   for (const line of (await run('git', ['-C', top, 'worktree', 'list', '--porcelain'])).split('\n')) {
@@ -206,10 +219,12 @@ export interface GitHubIssue {
   milestone?: { title?: string } | null
   pull_request?: unknown
   parent_issue_url?: string | null
+  repository_url?: string
   issue_dependencies_summary?: { blocked_by?: number }
 }
 
-const names = (i: GitHubIssue) => (i.labels ?? []).map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
+// labelNames are the names of an issue's labels, whether GitHub gives them as names or as objects.
+export const labelNames = (i: GitHubIssue) => (i.labels ?? []).map((l) => (typeof l === 'string' ? l : (l.name ?? '')))
 
 // frontier is the frontier rule over the agent-ready issues. It keeps the ones without assignee, open
 // blocker, routing label or a process of this machine. It leaves out the ones held in a spec run.
@@ -226,7 +241,7 @@ export async function frontier(
   // The parents are read at once, and the issues keep their order.
   const kept = await Promise.all(
     issues.map(async (i) => {
-      const l = names(i)
+      const l = labelNames(i)
       if (i.pull_request || (i.assignees ?? []).length > 0 || (i.issue_dependencies_summary?.blocked_by ?? 0) > 0) return undefined
       if (l.includes(labels.routing) || claimed.has(i.number)) return undefined
       const human = l.includes(labels.human)
@@ -240,7 +255,7 @@ export async function frontier(
           unknown++
           return undefined
         }
-        if (names(p).includes(labels.specRun)) return undefined
+        if (labelNames(p).includes(labels.specRun)) return undefined
       }
       return i
     }),
@@ -277,14 +292,19 @@ export function pages<T>(out: string): T[] {
 
 const issue = (i: GitHubIssue): Issue => ({ number: i.number, title: oneLine(i.title), milestone: i.milestone?.title ? oneLine(i.milestone.title) : null })
 
+// ghApi answers the REST endpoints of a repository through gh, each page of a paginated one merged.
+export function ghApi(gh: string, repo: string) {
+  return async <T>(endpoint: string, paginate = false): Promise<T> => {
+    const out = await run(gh, ['api', ...(paginate ? ['--paginate'] : []), `repos/${repo}/${endpoint}`])
+    return (paginate ? pages(out) : JSON.parse(out)) as T
+  }
+}
+
 // board derives the board of one project.
 export async function board(project: Project, stateDir: string, gh: string): Promise<ProjectBoard> {
   const repo = `${project.owner}/${project.name}`
   const notes: string[] = []
-  const api = async <T>(endpoint: string, paginate = false): Promise<T> => {
-    const out = await run(gh, ['api', ...(paginate ? ['--paginate'] : []), `repos/${repo}/${endpoint}`])
-    return (paginate ? pages(out) : JSON.parse(out)) as T
-  }
+  const api = ghApi(gh, repo)
 
   const [trees, times, prs] = await Promise.all([
     worktrees(project.path),

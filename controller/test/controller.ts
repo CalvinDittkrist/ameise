@@ -213,6 +213,13 @@ export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {
   writeFileSync(file, pages.map((p) => JSON.stringify(p)).join('\n'))
 }
 
+// canIssue cans an issue of a repository, as gh issue view answers it: its state OPEN or CLOSED and its
+// labels by name.
+export function canIssue(m: Machine, repository: string, number: number, title: string, labels: string[], state = 'OPEN') {
+  mkdirSync(join(m.github, 'repos', repository, 'issues'), { recursive: true })
+  writeFileSync(join(m.github, 'repos', repository, 'issues', `${number}.json`), JSON.stringify({ number, title, state, labels: labels.map((name) => ({ name })) }))
+}
+
 // canPulls cans the open pull requests of a repository, as gh pr list answers them.
 export function canPulls(m: Machine, repository: string, pulls: unknown[]) {
   mkdirSync(join(m.github, 'repos', repository), { recursive: true })

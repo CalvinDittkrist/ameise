@@ -4,7 +4,7 @@ import { broken, type Board, type ProjectBoard } from "@/api"
 
 // The Orchestrator page is the board over every project: what waits for a person, what runs, and the
 // issues ready to start. A spec whose tickets are all closed waits for a person too.
-export function Orchestrator({ board }: { board: Board }) {
+export function Orchestrator({ board, reload }: { board: Board; reload: () => Promise<void> }) {
   if (board.state === "failed") return <p role="alert" className="text-sm text-destructive">{board.error}</p>
   const boards = board.state === "loaded" ? board.projects.filter((b): b is ProjectBoard => !broken(b)) : []
   const processes = boards.flatMap((b) => b.processes.map((p) => ({ p, b })))
@@ -17,14 +17,14 @@ export function Orchestrator({ board }: { board: Board }) {
     <>
       <Notes boards={boards} />
       <Section title="Needs you" count={needs.length + acceptance.length} empty="Nothing waits for you" loading={loading}>
-        {needs.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} />)}
-        {acceptance.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} accept />)}
+        {needs.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} path={b.path} reload={reload} />)}
+        {acceptance.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} path={b.path} reload={reload} accept />)}
       </Section>
       <Section title="Running" count={running.length} empty="Nothing running" loading={loading}>
-        {running.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} />)}
+        {running.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} path={b.path} reload={reload} />)}
       </Section>
       <Section title="Ready to start" count={frontier.length} empty="Frontier empty" loading={loading}>
-        {frontier.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} />)}
+        {frontier.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} path={b.path} reload={reload} />)}
       </Section>
     </>
   )
