@@ -31,28 +31,45 @@ class ManifestTests(unittest.TestCase):
                 fm = agent.read_text().split("---")[1]
                 self.assertIn(f"name: {agent.stem}\n", fm, agent)
 
-    def test_agent_models_match_their_role(self):
-        """The model of an agent is a decision: a session agent names its own, a subagent names one or inherits the session it serves."""
-        expected = {
-            "orchestrator/agents/orchestrator.md": "sonnet",
-            "worker/agents/worker.md": "opus",
-            "planner/agents/planner.md": "fable",
-            "worker/agents/code-reviewer.md": "sonnet",
-            "worker/agents/test-reviewer.md": "sonnet",
-            "worker/agents/docs-reviewer.md": "sonnet",
-            "worker/agents/pr-author.md": "sonnet",
-            "worker/agents/docs-lookup.md": "sonnet",
-            "worker/agents/test-hunter.md": "opus",
+    def test_agent_models_and_efforts_match_their_role(self):
+        """The model and effort of an agent are a decision: a session agent names its own model, every subagent runs on sonnet at its effort and none inherits."""
+        sessions = {
+            "orchestrator/agents/orchestrator.md": ("sonnet", "low"),
+            "worker/agents/worker.md": ("opus", None),
+            "planner/agents/planner.md": ("fable", None),
         }
+        subagents = {
+            "worker/agents/code-reviewer.md": "high",
+            "worker/agents/security-reviewer.md": "high",
+            "worker/agents/docs-reviewer.md": "high",
+            "worker/agents/test-reviewer.md": "high",
+            "worker/agents/senior-reviewer.md": "high",
+            "worker/agents/test-hunter.md": "high",
+            "worker/agents/docs-lookup.md": "high",
+            "worker/agents/pr-author.md": "medium",
+            "planner/agents/spec-checker.md": "high",
+            "repo-standards/agents/agent-config-auditor.md": "high",
+            "repo-standards/agents/docs-auditor.md": "high",
+            "repo-standards/agents/files-auditor.md": "high",
+            "repo-standards/agents/security-auditor.md": "high",
+            "repo-standards/agents/tests-ci-auditor.md": "high",
+            "repo-standards/agents/workspace-auditor.md": "high",
+        }
+        expected = dict(sessions, **{rel: ("sonnet", effort) for rel, effort in subagents.items()})
         agents = sorted(ROOT.glob("plugins/*/agents/*.md"))
-        self.assertLessEqual(set(expected), {a.relative_to(ROOT / "plugins").as_posix() for a in agents})
+        # Every agent file has a decided value, so a new agent cannot slip in on a default.
+        self.assertEqual(set(expected), {a.relative_to(ROOT / "plugins").as_posix() for a in agents})
         for agent in agents:
             rel = agent.relative_to(ROOT / "plugins").as_posix()
-            found = re.search(r"^model: (.+)$", agent.read_text().split("---")[1], re.M)
-            self.assertIsNotNone(found, rel)
-            # claude plugin validate accepts any string here, so a typo like "fabel" is only caught by this.
-            self.assertIn(found.group(1), {"fable", "opus", "sonnet", "haiku", "inherit"}, rel)
-            self.assertEqual(found.group(1), expected.get(rel, "inherit"), rel)
+            fm = agent.read_text().split("---")[1]
+            model = re.search(r"^model: (.+)$", fm, re.M)
+            effort = re.search(r"^effort: (.+)$", fm, re.M)
+            self.assertIsNotNone(model, rel)
+            # claude plugin validate accepts any string here, so a typo like "fabel" or "hgih" is only caught by this.
+            self.assertIn(model.group(1), {"fable", "opus", "sonnet", "haiku"}, rel)
+            if effort:
+                self.assertIn(effort.group(1), {"low", "medium", "high", "xhigh", "max"}, rel)
+            self.assertEqual((model.group(1), effort and effort.group(1)), expected[rel], rel)
 
     def assert_read_only(self, agent):
         """An agent that only judges: no edit tool and no agent tool, neither granted nor reachable."""

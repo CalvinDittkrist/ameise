@@ -6,7 +6,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from helpers import ORCH, ShimTest
+from helpers import ORCH, ROOT, ShimTest
 
 
 class ClaimTests(ShimTest):
@@ -1439,6 +1439,18 @@ class GhAxiContextHookTests(ShimTest):
         self.assertEqual(self.hook(source="resume", remote=None), "", "resume")
         self.assertEqual(self.hook(agent_id="a1", remote=None), "", "subagent")
         self.assertFalse([c for c in self.calls() if c.startswith("gh-axi")])
+
+
+class DevOrchestratorTests(ShimTest):
+    """`scripts/dev-orchestrator.sh`: the orchestrator session this checkout starts."""
+
+    def test_the_session_runs_as_the_orchestrator_at_low_effort_with_the_callers_flags_after(self):
+        # The agent file's effort is documented for subagents, not for a session run as the agent, so the
+        # start command names it too.
+        r = self.run_script(ROOT / "scripts/dev-orchestrator.sh", "--verbose")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.argv_calls(), [["claude", "--plugin-dir", f"{ROOT}/plugins/orchestrator",
+                                              "--agent", "orchestrator", "--effort", "low", "--verbose"]])
 
 
 if __name__ == "__main__":

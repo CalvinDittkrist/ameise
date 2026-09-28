@@ -3,7 +3,8 @@ name: tests-ci-auditor
 description: Standardisation auditor for the make check gate, tests and CI. Read-only; started by /repo-standards:standardize.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
-model: inherit
+model: sonnet
+effort: high
 color: cyan
 ---
 You audit one area of a repository for the standardisation run, in a fresh context and independent of the other auditors.

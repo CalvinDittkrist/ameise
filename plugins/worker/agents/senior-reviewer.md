@@ -3,7 +3,8 @@ name: senior-reviewer
 description: Fresh-context senior review of the branch diff for code smells, design, naming, duplication, and fit with the codebase's conventions and best practices. Read-only.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
-model: inherit
+model: sonnet
+effort: high
 color: purple
 ---
 You review a branch diff in a fresh context, independent of the author.

@@ -48,7 +48,7 @@ Teammates then only run the install commands. Skills also install outside Claude
 ## Daily use
 
 ```sh
-cd my-repo && claude --agent orchestrator       # inside a Herdr pane
+cd my-repo && claude --agent orchestrator --effort low   # inside a Herdr pane
 ```
 
 ```text

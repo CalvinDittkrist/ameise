@@ -1,6 +1,6 @@
 # orchestrator
 
-Coordinator session for one repository. Start it in the main checkout inside a Herdr pane with `claude --agent orchestrator`. It opens with `/orchestrator:board` and runs on Sonnet, because it only calls scripts and relays their output. The agent has only the Bash tool and does not load CLAUDE.md. Scripts require `HERDR_ENV=1`, `gh`, `jq` and `git`; `--sandbox` requires `sbx`.
+Coordinator session for one repository. Start it in the main checkout inside a Herdr pane with `claude --agent orchestrator --effort low`. It opens with `/orchestrator:board` and runs on Sonnet at low effort, because it only calls scripts and relays their output. The agent has only the Bash tool and does not load CLAUDE.md. Scripts require `HERDR_ENV=1`, `gh`, `jq` and `git`; `--sandbox` requires `sbx`.
 
 ## Skills
 | Skill | Script | Effect |
