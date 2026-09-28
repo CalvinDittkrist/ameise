@@ -110,6 +110,10 @@ test('a checkout whose origin is not on GitHub, or that has none, is refused by 
   const hidden = `the origin of ${malformed} is https://bad host/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository`
   expect(cli(m, ['projects', 'add', malformed]).stderr).toBe(`error: ${hidden}\n`)
   expect(await api(m, 'POST', '/api/projects', { path: malformed })).toEqual({ status: 400, body: { error: hidden } })
+  const slashed = checkout(m, 'slashed', { origin: 'https://al/ice:secret@bad host/owner/repo.git' })
+  const slashedHidden = `the origin of ${slashed} is https://bad host/owner/repo.git, which is not on GitHub; a project is a clone of a GitHub repository`
+  expect(cli(m, ['projects', 'add', slashed]).stderr).toBe(`error: ${slashedHidden}\n`)
+  expect(await api(m, 'POST', '/api/projects', { path: slashed })).toEqual({ status: 400, body: { error: slashedHidden } })
   expect(read(m.config)).toBe(before)
 })
 

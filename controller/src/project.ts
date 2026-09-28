@@ -37,13 +37,12 @@ export function github(url: string): { owner: string; name: string } | undefined
 // redacted is the origin with its user, password, query and fragment taken out, so a token kept in
 // the remote never reaches an answer or a terminal.
 function redacted(origin: string): string {
-  try {
-    const url = new URL(origin)
-    if (url.host) return `${url.protocol}//${url.host}${url.pathname}`
-  } catch {
-    // no URL: an scp-like address such as user@host:path, or a malformed one such as https://user:token@bad host/path
-  }
-  return origin.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)?[^/]*@/, '$1').replace(/[?#].*$/, '')
+  // Everything up to the last @ goes, so a user or password that holds a slash or an @ of its own
+  // is taken out too. No URL parser decides it: one reads https://a/b:token@host/path as the host a
+  // and leaves the token in the path.
+  const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.exec(origin)?.[0] ?? ''
+  const rest = origin.slice(scheme.length).replace(/[?#].*$/, '')
+  return scheme + rest.slice(rest.lastIndexOf('@') + 1)
 }
 
 // derive reads the facts of the checkout at path. A path that is no checkout, or whose origin is
