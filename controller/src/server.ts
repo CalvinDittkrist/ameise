@@ -156,9 +156,9 @@ async function page(res: ServerResponse, dir: string, pathname: string) {
   }
   res.writeHead(200, {
     'content-type': type,
-    // index.html names the build, so it is asked for again each time; the rest never changes under
-    // its name.
-    'cache-control': root ? 'no-cache' : 'public, max-age=31536000, immutable',
+    // index.html names the build, so it is asked for again each time, at / and at its own name; the
+    // rest never changes under its name.
+    'cache-control': type === types['.html'] ? 'no-cache' : 'public, max-age=31536000, immutable',
     'content-security-policy': policy,
     'x-content-type-options': 'nosniff',
     [identity]: '1',

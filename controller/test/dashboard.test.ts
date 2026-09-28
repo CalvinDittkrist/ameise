@@ -48,6 +48,10 @@ test('the root serves the built dashboard and its files, each as its kind, and n
   expect(index.headers.get('cache-control')).toBe('no-cache')
   expect(index.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
   expect(await index.text()).toBe(build['index.html'])
+  // Asked for by its own name, the index is still asked for again, since the next build rewrites it.
+  const named = await fetch(m.url + '/index.html')
+  expect(named.status).toBe(200)
+  expect(named.headers.get('cache-control')).toBe('no-cache')
 
   for (const [path, type] of [
     ['assets/index-a1.js', 'text/javascript; charset=utf-8'],
