@@ -520,6 +520,7 @@ The tickets of a held spec are worked one at a time on the spec branch.
   - The run records the spec's number, and the spec run's record lists the ticket with its runs.
 - Validate is on in a ticket run, with the repository's `validate` knobs. When they name no validator, `codex` and `fable` validate.
 - A ticket run that ends `blocked`, `failed` or `timeout` holds its ticket until the release signal. Siblings its edges free are worked meanwhile.
+- A poll that was reading the line when a run ended starts nothing. The next poll follows at once and reads the tickets that run unblocked.
 - A resumed ticket run goes on from its record and its pull request: before validate, at merge, or done.
 
 #### The merge stage
@@ -701,12 +702,16 @@ Every round, fix and gate is recorded on the run as it ends. A run resumed durin
 #### The Codex runtime
 Every session runs on a runtime, `claude` or `codex` ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)). Every session runs on `claude` but the reviewer `codex`, which a repository adds by naming it in `reviewers`.
 
-- It runs `codex exec` in the run's worktree, in the read-only sandbox, with `--json`, `--ephemeral` and its standard input closed.
+- It runs `codex exec` in the run's worktree, in the read-only sandbox, with `--json` and `--ephemeral`.
+- Its prompt goes in on standard input, closed after it, and the call names the prompt `-`.
+- A prompt in the arguments makes Codex print `Reading additional input from stdin...`, which the factory would record as an `error` event.
+- It would also bind a brief to the 128 KiB Linux holds an argument to.
 - It runs with `--ignore-user-config` and `--ignore-rules`: no MCP server, hook or rule of `~/.codex` or of the worktree reaches it. The login in `~/.codex` still holds.
 - Its model is `gpt-6-sol`, passed with `-m`, at the reasoning effort `high` (`-c model_reasoning_effort`). A ChatGPT login is refused `gpt-5.3-codex`.
 - quota-axi reports no scope of its own for that model, so the check reads its `all_models`. The reviewer schema goes to `--output-schema` as a file.
 - Its last message, written to the file of `-o`, is its result. The factory reads it with the checks of a Claude reviewer's result.
-- The run record lists every session under `sessions` with its stage, runtime and model. The log names them on each `worker started`.
+- The run record lists every session under `sessions` with its stage, runtime and model.
+- The log names them on each `worker started`. A Codex session's entry shows its prompt after the call.
 - Codex reports tokens and no cost, so the run's `costUsd` leaves a Codex session out.
 - Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and that `codex login status` passes.
 - When either fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue. Install or log in ([Installation](#installation)), then release the issue.

@@ -126,9 +126,13 @@ func (c *codexShim) calls(t *testing.T) []codexCall {
 		case "arg":
 			call.args = append(call.args, value)
 		default:
-			// A line of no field is the next line of an argument that has more than one, a brief's.
-			if last == "arg" {
+			// A line of no field is the next line of an argument or of standard input that has more
+			// than one, a brief's.
+			switch last {
+			case "arg":
 				call.args[len(call.args)-1] += "\n" + line
+			case "stdin":
+				call.stdin += "\n" + line
 			}
 			continue
 		}
@@ -146,9 +150,9 @@ func codexPanel(data string) config {
 
 // A repository whose panel names codex runs a Codex reviewer beside the Claude one in every round: in
 // the run's worktree, in the read-only sandbox, with the reviewer's schema as the output schema file,
-// its last message to a file, its model named and its standard input closed. Its findings go to the
-// round and to the fix session like any reviewer's, and the record names the runtime and the model of
-// every session.
+// its last message to a file, its model named and its prompt on standard input, closed after it. Its
+// findings go to the round and to the fix session like any reviewer's, and the record names the
+// runtime and the model of every session.
 func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 	t.Parallel()
 	gh, data := panelClaim(t, "@echo the gate of the panel passes")
@@ -179,11 +183,11 @@ func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 			t.Errorf("Codex session %d wrote its last message to %q on the model %q with the override %q, want a file, %s and the reasoning effort %s",
 				i+1, call.arg("-o"), call.arg("-m"), call.arg("-c"), codexModel, codexReasoning)
 		}
-		if call.stdin != "0" {
-			t.Errorf("Codex session %d read %s bytes on its standard input, want it closed", i+1, call.stdin)
+		if last := call.args[len(call.args)-1]; last != "-" {
+			t.Errorf("Codex session %d took the prompt argument %q, want - for its prompt on standard input", i+1, last)
 		}
-		if brief := call.args[len(call.args)-1]; !strings.Contains(brief, "read-only sandbox") || !strings.Contains(brief, "Review round") {
-			t.Errorf("Codex session %d was briefed with %q, want the reviewer's prompt and the round's brief", i+1, brief)
+		if !strings.Contains(call.stdin, "read-only sandbox") || !strings.Contains(call.stdin, "Review round") {
+			t.Errorf("Codex session %d read %q on its standard input, want the reviewer's prompt and the round's brief, closed after it", i+1, call.stdin)
 		}
 	}
 	if len(run.Panel.Rounds) != 2 {
@@ -230,6 +234,11 @@ func TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers(t *testing.T) {
 	}
 	if !started {
 		t.Errorf("the run's log names no Codex session with its runtime and model")
+	}
+	for _, e := range run.Events {
+		if e.Kind == "error" && strings.HasPrefix(e.Title, "codex: ") {
+			t.Errorf("the run records the error %q of a Codex session that succeeded, want none", e.Title)
+		}
 	}
 }
 

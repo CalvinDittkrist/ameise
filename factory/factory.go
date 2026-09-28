@@ -136,9 +136,12 @@ type Factory struct {
 	reviewsEarly bool
 	unreadable   map[string]string
 	polledAt     time.Time
-	connecting   bool
-	user         string          // the login this host's gh is logged in as, read once and kept
-	held         map[string]bool // repositories this factory claims nothing from, so the log says it once
+	// readFrom is when the last poll began to read the line. A run that ended after it may have
+	// changed what the line holds, such as a merged ticket that unblocks the next one of its spec.
+	readFrom   time.Time
+	connecting bool
+	user       string          // the login this host's gh is logged in as, read once and kept
+	held       map[string]bool // repositories this factory claims nothing from, so the log says it once
 	// cancelling is how a poll ends a run that is still going: the cancel of the context that run
 	// works under, by run, put there when the run starts and taken out when it ends or is cancelled.
 	// Only a run of this factory is in it, so a record of an older start can never be signalled here.
@@ -420,6 +423,7 @@ func sortRouted(issues []Issue) {
 //
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
 func (f *Factory) refreshQueue(ctx context.Context) poll {
+	from := time.Now()
 	held := f.heldIssuesDue()
 	if !f.Paused() {
 		held = append(held, f.heldSpecs()...)
@@ -431,6 +435,7 @@ func (f *Factory) refreshQueue(ctx context.Context) poll {
 	sortTickets(read.tickets)
 	f.mu.Lock()
 	f.queue, f.specQueue, f.tickets, f.unreadable, f.polledAt = queue, read.specs, read.tickets, read.unreadable, time.Now()
+	f.readFrom = from
 	f.subIssues = read.subIssues
 	f.mu.Unlock()
 	return read
@@ -638,8 +643,14 @@ func (f *Factory) dispatch(ctx context.Context) {
 	if f.Paused() || f.Draining() || ctx.Err() != nil {
 		return
 	}
+	f.mu.Lock()
+	from := f.readFrom
+	f.mu.Unlock()
 	for _, r := range f.runs.list() {
-		if r.EndedAt == nil {
+		// A run that ended while this poll read the line may have closed a ticket the line counts as
+		// open. That ticket then still blocks the next one of its spec. The wake its end sent polls
+		// again at once, and that poll starts the head of the line it reads.
+		if r.EndedAt == nil || r.EndedAt.After(from) {
 			return
 		}
 	}
@@ -1234,6 +1245,10 @@ func (f *Factory) runSession(parent, ctx context.Context, r *Run, s session, ent
 	defer f.runs.update(r, func() { r.ungrouped(pid) })
 	started := Event{Kind: "factory", Title: "worker started",
 		Body: fmt.Sprintf("runtime %s, model %s\n%v", sessioned.Runtime, sessioned.Model, cmd.Args)}
+	if codex {
+		// A Codex session takes its prompt on stdin, where the call names it -; the record shows it after the call.
+		started.Body += "\nprompt on stdin:\n" + s.prompt
+	}
 	if label != "" {
 		started.Title = label + ": " + started.Title
 	}

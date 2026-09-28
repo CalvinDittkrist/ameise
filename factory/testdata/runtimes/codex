@@ -5,8 +5,8 @@
 # prototype recorded with codex-cli 0.155.0 on 2026-09-27: the thread, the turn, the agent's message and
 # the turn's usage, with the last message written whole to the file of -o.
 #
-#   CODEX_SHIM_LOG          one record per exec call: the directory it ran in, every argument, the
-#                           schema file's content, and what its standard input held once it closed
+#   CODEX_SHIM_LOG          one record per exec call: the directory it ran in, the schema file's
+#                           content, every argument, and what its standard input held once it closed
 #   CODEX_SHIM_LOGGED_OUT   when set, `codex login status` says it is not logged in and exits 1
 #   CODEX_SHIM_RESULT       the last message of every exec call, by default a pass with no finding;
 #                           it is written as it stands, so a test can hand the factory one that does not fit
@@ -42,18 +42,28 @@ for argument in "$@"; do
   [ "$previous" = --output-schema ] && schema="$argument"
   previous="$argument"
 done
-# Codex waits for the rest of its prompt on standard input while it is open; this shim reads it to its
-# end, so a factory that left it open never gets past this line.
-stdin=$(cat | wc -c | tr -d ' ')
+# Like codex-cli 0.155.0 (resolve_root_prompt in codex-rs/exec/src/lib.rs), a prompt argument of -
+# reads the prompt from standard input and fails when it holds none, and any other prompt argument has
+# the notice below printed on the error output before standard input is read and appended to it. It
+# reads standard input to its end either way, so a factory that left it open never gets past this.
+prompt="${!#}"
+if [ "$prompt" != - ]; then
+  echo "Reading additional input from stdin..." >&2
+fi
+stdin=$(cat)
+if [ "$prompt" = - ] && [ -z "$stdin" ]; then
+  echo "No prompt provided via stdin." >&2
+  exit 1
+fi
 
 tries=0
 while ! mkdir "$log.lock" 2>/dev/null && [ "$tries" -lt 200 ]; do tries=$((tries + 1)); sleep 0.05; done
 {
   echo "call"
   printf 'cwd %s\n' "$(pwd -P)"
-  printf 'stdin %s\n' "$stdin"
   printf 'schema %s\n' "$(cat "$schema" 2>/dev/null | tr -d '\n')"
   for argument in "${called[@]}"; do printf 'arg %s\n' "$argument"; done
+  printf 'stdin %s\n' "$stdin"
 } >> "$log"
 calls=$(grep -c '^call$' "$log" 2>/dev/null)
 rmdir "$log.lock" 2>/dev/null
