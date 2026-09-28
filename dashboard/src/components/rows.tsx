@@ -15,8 +15,8 @@ const dot: Record<Process["state"], string> = {
   created: "border-2 border-blue-500",
 }
 
-// The controller carries out claim and abandon. Every other action it serves not yet, so a row shows
-// it disabled.
+// The controller carries out claim and abandon. It does not serve any other action yet, so a row
+// shows those disabled.
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work
