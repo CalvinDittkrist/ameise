@@ -8,7 +8,7 @@ Terms the code, the issues and the docs use, one row each.
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
 | controller | The local program `workflows`, the local peer of the factory: it holds the machine's projects and serves the local API. In `controller/`. |
 | project | A checkout of a GitHub repository on this machine, configured in the controller by its path alone. Owner, name and base branch are derived on read. |
-| contract fixture | A file in `contract/` that states a rule the controller and the factory share as cases with the expected output; each peer's tests read it. |
+| contract fixture | A file in `contract/` that states a rule the controller and the factory share as cases with the expected output. The controller's tests read it; the factory's do not yet. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |
 | gate | The command that must pass before a pull request: the gate command of the change class that applies ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI. |
 | auditor | A read-only subagent that judges one area of a repository during standardisation and returns findings. |
