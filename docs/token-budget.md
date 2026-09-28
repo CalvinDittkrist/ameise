@@ -4,14 +4,14 @@ Every context of the pipeline holds only what its job needs.
 
 | Context | Loaded at start | Loaded on demand | Never |
 | --- | --- | --- | --- |
-| orchestrator (sonnet) | its agent prompt (≈300 tokens), the Bash tool only (≈7k with system prompt, versus ≈17k for the full tool set) | script output per command; the Herdr skill only via `/orchestrator:herdr` | CLAUDE.md (`omitClaudeMd`), code, diffs |
-| planner (fable; its `spec-checker` and research subagents inherit) | its agent prompt (≈300 tokens), eight tools (Bash, Read, Write, Edit, Grep, Glob, Agent, WebFetch; ≈10k). CLAUDE.md with the imported AGENTS.md, topic or issue from the hook (same caps as the worker) | one stage skill body per invocation; templates (spec, ticket, brief) only when that stage runs; a research subagent's report | worker and orchestrator skills; other stages' bodies |
+| orchestrator (sonnet, low effort) | its agent prompt (≈300 tokens), the Bash tool only (≈7k with system prompt, versus ≈17k for the full tool set) | script output per command; the Herdr skill only via `/orchestrator:herdr` | CLAUDE.md (`omitClaudeMd`), code, diffs |
+| planner (fable; its `spec-checker` on sonnet at high effort, its research subagent inherits) | its agent prompt (≈300 tokens), eight tools (Bash, Read, Write, Edit, Grep, Glob, Agent, WebFetch; ≈10k). CLAUDE.md with the imported AGENTS.md, topic or issue from the hook (same caps as the worker) | one stage skill body per invocation; templates (spec, ticket, brief) only when that stage runs; a research subagent's report | worker and orchestrator skills; other stages' bodies |
 | worker (opus) | eight tools (the planner's set with Skill instead of WebFetch; ≈13k), CLAUDE.md with the imported AGENTS.md. Issue context from the hook: body capped at 6 000 chars, last 8 comments at 1 500 chars | skill bodies when invoked; diff context from `diff-context.sh` | reviewer transcripts (only their reports return) |
 | worker after a handoff | the same start, plus the handoff note the hook injects once. The note holds four sections written by the previous context, and the base, commits and diffstat the script appended | the same, plus the commit log and the diffstat it reads before resuming. At the CI stage it adds `panel.sh print`. A review resumed mid-panel adds the recorded rounds instead, one short block each, in place of the reviewer reports | the transcript it replaces: every reviewer report, gate output, file read and dead end of the stages before |
-| `docs-lookup` (sonnet) | its prompt (≈400 tokens), the question and the script path | the documentation pages it reads through `claude-docs.sh` | CLAUDE.md (`omitClaudeMd`), the worker's conversation, the open web |
-| each reviewer (code, docs and test reviewer sonnet; security and senior reviewer inherit) | its prompt (≈350 tokens), CLAUDE.md (docs reviewer omits it), the brief with the round's gate record | files it chooses to read | the worker's conversation |
-| pr-author (sonnet) | its prompt, the brief with the panel summary and the gate record | diff, issue | the worker's conversation |
-| each auditor (inherit) | its prompt (≈600 tokens), CLAUDE.md, the brief with the facts block (≈1k on a mid-size repository) | files it chooses to read | the other auditors' replies, the main session's conversation |
+| `docs-lookup` (sonnet, high effort) | its prompt (≈400 tokens), the question and the script path | the documentation pages it reads through `claude-docs.sh` | CLAUDE.md (`omitClaudeMd`), the worker's conversation, the open web |
+| each reviewer (sonnet, high effort) | its prompt (≈350 tokens), CLAUDE.md (docs reviewer omits it), the brief with the round's gate record | files it chooses to read | the worker's conversation |
+| pr-author (sonnet, medium effort) | its prompt, the brief with the panel summary and the gate record | diff, issue | the worker's conversation |
+| each auditor (sonnet, high effort) | its prompt (≈600 tokens), CLAUDE.md, the brief with the facts block (≈1k on a mid-size repository) | files it chooses to read | the other auditors' replies, the main session's conversation |
 
 Practices that keep the budget flat:
 
