@@ -30,7 +30,12 @@ export default function App() {
           {route.page === "orchestrator" ? (
             <Orchestrator />
           ) : (
-            <ProjectView path={route.path} project={project} loading={projects.state === "loading"} />
+            <ProjectView
+              path={route.path}
+              project={project}
+              loading={projects.state === "loading"}
+              failed={projects.state === "failed" ? projects.error : undefined}
+            />
           )}
         </div>
       </SidebarInset>

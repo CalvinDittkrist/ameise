@@ -78,6 +78,13 @@ test("a project that is not on this machine says so", async ({ page }) => {
   await expect(main(page)).toContainText("No such project/nowhere is not a project of this machine.")
 })
 
+test("a project page whose projects cannot be read says why, not that the project is missing", async ({ page }) => {
+  await page.route("**/api/projects", (r) => r.abort())
+  await page.goto(url("/#project=%2Fnowhere"))
+  await expect(main(page)).toContainText("The projects could not be readthe controller does not answer; start it with workflows")
+  await expect(main(page)).not.toContainText("No such project")
+})
+
 test("add project refuses a path with the controller's reason and adds a checkout", async ({ page }) => {
   const spare = process.env.WORKFLOWS_SPARE!
   await page.goto(url())

@@ -6,8 +6,32 @@ import { broken, type Listed } from "@/api"
 
 // The project page: the project's facts and actions, its processes and its frontier. The actions and
 // the sections wait for the processes and the frontier the controller does not serve yet.
-export function ProjectView({ path, project, loading }: { path: string; project?: Listed; loading: boolean }) {
+// failed is the reason the projects could not be read, which leaves open whether this one is a project.
+export function ProjectView({
+  path,
+  project,
+  loading,
+  failed,
+}: {
+  path: string
+  project?: Listed
+  loading: boolean
+  failed?: string
+}) {
   if (loading) return null
+  if (failed) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon" className="text-destructive">
+            <TriangleAlertIcon />
+          </EmptyMedia>
+          <EmptyTitle>The projects could not be read</EmptyTitle>
+          <EmptyDescription>{failed}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
   if (!project) {
     return (
       <Empty>
