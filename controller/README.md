@@ -80,7 +80,9 @@ A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
 2. creates it from `origin/<base>` and its worktree in `.claude/worktrees/` of the checkout, which git ignores through `.git/info/exclude`,
 3. assigns the issue to the user gh is logged in as, and undoes the two when GitHub refuses,
-4. writes the process record `processes/<id>.json` with the mode and the overrides, in the state `created`: its `base` is the ref the branch merges into, its `start` the ref the worktree started from, which a forced claim that adopts a branch on origin sets to that branch,
+4. writes the process record `processes/<id>.json` with the mode and the overrides, in the state `created`,
+   - its `base` is the ref the branch merges into,
+   - its `start` is the ref the worktree started from, which a forced claim that adopts a branch on origin sets to that branch,
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
