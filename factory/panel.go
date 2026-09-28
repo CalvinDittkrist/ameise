@@ -112,11 +112,11 @@ func (f *Factory) reviewFor(repository string) reviewSettings {
 	return f.settings.Review
 }
 
-// reviewer is one reviewer of the panel: the agent it runs as, the model its definition names, the
-// focus of its prompt and the runtime it runs on, Claude Code when it names none. "inherit" runs on the
-// model the session does.
+// reviewer is one reviewer of the panel: the agent it runs as, the model and the effort its definition
+// names, the focus of its prompt and the runtime it runs on, Claude Code when it names none. A reviewer
+// without an effort runs at its model's default.
 type reviewer struct {
-	description, model, focus, runtime string
+	description, model, effort, focus, runtime string
 }
 
 // on is the runtime the reviewer runs on.
@@ -138,27 +138,27 @@ var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex", "fab
 //
 // [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
 var reviewers = map[string]reviewer{
-	"code": {"Fresh-context correctness review of the branch diff.", "sonnet",
+	"code": {"Fresh-context correctness review of the branch diff.", "sonnet", "high",
 		"Focus: correctness only. Logic errors, off-by-one, wrong types, unhandled errors and nulls, race conditions, broken callers of changed signatures, " +
 			"behaviour that contradicts the issue, missing migration or config changes the code needs. Ignore style; other reviewers own that.", ""},
-	"security": {"Fresh-context security review of the branch diff.", "inherit",
+	"security": {"Fresh-context security review of the branch diff.", "sonnet", "high",
 		"Focus: security of the change and of the surface it touches. Untrusted input reaching shell, SQL, file paths, URLs, templates or eval; " +
 			"missing authorization or tenant checks; secrets or tokens in code, logs or tests; weak crypto or randomness; insecure defaults; " +
 			"dependency additions (pin, provenance, need); CI or hook changes that widen permissions; agent-facing text that could steer an LLM (prompt injection). " +
 			"For each S1 give the concrete attack path in one sentence in why.", ""},
-	"docs": {"Fresh-context review of the written text in the branch diff.", "sonnet",
+	"docs": {"Fresh-context review of the written text in the branch diff.", "sonnet", "high",
 		"Focus: written text only (Markdown, docstrings, comments, commit messages). Hold it to the writing rules a script cannot count: a sentence has at most 25 words; " +
 			"no metaphors, no filler, no hedging; no session ids, dates or measurements told as a story. Also flag claims the code does not back; " +
 			"restating the code in prose; headings and bullet lists that carry no information; emojis in docs; documentation that should have changed but did not " +
 			"(the architecture, the ADRs, the README, a changelog when the repository has one); a change that deserves an ADR but has none. " +
 			"Prefer deletion over addition. S1 only for documentation that is factually wrong.", ""},
-	"tests": {"Fresh-context review of the tests in the branch diff.", "sonnet",
+	"tests": {"Fresh-context review of the tests in the branch diff.", "sonnet", "high",
 		"Focus: tests. A test must execute a public or executable interface and assert observable behaviour, state, output or failure modes; " +
 			"a test whose only evidence is that it opens, greps, parses or snapshots implementation source for strings, names or shapes proves nothing and must go (S2). " +
 			"Also flag tests that cannot fail, duplicated coverage, mocks that replace the thing under test, sleeps and time or order dependence, " +
 			"tests asserting on incidental output, and risky changed code paths with no test at all. For a regression: would the test fail without the fix? " +
 			"You cannot run a test; judge it by reading it and the code it runs.", ""},
-	"senior": {"Fresh-context senior review of the branch diff for design and fit.", "inherit",
+	"senior": {"Fresh-context senior review of the branch diff for design and fit.", "sonnet", "high",
 		"Focus: quality and maintainability as a senior engineer on this codebase would judge it. Does the change fit the existing patterns and the repository's " +
 			"AGENTS.md and architecture documents? Duplication an existing helper covers, the wrong level of abstraction, leaky boundaries, dead code, misleading names, " +
 			"functions doing three things, error handling that swallows context, configuration hard-coded, scope beyond the issue. " +
@@ -167,14 +167,14 @@ var reviewers = map[string]reviewer{
 	// the Claude reviewers share is not the whole panel's ([ADR 0052]).
 	//
 	// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
-	"codex": {"Fresh-context review of the branch diff by a model of another family.", codexModel,
+	"codex": {"Fresh-context review of the branch diff by a model of another family.", codexModel, "",
 		"Focus: correctness, security and fit of the whole change, read by a model of another family than the other reviewers. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
 			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", runtimeCodex},
 	// The reviewer on the Fable model reads the whole change as the most capable Claude model does, and it
 	// validates the pull request of a ticket run beside the reviewer on Codex
 	// (https://code.claude.com/docs/en/model-config.md, checked 2026-09-27: the fable alias names it).
-	"fable": {"Fresh-context review of the branch diff on the Fable model.", "fable",
+	"fable": {"Fresh-context review of the branch diff on the Fable model.", "fable", "",
 		"Focus: correctness, security and fit of the whole change, read on the most capable Claude model. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
 			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", ""},
@@ -197,16 +197,20 @@ func reviewerPrompt(name string) string {
 }
 
 // reviewerAgents is the inline agent definition a reviewer session runs as (--agents), under its agent
-// name (https://code.claude.com/docs/en/sub-agents.md, checked on 2026-09-24: --agents takes the
-// description, the prompt, the tools and the model of an agent for the session it starts, and --agent
-// runs the session as one of them).
+// name (https://code.claude.com/docs/en/sub-agents.md, checked on 2026-09-28: --agents takes the
+// description, the prompt, the tools, the model and the effort of an agent for the session it starts,
+// and --agent runs the session as one of them).
 func reviewerAgents(name string) (string, string) {
 	agent := name + "-reviewer"
 	def := reviewers[name]
-	raw, _ := json.Marshal(map[string]any{agent: map[string]any{
+	definition := map[string]any{
 		"description": def.description, "prompt": reviewerPrompt(name),
 		"tools": strings.Split(readTools+","+resultTool, ","), "model": def.model,
-	}})
+	}
+	if def.effort != "" {
+		definition["effort"] = def.effort
+	}
+	raw, _ := json.Marshal(map[string]any{agent: definition})
 	return agent, string(raw)
 }
 

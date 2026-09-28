@@ -48,7 +48,7 @@ Teammates then only run the install commands. Skills also install outside Claude
 ## Daily use
 
 ```sh
-cd my-repo && claude --agent orchestrator       # inside a Herdr pane
+cd my-repo && claude --agent orchestrator --effort low   # inside a Herdr pane
 ```
 
 ```text
@@ -105,7 +105,9 @@ A session takes its model from the first that is set:
 2. the `model` of its agent file: `fable` for `planner`, `opus` for `worker`
 3. `model` in your Claude Code settings
 
-The orchestrator is started by hand and runs on the `sonnet` of its agent file. The planner runs on Fable because a wrong spec multiplies into every ticket. A subagent that names a model keeps it, such as the `docs-reviewer` on `sonnet`; only `model: inherit` follows the session. The planner's subagents inherit, so `WF_PLANNER_CLAUDE_ARGS="--model opus"` moves them with the session.
+The orchestrator, started by hand, runs on its agent file's `sonnet` at `low` effort. The planner runs on Fable because a wrong spec multiplies into every ticket. Neither it nor the worker sets an effort.
+
+Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers, auditors, the test hunter, docs lookup and spec checker, `medium` for the pull request author. `WF_*_CLAUDE_ARGS` move only their session, which the planner's research subagent follows.
 
 ## Design
 

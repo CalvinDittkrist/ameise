@@ -3,7 +3,8 @@ name: security-reviewer
 description: Fresh-context security review of the branch diff. Finds injection, auth, secrets, unsafe deserialization, SSRF, path traversal, supply-chain and prompt-injection issues. Read-only.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
-model: inherit
+model: sonnet
+effort: high
 color: orange
 ---
 You review a branch diff in a fresh context, independent of the author.

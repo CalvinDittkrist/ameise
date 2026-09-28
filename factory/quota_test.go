@@ -198,10 +198,10 @@ func TestTooLittleQuotaWaitsForTheResetAndStartsAfterIt(t *testing.T) {
 	}
 }
 
-// A run spends the models of its reviewers as well as the worker's: the default panel runs three of
-// its five on sonnet, so a sonnet scope below the minimum holds the run back while the worker's opus
-// has plenty, and so does a panel that inherits the worker's model with a change class that asks a
-// reviewer on sonnet. A panel whose reviewers all inherit the worker's model spends no sonnet, and starts.
+// A run spends the models of its reviewers as well as the worker's: the default panel runs all five
+// on sonnet, so a sonnet scope below the minimum holds the run back while the worker's opus has plenty,
+// and so does a panel on the Fable model with a change class that asks a reviewer on sonnet. A panel
+// of the reviewer on the Fable model alone spends no sonnet, and starts.
 func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
@@ -209,13 +209,13 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 		validate map[string]any
 		waits    bool
 	}{
-		"the default panel":                 {nil, nil, true},
-		"a panel that inherits every model": {map[string]any{"reviewers": []string{"security", "senior"}}, nil, false},
+		"the default panel":          {nil, nil, true},
+		"a panel on the Fable model": {map[string]any{"reviewers": []string{"fable"}}, nil, false},
 		// A change class may ask a reviewer the panel does not have.
-		"a change class with a reviewer on sonnet": {map[string]any{"reviewers": []string{"security", "senior"},
+		"a change class with a reviewer on sonnet": {map[string]any{"reviewers": []string{"fable"},
 			"classes": []map[string]any{{"name": "code", "paths": []string{"src/**"}, "gate": []string{}, "reviewers": []string{"code"}}}}, nil, true},
 		// A validator runs after ci, and its model is spent all the same.
-		"a validator on sonnet": {map[string]any{"reviewers": []string{"security", "senior"}},
+		"a validator on sonnet": {map[string]any{"reviewers": []string{"fable"}},
 			map[string]any{"validators": []string{"code"}}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 				t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
 			}
 			if calls := q.calls(t); len(calls) != 1 {
-				t.Errorf("the factory asked quota-axi %d times, want once: a panel on opus alone has no sonnet to wait for", len(calls))
+				t.Errorf("the factory asked quota-axi %d times, want once: a panel on fable alone has no sonnet to wait for", len(calls))
 			}
 		})
 	}

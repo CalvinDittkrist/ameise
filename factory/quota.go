@@ -221,10 +221,10 @@ func loginName(runtime string) string {
 }
 
 // spends is the models a run of the repository spends, by the runtime they run on: on Claude the
-// worker's and the model of every reviewer of its panel that names one of its own rather than
-// inheriting the worker's, and on Codex the model of every reviewer that runs there. A runtime no
-// session of the run starts on is not in it. A review the run resumes goes on with the reviewers its
-// panel recorded, which a changed configuration may no longer name, so they are in it as well.
+// worker's and the model of every reviewer of its panel, and on Codex the model of every reviewer that
+// runs there. A runtime no session of the run starts on is not in it. A review the run resumes goes on
+// with the reviewers its panel recorded, which a changed configuration may no longer name, so they are
+// in it as well.
 func (f *Factory) spends(repository string, spec int, recorded *Panel) map[string][]string {
 	models := map[string][]string{runtimeClaude: {f.settings.WorkerModel}}
 	// Which change class a run's change is of is known only once it is made, so every reviewer a class
@@ -245,7 +245,7 @@ func (f *Factory) spends(repository string, spec int, recorded *Panel) map[strin
 			continue
 		}
 		runtime := def.on()
-		if def.model != "inherit" && !slices.Contains(models[runtime], def.model) {
+		if !slices.Contains(models[runtime], def.model) {
 			models[runtime] = append(models[runtime], def.model)
 		}
 	}

@@ -205,7 +205,7 @@ func (f *Factory) modelFor(s session) string {
 	switch {
 	case s.on() == runtimeCodex:
 		return s.model
-	case s.agent != "" && s.model != "" && s.model != "inherit":
+	case s.agent != "" && s.model != "":
 		return s.model
 	}
 	return f.settings.WorkerModel

@@ -4,6 +4,7 @@ description: Fresh-context agent that pushes the branch and opens the pull reque
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
+effort: medium
 color: blue
 ---
 You open the pull request for a finished branch, in a fresh context so the description reflects the code as it is, not the author's memory of it.

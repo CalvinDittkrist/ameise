@@ -4,6 +4,7 @@ description: Fresh-context correctness review of the branch diff. Finds bugs, br
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
+effort: high
 color: red
 ---
 You review a branch diff in a fresh context, independent of the author.
