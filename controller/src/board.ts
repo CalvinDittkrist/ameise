@@ -20,12 +20,22 @@ export const frontierQuery = `issues?labels=${labels.ready}&state=open&per_page=
 
 export type Kind = 'work' | 'plan' | 'hunt' | 'standardize'
 
-// The states of a process. The first four wait for a person, each with the one action that answers it,
+// The states of a process. The first six wait for a person, each with the one action that answers it,
 // and a failed one waits for a person who opens it to read the reason. A process in any other state runs
 // on its own and is opened to be watched. A claimed process is created until its first session starts.
-export const states = ['blocked', 'approval', 'ready', 'input', 'failed', 'running', 'waiting', 'created'] as const
+// An interrupted one either had its session stopped with the controller and resumes by its session id,
+// or was adopted with no session yet and starts a fresh one. A foreign one is a worktree of an issue the state does not know, which a person adopts or removes.
+export const states = ['blocked', 'approval', 'ready', 'input', 'interrupted', 'foreign', 'failed', 'running', 'waiting', 'created'] as const
 export type State = (typeof states)[number]
-const actions: Partial<Record<State, string>> = { blocked: 'Answer', approval: 'Approve', ready: 'Merge', input: 'Continue', failed: 'Open' }
+const actions: Partial<Record<State, string>> = {
+  blocked: 'Answer',
+  approval: 'Approve',
+  ready: 'Merge',
+  input: 'Continue',
+  interrupted: 'Resume',
+  foreign: 'Adopt',
+  failed: 'Open',
+}
 
 export type Checks = 'none' | 'pending' | 'pass' | 'fail'
 
@@ -162,7 +172,7 @@ interface PullRequest {
   statusCheckRollup?: { conclusion?: string | null; state?: string | null; status?: string | null }[]
 }
 
-export function checksOf(pr: PullRequest): Checks {
+export function checksOf(pr: Pick<PullRequest, 'statusCheckRollup'>): Checks {
   const c = (pr.statusCheckRollup ?? []).map((x) => x.conclusion || x.state || 'PENDING')
   if (c.length === 0) return 'none'
   if (c.some((s) => ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(s))) return 'fail'
@@ -173,7 +183,9 @@ export function checksOf(pr: PullRequest): Checks {
 const firstStage: Record<Kind, string> = { work: 'implement', plan: 'plan', hunt: 'hunt', standardize: 'audit' }
 
 // derived joins what a record says with what git and GitHub say. The record decides state, stage and
-// note; a worktree without a record is read from its pull request.
+// note. A work worktree without a record is foreign, which its pull request does not change. A worktree
+// of another kind without a record is read from its pull request, as the controller runs no process of
+// that kind yet.
 function derived(branch: string, record: (ProcessRecord & { id: string }) | undefined, tree: Worktree | undefined, pr: PullRequest | undefined, since: string | undefined): Process {
   const kind = record?.kind ?? kindOf(branch) ?? 'work'
   const checks = pr ? checksOf(pr) : null
@@ -184,6 +196,10 @@ function derived(branch: string, record: (ProcessRecord & { id: string }) | unde
     state = states.includes(record.state as State) ? (record.state as State) : 'running'
     stage = record.stage || firstStage[kind]
     note = oneLine(record.note ?? '')
+  } else if (kind === 'work') {
+    stage = pr ? 'ci' : firstStage.work
+    state = 'foreign'
+    note = `not started by this controller${pr ? `; PR #${pr.number}${pr.isDraft ? ' draft' : ''}, checks ${checks}` : ''}; adopt it or remove it`
   } else if (pr) {
     stage = 'ci'
     state = checks === 'pass' && !pr.isDraft ? 'ready' : checks === 'pending' ? 'waiting' : 'running'
@@ -367,7 +383,8 @@ export async function board(project: Project, stateDir: string, gh: string): Pro
             }),
         )
         const note = unknown ? `could not read the sub-issues of ${unknown} spec(s); they are not listed` : undefined
-        return { issues: ready.filter((s): s is GitHubIssue => s !== undefined).map(issue), note }
+        // A spec whose acceptance is under way is a process of its own and no longer waits for it.
+        return { issues: ready.filter((s): s is GitHubIssue => s !== undefined && !claimed.has(s.number)).map(issue), note }
       })
       .catch(() => ({ issues: [] as Issue[], note: 'could not read the open specs; ready for acceptance is empty, not idle' })),
   ])

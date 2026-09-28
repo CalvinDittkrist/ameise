@@ -11,7 +11,12 @@
   - It prints a line per project, then one per process, frontier issue, spec ready for acceptance and note.
 - `workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]` claims the issue into a work process; see [Claim and abandon](#claim-and-abandon).
 - `workflows abandon <issue> [--force] [--project <path>]` removes the issue's worktree and process.
-  - Without `--project` both act on the project of the current directory.
+- `workflows resume <issue> [--project <path>]` goes on with the interrupted session of the issue's process; see [Restart](#restart).
+- `workflows adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
+- `workflows merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
+- `workflows release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
+- `workflows accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+  - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
@@ -58,16 +63,18 @@ The board is derived on every request from the state directory, git and GitHub, 
 - `processes`: one per worktree of the checkout whose branch names a process kind, and one per process record in the state directory.
   - Each has `id`, `kind`, `state`, `stage`, `issue`, `branch`, `worktree`, `pr`, `checks`, `since` and a one-line `note`.
   - The kind comes from the branch: `plan/` is `plan`, `hunt/` is `hunt`, `chore/standardize` is `standardize`, an issue branch is `work`.
-  - A record decides state, stage and note. A worktree without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
+  - A record decides state, stage and note.
+  - A work worktree without one is `foreign`: this controller did not start it, and its note names its pull request when it has one.
+  - A worktree of another kind without one is read from its pull request: green and not a draft is `ready`, pending checks `waiting`, anything else `running`.
   - `id` names its record, the file `processes/<id>.json`, and is null for a worktree without one.
   - `unseen` says it turned `blocked`, `ready` or `failed` and its page has not been opened since.
   - A claimed process is `created` until its first session starts.
-  - `blocked`, `approval`, `ready` and `input` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge` or `Continue`.
+  - `blocked`, `approval`, `ready`, `input`, `interrupted` and `foreign` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume` or `Adopt`.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
   - The tests hold it to the frontier of the [contract fixture](../contract/fixture.json).
-- `acceptance`: the open specs that have sub-issues, all of them closed.
+- `acceptance`: the open specs that have sub-issues, all of them closed, and no process of this machine.
 - `notes`: what GitHub did not answer, so an empty section reads as unknown and not as idle.
 
 ## Claim and abandon
@@ -77,6 +84,8 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 - a ticket of a spec run without `ready-for-human`: it carries `factory:spec-run`, or its parent does,
 - an issue whose branch is on origin already, which another claimer created,
 - an issue that has a process on this machine already: a worktree of its branch or a process record.
+  - The answer names the process and carries it as `process`: `{id, branch, worktree, state}`.
+  - For a worktree without a record, `id` is null and `state` is `foreign`.
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
@@ -141,6 +150,54 @@ The process page opens the process's session in a terminal window. The controlle
 
 While the headless session still runs, the terminal is a second runtime on the same session. Its turns stay out of the process's event log.
 
+## Restart
+Stopping and starting the controller loses no process.
+- A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
+- The start reads every record before it answers a request.
+- A work process still `running`, `created`, `approval` or `input` lost its session with the last run, as after a kill, and is marked `interrupted` too.
+  - Its note says so, or that its worktree is gone, in which case only an abandon helps.
+- Every other process shows as it was. An interrupted one keeps its `session_id`.
+- A resume goes on with an interrupted process: it starts the implement session again in the worktree.
+  - It uses the runtime's resume by that session id, and a short brief to go on.
+  - A process without a session id starts a fresh session with the usual brief.
+  - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
+- An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project.
+  - The record is `interrupted` without a session, and a resume starts its session.
+  - It refuses an issue that has a process already and one without a work worktree.
+  - A foreign worktree is removed by an abandon, as any other.
+
+In fake mode the scripted claude plays a resumed session under the id it resumes.
+
+## Merge
+A merge takes a ready pull request of a project into its base, by the rules of the orchestrator's merge. It refuses, with the reason and `409`, a pull request that is:
+- not open, a draft, or in conflict, or whose conflicts GitHub has not computed yet,
+- not green: a check failed or pending, or a merge state other than `CLEAN`,
+- asked for changes.
+
+It refuses a local branch with commits on no branch of origin, and a worktree with changes not committed, since the merge removes both. Then it:
+1. squash-merges the pull request and deletes its branch on origin,
+2. removes the worktree, the local branch, the record and the event log of its process,
+3. closes the issue of the head branch, with a comment that names the pull request, when the base is not the default branch. GitHub closes a linked issue only there.
+
+A promotion from `dev` or `main` gets a merge commit and keeps its branch. A pull request from a fork keeps every local branch and closes no issue.
+
+## Release
+A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milestone that is missing, closed or has open issues, and a tag of that name that exists. The default branch decides the model:
+- `main`: the release tags the head of `main`.
+- `dev`: it opens the promotion `chore(release): <milestone>` from `dev` to `main`, or finds it, and merges it as a merge does. It tags the merge commit.
+  - A promotion that is not green answers `waiting` with the reason; the next release goes on from it.
+  - Another open promotion is refused.
+
+Then it publishes the release with generated notes and closes the milestone.
+
+## Acceptance start
+An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the state `created`. It refuses, with `409`:
+- an issue that is not an open spec,
+- a spec without tickets or with a ticket open,
+- a spec that has a process.
+
+The spec then leaves `acceptance`. No session starts yet.
+
 ## Quota
 The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
 
@@ -182,6 +239,20 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}`. Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
+- `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
+  - `404` says the issue has no process.
+  - `409` refuses one that is not interrupted, or whose worktree is gone or no longer on its branch.
+- `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>, "branch": "<branch>"}`: adopts the issue's foreign worktree on the branch and answers `201` with `{record}`.
+  - The branch may be left out when the issue has one worktree.
+  - `404` says the issue has no such worktree.
+  - `409` refuses an issue that has a process, and one with more than one worktree when no branch is named.
+- `POST /api/merges` with `{"project": "<path>", "pr": <n>}`: merges the pull request and answers `200` with `{pr, title, method, base, branch, kept, worktree, closed, queued, warnings}`.
+  - It refuses a pull request with an unresolved review thread.
+  - A pull request a merge queue takes answers `queued: true` and keeps its branch, worktree and process until GitHub merges it.
+  - `409` refuses a pull request that is not ready or work not on origin, `502` a GitHub that does not answer.
+- `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
+  - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
+- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.

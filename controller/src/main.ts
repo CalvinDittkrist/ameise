@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run, which } from './exec.js'
-import { bundledWorker } from './session.js'
+import { bundledWorker, stopAll } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
+import { version, type Merged, type PlanRecord, type Released } from './actions.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
@@ -22,6 +23,16 @@ const usage = `usage:
                                      claim the issue into a work process of the project
   workflows abandon <issue> [--force] [--project <path>]
                                      remove the issue's worktree and process; branch and issue stay
+  workflows resume <issue> [--project <path>]
+                                     go on with the interrupted session of the issue's process
+  workflows adopt <issue> [--project <path>]
+                                     take the issue's worktree this controller did not start into a process
+  workflows merge <pr> [--project <path>]
+                                     merge the ready pull request and remove its branch, worktree and process
+  workflows release <vX.Y.Z> [--project <path>]
+                                     tag the finished milestone, publish its release and close it
+  workflows accept <spec> [--project <path>]
+                                     open a plan process on the spec with the acceptance route
 
 --project names the checkout of the project; without it the project is the checkout of the current
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
@@ -82,10 +93,15 @@ async function start(fake: boolean) {
     process.stdout.write(`workflows on ${url} (fake=${fake}, config ${path})\n`)
     browse(url)
   })
-  // A process page follows its log over a connection that never ends on its own, so a stop closes it.
+  // A stop takes no new connection, then cuts the sessions off and marks their processes interrupted,
+  // so a later resume can go on with them. The exit ends the streams the process pages follow.
+  let stopping = false
   const stop = () => {
-    server.close(() => process.exit(0))
-    server.closeAllConnections()
+    if (stopping) return
+    stopping = true
+    server.close()
+    server.closeIdleConnections()
+    void stopAll(stateDir()).finally(() => process.exit(0))
   }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
@@ -191,8 +207,8 @@ function boardLines(b: ProjectBoard | { path: string; error: string }): string[]
   ]
 }
 
-// processCommand runs claim or abandon: the issue, then its flags in any order.
-async function processCommand(command: 'claim' | 'abandon', args: string[]) {
+// processCommand runs claim, abandon, resume or adopt: the issue, then its flags in any order.
+async function processCommand(command: 'claim' | 'abandon' | 'resume' | 'adopt', args: string[]) {
   let issue: number | undefined
   let project = process.cwd()
   let force = false
@@ -205,7 +221,7 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
       if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
       return v
     }
-    if (a === '--force') force = true
+    if (a === '--force' && (command === 'claim' || command === 'abandon')) force = true
     else if (a === '--yolo' && command === 'claim') mode = 'yolo'
     else if (a === '--env' && command === 'claim') env.push(value())
     else if (a === '--project') project = resolve(value())
@@ -213,6 +229,11 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
     else die(`unexpected argument ${a}; workflows help lists the commands`)
   }
   if (issue === undefined) die(`${command} needs an issue number; workflows help lists the commands`)
+  if (command === 'resume' || command === 'adopt') {
+    const r = (await call('POST', `/api/processes/${command}`, { project, issue })) as { record: { branch: string; worktree: string; state: string; note: string } }
+    process.stdout.write(`${command === 'resume' ? 'resumed' : 'adopted'} #${issue}  ${r.record.branch}  ${r.record.state}  ${r.record.note}\n  ${r.record.worktree}\n`)
+    return
+  }
   if (command === 'abandon') {
     const a = (await call('DELETE', '/api/processes', { project, issue, force })) as { branch: string; worktree: string | null }
     process.stdout.write(`abandoned #${issue}  ${a.branch}  worktree ${a.worktree ?? 'none'} removed; the branch and the issue are untouched\n`)
@@ -229,9 +250,47 @@ async function processCommand(command: 'claim' | 'abandon', args: string[]) {
   process.stdout.write(`claimed #${issue}  ${r.branch}  from ${r.start ?? r.base}  ${r.mode}${knobs.length ? '  ' + knobs.join(' ') : ''}  ${r.state}\n  ${r.worktree}\n`)
 }
 
+// actionCommand runs merge, release or accept: what it acts on, then --project in any order.
+async function actionCommand(command: 'merge' | 'release' | 'accept', args: string[]) {
+  let target: string | undefined
+  let project = process.cwd()
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string
+    if (a === '--project') {
+      const v = args[++i]
+      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      project = resolve(v)
+    } else if (target === undefined && (command === 'release' ? version : /^#?[0-9]+$/).test(a)) target = a.replace(/^#/, '')
+    else die(`unexpected argument ${a}; workflows help lists the commands`)
+  }
+  const what = { merge: 'a pull request number', release: 'a milestone such as v1.2.3', accept: 'a spec number' }[command]
+  if (target === undefined) die(`${command} needs ${what}; workflows help lists the commands`)
+  if (command === 'merge') {
+    const m = (await call('POST', '/api/merges', { project, pr: Number(target) })) as Merged
+    for (const w of m.warnings) process.stderr.write(`warning: ${w}\n`)
+    if (m.queued) {
+      process.stdout.write(`queued PR #${m.pr} (${m.method}) into ${m.base}  ${m.branch} kept until merged\n`)
+      return
+    }
+    const branch = m.kept ? `${m.branch} kept (${m.kept})` : `${m.branch} deleted`
+    const closed = m.closed === null ? '' : `  closed #${m.closed}`
+    process.stdout.write(`merged PR #${m.pr} (${m.method}) into ${m.base}  ${branch}  worktree ${m.worktree ?? 'none'} removed${closed}\n`)
+    return
+  }
+  if (command === 'release') {
+    const r = (await call('POST', '/api/releases', { project, milestone: target })) as Released
+    if (r.status === 'waiting') process.stdout.write(`waiting ${r.milestone}  promotion ${r.promotion}  ${r.reason}\n`)
+    else process.stdout.write(`released ${r.milestone}  ${r.model}  target ${r.target}  ${r.release}${r.promotion ? '  promotion ' + r.promotion : ''}  milestone closed\n`)
+    return
+  }
+  const a = (await call('POST', '/api/acceptances', { project, spec: Number(target) })) as { record: PlanRecord }
+  process.stdout.write(`accept #${a.record.issue}  ${a.record.branch}  from ${a.record.base}  ${a.record.state}\n  ${a.record.worktree}\n`)
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
-  if (command === 'claim' || command === 'abandon') return processCommand(command, argv.slice(1))
+  if (command === 'claim' || command === 'abandon' || command === 'resume' || command === 'adopt') return processCommand(command, argv.slice(1))
+  if (command === 'merge' || command === 'release' || command === 'accept') return actionCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {
     if (sub !== undefined) die(`unexpected argument ${sub}; workflows help lists the commands`)
     return start(command === '--fake')

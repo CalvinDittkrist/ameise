@@ -44,7 +44,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 export type Process = {
   id: string | null
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "failed" | "running" | "waiting" | "created"
+  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "failed" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
@@ -247,6 +247,30 @@ export const answer = (id: string, request: string, a: Answer) => call<{ answer:
 
 // openTerminal opens the process's session in a terminal window of this machine.
 export const openTerminal = (id: string) => call<{ script: string }>("POST", "/api/processes/terminal", { id })
+
+// resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
+export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
+
+// adopt takes the issue's worktree on the branch, one the controller did not start, into a process, or
+// throws its reason.
+export const adopt = (path: string, issue: number, branch: string) =>
+  call<{ record: unknown }>("POST", "/api/processes/adopt", { project: path, issue, branch })
+
+// merge takes a ready pull request of the project at path into its base and removes its branch, worktree
+// and process. It answers what went through, or throws the controller's reason.
+export const merge = (path: string, pr: number) =>
+  call<{ branch: string; base: string; closed: number | null; warnings: string[] }>("POST", "/api/merges", { project: path, pr })
+
+// A release is published, or waits for its promotion from dev to main to be green.
+export type Released =
+  | { status: "released"; milestone: string; release: string; target: string; promotion: string | null }
+  | { status: "waiting"; milestone: string; promotion: string; reason: string }
+
+// release tags a finished milestone of the project at path, publishes its release and closes it.
+export const release = (path: string, milestone: string) => call<Released>("POST", "/api/releases", { project: path, milestone })
+
+// accept opens a plan process with the acceptance route on a spec of the project at path.
+export const accept = (path: string, spec: number) => call<{ record: { branch: string } }>("POST", "/api/acceptances", { project: path, spec })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response

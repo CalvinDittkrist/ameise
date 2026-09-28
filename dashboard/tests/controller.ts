@@ -90,6 +90,7 @@ export default async function start() {
         reject(new Error(`the controller exited with ${code} before it listened; npm --prefix controller run build builds it`))
       })
     })
+    runningRecords()
   } catch (error) {
     stop()
     throw error
@@ -102,6 +103,10 @@ export default async function start() {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+// runningRecords writes the records of the processes whose session runs or waits, once the controller
+// listens.
+let runningRecords = () => {}
 
 // report is quota-axi's JSON report of Claude with the percentage left and the reset of its session window.
 function report(remaining: number, reset: string) {
@@ -126,9 +131,9 @@ const ago = (hours: number) => new Date(Date.now() - (hours + 0.5) * 3_600_000).
 // board sorts. The frontier holds an issue it leaves out. One spec is ready for acceptance, one is not.
 function board(root: string, github: string, sensors: string, backtest: string) {
   const blocked = worktree(sensors, "feat/118-refuse-a-project-without-origin", 2)
-  worktree(sensors, "fix/131-log-the-sensor-drift", 5)
+  const green = worktree(sensors, "fix/131-log-the-sensor-drift", 5)
   const running = worktree(sensors, "feat/142-read-the-configuration", 1)
-  worktree(backtest, "feat/88-reconnect-the-broker-stream", 1)
+  const pending = worktree(backtest, "feat/88-reconnect-the-broker-stream", 1)
   worktree(backtest, "hunt/tests-2026-09-27", 24)
   const records = join(root, "data", "workflows", "processes")
   mkdirSync(records, { recursive: true })
@@ -137,15 +142,27 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   process.env.WORKFLOWS_BACKTEST = backtest
   process.env.WORKFLOWS_SENSORS = sensors
   const record = (id: string, r: Record<string, unknown>) => writeFileSync(join(records, `${id}.json`), JSON.stringify(r))
-  record("p118", {
-    project: sensors, kind: "work", branch: "feat/118-refuse-a-project-without-origin", issue: 118, worktree: blocked, base: "origin/main", mode: "manual", env: {},
-    stage: "implement", state: "approval", note: "Bash wants to run: git remote set-url origin git@github.com:acme/edge-sensors.git",
-    session_id: "7f3c9a2e-5b1d-4e8a-9c6f-2d4b8e1a0f37", context: 84213, updated_at: ago(2),
+  // The records whose session runs, or waits for an answer, are written once the controller listens,
+  // since the controller marks the sessions it finds so as it starts interrupted (see start).
+  runningRecords = () => {
+    record("p118", {
+      project: sensors, kind: "work", branch: "feat/118-refuse-a-project-without-origin", issue: 118, worktree: blocked, base: "origin/main", mode: "manual", env: {},
+      stage: "implement", state: "approval", note: "Bash wants to run: git remote set-url origin git@github.com:acme/edge-sensors.git",
+      session_id: "7f3c9a2e-5b1d-4e8a-9c6f-2d4b8e1a0f37", context: 84213, updated_at: ago(2),
+    })
+    conversation(join(records, "p118.events.jsonl"), blocked)
+    record("p142", {
+      project: sensors, kind: "work", branch: "feat/142-read-the-configuration", issue: 142, worktree: running,
+      stage: "implement", state: "running", note: "Writing the config reader, tests green", updated_at: ago(1),
+    })
+  }
+  record("p131", {
+    project: sensors, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, worktree: green,
+    stage: "ci", state: "ready", note: "PR #250, checks pass", updated_at: ago(5),
   })
-  conversation(join(records, "p118.events.jsonl"), blocked)
-  record("p142", {
-    project: sensors, kind: "work", branch: "feat/142-read-the-configuration", issue: 142, worktree: running,
-    stage: "implement", state: "running", note: "Writing the config reader, tests green", updated_at: ago(1),
+  record("p88", {
+    project: backtest, kind: "work", branch: "feat/88-reconnect-the-broker-stream", issue: 88, worktree: pending,
+    stage: "ci", state: "waiting", note: "PR #251, checks pending", updated_at: ago(1),
   })
   record("plan1", {
     project: sensors, kind: "plan", branch: "plan/open-20260928-0011", stage: "plan", state: "input", note: "Waiting for you", updated_at: ago(3),

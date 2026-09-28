@@ -131,6 +131,7 @@ test('the board joins the process records and the worktrees with their pull requ
   })
   record(m, 'other', { project: '/elsewhere', kind: 'work', branch: 'feat/1-other', state: 'blocked' })
   const green = worktree(dir, 'fix/131-log-the-sensor-drift')
+  record(m, 'p131', { project: dir, kind: 'work', branch: 'fix/131-log-the-sensor-drift', issue: 131, worktree: green, stage: 'ci', state: 'ready', note: 'PR #250, checks pass' })
   const pending = worktree(dir, 'feat/142-read-the-configuration')
   const bare = worktree(dir, 'hunt/tests-2026-09-27')
   worktree(dir, 'release/1.2')
@@ -156,12 +157,12 @@ test('the board joins the process records and the worktrees with their pull requ
       pr: null, checks: null, since: 'string', note: 'Asks: keep the project in the file?', needs: true, action: 'Answer',
     },
     {
-      id: null, unseen: false, kind: 'work', state: 'waiting', stage: 'ci', issue: 142, branch: 'feat/142-read-the-configuration', worktree: pending,
+      id: null, unseen: false, kind: 'work', state: 'foreign', stage: 'ci', issue: 142, branch: 'feat/142-read-the-configuration', worktree: pending,
       pr: { number: 251, url: 'https://github.com/owner/repo/pull/251', draft: false }, checks: 'pending', since: 'string',
-      note: 'PR #251, checks pending', needs: false, action: 'Open',
+      note: 'not started by this controller; PR #251, checks pending; adopt it or remove it', needs: true, action: 'Adopt',
     },
     {
-      id: null, unseen: false, kind: 'work', state: 'ready', stage: 'ci', issue: 131, branch: 'fix/131-log-the-sensor-drift', worktree: green,
+      id: 'p131', unseen: false, kind: 'work', state: 'ready', stage: 'ci', issue: 131, branch: 'fix/131-log-the-sensor-drift', worktree: green,
       pr: { number: 250, url: 'https://github.com/owner/repo/pull/250', draft: false }, checks: 'pass', since: 'string',
       note: 'PR #250, checks pass', needs: true, action: 'Merge',
     },
@@ -187,7 +188,7 @@ test('the board joins the process records and the worktrees with their pull requ
   const lines = out.stdout.split('\n')
   expect(lines[0]).toBe(`${dir}  owner/repo  base main`)
   expect(lines[1]).toBe('  needs you  work  #118  feat/118-refuse-a-project  implement  blocked  no PR  41m  Asks: keep the project in the file?  [Answer]')
-  expect(lines[2]).toMatch(/^ {2}running {4}work {2}#142 .* \[Open\]$/)
+  expect(lines[2]).toMatch(/^ {2}needs you {2}work {2}#142 .* foreign .* \[Adopt\]$/)
   expect(lines[3]).toMatch(/^ {2}needs you {2}work {2}#131 {2}fix\/131-log-the-sensor-drift {2}ci {2}ready {2}PR #250 pass {2}\d+s {2}PR #250, checks pass {2}\[Merge\]$/)
   expect(lines[4]).toMatch(/^ {2}running {4}hunt {2}- {2}hunt\/tests-2026-09-27 .* \[Open\]$/)
   expect(lines[5]).toBe('  needs you  plan  -  plan/open-20260928-0011  plan  input  no PR  5m  Waiting for you  [Continue]')
@@ -197,26 +198,26 @@ test('the board joins the process records and the worktrees with their pull requ
   expect(seconds(cli(m, ['board', dir]).stdout)).toBe(seconds(out.stdout))
 })
 
-test('a process waiting for approval needs a person, and a draft, red or unchecked pull request runs', async () => {
+test('a process waiting for approval needs a person, and a hunt without a record whose pull request is a draft, red or unchecked runs', async () => {
   const dir = await project('repo')
   record(m, 'p9', { project: dir, kind: 'work', branch: 'feat/9-approve-me', issue: 9, stage: 'pr', state: 'approval', note: 'Plan ready' })
-  worktree(dir, 'feat/10-draft')
-  worktree(dir, 'feat/11-red')
-  worktree(dir, 'feat/12-unchecked')
+  worktree(dir, 'hunt/10-draft')
+  worktree(dir, 'hunt/11-red')
+  worktree(dir, 'hunt/12-unchecked')
   const pull = (number: number, branch: string, isDraft: boolean, statusCheckRollup: unknown[]) =>
     ({ number, headRefName: branch, isDraft, url: `https://github.com/owner/repo/pull/${number}`, statusCheckRollup })
   canPulls(m, 'owner/repo', [
-    pull(20, 'feat/10-draft', true, [{ conclusion: 'SUCCESS' }]),
-    pull(21, 'feat/11-red', false, [{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }]),
-    pull(22, 'feat/12-unchecked', false, []),
+    pull(20, 'hunt/10-draft', true, [{ conclusion: 'SUCCESS' }]),
+    pull(21, 'hunt/11-red', false, [{ conclusion: 'SUCCESS' }, { conclusion: 'FAILURE' }]),
+    pull(22, 'hunt/12-unchecked', false, []),
   ])
 
   const rows = (await boardOf(dir)).processes.map((p) => [p.branch, p.state, p.checks, p.needs, p.action])
   expect(rows).toEqual([
-    ['feat/10-draft', 'running', 'pass', false, 'Open'],
-    ['feat/11-red', 'running', 'fail', false, 'Open'],
-    ['feat/12-unchecked', 'running', 'none', false, 'Open'],
     ['feat/9-approve-me', 'approval', null, true, 'Approve'],
+    ['hunt/10-draft', 'running', 'pass', false, 'Open'],
+    ['hunt/11-red', 'running', 'fail', false, 'Open'],
+    ['hunt/12-unchecked', 'running', 'none', false, 'Open'],
   ])
 })
 
@@ -229,7 +230,7 @@ test('a fork pull request on a branch of the same name is not the process\'s, an
   canApi(m, `repos/owner/repo/${fixture.query}`, [issue(8, 'Free', ['ready-for-agent'], { milestone: { title: 'v1\nforged line\u001b[31m' } })])
 
   const b = await boardOf(dir)
-  expect(b.processes.map((p) => [p.branch, p.pr, p.checks, p.action])).toEqual([['feat/13-mine', null, null, 'Open']])
+  expect(b.processes.map((p) => [p.branch, p.pr, p.checks, p.action])).toEqual([['feat/13-mine', null, null, 'Adopt']])
   expect(b.frontier).toEqual([{ number: 8, title: 'Free', milestone: 'v1 forged line [31m' }])
 })
 

@@ -5,7 +5,8 @@
 #
 #   WORKFLOWS_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
 #     play                     the session to play, one step a line; the first word of a line is the step
-#     resume                   the session to play when it is resumed with --resume <id>, whose id it keeps
+#     resume                   the session to play when it is resumed with --resume <id>, whose id it
+#                              keeps; without it a resumed session plays play
 #   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
 #
@@ -35,6 +36,7 @@ fi
 printf '%s\n' "$@" >> "$log"
 if [ "$log" != /dev/null ]; then export -p > "$log.env"; fi
 
+# A session is named by its pid, and a resumed one keeps the id it resumes.
 session=fake-session-$$
 file=play
 previous=''
@@ -48,6 +50,7 @@ done
 
 steps=()
 canned=${WORKFLOWS_FAKE_CLAUDE:-}
+if [ "$file" = resume ] && { [ -z "$canned" ] || [ ! -f "$canned/resume" ]; }; then file=play; fi
 if [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
     if [ -n "$step" ]; then steps+=("$step"); fi

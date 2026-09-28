@@ -145,7 +145,7 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
     case 'closed':
       return [{ seq, kind: 'closed', request: str(e.request) }]
     case 'session-start':
-      return [{ seq, kind: 'start', resumed: e.resumed === true }]
+      return [{ seq, kind: 'start', resumed: typeof e.resume === 'string' }]
     case 'session-end':
       return [{ seq, kind: 'end', state: str(e.state), note: str(e.note) }]
     default:

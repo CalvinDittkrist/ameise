@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
-import { ClaimWarnings } from "@/components/process-actions"
+import { Warnings } from "@/components/process-actions"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { broken, label, QuotaContext, useBoard, useProjects, useQuota } from "@/api"
@@ -54,7 +54,7 @@ export default function App() {
             )}
           </div>
         </SidebarInset>
-        <ClaimWarnings />
+        <Warnings />
       </SidebarProvider>
     </QuotaContext.Provider>
   )
