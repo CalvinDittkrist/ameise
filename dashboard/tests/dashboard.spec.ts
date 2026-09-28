@@ -65,6 +65,11 @@ test("a quota the controller cannot read shows as unknown with the reason", asyn
   const dialog = page.getByRole("dialog", { name: "Claim #144" })
   await expect(dialog.getByRole("status", { name: "Quota" })).toHaveCount(0)
   await expect(dialog.getByRole("button", { name: "Claim", exact: true })).toBeVisible()
+  // A claim whose answer finds the quota below the minimum, which the dialog did not warn of, says so after.
+  const line = "claude has 8% of its quota left, below the minimum of 12%"
+  await page.route("**/api/processes", (r) => r.fulfill({ status: 201, json: { record: {}, warnings: [], quota: [line] } }))
+  await dialog.getByRole("button", { name: "Claim", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "Claim #144" }).getByRole("status", { name: "Warnings" })).toHaveText(line)
 })
 
 test("a process that turned blocked carries a badge on its row and on the Orchestrator entry until its page is opened", async ({ page }) => {
@@ -351,7 +356,7 @@ for (const scheme of ["light", "dark"] as const) {
   test.describe(`in ${scheme}`, () => {
     test.use({ colorScheme: scheme })
 
-    for (const name of ["orchestrator", "project"] as const) {
+    for (const name of ["orchestrator", "project", "process"] as const) {
       test(`the ${name} page holds its layout`, async ({ page }) => {
         // Tall enough for every section of the board the fake mode serves.
         await page.setViewportSize({ width: 1440, height: 1040 })
@@ -359,6 +364,10 @@ for (const scheme of ["light", "dark"] as const) {
         await expect(projects(page).getByRole("link")).toHaveCount(3)
         if (name === "project") await projects(page).getByRole("link", { name: "edge-sensors" }).click()
         await expect(sections(page).first()).toBeVisible()
+        if (name === "process") {
+          await section(page, "Needs you").getByRole("link", { name: "feat/118-refuse-a-project-without-origin" }).click()
+          await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
+        }
         await page.evaluate(() => document.fonts.ready)
         await expect(page).toHaveScreenshot(`${name}-${scheme}.png`, {
           animations: "disabled",
