@@ -60,6 +60,7 @@ export function ProjectView({
   }
   const found = board.state === "loaded" ? board.projects.find((x) => x.path === project.path) : undefined
   const b = found && !broken(found) ? (found as ProjectBoard) : undefined
+  const pending = board.state === "loading"
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -78,10 +79,10 @@ export function ProjectView({
       </div>
       {board.state === "failed" && <p role="alert" className="text-sm text-destructive">{board.error}</p>}
       {b && <Notes boards={[b]} />}
-      <Section title="Processes" count={b?.processes.length ?? 0} empty="Nothing running">
+      <Section title="Processes" count={b?.processes.length ?? 0} empty="Nothing running" loading={pending}>
         {b?.processes.map((p) => <ProcessRow key={p.branch} p={p} />)}
       </Section>
-      <Section title="Ready to start" count={b?.frontier.length ?? 0} empty="Frontier empty">
+      <Section title="Ready to start" count={b?.frontier.length ?? 0} empty="Frontier empty" loading={pending}>
         {b?.frontier.map((i) => <IssueRow key={i.number} i={i} />)}
       </Section>
       {b && b.acceptance.length > 0 && (

@@ -12,17 +12,18 @@ export function Orchestrator({ board }: { board: Board }) {
   const running = processes.filter(({ p }) => !p.needs)
   const acceptance = boards.flatMap((b) => b.acceptance.map((i) => ({ i, b })))
   const frontier = boards.flatMap((b) => b.frontier.map((i) => ({ i, b })))
+  const loading = board.state === "loading"
   return (
     <>
       <Notes boards={boards} />
-      <Section title="Needs you" count={needs.length + acceptance.length} empty="Nothing waits for you">
+      <Section title="Needs you" count={needs.length + acceptance.length} empty="Nothing waits for you" loading={loading}>
         {needs.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} />)}
         {acceptance.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} accept />)}
       </Section>
-      <Section title="Running" count={running.length} empty="Nothing running">
+      <Section title="Running" count={running.length} empty="Nothing running" loading={loading}>
         {running.map(({ p, b }) => <ProcessRow key={b.path + p.branch} p={p} project={b} />)}
       </Section>
-      <Section title="Ready to start" count={frontier.length} empty="Frontier empty">
+      <Section title="Ready to start" count={frontier.length} empty="Frontier empty" loading={loading}>
         {frontier.map(({ i, b }) => <IssueRow key={b.path + i.number} i={i} project={b} />)}
       </Section>
     </>

@@ -76,6 +76,22 @@ test("the Orchestrator page sorts the processes of every project into needs you 
   expect(board.projects.map((p: { frontier?: { number: number }[] }) => p.frontier?.map((i) => i.number))).toEqual([[144, 145], [91], undefined])
 })
 
+test("while the board is derived the sections wait, and never say they are empty", async ({ page }) => {
+  let release = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route("**/api/board", async (r) => {
+    await held
+    await r.continue()
+  })
+  await page.goto(url())
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you", "Running", "Ready to start"])
+  await expect(main(page).locator("[aria-busy=true]")).toHaveCount(3)
+  await expect(main(page)).not.toContainText("Nothing waits for you")
+  await expect(main(page)).not.toContainText("Frontier empty")
+  release()
+  await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you4", "Running3", "Ready to start3"])
+})
+
 test("a project opens its page from the sidebar, and the page survives a reload", async ({ page }) => {
   await page.goto(url())
   await projects(page).getByRole("link", { name: "backtest" }).click()
