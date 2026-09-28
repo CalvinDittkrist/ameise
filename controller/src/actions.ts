@@ -2,12 +2,11 @@
 // ready pull request into its base and cleans up after it, by the rules of the orchestrator's merge. A
 // release tags a finished milestone, by the branch model. An acceptance start opens a plan process on a
 // spec whose tickets are all closed.
-import { appendFileSync, mkdirSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
 import { run } from './exec.js'
 import { checksOf, ghApi, issueFromBranch, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
-import { addWorktree, exists, fetch, git, held, recordsDir, slug, writeAtomic } from './claim.js'
+import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
 import { type Project, Refusal } from './project.js'
 
 // The pull request as gh pr view answers it: the fields a merge decides by.
@@ -19,6 +18,7 @@ interface PullRequest {
   mergeable: string
   mergeStateStatus: string
   headRefName: string
+  headRefOid: string
   baseRefName: string
   isCrossRepository: boolean
   reviewDecision: string | null
@@ -26,7 +26,7 @@ interface PullRequest {
   mergeCommit: { oid: string } | null
 }
 
-const prFields = 'number,title,state,isDraft,mergeable,mergeStateStatus,headRefName,baseRefName,isCrossRepository,reviewDecision,statusCheckRollup,mergeCommit'
+const prFields = 'number,title,state,isDraft,mergeable,mergeStateStatus,headRefName,headRefOid,baseRefName,isCrossRepository,reviewDecision,statusCheckRollup,mergeCommit'
 
 async function view(gh: string, repo: string, pr: number): Promise<PullRequest> {
   try {
@@ -103,8 +103,9 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
   }
   if (tree && (await git(tree.path, 'status', '--porcelain')) !== '') throw new Refusal(`${tree.path} has changes not committed, which the merge would lose; commit and push them first`, 409)
 
+  // The merge takes the head the checks were read of, so a push since then is refused, not merged unchecked.
   try {
-    await run(gh, ['pr', 'merge', String(n), '--repo', repo, `--${method}`, ...(kept ? [] : ['--delete-branch'])])
+    await run(gh, ['pr', 'merge', String(n), '--repo', repo, `--${method}`, '--match-head-commit', pr.headRefOid, ...(kept ? [] : ['--delete-branch'])])
   } catch (err) {
     throw new Refusal(`could not merge PR #${n}: ${(err as Error).message}`, 502)
   }
@@ -279,20 +280,9 @@ async function releaseHeld(project: Project, stateDir: string, gh: string, fake:
 
 // A plan process on a spec, as the state directory holds it in processes/<id>.json. Its route names the
 // planner's route its session takes.
-export interface PlanRecord {
-  id: string
-  project: string
+export interface PlanRecord extends CreatedRecord {
   kind: 'plan'
   route: 'accept'
-  branch: string
-  issue: number
-  worktree: string
-  base: string
-  stage: string
-  state: string
-  note: string
-  created_at: string
-  updated_at: string
 }
 
 // mergeRequest reads the pull request of a merge's body, or refuses it.
@@ -367,16 +357,9 @@ async function acceptHeld(project: Project, stateDir: string, gh: string, fake: 
     created_at: now,
     updated_at: now,
   }
-  const dir = recordsDir(stateDir)
-  try {
-    mkdirSync(dir, { recursive: true })
-    writeAtomic(join(dir, `${id}.json`), JSON.stringify(record, null, 2) + '\n')
-    appendFileSync(join(dir, `${id}.events.jsonl`), JSON.stringify({ at: now, event: 'accept', issue: n, branch, base: start, route: 'accept' }) + '\n')
-  } catch (err) {
-    for (const f of [`${id}.json`, `${id}.events.jsonl`]) rmSync(join(dir, f), { force: true })
+  await writeProcess(stateDir, record, { event: 'accept', issue: n, branch, base: start, route: 'accept' }, async () => {
     await git(top, 'worktree', 'remove', '--force', path).catch(() => undefined)
     await git(top, 'branch', '-D', branch).catch(() => undefined)
-    throw new Refusal(`could not write the process of #${n}: ${(err as Error).message}; the start is undone`, 500)
-  }
+  }, 'start')
   return record
 }

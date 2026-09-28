@@ -36,6 +36,7 @@ function canPull(n: number, head: string, base: string, over: Record<string, unk
     mergeable: 'MERGEABLE',
     mergeStateStatus: 'CLEAN',
     headRefName: head,
+    headRefOid: 'c0ffee',
     baseRefName: base,
     isCrossRepository: false,
     reviewDecision: null,
@@ -68,7 +69,7 @@ test('a merge of a ready process squash-merges it and removes its branch, worktr
   const r = await merge(12)
   expect(r.status, JSON.stringify(r.body)).toBe(200)
   expect(r.body).toMatchObject({ pr: 12, method: 'squash', base: 'main', branch, kept: '', worktree: path, closed: null, warnings: [] })
-  expect(calls('pr merge')).toEqual(['pr merge 12 --repo owner/repo --squash --delete-branch'])
+  expect(calls('pr merge')).toEqual(['pr merge 12 --repo owner/repo --squash --match-head-commit c0ffee --delete-branch'])
   expect(calls('issue close')).toEqual([])
   expect(existsSync(path)).toBe(false)
   expect(git(dir, 'branch', '--list', branch)).toBe('')
@@ -91,7 +92,7 @@ test('a merge of a promotion gives it a merge commit and keeps dev', async () =>
   const r = await merge(14)
   expect(r.status, JSON.stringify(r.body)).toBe(200)
   expect(r.body).toMatchObject({ method: 'merge', branch: 'dev', kept: 'long-lived', worktree: null, closed: null })
-  expect(calls('pr merge')).toEqual(['pr merge 14 --repo owner/repo --merge'])
+  expect(calls('pr merge')).toEqual(['pr merge 14 --repo owner/repo --merge --match-head-commit c0ffee'])
 })
 
 const notGreen: { name: string; over: Record<string, unknown>; reason: RegExp }[] = [
@@ -199,7 +200,7 @@ test('a release with dev and main opens the promotion, merges it and tags its me
   expect(r.body).toMatchObject({ status: 'released', model: 'dev+main', target: 'def456', promotion: 'https://github.com/owner/repo/pull/21' })
   expect(calls('pr create')).toHaveLength(1)
   expect(calls('pr create')[0]).toMatch(/^pr create --repo owner\/repo --base main --head dev --title chore\(release\): v1\.0\.0 /)
-  expect(calls('pr merge')).toEqual(['pr merge 21 --repo owner/repo --merge'])
+  expect(calls('pr merge')).toEqual(['pr merge 21 --repo owner/repo --merge --match-head-commit c0ffee'])
   expect(calls('release create')).toEqual(['release create v1.0.0 --repo owner/repo --target def456 --title v1.0.0 --generate-notes'])
 })
 
@@ -249,6 +250,24 @@ test('an acceptance start opens a plan process on the spec with the acceptance r
   const again = await accept(100)
   expect(again.status).toBe(409)
   expect(error(again)).toMatch(/#100 has a process already on plan\/offline-mode/)
+})
+
+test('an abandon of an acceptance removes its worktree and process and leaves its branch, which a new start asks to remove', async () => {
+  canSpec(100, ['closed'])
+  expect((await accept(100)).status).toBe(201)
+  const path = join(dir, '.claude', 'worktrees', 'plan-offline-mode')
+
+  const r = await api(m, 'DELETE', '/api/processes', { project: dir, issue: 100 })
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
+  expect(r.body).toMatchObject({ issue: 100, branch: 'plan/offline-mode', worktree: path })
+  expect(existsSync(path)).toBe(false)
+  expect(processes()).toEqual([])
+
+  const again = await accept(100)
+  expect(again.status).toBe(409)
+  expect(error(again)).toMatch(/the branch plan\/offline-mode exists already; remove it with git branch -D plan\/offline-mode/)
+  git(dir, 'branch', '-D', 'plan/offline-mode')
+  expect((await accept(100)).status).toBe(201)
 })
 
 const refusedAcceptances: { name: string; arrange: () => void; reason: RegExp }[] = [
