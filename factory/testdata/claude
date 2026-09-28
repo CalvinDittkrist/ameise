@@ -67,7 +67,8 @@
 # 20 seconds, so a test can prove a session of another runtime ran beside it.
 # With CLAUDE_SHIM_REVIEW_BARRIER set, a reviewer waits until that many reviewers have started before
 # it reports, and fails when they do not within 20 seconds: reviewers run one after the other never
-# get past it. With CLAUDE_SHIM_REVIEW_LINGER set, a reviewer stays that many seconds after its result
+# get past it. With CLAUDE_SHIM_REVIEW_EAGER set, a reviewer prints its first line the moment it starts,
+# before it logs its call. With CLAUDE_SHIM_REVIEW_LINGER set, a reviewer stays that many seconds after its result
 # line before it exits, as a session does while Claude Code shuts down.
 #
 # The structured result is the one thing a session owes the factory (ADR 0039). A session started as
@@ -82,6 +83,16 @@
 #   CLAUDE_SHIM_VERSION        what --version prints
 #   CLAUDE_SHIM_VERSION_HANG   seconds --version waits before it answers, as a binary that hangs
 set -u
+
+eager=""
+if [ -n "${CLAUDE_SHIM_REVIEW_EAGER:-}" ]; then
+  case " $* " in
+    *'-reviewer '*)
+      eager=1
+      printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
+      ;;
+  esac
+fi
 
 host="${CLAUDE_SHIM_HOST_LOG:-/dev/null}"
 case "${1:-}" in
@@ -145,7 +156,7 @@ rmdir "$log.lock" 2>/dev/null
 issue=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | sed -n 's#^[a-z][a-z]*/\([0-9][0-9]*\)-.*#\1#p')
 
 if [ -n "$reviewer" ]; then
-  printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
+  [ -n "$eager" ] || printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","permissionMode":"auto","session_id":"3b7e1d20-6c4a-4e8f-9b1d-2a3c4d5e6f70"}'
   if [ -n "${CLAUDE_SHIM_REVIEW_BARRIER:-}" ]; then
     waited=0
     while [ "$(grep -c '^call$' "$log")" -lt "$CLAUDE_SHIM_REVIEW_BARRIER" ]; do

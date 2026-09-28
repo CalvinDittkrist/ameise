@@ -590,3 +590,44 @@ func anyStrings(v any) []string {
 	}
 	return out
 }
+
+// The review round's log opens with every reviewer's start in the panel's order, before any line of a
+// reviewer's own output, although each reviewer prints its first line the moment it starts: the factory
+// reads no reviewer before every reviewer of the round is up.
+func TestAReviewRoundLogsEveryReviewersStartBeforeAnyReviewersOutput(t *testing.T) {
+	t.Parallel()
+	gh, data := panelClaim(t, "@echo the gate of the ordered round passes")
+	// Every reviewer prints its first line the moment it starts, before the next one is up.
+	gh.env = append(gh.env, "CLAUDE_SHIM_REVIEW_EAGER=1")
+	f := gh.work(t, ciConfig(data, nil))
+	run := f.ended(t, 1)
+	if run.Outcome != outcomeReady {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	panel := []string{"code", "security", "docs", "tests", "senior"}
+	all := []string{}
+	for _, e := range run.Events {
+		all = append(all, e.Title)
+	}
+	round := slices.Index(all, "review round 1 of 3")
+	if round < 0 {
+		t.Fatalf("the run's log has no first review round: %v", all)
+	}
+	started := []string{}
+	for _, title := range all[round:] {
+		label, rest, labelled := strings.Cut(title, ": ")
+		if !labelled || !slices.Contains(panel, label) {
+			continue
+		}
+		if rest != "worker started" {
+			if len(started) < len(panel) {
+				t.Fatalf("the %s reviewer's output %q was logged after the starts %v alone, want every start of the round first; the log: %v", label, title, started, all[round:])
+			}
+			break
+		}
+		started = append(started, label)
+	}
+	if !equal(started, panel) {
+		t.Errorf("the round logged the starts %v, want %v in the panel's order", started, panel)
+	}
+}
