@@ -1,0 +1,102 @@
+import { FolderGit2Icon, LayoutDashboardIcon, TriangleAlertIcon, WorkflowIcon } from "lucide-react"
+import { AddProject } from "@/components/add-project"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarRail,
+} from "@/components/ui/sidebar"
+import { broken, label, type Projects } from "@/api"
+import { href, type Route } from "@/route"
+
+// The sidebar collapses to its icons. It holds the Orchestrator entry, the projects of this machine and
+// the action that adds one; the quota sits in its footer, which the icon state hides.
+export function AppSidebar({ route, projects, reload }: { route: Route; projects: Projects; reload: () => Promise<void> }) {
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild>
+              <a href={href({ page: "orchestrator" })}>
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <WorkflowIcon className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">workflows</span>
+                  <span className="truncate text-xs text-muted-foreground">this machine</span>
+                </div>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={route.page === "orchestrator"} tooltip="Orchestrator">
+                  <a href={href({ page: "orchestrator" })}>
+                    <LayoutDashboardIcon />
+                    <span>Orchestrator</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu aria-label="Projects">
+              {projects.state === "loading" && [0, 1].map((i) => (
+                <SidebarMenuItem key={i}>
+                  <SidebarMenuSkeleton showIcon />
+                </SidebarMenuItem>
+              ))}
+              {projects.state === "failed" && (
+                <SidebarMenuItem className="px-2 py-1.5 text-xs text-destructive group-data-[collapsible=icon]:hidden">
+                  {projects.error}
+                </SidebarMenuItem>
+              )}
+              {projects.state === "loaded" && projects.projects.map((p) => (
+                <SidebarMenuItem key={p.path}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={route.page === "project" && route.path === p.path}
+                    tooltip={broken(p) ? `${label(p)}: ${p.error}` : `${p.owner}/${p.name}`}
+                  >
+                    <a href={href({ page: "project", path: p.path })}>
+                      {broken(p) ? <TriangleAlertIcon className="text-destructive" /> : <FolderGit2Icon />}
+                      <span>{label(p)}</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              <SidebarMenuItem>
+                <AddProject reload={reload} />
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter className="group-data-[collapsible=icon]:hidden">
+        {/* The footer pads the group already, so its label stands where the other labels stand. */}
+        <SidebarGroup className="p-0">
+          <SidebarGroupLabel>Quota</SidebarGroupLabel>
+          <SidebarGroupContent className="px-2 pt-1 text-xs text-muted-foreground">Not read yet</SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  )
+}

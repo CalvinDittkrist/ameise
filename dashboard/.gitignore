@@ -1,0 +1,4 @@
+node_modules
+# What the browser test leaves behind.
+playwright-report
+test-results

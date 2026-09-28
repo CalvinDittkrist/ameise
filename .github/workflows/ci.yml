@@ -15,10 +15,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm # npm's download cache, keyed by the dashboard's and the controller's lockfiles; Claude Code still installs its latest
+          cache: npm # npm's download cache, keyed by the dashboards' and the controller's lockfiles; Claude Code still installs its latest
           cache-dependency-path: |
             factory/ui/package-lock.json
             controller/package-lock.json
+            dashboard/package-lock.json
       - uses: actions/setup-go@v7
         id: go
         with:
@@ -66,7 +67,7 @@ jobs:
         run: npm --prefix factory/ui exec -- playwright install --with-deps chromium
       - name: Gate
         run: make check
-      - name: Keep the browser test's report and what it saw when it failed
+      - name: Keep the browser tests' reports and what they saw when they failed
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -74,5 +75,7 @@ jobs:
           path: |
             factory/ui/playwright-report
             factory/ui/test-results
+            dashboard/playwright-report
+            dashboard/test-results
           if-no-files-found: ignore
           retention-days: 7
