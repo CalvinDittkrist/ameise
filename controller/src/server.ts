@@ -38,8 +38,11 @@ export function serve(o: Options): Server {
     const wanted = url.searchParams.get('project')
     const paths = readConfig(o.configPath).projects
     if (wanted !== null) {
-      if (!paths.includes(wanted)) return send(res, 404, { error: `${wanted} is not a project; workflows projects lists them` })
-      const project = await derive(wanted, o.gh)
+      // A path inside a checkout or a link to one asks for the project at its top, as remove does.
+      const top = await checkout(resolve(wanted)).catch(() => resolve(wanted))
+      const known = paths.includes(wanted) ? wanted : top
+      if (!paths.includes(known)) return send(res, 404, { error: `${wanted} is not a project; workflows projects lists them` })
+      const project = await derive(known, o.gh)
       return send(res, 200, await board(project, o.stateDir, o.gh))
     }
     const all = await Promise.all(
