@@ -243,6 +243,10 @@ async function actionCommand(command: 'merge' | 'release' | 'accept', args: stri
   if (command === 'merge') {
     const m = (await call('POST', '/api/merges', { project, pr: Number(target) })) as Merged
     for (const w of m.warnings) process.stderr.write(`warning: ${w}\n`)
+    if (m.queued) {
+      process.stdout.write(`queued PR #${m.pr} (${m.method}) into ${m.base}  ${m.branch} kept until merged\n`)
+      return
+    }
     const branch = m.kept ? `${m.branch} kept (${m.kept})` : `${m.branch} deleted`
     const closed = m.closed === null ? '' : `  closed #${m.closed}`
     process.stdout.write(`merged PR #${m.pr} (${m.method}) into ${m.base}  ${branch}  worktree ${m.worktree ?? 'none'} removed${closed}\n`)

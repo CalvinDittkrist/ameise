@@ -40,9 +40,24 @@ async function view(gh: string, repo: string, pr: number): Promise<PullRequest> 
 const defaultBranch = (gh: string, repo: string) =>
   run(gh, ['repo', 'view', `github.com/${repo}`, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name']).catch(() => '')
 
+// unresolved counts the review threads of a pull request nobody resolved, by the first hundred threads
+// as the orchestrator's merge reads them.
+async function unresolved(gh: string, owner: string, name: string, n: number): Promise<number> {
+  const query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}'
+  let out: { data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: { isResolved: boolean }[] } } } } }
+  try {
+    out = JSON.parse(await run(gh, ['api', 'graphql', '-F', `owner=${owner}`, '-F', `name=${name}`, '-F', `number=${n}`, '-f', `query=${query}`])) as typeof out
+  } catch (err) {
+    throw new Refusal(`could not read the review threads of PR #${n}: ${(err as Error).message}`, 502)
+  }
+  const nodes = out.data?.repository?.pullRequest?.reviewThreads?.nodes
+  if (!nodes) throw new Refusal(`GitHub named no review threads of PR #${n}`, 502)
+  return nodes.filter((t) => !t.isResolved).length
+}
+
 // green refuses a pull request that is not ready to merge: not open, a draft, in conflict or not yet
-// computed, not clean, with a check failed or pending, or with changes requested.
-function green(pr: PullRequest) {
+// computed, not clean, with a check failed or pending, with changes requested or a review thread open.
+function green(pr: PullRequest, open: number) {
   const n = pr.number
   const no = (why: string) => new Refusal(`PR #${n} ${why}`, 409)
   if (pr.state !== 'OPEN') throw no(`is ${pr.state}, not open`)
@@ -54,6 +69,7 @@ function green(pr: PullRequest) {
   if (checks === 'pending') throw no('has checks still pending; merge it once they pass')
   if (pr.mergeStateStatus !== 'CLEAN') throw no(`has the merge state ${pr.mergeStateStatus}, not CLEAN`)
   if (pr.reviewDecision === 'CHANGES_REQUESTED') throw no('has changes requested')
+  if (open > 0) throw no(`has ${open} unresolved review thread(s); address and resolve them first`)
 }
 
 export interface Merged {
@@ -67,14 +83,18 @@ export interface Merged {
   worktree: string | null
   // closed is the issue the merge closed here, since GitHub closes it only on the default branch.
   closed: number | null
+  // queued says the base has a merge queue that took the pull request, which is not merged yet; its
+  // branch, worktree and process stay until it is.
+  queued: boolean
   warnings: string[]
 }
 
 // merge takes a ready pull request of the project into its base. A process branch is squash-merged and
 // deleted, its worktree and its process removed. A promotion from dev or main gets a merge commit and its
 // branch stays, as a fork's does. A merge into a branch other than the default closes the head branch's
-// issue, which GitHub does only on the default branch. It refuses a pull request that is not green, and a
-// worktree with work not on origin, before it changes anything.
+// issue, which GitHub does only on the default branch. A pull request a merge queue takes keeps all of
+// that until GitHub merges it. It refuses a pull request that is not green, a branch the checkout stands
+// on, and a worktree with work not on origin, before it changes anything.
 export function merge(project: Project, stateDir: string, gh: string, fake: boolean, n: number): Promise<Merged> {
   return held(project, `PR #${n}`, () => mergeHeld(project, stateDir, gh, fake, n))
 }
@@ -83,7 +103,7 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
   const top = project.path
   const repo = `${project.owner}/${project.name}`
   const pr = await view(gh, repo, n)
-  green(pr)
+  green(pr, pr.state === 'OPEN' ? await unresolved(gh, project.owner, project.name, n) : 0)
   const branch = pr.headRefName
   const warnings: string[] = []
   let method: Merged['method'] = 'squash'
@@ -96,6 +116,10 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
 
   // A fork's branch may carry the name of one of ours, so it names no worktree and no process here.
   const tree = kept ? undefined : (await worktrees(top)).find((t) => t.branch === branch)
+  // worktrees leaves the checkout itself out, and a branch it stands on cannot be deleted.
+  if (!kept && (await git(top, 'rev-parse', '--abbrev-ref', 'HEAD').catch(() => '')) === branch) {
+    throw new Refusal(`the checkout ${top} stands on ${branch}; switch it to ${pr.baseRefName} and merge again`, 409)
+  }
   // The merge deletes the local branch, with or without a worktree, so either must hold nothing unpushed.
   if (!kept && (await exists(top, `refs/heads/${branch}`))) {
     const unpushed = Number(await git(top, 'rev-list', '--count', branch, '--not', '--remotes=origin'))
@@ -110,6 +134,14 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
     throw new Refusal(`could not merge PR #${n}: ${(err as Error).message}`, 502)
   }
 
+  // A base with a merge queue takes the pull request into its queue, so only a MERGED state lets the
+  // cleanup go on; the queue may still reject it.
+  const after = await view(gh, repo, n).catch(() => undefined)
+  if (after?.state !== 'MERGED') {
+    warnings.push(`PR #${n} is in the merge queue of ${pr.baseRefName}, not merged yet; its branch, worktree and process stay, abandon the process once GitHub merges it`)
+    return { pr: n, title: pr.title, method, base: pr.baseRefName, branch, kept, worktree: null, closed: null, queued: true, warnings }
+  }
+
   if (!kept) {
     // The pull request is merged already, so a cleanup that fails is a warning, never an error.
     if (tree) {
@@ -122,8 +154,13 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
     }
     await git(top, 'branch', '-D', branch).catch(() => undefined)
     for (const { file } of recordFiles(stateDir, top).filter((r) => r.record.branch === branch)) {
-      rmSync(file, { force: true })
-      rmSync(file.replace(/\.json$/, '.events.jsonl'), { force: true })
+      for (const f of [file, file.replace(/\.json$/, '.events.jsonl')]) {
+        try {
+          rmSync(f, { force: true })
+        } catch (err) {
+          warnings.push(`PR #${n} is merged, but ${f} could not be removed: ${(err as Error).message}; remove it by hand`)
+        }
+      }
     }
   }
 
@@ -151,7 +188,7 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
       await git(top, 'merge', '-q', '--ff-only', `origin/${pr.baseRefName}`).catch(() => warnings.push(`could not fast-forward ${pr.baseRefName}`))
     }
   }
-  return { pr: n, title: pr.title, method, base: pr.baseRefName, branch, kept, worktree: tree?.path ?? null, closed, warnings }
+  return { pr: n, title: pr.title, method, base: pr.baseRefName, branch, kept, worktree: tree?.path ?? null, closed, queued: false, warnings }
 }
 
 // A milestone as the REST API answers it.
@@ -251,12 +288,14 @@ async function releaseHeld(project: Project, stateDir: string, gh: string, fake:
     }
     promotion = pr.url
     if (pr.state === 'OPEN') {
+      let done: Merged
       try {
-        await merge(project, stateDir, gh, fake, pr.number)
+        done = await merge(project, stateDir, gh, fake, pr.number)
       } catch (err) {
         if (!(err instanceof Refusal) || err.status !== 409) throw err
         return { status: 'waiting', milestone: v, model: 'dev+main', promotion: pr.url, reason: `${err.message}; release ${v} again once it is green` }
       }
+      if (done.queued) return { status: 'waiting', milestone: v, model: 'dev+main', promotion: pr.url, reason: `PR #${pr.number} is in the merge queue of main; release ${v} again once it is merged` }
       pr = { ...pr, mergeCommit: (await view(gh, repo, pr.number)).mergeCommit }
     }
     const oid = pr.mergeCommit?.oid
@@ -301,7 +340,8 @@ export function specRequest(body: Record<string, unknown>): number {
 
 // accept opens a plan process on a spec ready for acceptance: the branch plan/<slug of its title> from
 // the base, its worktree and a record with the acceptance route, in the state created. It refuses an
-// issue that is not an open spec, a spec with a ticket open or none at all, and a spec with a process.
+// issue that is not an open spec, a spec with a ticket open or none at all, and a spec with a process,
+// by its record or by a worktree of its issue.
 export function accept(project: Project, stateDir: string, gh: string, fake: boolean, spec: number): Promise<PlanRecord> {
   return held(project, `#${spec}`, () => acceptHeld(project, stateDir, gh, fake, spec))
 }
@@ -331,7 +371,11 @@ async function acceptHeld(project: Project, stateDir: string, gh: string, fake: 
   if (open.length > 0) throw new Refusal(`#${n} has ${open.length} ticket(s) open (${open.map((t) => `#${t.number}`).join(', ')}); accept it once they are closed`, 409)
 
   const branch = `plan/${slug(issue.title) || `accept-${n}`}`
-  const tree = (await worktrees(top)).find((t) => t.branch === branch)
+  const trees = await worktrees(top)
+  // A worktree of the spec's issue is a process too, even when no record names it, as the board shows it.
+  const other = trees.find((t) => issueFromBranch(t.branch) === String(n))
+  if (other) throw new Refusal(`#${n} has a process already on ${other.branch} at ${other.path}; abandon it first`, 409)
+  const tree = trees.find((t) => t.branch === branch)
   if (tree) throw new Refusal(`${branch} has a worktree already at ${tree.path}; abandon it first`, 409)
   if (await exists(top, `refs/heads/${branch}`)) throw new Refusal(`the branch ${branch} exists already; remove it with git branch -D ${branch} and start again`, 409)
   const base = project.base

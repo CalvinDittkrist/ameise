@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, canIssue, canPages, canPulls, canRepo, checkout, cleanup, cli, type Machine, machine, read, record, start, worktree } from './controller.js'
@@ -26,8 +26,9 @@ const processes = () => (existsSync(join(m.state, 'processes')) ? readdirSync(jo
 const error = (r: { body: unknown }) => (r.body as { error: string }).error
 
 // canPull cans a pull request as gh pr view answers it, green and ready unless told otherwise, and what
-// it answers once merged when a merge commit is given.
-function canPull(n: number, head: string, base: string, over: Record<string, unknown> = {}, mergeCommit?: string) {
+// it answers once merged with its merge commit. A merge commit of null cans a base with a merge queue,
+// where the pull request stays open after gh pr merge.
+function canPull(n: number, head: string, base: string, over: Record<string, unknown> = {}, mergeCommit: string | null = 'm3rged') {
   const pr = {
     number: n,
     title: `PR ${n}`,
@@ -47,7 +48,9 @@ function canPull(n: number, head: string, base: string, over: Record<string, unk
   const pulls = join(m.github, 'repos', 'owner', 'repo', 'pulls')
   mkdirSync(pulls, { recursive: true })
   writeFileSync(join(pulls, `${n}.json`), JSON.stringify(pr))
-  if (mergeCommit) writeFileSync(join(pulls, `${n}.merged.json`), JSON.stringify({ ...pr, state: 'MERGED', mergeCommit: { oid: mergeCommit } }))
+  const merged = join(pulls, `${n}.merged.json`)
+  if (mergeCommit) writeFileSync(merged, JSON.stringify({ ...pr, state: 'MERGED', mergeCommit: { oid: mergeCommit } }))
+  else rmSync(merged, { force: true })
 }
 
 // process makes a work process of a branch as a claim leaves it, its commits on origin.
@@ -117,6 +120,56 @@ for (const c of notGreen) {
     expect(processes()).toEqual(['work-144.json'])
   })
 }
+
+test('a merge refuses a pull request with an unresolved review thread and changes nothing', async () => {
+  const branch = 'feat/144-board-lists-every-project'
+  const path = process(branch, 144)
+  canPull(15, branch, 'main')
+  writeFileSync(join(m.github, 'repos', 'owner', 'repo', 'pulls', '15.threads.json'), JSON.stringify([{ isResolved: true }, { isResolved: false }]))
+  const r = await merge(15)
+  expect(r.status).toBe(409)
+  expect(error(r)).toMatch(/PR #15 has 1 unresolved review thread\(s\)/)
+  expect(calls('pr merge')).toEqual([])
+  expect(existsSync(path)).toBe(true)
+  expect(processes()).toEqual(['work-144.json'])
+})
+
+test('a merge refuses a branch the checkout itself stands on and changes nothing', async () => {
+  const branch = 'feat/144-board-lists-every-project'
+  git(dir, 'switch', '-q', '-c', branch)
+  git(dir, 'update-ref', `refs/remotes/origin/${branch}`, branch)
+  canPull(15, branch, 'main')
+  const r = await merge(15)
+  expect(r.status).toBe(409)
+  expect(error(r)).toMatch(/stands on feat\/144-board-lists-every-project; switch it to main and merge again/)
+  expect(calls('pr merge')).toEqual([])
+  expect(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(branch)
+})
+
+test('a merge that a merge queue takes keeps the branch, worktree and process until GitHub merges it', async () => {
+  const branch = 'feat/150-loose-idea'
+  const path = process(branch, 150)
+  canPull(18, branch, 'spec/100-offline-mode', {}, null)
+  const r = await merge(18)
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
+  expect(r.body).toMatchObject({ pr: 18, queued: true, worktree: null, closed: null, warnings: [expect.stringMatching(/PR #18 is in the merge queue of spec\/100-offline-mode/)] })
+  expect(calls('pr merge')).toHaveLength(1)
+  expect(calls('issue close')).toEqual([])
+  expect(existsSync(path)).toBe(true)
+  expect(git(dir, 'branch', '--list', branch)).not.toBe('')
+  expect(processes()).toEqual(['work-150.json'])
+})
+
+test('a merge whose process record cannot be removed warns and still answers merged', async () => {
+  const branch = 'feat/144-board-lists-every-project'
+  process(branch, 144)
+  mkdirSync(join(m.state, 'processes', 'work-144.events.jsonl', 'stuck'), { recursive: true })
+  canPull(12, branch, 'main')
+  const r = await merge(12)
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
+  expect(r.body).toMatchObject({ queued: false, warnings: [expect.stringMatching(/PR #12 is merged, but .*work-144\.events\.jsonl could not be removed/)] })
+  expect(processes()).toEqual(['work-144.events.jsonl'])
+})
 
 test('a merge refuses a worktree with commits not on origin', async () => {
   const branch = 'feat/144-board-lists-every-project'
@@ -223,6 +276,18 @@ test('a release with dev and main waits for a promotion that is not green, and g
   expect(done.body).toMatchObject({ status: 'released', target: 'def456' })
 })
 
+test('a release with dev and main waits for a promotion in the merge queue of main', async () => {
+  canRepo(m, 'owner/repo', 'dev')
+  canRelease()
+  const promotion = { number: 21, title: 'chore(release): v1.0.0', state: 'OPEN', url: 'https://github.com/owner/repo/pull/21', mergeCommit: null, isCrossRepository: false }
+  writeFileSync(join(m.github, 'repos', 'owner', 'repo', 'promotions.json'), JSON.stringify([promotion]))
+  canPull(21, 'dev', 'main', {}, null)
+  const r = await release('v1.0.0')
+  expect(r.status, JSON.stringify(r.body)).toBe(202)
+  expect(r.body).toMatchObject({ status: 'waiting', reason: expect.stringMatching(/PR #21 is in the merge queue of main/) as unknown })
+  expect(calls('release create')).toEqual([])
+})
+
 // canSpec cans a spec with tickets of the given states.
 function canSpec(n: number, states: string[], labels = ['spec']) {
   canIssue(m, 'owner/repo', n, 'Offline mode', labels)
@@ -270,7 +335,18 @@ test('an abandon of an acceptance removes its worktree and process and leaves it
   expect((await accept(100)).status).toBe(201)
 })
 
+test('an acceptance start refuses a spec whose process is a worktree without a record', async () => {
+  canSpec(100, ['closed'])
+  worktree(dir, 'feat/100-offline-mode')
+  const r = await accept(100)
+  expect(r.status).toBe(409)
+  expect(error(r)).toMatch(/#100 has a process already on feat\/100-offline-mode/)
+  expect(processes()).toEqual([])
+  expect(git(dir, 'branch', '--list', 'plan/*')).toBe('')
+})
+
 const refusedAcceptances: { name: string; arrange: () => void; reason: RegExp }[] = [
+
   { name: 'an issue that is no spec', arrange: () => canSpec(100, ['closed'], ['enhancement']), reason: /#100 is not a spec/ },
   { name: 'a spec with a ticket open', arrange: () => canSpec(100, ['closed', 'open']), reason: /#100 has 1 ticket\(s\) open \(#102\)/ },
   { name: 'a spec without tickets', arrange: () => canSpec(100, []), reason: /#100 has no tickets/ },
