@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, readConfig, stateDir } from './config.js'
-import { run } from './project.js'
+import { run } from './exec.js'
 import { serve } from './server.js'
 
 const usage = `usage:

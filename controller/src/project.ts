@@ -1,9 +1,9 @@
 // A project is a checkout on this machine. The configuration stores its path and nothing else: the
 // repository it belongs to and the branch it is worked from are read from git and GitHub each time,
 // so no stored fact can go stale.
-import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { run } from './exec.js'
 
 export interface Project {
   path: string
@@ -13,15 +13,6 @@ export interface Project {
 }
 
 export class Refusal extends Error {}
-
-export function run(cmd: string, args: string[], cwd?: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, encoding: 'utf8', timeout: 30000 }, (err, stdout, stderr) => {
-      if (err) reject(new Error((stderr || err.message).trim()))
-      else resolve(stdout.trim())
-    })
-  })
-}
 
 // checkout is the top of the git working tree at path, or a Refusal that says it is none.
 export async function checkout(path: string): Promise<string> {
@@ -69,10 +60,13 @@ export async function derive(path: string, gh: string): Promise<Project> {
   return { path: top, ...repo, base: await baseBranch(top, `${repo.owner}/${repo.name}`, gh) }
 }
 
-// baseBranch is the workflow's base branch rule, the one the plugins' wf_base_branch and the
-// factory's baseBranch follow: WF_BASE_BRANCH as the repository's settings declare it, then the
-// head origin points at, then the default branch GitHub names, then main. contract/base-branch.json
-// states its cases, and the controller's tests hold this function to them.
+// baseBranch is the workflow's base branch rule, which the plugins' wf_base_branch and the factory's
+// baseBranch follow too. Its steps, in order:
+//   1. WF_BASE_BRANCH as the repository's settings declare it,
+//   2. the head origin points at,
+//   3. the default branch GitHub names,
+//   4. main.
+// contract/base-branch.json states its cases, and the controller's tests hold this function to them.
 export async function baseBranch(top: string, repository: string, gh: string): Promise<string> {
   const declared = await declaredBase(top)
   if (declared) return declared
