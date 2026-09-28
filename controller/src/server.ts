@@ -7,7 +7,7 @@ import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
-import { accept, merge, release, releaseRequest, specRequest } from './actions.js'
+import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -89,8 +89,7 @@ export function serve(o: Options): Server {
   // start opens a plan process on a spec whose tickets are all closed.
   async function merged(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
-    const pr = body.pr
-    if (typeof pr !== 'number' || !Number.isInteger(pr) || pr < 1) throw new Refusal('pr is not a pull request number; send it as a whole number, such as 42')
+    const pr = mergeRequest(body)
     const project = await known(body)
     const done = await merge(project, o.stateDir, o.gh, o.fake, pr)
     log({ event: 'merged', project: project.path, pr, branch: done.branch, method: done.method, base: done.base })

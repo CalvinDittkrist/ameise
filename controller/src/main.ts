@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run } from './exec.js'
 import type { Process, ProjectBoard } from './board.js'
-import type { Merged, PlanRecord, Released } from './actions.js'
+import { version, type Merged, type PlanRecord, type Released } from './actions.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
@@ -235,7 +235,7 @@ async function actionCommand(command: 'merge' | 'release' | 'accept', args: stri
       const v = args[++i]
       if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
       project = resolve(v)
-    } else if (target === undefined && (command === 'release' ? /^v[0-9]+\.[0-9]+\.[0-9]+$/ : /^#?[0-9]+$/).test(a)) target = a.replace(/^#/, '')
+    } else if (target === undefined && (command === 'release' ? version : /^#?[0-9]+$/).test(a)) target = a.replace(/^#/, '')
     else die(`unexpected argument ${a}; workflows help lists the commands`)
   }
   const what = { merge: 'a pull request number', release: 'a milestone such as v1.2.3', accept: 'a spec number' }[command]
