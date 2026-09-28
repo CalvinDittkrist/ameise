@@ -1,0 +1,441 @@
+{
+  "about": "The rules the local workflow and the factory share, as inputs with expected outputs. Both sides' tests read this file; a rule changes here first. See docs/architecture.md#the-contract-fixture.",
+  "branch": {
+    "about": "The branch a claim creates: <type>/<number>-<slug>, the type from the labels, the slug from the title.",
+    "cases": [
+      {
+        "case": "a plain title",
+        "number": 104,
+        "title": "Retry the upload when the broker drops",
+        "labels": [],
+        "branch": "feat/104-retry-the-upload-when-the-broker-drops"
+      },
+      {
+        "case": "umlauts",
+        "number": 9,
+        "title": "Überwachung: Füllstand fällt unter den Schwellwert",
+        "labels": [],
+        "branch": "feat/9-ueberwachung-fuellstand-faellt-unter-den"
+      },
+      {
+        "case": "a sharp s",
+        "number": 12,
+        "title": "Straße messen",
+        "labels": [],
+        "branch": "feat/12-strasse-messen"
+      },
+      {
+        "case": "a URL",
+        "number": 21,
+        "title": "Follow https://example.com/a/b?c=d in the docs",
+        "labels": [],
+        "branch": "feat/21-follow-in-the-docs"
+      },
+      {
+        "case": "punctuation only",
+        "number": 33,
+        "title": "!!! ??? ...",
+        "labels": [],
+        "branch": "feat/33-"
+      },
+      {
+        "case": "a title of leading punctuation",
+        "number": 34,
+        "title": "-- fix the thing --",
+        "labels": [],
+        "branch": "feat/34-fix-the-thing"
+      },
+      {
+        "case": "a title far over the cut",
+        "number": 41,
+        "title": "Rewrite the ingestion pipeline so that late events are folded into the window they belong to",
+        "labels": [],
+        "branch": "feat/41-rewrite-the-ingestion-pipeline-so-that-l"
+      },
+      {
+        "case": "a title cut where a hyphen falls",
+        "number": 42,
+        "title": "Rewrite the ingest pipeline for late a events",
+        "labels": [],
+        "branch": "feat/42-rewrite-the-ingest-pipeline-for-late-a-e"
+      },
+      {
+        "case": "a bug",
+        "number": 51,
+        "title": "Crash on start",
+        "labels": [
+          "ready-for-agent",
+          "bug"
+        ],
+        "branch": "fix/51-crash-on-start"
+      },
+      {
+        "case": "a fix",
+        "number": 52,
+        "title": "Crash on start",
+        "labels": [
+          "fix"
+        ],
+        "branch": "fix/52-crash-on-start"
+      },
+      {
+        "case": "docs",
+        "number": 53,
+        "title": "Explain the gate",
+        "labels": [
+          "documentation"
+        ],
+        "branch": "docs/53-explain-the-gate"
+      },
+      {
+        "case": "a chore",
+        "number": 54,
+        "title": "Bump the pins",
+        "labels": [
+          "maintenance"
+        ],
+        "branch": "chore/54-bump-the-pins"
+      },
+      {
+        "case": "a label that names none of them",
+        "number": 55,
+        "title": "Add a knob",
+        "labels": [
+          "enhancement"
+        ],
+        "branch": "feat/55-add-a-knob"
+      },
+      {
+        "case": "bug and docs at once",
+        "number": 56,
+        "title": "Wrong example",
+        "labels": [
+          "docs",
+          "bug"
+        ],
+        "branch": "fix/56-wrong-example"
+      }
+    ]
+  },
+  "spec_branch": {
+    "about": "The branch a spec run integrates on: spec/<number>-<slug>.",
+    "cases": [
+      {
+        "case": "a plain title",
+        "number": 100,
+        "title": "Offline mode",
+        "branch": "spec/100-offline-mode"
+      },
+      {
+        "case": "umlauts",
+        "number": 9,
+        "title": "Überwachung: Füllstand fällt unter den Schwellwert",
+        "branch": "spec/9-ueberwachung-fuellstand-faellt-unter-den"
+      },
+      {
+        "case": "a title far over the cut",
+        "number": 41,
+        "title": "Rewrite the ingestion pipeline so that late events are folded into the window they belong to",
+        "branch": "spec/41-rewrite-the-ingestion-pipeline-so-that-l"
+      },
+      {
+        "case": "punctuation only",
+        "number": 33,
+        "title": "!!! ??? ...",
+        "branch": "spec/33-"
+      }
+    ]
+  },
+  "issue_from_branch": {
+    "about": "The issue a branch belongs to, empty for a branch of no issue.",
+    "cases": [
+      {
+        "branch": "feat/104-retry-the-upload-when-the-broker-drops",
+        "issue": "104"
+      },
+      {
+        "branch": "feat/104-retry-the-upload",
+        "issue": "104"
+      },
+      {
+        "branch": "fix/9-crash-on-start",
+        "issue": "9"
+      },
+      {
+        "branch": "docs/12-explain-the-gate",
+        "issue": "12"
+      },
+      {
+        "branch": "chore/7-bump-the-pins",
+        "issue": "7"
+      },
+      {
+        "branch": "feat/104-",
+        "issue": "104"
+      },
+      {
+        "branch": "feat/0104-retry",
+        "issue": "0104"
+      },
+      {
+        "branch": "spec/104-a-spec-branch-is-the-branch-of-its-spec",
+        "issue": "104"
+      },
+      {
+        "branch": "spec/104",
+        "issue": ""
+      },
+      {
+        "branch": "plan/104-a-plan-branch-carries-a-topic",
+        "issue": ""
+      },
+      {
+        "branch": "plan/retry-the-upload",
+        "issue": ""
+      },
+      {
+        "branch": "main",
+        "issue": ""
+      },
+      {
+        "branch": "release/1.2",
+        "issue": ""
+      },
+      {
+        "branch": "Feat/104-upper-case-is-no-branch-type",
+        "issue": ""
+      },
+      {
+        "branch": "feat/retry-104-the-upload",
+        "issue": ""
+      },
+      {
+        "branch": "feature-104-the-hyphen-is-no-slash",
+        "issue": ""
+      },
+      {
+        "branch": "origin/HEAD",
+        "issue": ""
+      },
+      {
+        "branch": "HEAD",
+        "issue": ""
+      }
+    ]
+  },
+  "remote_spec_branch": {
+    "about": "The spec branch of a spec on a remote that carries these branches, the first by name, empty for none.",
+    "remote": [
+      "spec/100-offline-mode",
+      "spec/100-an-older-title",
+      "spec/1000-another-spec",
+      "spec/10-a-shorter-number",
+      "feat/200-a-ticket",
+      "spec/200",
+      "specs/300-not-the-type",
+      "feat/spec/400-nested"
+    ],
+    "cases": [
+      {
+        "spec": 100,
+        "branch": "spec/100-an-older-title"
+      },
+      {
+        "spec": 1000,
+        "branch": "spec/1000-another-spec"
+      },
+      {
+        "spec": 10,
+        "branch": "spec/10-a-shorter-number"
+      },
+      {
+        "spec": 1,
+        "branch": ""
+      },
+      {
+        "spec": 200,
+        "branch": ""
+      },
+      {
+        "spec": 300,
+        "branch": ""
+      },
+      {
+        "spec": 400,
+        "branch": ""
+      },
+      {
+        "spec": 500,
+        "branch": ""
+      }
+    ]
+  },
+  "base_branch": {
+    "about": "The base a claim branches off: the explicit setting, then the head of the remote, then the default branch on GitHub, then main. An empty field is a step that answers nothing.",
+    "cases": [
+      {
+        "case": "the explicit setting wins",
+        "explicit": "dev",
+        "origin_head": "trunk",
+        "github_default": "release",
+        "base": "dev"
+      },
+      {
+        "case": "then the head of the remote",
+        "explicit": "",
+        "origin_head": "trunk",
+        "github_default": "release",
+        "base": "trunk"
+      },
+      {
+        "case": "then the default branch on GitHub",
+        "explicit": "",
+        "origin_head": "",
+        "github_default": "release",
+        "base": "release"
+      },
+      {
+        "case": "and main when nothing answers",
+        "explicit": "",
+        "origin_head": "",
+        "github_default": "",
+        "base": "main"
+      }
+    ]
+  },
+  "frontier": {
+    "about": "The agent-ready issues nobody works on. With the routing label on every issue the factory takes the free ones and the local board offers none. Without it, the board offers them and the factory takes none. Both ask GitHub for the list with the query below, the factory with the routing label added after ready-for-agent.",
+    "query": "issues?labels=ready-for-agent&state=open&per_page=100",
+    "routing_label": "factory",
+    "issues": [
+      {
+        "number": 40,
+        "title": "Expand schema"
+      },
+      {
+        "number": 44,
+        "title": "Loose end"
+      },
+      {
+        "number": 41,
+        "title": "Migrate callers",
+        "blocked_by": 1
+      },
+      {
+        "number": 43,
+        "title": "Taken",
+        "assignees": [
+          "bob"
+        ]
+      },
+      {
+        "number": 50,
+        "title": "A pull request",
+        "pull_request": true
+      },
+      {
+        "number": 46,
+        "title": "A ticket of a normal run",
+        "parent": 146
+      },
+      {
+        "number": 47,
+        "title": "A ticket of a spec run",
+        "parent": 147
+      },
+      {
+        "number": 48,
+        "title": "A ticket whose parent cannot be read",
+        "parent": 148
+      }
+    ],
+    "parents": [
+      {
+        "number": 146,
+        "title": "A spec",
+        "labels": [
+          "spec"
+        ]
+      },
+      {
+        "number": 147,
+        "title": "A spec run",
+        "labels": [
+          "spec",
+          "factory:spec-run"
+        ]
+      }
+    ],
+    "free": [
+      40,
+      44,
+      46
+    ]
+  },
+  "compact_pin": {
+    "about": "Where a session compacts: at percentage per cent of window, as autoCompactWindow and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE.",
+    "window": 312500,
+    "percentage": 80
+  },
+  "labels": {
+    "about": "The label vocabulary in order. The planner creates every label but those with planner false.",
+    "vocabulary": [
+      {
+        "name": "ready-for-agent",
+        "color": "0E8A16",
+        "description": "Fully specified; an agent can take it"
+      },
+      {
+        "name": "needs-triage",
+        "color": "FBCA04",
+        "description": "A maintainer has to evaluate this"
+      },
+      {
+        "name": "needs-info",
+        "color": "D876E3",
+        "description": "Waiting on the reporter"
+      },
+      {
+        "name": "ready-for-human",
+        "color": "1D76DB",
+        "description": "Needs a human to implement"
+      },
+      {
+        "name": "wontfix",
+        "color": "FFFFFF",
+        "description": "Will not be actioned; the closing comment says why"
+      },
+      {
+        "name": "spec",
+        "color": "5319E7",
+        "description": "Spec issue; its tickets carry the work"
+      },
+      {
+        "name": "factory",
+        "color": "FFC799",
+        "description": "Routed to the factory host; local claims leave it alone"
+      },
+      {
+        "name": "factory:spec-run",
+        "color": "F29D4B",
+        "description": "Routes a spec and its tickets to a spec run on the factory host"
+      },
+      {
+        "name": "bug",
+        "color": "D73A4A",
+        "description": "Something is broken"
+      },
+      {
+        "name": "enhancement",
+        "color": "A2EEEF",
+        "description": "New feature or improvement"
+      },
+      {
+        "name": "skill-candidate",
+        "color": "C5DEF5",
+        "description": "A removed skill that could move into the marketplace",
+        "planner": false
+      }
+    ]
+  }
+}

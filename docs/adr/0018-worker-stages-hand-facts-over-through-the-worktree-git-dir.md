@@ -1,7 +1,7 @@
 # 0018. A worker stage hands a fact to the next one through the worktree's git directory
 
 Date: 2026-09-21
-Status: accepted
+Status: accepted; superseded by [0058](0058-the-controller-drives-the-local-stages-and-a-person-merges.md)
 
 ## Context
 - The panel's verdict lives in the worker's context; the pull request stage is a forked skill with a fresh one.
@@ -20,5 +20,5 @@ A worker stage leaves a fact for a later stage in `<this worktree's git director
 - `finish.sh` merges only a panel recorded as ready.
 - A lost directory is harmless: the verdict reads `draft`, also when `/worker:work` skips the review ([ADR 0029](0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)).
 - A fact there is small plain text owned by one script.
-- These facts never cache what git or GitHub answers, and a resumed session needs none of them.
+- These facts never cache git or GitHub, and a resumed session needs none.
 - Rejected: the skill argument, and `--git-common-dir`, shared by every worktree.

@@ -1,7 +1,7 @@
 # 0002. Scripts do, agents decide
 
 Date: 2026-09-17
-Status: accepted
+Status: accepted; superseded by [0057](0057-the-controller-does-agents-decide.md)
 
 ## Context
 - A model that discovers facts with many tool calls costs tokens and throughput.
