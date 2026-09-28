@@ -14,7 +14,7 @@ One session per issue worktree, started by the orchestrator as `claude --agent w
 | `/worker:address-reviews` | `pr-threads.sh`, `pr-resolve.sh` | fix or decline each thread, reply, resolve |
 | `/worker:gh-axi` | | the `gh-axi` discovery skill, so the worker prefers it over raw `gh` |
 
-Agents: `worker` (main thread, opus) and read-only subagents, all on sonnet. The five reviewers, `test-hunter` and `docs-lookup` run at high effort, `pr-author` at medium. `docs-reviewer` and `docs-lookup` run without CLAUDE.md. `test-hunter` has `Read`, `Grep` and `Glob` only. No subagent inherits the worker's model.
+Agents: `worker` (main thread, opus) and read-only subagents, all on sonnet. The five reviewers, `test-hunter` and `docs-lookup` run at high effort, `pr-author` at medium. `docs-reviewer` and `docs-lookup` run without CLAUDE.md. `test-hunter` has `Read`, `Grep` and `Glob` only.
 
 Standalone: on a branch `<type>/<issue>-<slug>`, run `claude --agent worker --settings '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1"}}'` and type `/worker:work`. Otherwise subagents run in the background, as `facts.sh` prints under `subagents:` ([ADR 0017](../../docs/adr/0017-worker-subagents-run-in-the-foreground.md)).
 

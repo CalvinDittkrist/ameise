@@ -105,7 +105,9 @@ A session takes its model from the first that is set:
 2. the `model` of its agent file: `fable` for `planner`, `opus` for `worker`
 3. `model` in your Claude Code settings
 
-The orchestrator is started by hand and runs on the `sonnet` of its agent file at `low` effort. The planner runs on Fable because a wrong spec multiplies into every ticket. The worker and the planner set no effort. Every subagent with an agent file names `sonnet` and an effort: `high` for the reviewers, the auditors, the test hunter, the docs lookup and the spec checker, `medium` for the pull request author. No agent file inherits a model, so `WF_WORKER_CLAUDE_ARGS` and `WF_PLANNER_CLAUDE_ARGS` move only the session they name. The planner's research subagent has no agent file and follows the session.
+The orchestrator, started by hand, runs on its agent file's `sonnet` at `low` effort. The planner runs on Fable because a wrong spec multiplies into every ticket. Neither it nor the worker sets an effort.
+
+Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers, auditors, the test hunter, docs lookup and spec checker, `medium` for the pull request author. `WF_*_CLAUDE_ARGS` move only their session, which the planner's research subagent follows.
 
 ## Design
 
