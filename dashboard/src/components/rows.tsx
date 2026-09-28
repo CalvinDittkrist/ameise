@@ -4,6 +4,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle }
 import { Abandon, Claim } from "@/components/process-actions"
 import { age, type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
+import { href } from "@/route"
 
 const dot: Record<Process["state"], string> = {
   running: "bg-blue-500",
@@ -21,7 +22,8 @@ const dot: Record<Process["state"], string> = {
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work
-// process the action that abandons it.
+// process the action that abandons it. Its branch opens its page, and a badge says it turned blocked,
+// ready or failed since that page was last opened.
 export function ProcessRow({ p, project, path, reload }: { p: Process; project?: ProjectBoard; path: string; reload: () => Promise<void> }) {
   return (
     <Item variant="outline" size="sm" aria-label={p.branch}>
@@ -32,7 +34,12 @@ export function ProcessRow({ p, project, path, reload }: { p: Process; project?:
         <ItemTitle className="flex-wrap gap-x-2 gap-y-0">
           {project && <span className="text-muted-foreground">{project.name}</span>}
           {p.issue !== null && <span className="font-semibold">#{p.issue}</span>}
-          <span className="break-all">{p.branch}</span>
+          {p.id !== null ? (
+            <a href={href({ page: "process", id: p.id })} className="break-all hover:underline">{p.branch}</a>
+          ) : (
+            <span className="break-all">{p.branch}</span>
+          )}
+          {p.unseen && <Badge variant="destructive">new</Badge>}
         </ItemTitle>
         <ItemDescription>{p.note}</ItemDescription>
       </ItemContent>

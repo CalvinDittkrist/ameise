@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { FolderGit2Icon, LayoutDashboardIcon, TriangleAlertIcon, WorkflowIcon } from "lucide-react"
 import { AddProject } from "@/components/add-project"
+import { QuotaBars } from "@/components/quota"
 import {
   Sidebar,
   SidebarContent,
@@ -10,18 +11,32 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { broken, label, type Projects } from "@/api"
+import { broken, label, type Projects, type Quota } from "@/api"
 import { href, type Route } from "@/route"
 
 // The sidebar collapses to its icons. It holds the Orchestrator entry, the projects of this machine and
-// the action that adds one; the quota sits in its footer, which the icon state hides.
-export function AppSidebar({ route, projects, reload }: { route: Route; projects: Projects; reload: () => Promise<void> }) {
+// the action that adds one; the quota sits in its footer, which the icon state hides. The Orchestrator
+// entry counts the processes that turned blocked, ready or failed and whose page is not opened yet.
+export function AppSidebar({
+  route,
+  projects,
+  quota,
+  unseen,
+  reload,
+}: {
+  route: Route
+  projects: Projects
+  quota: Quota
+  unseen: number
+  reload: () => Promise<void>
+}) {
   // On a phone the sidebar is a sheet over the page, so a new page closes it, whichever link or action
   // led there.
   const { setOpenMobile } = useSidebar()
@@ -57,6 +72,11 @@ export function AppSidebar({ route, projects, reload }: { route: Route; projects
                     <span>Orchestrator</span>
                   </a>
                 </SidebarMenuButton>
+                {unseen > 0 && (
+                  <SidebarMenuBadge aria-label={`${unseen} new`} className="bg-destructive text-white peer-hover/menu-button:text-white peer-data-active/menu-button:text-white">
+                    {unseen}
+                  </SidebarMenuBadge>
+                )}
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
@@ -100,7 +120,9 @@ export function AppSidebar({ route, projects, reload }: { route: Route; projects
         {/* The footer pads the group already, so its label stands where the other labels stand. */}
         <SidebarGroup className="p-0">
           <SidebarGroupLabel>Quota</SidebarGroupLabel>
-          <SidebarGroupContent className="px-2 pt-1 text-xs text-muted-foreground">Not read yet</SidebarGroupContent>
+          <SidebarGroupContent className="px-2 pt-1 text-xs text-muted-foreground">
+            <QuotaBars quota={quota} />
+          </SidebarGroupContent>
         </SidebarGroup>
       </SidebarFooter>
       <SidebarRail />

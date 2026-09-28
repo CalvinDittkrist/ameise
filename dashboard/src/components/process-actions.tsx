@@ -1,5 +1,5 @@
 import { XIcon } from "lucide-react"
-import { type FormEvent, useState, useSyncExternalStore } from "react"
+import { type FormEvent, useContext, useState, useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, claim, type Issue } from "@/api"
+import { abandon, claim, type Issue, QuotaContext, runtimeName, until } from "@/api"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -80,8 +80,11 @@ export function ClaimWarnings() {
 // Claim takes an issue of the frontier into a work process of the project at path. The dialog asks
 // for the mode and the worker knobs the process overrides, one NAME=VALUE per line. The controller
 // refuses what it will not claim, and its reason is shown in the dialog. The warnings of a claim that
-// went through show in ClaimWarnings until they are closed.
+// went through show in ClaimWarnings until they are closed. A runtime whose quota is below the minimum is
+// a warning in the dialog: the claim goes on when it is confirmed, and nothing waits for the reset.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
+  const quota = useContext(QuotaContext)
+  const low = quota.state === "loaded" ? quota.runtimes.filter((r) => r.known && r.below) : []
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"manual" | "yolo">("manual")
   const [knobs, setKnobs] = useState("")
@@ -159,12 +162,22 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
           <Force id={`${id}-force`} checked={force} onChange={setForce}>
             Force: claim it even when it is not agent-ready, routed, held in a spec run or claimed on origin
           </Force>
+          {low.length > 0 && quota.state === "loaded" && (
+            <ul role="status" aria-label="Quota" className="grid gap-1 text-sm text-amber-700 dark:text-amber-400">
+              {low.map((r) => r.known && (
+                <li key={r.runtime}>
+                  {runtimeName(r.runtime)} has {Math.round(r.remaining)}% of its quota left, below the minimum of {quota.minimum}%
+                  {r.reset ? `; it resets in ${until(r.reset)}` : ""}. Claim anyway?
+                </li>
+              ))}
+            </ul>
+          )}
           <Refused id={`${id}-error`} error={error} />
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="outline">Cancel</Button>
             </DialogClose>
-            <Button type="submit" disabled={claiming}>Claim</Button>
+            <Button type="submit" disabled={claiming}>{low.length > 0 ? "Claim anyway" : "Claim"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
