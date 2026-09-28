@@ -17,8 +17,9 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The controller's reason for a refusal shows in the dialog.
 - The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
   - Force abandons work not on origin.
-- Resume on the row of an interrupted process goes on with its session. Adopt on the row of a foreign worktree takes it into a process, and the cross removes it.
-  - The controller's reason for refusing either shows beside the button.
+- Resume on the row of an interrupted process goes on with its session.
+- Adopt on the row of a foreign worktree takes it into a process, and the cross removes it.
+  - The controller's reason for refusing a resume or an adoption shows beside the button.
 - The controller carries out no other action and reads no quota yet. Until it does, the other actions are disabled.
 - Light and dark follow the system.
 

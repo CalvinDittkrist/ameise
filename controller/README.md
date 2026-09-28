@@ -117,10 +117,12 @@ In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUD
 ## Restart
 Stopping and starting the controller loses no process.
 - A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
-- The start reads every record before it answers a request. A work process still `running` or `created` lost its session with the last run, as after a kill, and is marked `interrupted` too.
+- The start reads every record before it answers a request.
+- A work process still `running` or `created` lost its session with the last run, as after a kill, and is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: it starts the implement session again in the worktree with the runtime's resume by that session id, and a short brief to go on.
+- A resume goes on with an interrupted process: it starts the implement session again in the worktree.
+  - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
 - An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project, `interrupted` without a session, which a resume starts.
