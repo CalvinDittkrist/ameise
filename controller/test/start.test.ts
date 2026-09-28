@@ -14,6 +14,15 @@ test('workflows starts the server on the configured address, opens the browser t
   expect(readdirSync(m.state)).toContain('events.jsonl')
 })
 
+test.each(['SIGTERM', 'SIGINT'] as const)('%s stops the server and exits 0', async (signal) => {
+  const m = await machine()
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  const exited = new Promise<number | null>((resolve) => s.process.on('exit', (code) => resolve(code)))
+  s.process.kill(signal)
+  expect(await exited).toBe(0)
+})
+
 test('a missing gh login stops the start with one line that says to log in', async () => {
   const m = await machine()
   writeFileSync(join(m.github, 'logged-out'), '')

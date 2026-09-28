@@ -40,6 +40,20 @@ export function github(url: string): { owner: string; name: string } | undefined
   return { owner: m[1], name: m[2] }
 }
 
+// withoutCredentials is the origin with the user and password of a URL taken out, so a token kept
+// in the remote never reaches an answer or a terminal.
+function withoutCredentials(origin: string): string {
+  try {
+    const url = new URL(origin)
+    if (!url.username && !url.password) return origin
+    url.username = ''
+    url.password = ''
+    return url.toString()
+  } catch {
+    return origin
+  }
+}
+
 // derive reads the facts of the checkout at path. A path that is no checkout, or whose origin is
 // not on GitHub, is refused with the reason.
 export async function derive(path: string, gh: string): Promise<Project> {
@@ -51,7 +65,7 @@ export async function derive(path: string, gh: string): Promise<Project> {
     throw new Refusal(`${top} has no origin; add the GitHub repository as origin with git remote add origin <url>`)
   }
   const repo = github(origin)
-  if (!repo) throw new Refusal(`the origin of ${top} is ${origin}, which is not on GitHub; a project is a clone of a GitHub repository`)
+  if (!repo) throw new Refusal(`the origin of ${top} is ${withoutCredentials(origin)}, which is not on GitHub; a project is a clone of a GitHub repository`)
   return { path: top, ...repo, base: await baseBranch(top, `${repo.owner}/${repo.name}`, gh) }
 }
 

@@ -106,7 +106,7 @@ export function cli(m: Machine, args: string[], cwd?: string): Exit {
 }
 
 // start starts the server in fake mode and returns once it listens, or with how it exited.
-export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean }> {
+export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean; process: ChildProcess }> {
   const p = spawn(process.execPath, [binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'] })
   started.push(p)
   let stdout = ''
@@ -114,10 +114,10 @@ export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & {
   return new Promise((resolve) => {
     p.stdout.on('data', (d: Buffer) => {
       stdout += d
-      if (stdout.includes('workflows on ')) resolve({ running: true, code: null, stdout, stderr })
+      if (stdout.includes('workflows on ')) resolve({ running: true, code: null, stdout, stderr, process: p })
     })
     p.stderr.on('data', (d: Buffer) => (stderr += d))
-    p.on('exit', (code) => resolve({ running: false, code, stdout, stderr }))
+    p.on('exit', (code) => resolve({ running: false, code, stdout, stderr, process: p }))
   })
 }
 
