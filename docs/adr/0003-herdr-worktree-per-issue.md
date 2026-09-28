@@ -1,7 +1,7 @@
 # 0003. One Herdr worktree workspace per issue, branch name as contract
 
 Date: 2026-09-17
-Status: accepted
+Status: accepted; superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - Parallel issues need isolated files, isolated agent processes and a visible place per issue.

@@ -1464,7 +1464,7 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // The compact pin matters more here than anywhere: a factory session has no hand-over at all, so
 // compaction is its only safety net, and it must fire where the workflow says rather than at a default
 // Claude Code does not document ([ADR 0031], [ADR 0034]). The window and the percentage are the
-// claim's numbers, and a drift test binds them to it.
+// claim's numbers, and the contract fixture binds both to them.
 //
 // Every plugin of the workflow is switched off, the worker's with the planner's and the
 // orchestrator's: a session runs on the factory's prompts alone, so a plugin a host still carries

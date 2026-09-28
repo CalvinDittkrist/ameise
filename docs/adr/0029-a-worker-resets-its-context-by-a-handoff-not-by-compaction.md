@@ -1,7 +1,7 @@
 # 0029. A worker resets its context by a handoff at a checkpoint, not by compaction
 
 Date: 2026-09-21
-Status: accepted; the two checkpoints of the driver, the default threshold and the note on the context value after a handover are superseded by [ADR 0032](0032-the-stage-measures-the-context-on-entry-and-a-handoff-grants-one-skip.md)
+Status: accepted; the driver's two checkpoints, the default threshold and the note on the context value after a handover are superseded by [ADR 0032](0032-the-stage-measures-the-context-on-entry-and-a-handoff-grants-one-skip.md); superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - A worker's context only grows: sessions of [ADR 0017](0017-worker-subagents-run-in-the-foreground.md) reached 412k tokens.

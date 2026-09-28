@@ -234,14 +234,13 @@ class ShimCallLogTests(ShimTest):
 
 
 class LabelVocabularyTests(ShimTest):
-    """repo-standards and planner each define the label vocabulary; drift between the copies is a bug."""
+    """repo-standards and planner each carry a copy of the label vocabulary, and the contract fixture states it
+    (ADR 0062); a copy that differs from the fixture is a bug."""
 
-    # The two files that define the vocabulary, and the one label repo-standards has that the planner has not.
+    # The two files that carry the vocabulary.
     STANDARDS_FILE = str((STANDARDS / "lib.sh").relative_to(ROOT))
     PLANNER_FILE = str((PLANNER / "labels.sh").relative_to(ROOT))
-    PRIVATE = "skill-candidate"
-    # The whole point of the test is the failure message, so it prints the differing label, not an elision.
-    maxDiff = None
+    FIXTURE_FILE = "contract/fixture.json"
 
     def standards_vocabulary(self):
         """WF_LABELS as workspace.sh feeds it into its label loop. Sourced outside a git repository, because
@@ -273,19 +272,27 @@ class LabelVocabularyTests(ShimTest):
             vocabulary.append((name, options[1], options[3]))
         return vocabulary
 
-    def test_the_two_definitions_of_the_label_vocabulary_are_identical(self):
-        standards, planner = self.standards_vocabulary(), self.planner_vocabulary()
-        self.assertTrue(standards, f"no labels read from {self.STANDARDS_FILE}")
-        self.assertTrue(planner, f"no labels created by {self.PLANNER_FILE}")
-        names = [name for name, _, _ in standards]
-        self.assertIn(self.PRIVATE, names, f"{self.STANDARDS_FILE} no longer defines {self.PRIVATE}, the one label "
-                      f"{self.PLANNER_FILE} is allowed to omit; decide what this test should exempt instead")
-        self.assertNotIn(self.PRIVATE, [name for name, _, _ in planner],
-                         f"{self.PLANNER_FILE} creates {self.PRIVATE}, which belongs to {self.STANDARDS_FILE} alone")
-        self.assertEqual([entry for entry in standards if entry[0] != self.PRIVATE], planner,
-                         f"the label vocabulary of {self.STANDARDS_FILE} (WF_LABELS, minus {self.PRIVATE}) and of "
-                         f"{self.PLANNER_FILE} differ in name, colour, description or order. One of the two copies "
-                         f"was changed and the other has to follow; do not adjust this test.")
+    def fixture_vocabulary(self, planner):
+        """The vocabulary of the contract fixture, in order; for the planner without the labels it does not create."""
+        labels = json.loads((ROOT / self.FIXTURE_FILE).read_text())["labels"]["vocabulary"]
+        return [(l["name"], l["color"], l["description"]) for l in labels if not planner or l.get("planner", True)]
+
+    def assert_follows_the_fixture(self, file, copy, fixture):
+        """Fails naming the first label where the copy and the fixture differ in name, colour, description or order."""
+        self.assertTrue(copy, f"no labels read from {file}")
+        for at, (have, want) in enumerate(zip(copy, fixture)):
+            if have != want:
+                self.fail(f"label {want[0]!r}: {file} has {have} at place {at + 1}, the contract fixture {want}. "
+                          f"Change the fixture first, then both copies; do not adjust this test.")
+        if len(copy) != len(fixture):
+            extra = copy[len(fixture):] or fixture[len(copy):]
+            self.fail(f"label {extra[0][0]!r}: {file} and the contract fixture differ in the labels they carry")
+
+    def test_the_standards_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
+        self.assert_follows_the_fixture(self.STANDARDS_FILE, self.standards_vocabulary(), self.fixture_vocabulary(False))
+
+    def test_the_planners_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
+        self.assert_follows_the_fixture(self.PLANNER_FILE, self.planner_vocabulary(), self.fixture_vocabulary(True))
 
     def routing_label(self, scripts):
         """WF_ROUTING_LABEL as the scripts of one plugin read it, sourced outside a git repository."""

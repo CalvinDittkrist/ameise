@@ -1,7 +1,7 @@
 # 0038. The local workflow and the factory are peers
 
 Date: 2026-09-23
-Status: accepted
+Status: accepted; the drift test that binds the shared rules is superseded by [ADR 0062](0062-the-peers-share-a-contract-fixture-not-code.md)
 Changes: the priorities of `AGENTS.md`, which put the local workflow first
 
 ## Context

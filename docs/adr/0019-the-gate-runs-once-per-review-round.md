@@ -1,7 +1,7 @@
 # 0019. The gate runs once per review, and its result is a fact in the brief
 
 Date: 2026-09-21
-Status: accepted; amended 2026-09-22 (once per review, not per round; CI gates the repair pushes); amended 2026-09-23 (the gate outlasts the tool call)
+Status: accepted; amended 2026-09-22 (once per review, not per round; CI gates the repair pushes); amended 2026-09-23 (the gate outlasts the tool call); superseded by [0058](0058-the-controller-drives-the-local-stages-and-a-person-merges.md)
 Amends: [0004](0004-reviewers-as-fresh-read-only-subagents.md) (reviewers stay fresh, read-only contexts; only their most expensive command becomes a briefing fact)
 
 ## Context

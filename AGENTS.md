@@ -37,7 +37,8 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - One uniform workflow that adapts per repository through `WF_*` variables and its `AGENTS.md`, never through local forks.
 - The local workflow and the factory are peers ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md)): the plugins serve hands-on sessions, the factory serves unattended delivery.
 - Each is its own unit and shares no code with the other.
-- A drift test binds what both must agree on: the branch contract, the base branch rule, the frontier rule, the compact pin, the label vocabulary.
+- The contract fixture `contract/fixture.json` states what both must agree on: the branch contract, the base branch rule, the frontier rule, the compact pin, the label vocabulary.
+  - Both sides' tests read it, and neither runs the other's code. A rule changes in the fixture first.
 - The factory owns the delivery pipeline in Go ([ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)): the stages implement, gate, review, pr, ci, validate, merge and address-reviews.
   - Each stage that needs judgement runs one fresh session, which reports through a structured result ([ADR 0039](docs/adr/0039-every-session-reports-through-a-structured-result.md)).
   - It took the stages over from the worker plugin one release at a time, from the last to the first ([ADR 0043](docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
@@ -59,7 +60,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - Every user-facing behaviour has a test in `tests/` that runs the real script with the `gh`/`herdr` shims in `tests/shims/`.
 - The factory's behaviour has a Go test in `factory/` that starts the real binary. Tests assert observable behaviour, never grep prompt text.
 - Plugins are self-contained (no shared code across plugin directories); duplicated helpers in `lib.sh` are intentional.
-- The label vocabulary is duplicated the same way, and a test in `tests/test_plugins.py` fails when the two copies drift apart.
+- The label vocabulary is duplicated the same way, and a test in `tests/test_plugins.py` fails when either copy differs from the contract fixture.
 - Docs: `docs/architecture.md` is the map, `docs/vision.md` is the why, decisions are ADRs in `docs/adr/`, terms are in `docs/glossary.md`.
   - The standard every repository follows is `docs/repo-standard.md`. Update the docs with the change that makes them stale.
 - Prose in documents, prompts and comments follows the [writing rules](docs/repo-standard.md#writing-rules).

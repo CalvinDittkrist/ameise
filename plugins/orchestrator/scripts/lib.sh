@@ -269,7 +269,7 @@ wf_start_agent() {
 # the point this session compacts by and not against a window it never reaches. refreshInterval keeps the
 # value fresh while one long tool call runs, which changes no message and would otherwise render nothing.
 # The window is the lever for the trigger, because the percentage cannot be raised: 312 500 puts the trigger
-# at 250 000 (ADR 0034). The factory restates both numbers, and its test reads them out of this file.
+# at 250 000 (ADR 0034). Both numbers are in contract/fixture.json, which the factory and the Python suite read.
 wf_compact_window=312500
 # CLAUDE_AUTOCOMPACT_PCT_OVERRIDE can only lower the percentage ("values above the default percentage are
 # ignored", https://code.claude.com/docs/en/env-vars.md), and 80 is under the default the measured worker

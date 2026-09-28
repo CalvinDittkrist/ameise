@@ -1,7 +1,7 @@
 # 0031. The workflow pins the size at which a worker session compacts
 
 Date: 2026-09-21
-Status: accepted; the window of 200 000 and the trigger of 160 000 are superseded by [ADR 0034](0034-the-compact-trigger-is-raised-through-the-window.md)
+Status: accepted; the window of 200 000 and the trigger of 160 000 are superseded by [ADR 0034](0034-the-compact-trigger-is-raised-through-the-window.md); superseded for the local workflow by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - [ADR 0020](0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md) took `autoCompactWindow: 200000` for the size a session compacts at, and [ADR 0029](0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md) chose its handoff threshold against it.
