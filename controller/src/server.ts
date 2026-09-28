@@ -6,11 +6,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { abandon, abandonRequest, claim, claimRequest, projectPath } from './claim.js'
+import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
 import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
-import { type Announce, implement, seen } from './session.js'
+import { type Announce, implement, recover, seen } from './session.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -142,6 +142,28 @@ export function serve(o: Options): Server {
     send(res, 200, done)
   }
 
+  // A resume goes on with the session of an interrupted process in its worktree by its session id when
+  // it has one, and starts a fresh session otherwise.
+  async function resumed(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const { issue } = abandonRequest(body)
+    const project = await known(body)
+    // The check and the start run in one go, so a second resume finds the process running.
+    const record = implement(await resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir, announce })
+    log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
+    send(res, 200, { record })
+  }
+
+  // An adopt takes a worktree this controller did not start into a process, which a resume starts.
+  async function adopted(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const { issue, branch } = adoptRequest(body)
+    const project = await known(body)
+    const record = await adopt(project, o.stateDir, issue, branch)
+    log({ event: 'adopted', project: project.path, issue, branch: record.branch })
+    send(res, 201, { record })
+  }
+
   // A merge takes a ready pull request into its base; a release tags a finished milestone; an acceptance
   // start opens a plan process on a spec whose tickets are all closed.
   async function merged(req: IncomingMessage, res: ServerResponse) {
@@ -240,6 +262,10 @@ export function serve(o: Options): Server {
           return claimed(req, res)
         case 'DELETE /api/processes':
           return abandoned(req, res)
+        case 'POST /api/processes/resume':
+          return resumed(req, res)
+        case 'POST /api/processes/adopt':
+          return adopted(req, res)
         case 'POST /api/merges':
           return merged(req, res)
         case 'POST /api/releases':
@@ -257,7 +283,7 @@ export function serve(o: Options): Server {
     }
     handle().catch((err: Error) => {
       if (err instanceof TooLarge) send(res, 413, { error: err.message })
-      else if (err instanceof Refusal) send(res, err.status, { error: err.message })
+      else if (err instanceof Refusal) send(res, err.status, { ...err.more, error: err.message })
       else send(res, 500, { error: err.message })
     })
   })
@@ -265,6 +291,8 @@ export function serve(o: Options): Server {
   // the CLI reads it from the state directory rather than from the configuration.
   const record = join(o.stateDir, 'listen')
   server.on('listening', () => {
+    // The processes are read before the first request: a session the last run left running is gone.
+    recover(o.stateDir)
     writeFileSync(record, o.listen + '\n')
     log({ event: 'started', fake: o.fake })
   })

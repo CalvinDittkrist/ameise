@@ -15,7 +15,7 @@
 #   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
 #
-# --version answers as a claude does, whatever the play.
+# --resume=<id> plays the session under that id. --version answers as a claude does, whatever the play.
 set -euo pipefail
 
 log=${WORKFLOWS_FAKE_CLAUDE_LOG:-/dev/null}
@@ -47,7 +47,11 @@ json() {
   printf '"%s"' "$s"
 }
 
+# A session is named by its pid, and a resumed one keeps the id it resumes.
 session=fake-session-$$
+for arg in "$@"; do
+  case "$arg" in --resume=*) session=${arg#--resume=} ;; esac
+done
 say() { printf '%s\n' "$1"; }
 
 # The SDK sends its initialize request, then the prompt; the session answers the one and plays the other.

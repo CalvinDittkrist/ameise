@@ -23,6 +23,9 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A runtime whose quota is below the minimum is a warning in the dialog, whose button then reads Claim anyway. Nothing waits for the reset.
 - The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
   - Force abandons work not on origin.
+- Resume on the row of an interrupted process goes on with its session.
+- Adopt on the row of a foreign worktree takes it into a process, and the cross removes it.
+  - The controller's reason for refusing a resume or an adopt shows beside the button.
 - Merge on a ready process, Accept on a spec ready for acceptance and Release on a project's page each ask once in a dialog before they change anything.
   - Merge takes the pull request into its base and removes its branch, worktree and process.
   - Accept opens a plan process on the spec with the acceptance route.

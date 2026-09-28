@@ -1,12 +1,13 @@
 // Claim and abandon: a claim takes an agent-ready issue of a project into a work process, an abandon
-// drops the process again. A claim creates the issue's branch and its worktree, assigns the issue, and
-// writes the process record and its event log; the server then starts its implement session. An abandon removes the worktree
+// drops the process again. An adopt takes a worktree the controller did not start into a process. A
+// claim creates the issue's branch and its worktree, assigns the issue, and writes the process record
+// and its event log; the server then starts its implement session. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
-import { ghApi, issueFromBranch, labelNames, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
+import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
 import { type Project, Refusal } from './project.js'
 import { type Announce, event, stop, update } from './session.js'
 
@@ -135,6 +136,15 @@ export function claimRequest(body: Record<string, unknown>): ClaimRequest {
 // abandonRequest reads the body of an abandon, or refuses it with the reason before anything is removed.
 export const abandonRequest = (body: Record<string, unknown>): { issue: number; force: boolean } => target(body)
 
+// adoptRequest reads the body of an adopt: the issue, and the branch of the worktree to adopt when the
+// board names the row it was sent from.
+export function adoptRequest(body: Record<string, unknown>): { issue: number; branch?: string } {
+  const { issue } = target(body)
+  const branch = body.branch
+  if (branch !== undefined && (typeof branch !== 'string' || branch === '')) throw new Refusal('branch is not a branch name; send the branch of the worktree to adopt')
+  return { issue, branch }
+}
+
 export const recordsDir = (stateDir: string) => join(stateDir, 'processes')
 
 // recordsOf are the records of a project's issue, each with the path of its file, as the board reads them.
@@ -166,6 +176,14 @@ export async function fetch(top: string, branch: string, fake: boolean): Promise
     () => false,
   )
 }
+
+// refOf is the ref of a base branch: origin's where the checkout has it, else the local branch.
+async function refOf(top: string, base: string): Promise<string> {
+  return (await exists(top, `origin/${base}`)) ? `origin/${base}` : (await exists(top, base)) ? base : `origin/${base}`
+}
+
+// processId is the id of the work process of an issue of a project, the name of its record.
+const processId = (top: string, issue: number) => `work-${issue}-${createHash('sha256').update(top).digest('hex').slice(0, 8)}`
 
 // writeAtomic replaces a file whole, through a rename, so a reader sees the old one or the new one.
 export function writeAtomic(path: string, body: string) {
@@ -262,11 +280,20 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     warnings.push(`${message}; claimed anyway because force was given`)
   }
 
+  // One issue has one process: a claim that runs into one names it, and the answer carries it.
   const trees = await worktrees(top)
   const tree = trees.find((t) => ofIssue(t.branch, n))
-  if (tree) throw new Refusal(`#${n} has a process already: the worktree ${tree.path} on ${tree.branch}; abandon it first`, 409)
   const recorded = recordsOf(stateDir, top, n)[0]
-  if (recorded) throw new Refusal(`#${n} has a process already on ${recorded.record.branch}; abandon it first`, 409)
+  if (recorded) {
+    const id = basename(recorded.file, '.json')
+    const r = recorded.record
+    const process = { id, branch: r.branch, worktree: tree?.path ?? r.worktree ?? null, state: r.state ?? 'running' }
+    throw new Refusal(`#${n} has a process already: ${id}, ${process.state} on ${r.branch}; open it on the board, or abandon it first`, 409, { process })
+  }
+  if (tree) {
+    const process = { id: null, branch: tree.branch, worktree: tree.path, state: 'foreign' }
+    throw new Refusal(`#${n} has a process already: the worktree ${tree.path} on ${tree.branch}, which this controller did not start; adopt it or abandon it first`, 409, { process })
+  }
 
   const api = ghApi(gh, repo)
   let issue: { number: number; title: string; state: string; labels: { name: string }[] }
@@ -324,7 +351,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
   // The base is what the branch merges into; the start is what its worktree starts from, which is the
   // base unless the claim adopts a branch on origin.
   const fetched = await fetch(top, base, fake)
-  const baseRef = (await exists(top, `origin/${base}`)) ? `origin/${base}` : (await exists(top, base)) ? base : `origin/${base}`
+  const baseRef = await refOf(top, base)
   let start: string
   if (adopted) {
     branch = adopted
@@ -355,7 +382,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
   }
 
   const now = new Date().toISOString()
-  const id = `work-${n}-${createHash('sha256').update(top).digest('hex').slice(0, 8)}`
+  const id = processId(top, n)
   const record: WorkRecord = {
     id,
     project: top,
@@ -438,6 +465,84 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
     rmSync(file.replace(/\.json$/, '.events.jsonl'), { force: true })
   }
   return { issue: n, branch, worktree: tree?.path ?? null }
+}
+
+// adopt makes a foreign worktree of the issue, one this controller did not start, a work process of the
+// project. The process is interrupted with no session yet, so a resume starts its implement session in
+// the worktree. It refuses an issue without a worktree and one that has a process already. A branch
+// names the worktree to adopt; without one, an issue with more than one worktree is refused.
+export function adopt(project: Project, stateDir: string, issue: number, branch?: string): Promise<WorkRecord> {
+  return held(project, `#${issue}`, () => adoptHeld(project, stateDir, issue, branch))
+}
+
+async function adoptHeld(project: Project, stateDir: string, n: number, branch?: string): Promise<WorkRecord> {
+  const top = project.path
+  const recorded = recordsOf(stateDir, top, n)[0]
+  if (recorded) throw new Refusal(`#${n} has a process already: ${basename(recorded.file, '.json')} on ${recorded.record.branch}; there is nothing to adopt`, 409)
+  const trees = (await worktrees(top)).filter((t) => ofIssue(t.branch, n) && kindOf(t.branch) === 'work' && (branch === undefined || t.branch === branch))
+  if (trees.length === 0) {
+    throw new Refusal(branch === undefined ? `#${n} has no worktree in ${top} to adopt; claim it instead` : `#${n} has no worktree on ${branch} in ${top} to adopt`, 404)
+  }
+  if (trees.length > 1) throw new Refusal(`#${n} has more than one worktree: ${trees.map((t) => t.branch).join(', ')}; name the branch to adopt`, 409)
+  const [tree] = trees as [Worktree]
+  const now = new Date().toISOString()
+  const id = processId(top, n)
+  const base = await refOf(top, project.base)
+  const record: WorkRecord = {
+    id,
+    project: top,
+    kind: 'work',
+    branch: tree.branch,
+    issue: n,
+    worktree: tree.path,
+    base,
+    mode: 'manual',
+    env: {},
+    stage: 'implement',
+    state: 'interrupted',
+    note: 'adopted; resume it to start its implement session in the worktree',
+    created_at: now,
+    updated_at: now,
+  }
+  const file = join(recordsDir(stateDir), `${id}.json`)
+  const events = join(recordsDir(stateDir), `${id}.events.jsonl`)
+  try {
+    mkdirSync(recordsDir(stateDir), { recursive: true })
+    // The events are written before the record, so a record never stands without its adopted event.
+    appendFileSync(events, JSON.stringify({ at: now, event: 'adopted', issue: n, branch: tree.branch, base }) + '\n')
+    writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
+  } catch (err) {
+    // A failed adopt leaves nothing behind, so the worktree stays foreign and the adopt can be tried again.
+    rmSync(file, { force: true })
+    rmSync(events, { force: true })
+    throw new Refusal(`could not write the process of #${n}: ${(err as Error).message}`, 500)
+  }
+  return record
+}
+
+// resumable is the record of the issue's interrupted process, whose session a resume goes on with, or
+// the refusal that says why it cannot. It refuses a worktree that git no longer has on the process's
+// branch, such as a path reused for other work. It reads the state again after asking git, so the
+// last check and the start of the session run in one go when the caller starts it at once.
+export async function resumable(project: Project, stateDir: string, n: number): Promise<WorkRecord> {
+  const r = interrupted(project, stateDir, n)
+  const tree = (await worktrees(project.path)).find((t) => t.path === r.worktree)
+  if (tree?.branch !== r.branch) {
+    const now = tree ? `on ${tree.branch}` : 'no worktree of git'
+    throw new Refusal(`the worktree ${r.worktree} of #${n} is ${now}, not on ${r.branch}, so its session cannot go on there; abandon #${n}`, 409)
+  }
+  return interrupted(project, stateDir, n)
+}
+
+function interrupted(project: Project, stateDir: string, n: number): WorkRecord {
+  const top = project.path
+  if (busy.has(`${top}#${n}`)) throw new Refusal(`a claim or abandon of #${n} is under way; try again when it is done`, 409)
+  const recorded = recordsOf(stateDir, top, n)[0]
+  if (!recorded) throw new Refusal(`#${n} has no process in ${top}`, 404)
+  const r = recorded.record as WorkRecord
+  if (r.kind !== 'work' || r.state !== 'interrupted') throw new Refusal(`#${n} is ${r.state ?? 'running'}, not interrupted; only an interrupted session resumes`, 409)
+  if (!r.worktree || !existsSync(r.worktree)) throw new Refusal(`the worktree ${r.worktree ?? '(none)'} of #${n} is gone, so its session cannot go on there; abandon #${n}`, 409)
+  return r
 }
 
 // projectPath is the absolute path a body names as its project, or a Refusal.
