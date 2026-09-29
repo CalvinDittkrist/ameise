@@ -775,7 +775,7 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		want   string
 	}{
 		{"no repositories", `{"data_dir":"data"}`, `repositories is empty; name at least one`},
-		{"repository without owner", `{"data_dir":"data","repositories":["workflows"]}`, `is not owner/name`},
+		{"repository without owner", `{"data_dir":"data","repositories":["workflows"]}`, `is not owner/name; write it as "CalvinDittkrist/ameise"`},
 		{"repository twice", `{"data_dir":"data","repositories":["a/b","a/b"]}`, `named twice; remove the duplicate`},
 		{"repository twice in two spellings", `{"data_dir":"data","repositories":["Acme/Repo","acme/repo"]}`, `named twice; remove the duplicate`},
 		{"repository of dots", `{"data_dir":"data","repositories":["../.."]}`, `is not owner/name`},
