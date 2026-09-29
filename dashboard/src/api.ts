@@ -193,7 +193,8 @@ export type ProcessRecord = {
   note: string
   session_id?: string
   context?: number
-  compact_at: number
+  // compact_at is the size a work session compacts at; a plan's session is not pinned.
+  compact_at?: number
   unseen?: boolean
   updated_at: string
 }

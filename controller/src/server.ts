@@ -248,8 +248,8 @@ export function serve(o: Options): Server {
   }
 
   // A process page follows its process: the record and the conversation so far at once, then every
-  // change as it is written, as server-sent events. The record comes with the context size at which
-  // the session compacts.
+  // change as it is written, as server-sent events. A work process's record comes with the context size
+  // at which its session compacts.
   function follow(res: ServerResponse, url: URL) {
     const record = recorded(url.searchParams.get('id'))
     // The log is read and the watch is set within one turn of the loop, so no line falls between them.
@@ -258,7 +258,8 @@ export function serve(o: Options): Server {
     const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', [identity]: '1' })
     const out = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
-    const shown = (r: SessionRecord) => ({ ...r, compact_at: compactAt })
+    // Only a work session is pinned to compact at that size; a plan's compacts where its model does.
+    const shown = (r: SessionRecord) => (r.kind === 'plan' ? r : { ...r, compact_at: compactAt })
     out('record', shown(record))
     let seq = 0
     const of = (e: Record<string, unknown>): Entry[] => entries(e, seq++, record.worktree)

@@ -137,12 +137,13 @@ const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 
 // Facts is the row of facts under the title: the project, the branch, the pull request with its checks,
 // the mode, the time since the process last changed and the size of the session's context against the
-// size at which it compacts. Below it are the stages, the current one filled, the ones done struck through.
+// size at which a work session compacts. Below it are the stages, the current one filled, the ones done struck through.
 function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
   const kind = process?.kind ?? record.kind ?? "work"
   const stages = stagesOf[kind].includes(record.stage) ? stagesOf[kind] : [...stagesOf[kind], record.stage]
   const at = stages.indexOf(record.stage)
-  const share = record.context === undefined ? 0 : Math.min(100, (record.context / record.compact_at) * 100)
+  const pinned = record.compact_at
+  const share = record.context === undefined || pinned === undefined ? 0 : Math.min(100, (record.context / pinned) * 100)
   return (
     <>
       <div aria-label="Facts" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -167,10 +168,16 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
         <span
           aria-label="Context"
           className="flex items-center gap-2"
-          title={record.context === undefined ? "No usage yet" : `${record.context.toLocaleString("en")} of ${record.compact_at.toLocaleString("en")} tokens before it compacts`}
+          title={
+            record.context === undefined
+              ? "No usage yet"
+              : pinned === undefined
+                ? `${record.context.toLocaleString("en")} tokens`
+                : `${record.context.toLocaleString("en")} of ${pinned.toLocaleString("en")} tokens before it compacts`
+          }
         >
           context
-          <Progress value={share} className="h-1.5 w-20" aria-label="Context size" />
+          {pinned !== undefined && <Progress value={share} className="h-1.5 w-20" aria-label="Context size" />}
           {record.context === undefined ? "–" : tokens(record.context)}
         </span>
         {reconnecting && <span role="status">reconnecting…</span>}
