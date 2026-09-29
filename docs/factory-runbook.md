@@ -165,7 +165,7 @@ Run the following as root unless it says otherwise.
    ```sh
    version=0.5.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
-   repo=CalvinDittkrist/ameise
+   repo=CalvinDittkrist/ameise   # before the rename on GitHub, CalvinDittkrist/workflows
    built=CalvinDittkrist/workflows   # the old name, for the bridge release 0.5.0 and those before it; CalvinDittkrist/ameise for a later one
    cd "$(mktemp -d)" &&
      gh release download "factory/v$version" -R "$repo" \
@@ -184,7 +184,7 @@ Run the following as root unless it says otherwise.
    - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
-   - `repo` is the repository's name today. `built` is the name it had when the release was built, because the attestation names that repository.
+   - `repo` is the repository's name today: `CalvinDittkrist/workflows` until the repository is renamed on GitHub, `CalvinDittkrist/ameise` after. A download from a name that does not exist yet fails. `built` is the name it had when the release was built, because the attestation names that repository.
    - Releases up to the bridge release `factory/v0.5.0` were built under the repository's old name `CalvinDittkrist/workflows` ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)). Later ones were built as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
@@ -1010,10 +1010,12 @@ The rename needs these steps, which only a person can take, in this order:
 3. Pause the factory ([Pausing](#pausing)). It holds no run: `.now` on the dashboard is empty.
 4. Release the factory from `main`: the bridge release, `scripts/release.sh factory --push` with `factory/VERSION` at `0.5.0`.
    - Wait until the host reports that version: `curl -s http://127.0.0.1:7341/api/line | jq .version`.
-   - Auto-update installs it within the hour. Without auto-update, install it by hand as above.
+   - Auto-update installs it within the hour. Without auto-update, install it by hand as in [Installation](#installation), with `repo=CalvinDittkrist/workflows`: the repository is renamed only in step 5.
 5. Rename the repository on GitHub to `ameise`, under *Settings > General*.
 6. Check on GitHub that the secrets, the branch protection, the milestones and the labels are in place. GitHub does not document whether a rename keeps them.
-7. Name the connected repository `CalvinDittkrist/ameise` in `repositories` of `/etc/factory/factory.json`, in place of the old name. Then set `"paused": false`.
+7. Name the connected repository `CalvinDittkrist/ameise` in `repositories` of `/etc/factory/factory.json`, in place of the old name.
+   - A running factory reads only `paused` and `auto_update` anew, so restart it while it is still paused and holds no run: `systemctl restart factory`.
+   - Then set `"paused": false`.
 8. Point the remotes of the local checkouts at the new name: `git remote set-url origin git@github.com:CalvinDittkrist/ameise.git`, or its `https` form.
 9. In every repository that uses the marketplace, and in the user's own settings, move to the marketplace `ameise`:
    - `claude plugin marketplace list` names the old marketplace. `claude plugin marketplace remove <old name> --scope project` removes it, and `--scope user` for the user's settings.
