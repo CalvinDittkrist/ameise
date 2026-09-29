@@ -19,12 +19,12 @@ if ! grep -q "^$name\b" <<<"$boxes"; then
   sbx create claude "$path" --name "$name" --skills readonly -e WF_MODE -e WF_ISSUE -e WF_BASE_BRANCH -q
 fi
 # Every start reconciles the plugins, so a reused sandbox loads the plugins the session settings name. It first
-# uninstalls worker and repo-standards installed from any other marketplace, such as one from before the rename to
-# ameise, which installing them from ameise would leave loaded beside them. A plugin may sit at user, project or local
-# scope, and an uninstall acts on one scope, so each is tried; a plugin still listed afterwards is named in a warning.
-# Each step already done is a no-op.
+# uninstalls worker and repo-standards installed from any other marketplace, which installing them from ameise would
+# leave loaded beside them. It does so at user scope only, the scope it installs at: project and local scope are
+# settings files in the mounted worktree, and an uninstall there would leave a change on the branch. A plugin still
+# listed afterwards is the repository's to move, and a warning names it. Each step already done is a no-op.
 others='claude plugin list --json 2>/dev/null | grep -oE "\"(worker|repo-standards)@[^\"]+\"" | tr -d "\"" | grep -v "@ameise\$" | sort -u'
-reconcile="for id in \$($others); do for scope in user project local; do claude plugin uninstall \"\$id\" --scope \$scope >/dev/null 2>&1; done; done; left=\$($others); [ -z \"\$left\" ] || echo \"warning: plugins of another marketplace stay loaded inside the sandbox: \$left; uninstall them with claude plugin uninstall <id> --scope <scope>\" >&2; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null"
+reconcile="for id in \$($others); do claude plugin uninstall \"\$id\" --scope user >/dev/null 2>&1; done; left=\$($others); [ -z \"\$left\" ] || echo \"warning: plugins of another marketplace stay loaded inside the sandbox beside those of ameise: \$left; the repository enables them at project or local scope, so enable them from ameise in its settings\" >&2; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null"
 sbx exec "$name" sh -c "$reconcile" \
   || echo "warning: plugin install inside sandbox failed; the worker skills may be missing" >&2
 exec sbx run --name "$name" -- "$@"
