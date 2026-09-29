@@ -235,7 +235,7 @@ class FactoryReleaseTests(unittest.TestCase):
 
 class ControllerReleaseTests(FactoryReleaseTests):
     """`scripts/release.sh controller`: the same release from the version in controller/package.json,
-    tagged controller/vX.Y.Z, which the controller's release workflow publishes to npm."""
+    tagged controller/vX.Y.Z, which the controller's release workflow attaches to a GitHub release."""
 
     UNIT = "controller"
     WORKFLOW = CONTROLLER_WORKFLOW
@@ -322,8 +322,11 @@ class PublishStepTests(unittest.TestCase):
     `gh` on PATH. It is shell in a workflow file, so the test reads that shell out of the file and
     runs it; a step rewritten some other way stops being found and fails here."""
 
-    ASSETS = ["dist/factory-linux-amd64", "dist/factory-linux-arm64", "dist/checksums.txt",
-              "dist/factory-v0.1.0.sigstore.json"]
+    WORKFLOW = WORKFLOW
+    TAG = "factory/v0.1.0"
+    TITLE = "factory v0.1.0"
+    BUNDLE = "dist/factory-v0.1.0.sigstore.json"
+    ASSETS = ["dist/factory-linux-amd64", "dist/factory-linux-arm64", "dist/checksums.txt", BUNDLE]
     # A gh that says what the release already carries and writes down what it was asked to do. It
     # answers `release view` the way gh does: an unknown release is an error, not an empty answer.
     GH = """#!/usr/bin/env bash
@@ -343,12 +346,12 @@ esac
         gh.write_text(self.GH)
         gh.chmod(0o755)
         self.log = Path(self.tmp.name) / "gh.log"
-        self.script = step_script(WORKFLOW, "Attach them to the release")
+        self.script = step_script(self.WORKFLOW, "Attach them to the release")
 
     def run_step(self, assets=None):
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "GH_LOG": str(self.log),
-               "GITHUB_REF_NAME": "factory/v0.1.0", "GH_TOKEN": "x", "GH_REPO": "o/r",
-               "BUNDLE": "dist/factory-v0.1.0.sigstore.json"}
+               "GITHUB_REF_NAME": self.TAG, "GH_TOKEN": "x", "GH_REPO": "o/r",
+               "BUNDLE": self.BUNDLE}
         if assets is not None:
             env["GH_ASSETS"] = str(assets)
         return subprocess.run(["bash", "-e", "-c", self.script], cwd=self.tmp.name,
@@ -360,7 +363,7 @@ esac
     def test_a_release_that_is_not_there_yet_is_created_with_the_binaries_on_it(self):
         r = self.run_step()
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("release create factory/v0.1.0", self.asked())
+        self.assertIn(f"release create {self.TAG} --verify-tag --latest=false --title {self.TITLE}", self.asked())
         for asset in self.ASSETS:
             self.assertIn(asset, self.asked())
 
@@ -369,7 +372,7 @@ esac
         write are written again over themselves."""
         r = self.run_step(assets=1)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("release upload --clobber factory/v0.1.0", self.asked())
+        self.assertIn(f"release upload --clobber {self.TAG}", self.asked())
 
     def test_a_release_that_already_carries_its_binaries_is_never_overwritten(self):
         """What a host downloaded under a version stays what it downloaded. A re-run of a finished
@@ -382,9 +385,40 @@ esac
         self.assertNotIn("release upload", self.asked())
 
 
+class ControllerPublishStepTests(PublishStepTests):
+    """The same step of the controller's release: the package, its checksums and its attestation,
+    on a release titled after the controller's version that is not the latest."""
+
+    WORKFLOW = CONTROLLER_WORKFLOW
+    TAG = "controller/v0.1.0"
+    TITLE = "controller v0.1.0"
+    BUNDLE = "dist/controller-v0.1.0.sigstore.json"
+    ASSETS = ["dist/workflows-controller-0.1.0.tgz", "dist/checksums.txt", BUNDLE]
+
+
+class NoNpmPublishTests(unittest.TestCase):
+    """The controller's package is private until the product is complete: no workflow publishes it
+    to npm or reads an npm token, and no document tells a maintainer to set one."""
+
+    def test_no_workflow_publishes_to_npm_or_reads_an_npm_token(self):
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            with self.subTest(workflow=workflow.name):
+                text = workflow.read_text()
+                self.assertNotRegex(text, r"npm\s+publish")
+                self.assertNotIn("NPM_TOKEN", text)
+                self.assertNotIn("NODE_AUTH_TOKEN", text)
+                self.assertNotIn("registry-url", text)
+
+    def test_no_document_names_an_npm_token(self):
+        docs = [ROOT / "README.md", ROOT / "AGENTS.md", *ROOT.glob("controller/*.md"), *ROOT.glob("docs/**/*.md")]
+        for doc in docs:
+            with self.subTest(doc=str(doc.relative_to(ROOT))):
+                self.assertNotIn("NPM_TOKEN", doc.read_text())
+
+
 class WorkflowTriggerTests(unittest.TestCase):
     """Which push starts which workflow. The binaries are built by a factory version tag and the
-    package published by a controller version tag, by nothing else, and a milestone tag of the
+    package released by a controller version tag, by nothing else, and a milestone tag of the
     orchestrator still starts nothing at all."""
 
     # One push per kind of ref this repository sees, and the workflows it has to start.

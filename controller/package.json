@@ -1,6 +1,7 @@
 {
   "name": "workflows-controller",
   "version": "0.1.0",
+  "private": true,
   "description": "The local workflow: a controller that claims GitHub issues into headless Claude Code sessions, with its dashboard and the worker, planner and repo-standards plugins.",
   "license": "MIT",
   "repository": {

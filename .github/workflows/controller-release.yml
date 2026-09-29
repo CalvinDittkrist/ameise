@@ -1,7 +1,7 @@
 name: controller-release
 # The local workflow installs as one npm package: the controller, the dashboard it serves and the
 # plugins its sessions load, at one version (ADR 0060). A controller version tag, and nothing else,
-# publishes it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
+# releases it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
 # push and no other tag matches this trigger. Plugin and milestone tags carry no slash, and the
 # factory's tags start with factory/. The two checks of the package job mirror factory-release.yml,
 # so a change to one belongs in both.
@@ -14,7 +14,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     # Packing runs other people's code: npm packages and their install and build scripts. So it
-    # runs with a token that can only read. Publishing is the other job.
+    # runs with a token that can only read. Attaching it to the release is the other job.
     permissions:
       contents: read
     steps:
@@ -70,33 +70,68 @@ jobs:
           for plugin in worker planner repo-standards; do
             [ -f "$installed/$plugin/.claude-plugin/plugin.json" ] || { echo "error: the package lacks the $plugin plugin" >&2; exit 1; }
           done
+      - name: The checksums of the package
+        run: |
+          cd "$RUNNER_TEMP/package"
+          sha256sum workflows-controller-*.tgz > checksums.txt
       - uses: actions/upload-artifact@v7
         with:
           name: controller-package
           path: ${{ runner.temp }}/package/
           if-no-files-found: error
 
-  publish:
+  release:
     needs: package
     runs-on: ubuntu-latest
-    # The only job that publishes, and all it runs is npm on the tarball the package job wrote: npm runs
-    # no script of a package it publishes from a tarball. It alone gets an OIDC token, which signs the
-    # provenance statement npm attaches to the published version.
+    # The only job that can write, and all it runs is gh and GitHub's attestation action: nothing
+    # built here, nothing installed. It alone gets an OIDC token, because the package job runs other
+    # people's npm code, and a token there could sign anything as this workflow. The package is
+    # private, so npm refuses to publish it; it is installed from this release by its URL.
     permissions:
-      contents: read
-      id-token: write
+      contents: write # the release the package is attached to
+      id-token: write # the Sigstore certificate that signs the attestation
+      attestations: write # the attestation, stored with the repository
     steps:
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
       - uses: actions/download-artifact@v8
         with:
           name: controller-package
-          path: package
-      - name: Publish it to npm
-        # A version is published once: npm refuses a version the registry has, so a re-run of a
-        # finished release fails there and a person releases the next version instead.
+          path: dist
+      - name: Attest where the package came from
+        id: attest
+        # The subject is the tarball this job holds, digested here. A list of digests written by the
+        # package job would let that job choose what gets signed.
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/workflows-controller-*.tgz
+      - name: The bundle, named after the version
+        id: bundle
+        # The one place the bundle's name is made; the next step reads it from this step's output.
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish package/workflows-controller-*.tgz --provenance --access public
+          ATTESTATION: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          bundle="dist/controller-v${GITHUB_REF_NAME#controller/v}.sigstore.json"
+          cp "$ATTESTATION" "$bundle"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUNDLE: ${{ steps.bundle.outputs.path }}
+        # Not the latest release: the repository's releases are its milestones, and a controller
+        # package is not one of them.
+        run: |
+          # A version is released once. A re-run that finishes a half-written upload is welcome, and
+          # --clobber is what makes it possible; a re-run of a finished release is not, because the
+          # package it would overwrite is the one machines installed under this version. Both look
+          # alike from here, so the finished release is refused and a person decides what to do.
+          tarball="dist/workflows-controller-${GITHUB_REF_NAME#controller/v}.tgz"
+          published="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length' 2>/dev/null || echo 0)"
+          if [ "$published" -ge 3 ]; then # the three files below
+            echo "error: the release $GITHUB_REF_NAME already carries its package, checksums and attestation; a released version is never rebuilt, release the next version instead" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
+            --title "controller v${GITHUB_REF_NAME#controller/v}" --generate-notes \
+            "$tarball" dist/checksums.txt "$BUNDLE" \
+            || gh release upload --clobber "$GITHUB_REF_NAME" \
+              "$tarball" dist/checksums.txt "$BUNDLE"

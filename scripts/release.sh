@@ -15,7 +15,7 @@ if [ "$target" != factory ] && [ "$target" != controller ]; then
 fi
 
 # The factory and the controller are no plugins: the factory ships as a static binary and the controller
-# as an npm package, so the release of either is a tag CI builds and publishes from.
+# as an npm package, so the release of either is a tag CI builds and attaches to a GitHub release.
 push=""
 for arg in "$@"; do
   case "$arg" in
@@ -33,12 +33,12 @@ if [ "$target" = factory ]; then
   built="CI builds the static linux binaries and attaches them to the release"
 else
   file=controller/package.json
-  [ -f "$file" ] || die "$file is missing; its version is the one the controller's package is published under"
+  [ -f "$file" ] || die "$file is missing; its version is the one the controller's package is released under"
   command -v node >/dev/null || die "node is not installed; brew install node (or https://nodejs.org), it reads the version of $file"
-  # Read as npm reads it, the version field of the JSON; npm publishes exactly that string.
+  # Read as npm reads it, the version field of the JSON; npm packs exactly that string.
   version=$(node -e 'const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version; process.stdout.write(typeof v === "string" ? v : "")' "$file") \
     || die "$file is no JSON npm can read; fix it and commit"
-  built="CI packs the controller with its dashboard and plugins and publishes it to npm"
+  built="CI packs the controller with its dashboard and plugins and attaches the package to the release"
 fi
 if ! printf '%s' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' \
   || [ "$(printf '%s\n' "$version" | wc -l | tr -d '[:space:]')" != 1 ]; then

@@ -63,6 +63,19 @@ test('the package carries the build, the bundled plugins and the scripted gh and
   expect(paths.filter((p) => /^(src|test|scripts|node_modules)\//.test(p) || p.startsWith('dist/plugins/orchestrator/'))).toEqual([])
 })
 
+test('the manifest inside the packed tarball says the package is private, so npm refuses to publish it', () => {
+  // A real pack, not a dry run: npm's dry run of a publish does not report the private lock, so the
+  // test reads the manifest the tarball carries.
+  const out = mkdtempSync(join(tmpdir(), 'wf-pack-'))
+  made.push(out)
+  const r = spawnSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', out], { cwd: controller, encoding: 'utf8' })
+  expect(r.status, r.stderr).toBe(0)
+  const [packed] = JSON.parse(r.stdout) as { filename: string }[]
+  const manifest = spawnSync('tar', ['-xzOf', join(out, packed?.filename ?? ''), 'package/package.json'], { encoding: 'utf8' })
+  expect(manifest.status, manifest.stderr).toBe(0)
+  expect(JSON.parse(manifest.stdout)).toMatchObject({ name: 'workflows-controller', private: true })
+})
+
 test('packing refuses a build without the dashboard or the plugins, and names the command that builds them', () => {
   const root = mkdtempSync(join(tmpdir(), 'wf-pack-'))
   made.push(root)
