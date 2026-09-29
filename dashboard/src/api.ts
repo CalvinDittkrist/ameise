@@ -297,7 +297,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new Error("the controller does not answer; start it with workflows")
+    throw new Error("the controller does not answer; start it with ameise")
   }
   const answer = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(answer.error ?? `${method} ${path} answered ${res.status}`)
