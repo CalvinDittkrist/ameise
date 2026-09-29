@@ -342,7 +342,7 @@ export function workSettings(record: WorkRecord): Settings {
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: compactPercentage,
     },
-    enabledPlugins: { [`worker@${marketplace}`]: false, [`planner@${marketplace}`]: false, [`orchestrator@${marketplace}`]: false },
+    enabledPlugins: { [`worker@${marketplace}`]: false, [`planner@${marketplace}`]: false, [`orchestrator@${marketplace}`]: false, [`repo-standards@${marketplace}`]: false },
     autoCompactWindow: compactWindow,
   }
 }

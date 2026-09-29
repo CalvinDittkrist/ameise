@@ -2,8 +2,9 @@ name: controller-release
 # The local workflow installs as one npm package: the controller, the dashboard it serves and the
 # plugins its sessions load, at one version (ADR 0060). A controller version tag, and nothing else,
 # publishes it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
-# push and no other tag matches this trigger: a plugin release is tagged <plugin>--vX.Y.Z and a
-# milestone vX.Y.Z, neither of which can carry a slash, and the factory's tags start with factory/.
+# push and no other tag matches this trigger. Plugin and milestone tags carry no slash, and the
+# factory's tags start with factory/. The two checks of the package job mirror factory-release.yml,
+# so a change to one belongs in both.
 on:
   push:
     tags: ['controller/v*']
@@ -12,8 +13,8 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
-    # Packing is the half that runs other people's code (npm packages, their install and build
-    # scripts), so it does it with a token that can only read. Publishing is the other job.
+    # Packing runs other people's code: npm packages and their install and build scripts. So it
+    # runs with a token that can only read. Publishing is the other job.
     permissions:
       contents: read
     steps:

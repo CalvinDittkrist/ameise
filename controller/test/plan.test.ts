@@ -103,7 +103,7 @@ test('a plan from an idea opens a plan branch and starts the planner with its pl
   const settings = JSON.parse(flag(args, '--settings') ?? '{}') as { env: { [k: string]: string }; enabledPlugins: { [k: string]: boolean } }
   expect(settings.env).toMatchObject({ WF_PLAN: 'offline-mode', WF_PLAN_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
   expect(settings.env.WF_PLAN_ISSUE).toBeUndefined()
-  expect(settings.enabledPlugins).toMatchObject({ 'planner@workflows': false, 'worker@workflows': false })
+  expect(settings.enabledPlugins).toEqual({ 'worker@workflows': false, 'planner@workflows': false, 'orchestrator@workflows': false, 'repo-standards@workflows': false })
   const brief = prompt(s ?? { read: [] })
   expect(brief).toContain('/planner:plan')
   expect(brief).toContain('Planner session: offline-mode')

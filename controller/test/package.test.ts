@@ -72,4 +72,6 @@ test('packing refuses a build without the dashboard or the plugins, and names th
   expect(r.status).not.toBe(0)
   expect(r.stderr).toContain('error: the package would lack dist/dashboard/index.html; run npm --prefix dashboard ci && npm --prefix dashboard run build')
   expect(r.stderr).toContain('error: the package would lack dist/plugins/worker/.claude-plugin/plugin.json; run npm --prefix controller run build')
+  expect(r.stderr).toContain('error: the package would lack dist/plugins/planner/.claude-plugin/plugin.json; run npm --prefix controller run build')
+  expect(r.stderr).toContain('error: the package would lack dist/plugins/repo-standards/.claude-plugin/plugin.json; run npm --prefix controller run build')
 })

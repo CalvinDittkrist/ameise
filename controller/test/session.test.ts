@@ -92,7 +92,9 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(flag('--agent')).toBe('worker')
   expect(flag('--permission-mode')).toBe('auto')
   expect(args).toContain('--setting-sources=user,project,local')
-  const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown }
+  const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown; enabledPlugins: { [k: string]: boolean } }
+  // The bundled plugins are the only copies: every marketplace copy of the workflow's plugins is off.
+  expect(settings.enabledPlugins).toEqual({ 'worker@workflows': false, 'planner@workflows': false, 'orchestrator@workflows': false, 'repo-standards@workflows': false })
   expect(settings.env).toMatchObject({ WF_MODE: 'manual', WF_ISSUE: '144', WF_BASE_BRANCH: 'main', WF_REVIEWERS: '2', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' })
   expect(settings.autoCompactWindow).toBe(312500)
   // No status line: the worker's checkpoint answers unavailable and no handoff is attempted.
