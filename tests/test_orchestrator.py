@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -81,6 +82,34 @@ class ClaimTests(ShimTest):
                         steps.index("claude plugin install worker@ameise --scope user"))
         self.assertIn("claude plugin install repo-standards@ameise --scope user", steps)
         self.assertEqual(sbx[-1][1:], ["run", "--name", "wf-repo-fix-12-x", "--", "/worker:work"])
+
+    def test_a_reused_sandbox_drops_the_worker_plugins_of_another_marketplace(self):
+        # Installing worker@ameise leaves a worker installed from another marketplace loaded beside it, so a sandbox
+        # created before the marketplace was renamed would run both.
+        self.git("branch", "fix/12-x")
+        wt = self.base / "wt12"
+        self.git("worktree", "add", "-q", str(wt), "fix/12-x")
+        r = self.run_script(ORCH / "sbx-worker.sh", str(wt), "--", "/worker:work", SHIM_SBX_LS="wf-repo-fix-12-x  running")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        command = [c for c in self.argv_calls() if c[:2] == ["sbx", "exec"]][0][-1]
+        # Run the command the sandbox would run, against a claude that holds plugins from two marketplaces.
+        box = self.base / "box"
+        box.mkdir()
+        log = box / "calls"
+        fake = box / "claude"
+        fake.write_text("#!/bin/sh\n"
+                        f"echo \"$*\" >> '{log}'\n"
+                        "[ \"$*\" = 'plugin list --json' ] && printf '%s\\n' '[{\"id\": \"worker@old\", \"scope\": \"user\"},"
+                        " {\"id\": \"repo-standards@old\", \"scope\": \"user\"}, {\"id\": \"worker@ameise\", \"scope\": \"user\"},"
+                        " {\"id\": \"other@old\", \"scope\": \"user\"}]'\n"
+                        "exit 0\n")
+        fake.chmod(0o755)
+        subprocess.run(["sh", "-c", command], check=True, env={**os.environ, "PATH": f"{box}:{os.environ['PATH']}"})
+        calls = log.read_text().splitlines()
+        uninstalls = [c for c in calls if c.startswith("plugin uninstall")]
+        self.assertEqual(uninstalls, ["plugin uninstall worker@old --scope user",
+                                      "plugin uninstall repo-standards@old --scope user"])
+        self.assertLess(calls.index(uninstalls[-1]), calls.index("plugin install worker@ameise --scope user"))
 
     def test_the_status_line_command_survives_a_plugin_path_with_a_space(self):
         # claude runs the command through a shell. Unquoted, a checkout under "/Users/John Smith" splits into
