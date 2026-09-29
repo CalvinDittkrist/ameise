@@ -984,7 +984,8 @@ The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. 
 - **The bridge release** is `factory/v0.5.0`. It is tagged while the repository still has its old name, so its attestation names `CalvinDittkrist/workflows`.
   - A host that runs an earlier release verifies and installs it as usual.
   - The bridge release reads its releases from `CalvinDittkrist/ameise` and verifies them against that name.
-- **Between the install and the rename** no repository answers under the new name. Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
+- **Between the install and the rename** no repository answers under the new name.
+  - Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
   - It installs nothing and blocks nothing. It neither signals nor restarts the factory, which goes on working.
   - Rename the repository soon after the bridge release is installed on every host. The first tick after the rename finds the releases.
 - **After the rename** a release is built as `CalvinDittkrist/ameise`, and its attestation names only that repository.
