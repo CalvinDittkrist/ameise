@@ -98,7 +98,7 @@ export function serve(o: Options): Server {
       // A path inside a checkout or a link to one asks for the project at its top, as remove does.
       const top = await checkout(resolve(wanted)).catch(() => resolve(wanted))
       const known = paths.includes(wanted) ? wanted : top
-      if (!paths.includes(known)) return send(res, 404, { error: `${wanted} is not a project; workflows projects lists them` })
+      if (!paths.includes(known)) return send(res, 404, { error: `${wanted} is not a project; ameise projects lists them` })
       const project = await derive(known, o.gh)
       return send(res, 200, await board(project, o.stateDir, o.gh))
     }
@@ -117,7 +117,7 @@ export function serve(o: Options): Server {
     const wanted = projectPath(body)
     const paths = readConfig(o.configPath).projects
     const top = paths.includes(wanted) ? wanted : await checkout(wanted).catch(() => wanted)
-    if (!paths.includes(top)) throw new Refusal(`${wanted} is not a project; workflows projects lists them`, 404)
+    if (!paths.includes(top)) throw new Refusal(`${wanted} is not a project; ameise projects lists them`, 404)
     return derive(top, o.gh)
   }
 
@@ -346,7 +346,7 @@ export function serve(o: Options): Server {
     const config = readConfig(o.configPath)
     const known = config.projects.includes(absolute) ? absolute : top
     const i = config.projects.indexOf(known)
-    if (i < 0) return send(res, 404, { error: `${absolute} is not a project; workflows projects lists them` })
+    if (i < 0) return send(res, 404, { error: `${absolute} is not a project; ameise projects lists them` })
     config.projects.splice(i, 1)
     writeConfig(o.configPath, config)
     send(res, 200, { path: known })
@@ -446,7 +446,7 @@ function loopbackHost(host: string | undefined, listen: string): boolean {
 
 // identity is the header every answer carries, so the CLI tells this server from another service
 // that took its port after it stopped.
-export const identity = 'x-workflows'
+export const identity = 'x-ameise'
 
 // The kinds of file the dashboard's build holds. A file of another kind is not served.
 const types: Record<string, string> = {

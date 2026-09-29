@@ -69,3 +69,6 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0063](0063-plugins-are-skills-and-agents.md) | Plugins are skills and agents | accepted |
 | [0064](0064-the-local-dashboard-is-built-into-the-controller.md) | The local dashboard is built into the controller | accepted |
 | [0065](0065-the-controller-warns-of-the-quota-and-notifies-a-turn.md) | The controller warns of the quota and notifies a turn | accepted |
+| [0066](0066-the-product-is-named-ameise-and-its-parts-keep-their-names.md) | The product is named ameise and its parts keep their names | accepted |
+| [0067](0067-the-rename-is-a-hard-cut.md) | The rename is a hard cut | accepted |
+| [0068](0068-the-host-crosses-the-rename-through-a-bridge-release.md) | The host crosses the rename through a bridge release | accepted |

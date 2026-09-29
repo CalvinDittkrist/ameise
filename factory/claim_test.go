@@ -131,10 +131,10 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 			t.Errorf("the worker's settings carry %s; a factory session reads no workflow variable", name)
 		}
 	}
-	// Every plugin of the workflow is switched off, the worker's with the others: a host that still
-	// carries one changes nothing about what the session is told, and an unattended session carries no
-	// /orchestrator:merge.
-	for _, plugin := range []string{"worker@workflows", "planner@workflows", "orchestrator@workflows"} {
+	// Every plugin of the marketplace ameise is switched off, the worker's with the others: a host or
+	// a repository that carries one changes nothing about what the session is told, and an unattended
+	// session carries no /orchestrator:merge.
+	for _, plugin := range []string{"worker@ameise", "planner@ameise", "orchestrator@ameise", "repo-standards@ameise"} {
 		if on, named := settings.EnabledPlugins[plugin]; !named || on {
 			t.Errorf("the worker's settings leave %s enabled (%v); a factory session must not carry it", plugin, settings.EnabledPlugins)
 		}

@@ -27,7 +27,7 @@ class StandardsTests(ShimTest):
         for f in ("AGENTS.md", "CLAUDE.md", "Makefile", "docs/architecture.md", ".claude/settings.json"):
             self.assertIn(f"created: {f}", r.stdout)
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
-        self.assertTrue(settings["enabledPlugins"]["worker@workflows"])
+        self.assertTrue(settings["enabledPlugins"]["worker@ameise"])
         self.assertEqual(settings["attribution"]["commit"], "")
         (self.repo / "CLAUDE.md").write_text("# mine\n@AGENTS.md\n")
         r = self.scaffold()
@@ -44,13 +44,13 @@ class StandardsTests(ShimTest):
                                                         "permissions": {"allow": ["Bash(make *)", "Bash(git diff *)"]}}))
         r = self.scaffold()
         self.assertIn("updated: .claude/settings.json", r.stdout)
-        self.assertIn("claude plugin marketplace add CalvinDittkrist/workflows --scope project", self.calls())
-        self.assertIn("claude plugin install worker@workflows --scope project", self.calls())
+        self.assertIn("claude plugin marketplace add CalvinDittkrist/ameise --scope project", self.calls())
+        self.assertIn("claude plugin install worker@ameise --scope project", self.calls())
         self.assertIn("claude plugin disable foo@bar --scope project", self.calls())
         self.assertNotIn("claude plugin disable old@bar --scope project", self.calls())
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
         self.assertEqual(sorted(p for p, on in settings["enabledPlugins"].items() if on),
-                         ["orchestrator@workflows", "planner@workflows", "repo-standards@workflows", "worker@workflows"])
+                         ["orchestrator@ameise", "planner@ameise", "repo-standards@ameise", "worker@ameise"])
         self.assertEqual(settings["env"]["WF_REVIEW_ROUNDS"], "5", "a value the repository set is kept")
         self.assertEqual(settings["env"]["WF_PROJECT_TEMPLATE"], "", "the project template has a place to be set in")
         self.assertEqual(settings["permissions"]["allow"][:3], ["Bash(make *)", "Bash(git diff *)", "Bash(git status *)"])
@@ -75,8 +75,8 @@ class StandardsTests(ShimTest):
         r = self.run_script(STANDARDS / "scaffold.sh", PATH=f"{bin_dir}:{self.env()['PATH']}")
         self.assertEqual(r.returncode, 0, r.stderr)
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
-        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@workflows": True, "planner@workflows": True,
-                                                      "repo-standards@workflows": True, "worker@workflows": True})
+        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@ameise": True, "planner@ameise": True,
+                                                      "repo-standards@ameise": True, "worker@ameise": True})
 
     def test_the_scaffolded_categories_are_the_ones_the_report_names(self):
         """WF_SCAFFOLD_CATEGORIES (lib.sh) is what report.sh promises; scaffold.sh is what really writes files.
@@ -280,10 +280,26 @@ class StandardsTests(ShimTest):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("skip: licence and security policy not checked (visibility unknown without GitHub)", r.stdout)
 
+    def test_check_warns_for_plugins_of_another_marketplace(self):
+        self.scaffold()
+        settings = json.loads((self.repo / ".claude/settings.json").read_text())
+        plugins = ["orchestrator", "planner", "repo-standards", "worker"]
+        r = self.check()
+        for p in plugins:
+            self.assertIn(f"ok: {p}@ameise enabled", r.stdout)
+        self.assertNotIn("not enabled", r.stdout)
+        self.assertNotIn("enabled at project scope", r.stdout)
+        settings["enabledPlugins"] = {f"{p}@other": True for p in plugins}
+        self.write(".claude/settings.json", json.dumps(settings))
+        r = self.check()
+        for p in plugins:
+            self.assertIn(f"warn: {p}@ameise not enabled in .claude/settings.json", r.stdout)
+            self.assertIn(f"warn: {p}@other enabled at project scope", r.stdout)
+
     def test_check_holds_the_settings_to_the_workflow_plugins_without_hooks(self):
         self.scaffold()
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
-        settings["enabledPlugins"].update({"planner@workflows": False, "foo@bar": True, "old@bar": False, "a *": True, "worker@workflow": True})
+        settings["enabledPlugins"].update({"planner@ameise": False, "foo@bar": True, "old@bar": False, "a *": True, "worker@ameis": True})
         settings.update({"enabledMcpjsonServers": [], "enableAllProjectMcpServers": False})
         self.write(".claude/settings.json", json.dumps(settings))
         self.assertNotIn("MCP", self.check().stdout)
@@ -291,11 +307,11 @@ class StandardsTests(ShimTest):
         self.write(".claude/settings.json", json.dumps(settings))
         r = self.check()
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("warn: planner@workflows not enabled in .claude/settings.json", r.stdout)
+        self.assertIn("warn: planner@ameise not enabled in .claude/settings.json", r.stdout)
         self.assertIn("warn: foo@bar enabled at project scope; the standard enables only the workflow plugins", r.stdout)
         self.assertNotIn("old@bar", r.stdout)
         self.assertIn("warn: a * enabled at project scope", r.stdout)
-        self.assertIn("warn: worker@workflow enabled at project scope", r.stdout)
+        self.assertIn("warn: worker@ameis enabled at project scope", r.stdout)
         self.assertIn("warn: .claude/settings.json enables MCP servers", r.stdout)
         settings["hooks"] = {"Stop": []}
         self.write(".claude/settings.json", json.dumps(settings))

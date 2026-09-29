@@ -258,8 +258,8 @@ async function finishHeld(project: Project, stateDir: string, id: string, force:
   } catch (err) {
     if (stopped) {
       const note = `the planner session was stopped by a finish that was refused: ${(err as Error).message}`
-      update(stateDir, id, { state: 'input', note, unseen: true })
       event(stateDir, id, { event: 'session-end', stage: r.stage, state: 'input', note })
+      update(stateDir, id, { state: 'input', note, unseen: true })
     }
     throw err
   }

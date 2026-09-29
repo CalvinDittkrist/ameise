@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 // its own. That machine is a temporary directory with the configuration, the state, a claude that only
 // answers its version, a browser that opens nothing, a terminal that writes down what it was asked to
 // run and a canned GitHub. The sessions run on the controller's scripted claude, whose play a test
-// writes into WORKFLOWS_FAKE_CLAUDE. Its projects are two
+// writes into AMEISE_FAKE_CLAUDE. Its projects are two
 // checkouts whose origin is on GitHub and one directory that is no checkout, so the sidebar shows both
 // kinds. The checkouts hold worktrees and process records. The canned GitHub holds their pull requests,
 // agent-ready issues and specs. So the board has a row of every kind. A scripted quota-axi answers that
@@ -20,17 +20,17 @@ const controller = fileURLToPath(new URL("../../controller/dist/main.js", import
 const READY = 30_000
 
 export default async function start() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "workflows-dashboard-")))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ameise-dashboard-")))
   const bin = join(root, "bin")
   mkdirSync(bin)
   script(join(bin, "claude"), 'echo "2.0.0 (Claude Code, scripted)"')
   script(join(bin, "browser"), "exit 0")
   const terminal = join(root, "terminal.log")
   script(join(bin, "terminal"), `printf '%s\\n' "$1" >> '${terminal}'`)
-  process.env.WORKFLOWS_TERMINAL_LOG = terminal
+  process.env.AMEISE_TERMINAL_LOG = terminal
   const claude = join(root, "claude")
   mkdirSync(claude)
-  process.env.WORKFLOWS_FAKE_CLAUDE = claude
+  process.env.AMEISE_FAKE_CLAUDE = claude
   const quota = join(root, "quota.json")
   writeFileSync(quota, JSON.stringify(report(8, new Date(Date.now() + 2.5 * 3_600_000).toISOString())))
   script(join(bin, "quota-axi"), `cat '${quota}'`)
@@ -44,17 +44,17 @@ export default async function start() {
   ]
   mkdirSync(projects[2], { recursive: true })
   // A checkout the add-project test adds and removes again.
-  process.env.WORKFLOWS_SPARE = checkout(sources, "firmware", "acme/firmware", "main")
-  process.env.WORKFLOWS_NOT_A_CHECKOUT = projects[2]
-  process.env.WORKFLOWS_SENSORS = projects[0]
+  process.env.AMEISE_SPARE = checkout(sources, "firmware", "acme/firmware", "main")
+  process.env.AMEISE_NOT_A_CHECKOUT = projects[2]
+  process.env.AMEISE_SENSORS = projects[0]
   mkdirSync(github)
   board(root, github, projects[0]!, projects[1]!)
   // Its open specs are left uncanned, so GitHub does not answer them and its board carries a note.
   can(github, "acme/firmware", [], [])
 
   const port = await freePort()
-  const config = join(root, "config", "workflows", "config.json")
-  mkdirSync(join(root, "config", "workflows"), { recursive: true })
+  const config = join(root, "config", "ameise", "config.json")
+  mkdirSync(join(root, "config", "ameise"), { recursive: true })
   writeFileSync(config, JSON.stringify({ listen: `127.0.0.1:${port}`, quota_axi: join(bin, "quota-axi"), quota_minimum: 12, notifications: false, terminal: join(bin, "terminal"), projects }, null, 2) + "\n")
 
   const server = spawn(process.execPath, [controller, "--fake"], {
@@ -64,8 +64,8 @@ export default async function start() {
       XDG_CONFIG_HOME: join(root, "config"),
       XDG_DATA_HOME: join(root, "data"),
       BROWSER: join(bin, "browser"),
-      WORKFLOWS_FAKE_GH: github,
-      WORKFLOWS_FAKE_CLAUDE: claude,
+      AMEISE_FAKE_GH: github,
+      AMEISE_FAKE_CLAUDE: claude,
     },
     stdio: ["ignore", "pipe", "inherit"],
   })
@@ -81,7 +81,7 @@ export default async function start() {
       let out = ""
       server.stdout.on("data", (d: Buffer) => {
         out += d
-        if (!out.includes("workflows on ")) return
+        if (!out.includes("ameise on ")) return
         clearTimeout(timer)
         resolve()
       })
@@ -96,7 +96,7 @@ export default async function start() {
     throw error
   }
   // The tests run in processes of their own, which inherit this environment.
-  process.env.WORKFLOWS_URL = `http://127.0.0.1:${port}`
+  process.env.AMEISE_URL = `http://127.0.0.1:${port}`
   return async () => {
     stop()
     await ended
@@ -135,12 +135,12 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   const running = worktree(sensors, "feat/142-read-the-configuration", 1)
   const pending = worktree(backtest, "feat/88-reconnect-the-broker-stream", 1)
   worktree(backtest, "hunt/tests-2026-09-27", 24)
-  const records = join(root, "data", "workflows", "processes")
+  const records = join(root, "data", "ameise", "processes")
   mkdirSync(records, { recursive: true })
   // The failed-session test writes a record of its own here and removes it again.
-  process.env.WORKFLOWS_RECORDS = records
-  process.env.WORKFLOWS_BACKTEST = backtest
-  process.env.WORKFLOWS_SENSORS = sensors
+  process.env.AMEISE_RECORDS = records
+  process.env.AMEISE_BACKTEST = backtest
+  process.env.AMEISE_SENSORS = sensors
   const record = (id: string, r: Record<string, unknown>) => writeFileSync(join(records, `${id}.json`), JSON.stringify(r))
   // The records whose session runs, or waits for an answer, are written once the controller listens,
   // since the controller marks the sessions it finds so as it starts interrupted (see start).

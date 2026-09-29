@@ -65,7 +65,7 @@ export const compactAt = (compactWindow * Number(compactPercentage)) / 100
 
 // The marketplace the workflow's plugins are installed from. Its copies are switched off, so the
 // bundled plugins are the ones the session loads and the orchestrator stays out of its context.
-const marketplace = 'workflows'
+const marketplace = 'ameise'
 
 // The result the session reports through, as a JSON schema.
 const report = {
@@ -188,13 +188,13 @@ function interrupt(stateDir: string, id: string) {
     const note = record.session_id
       ? 'the controller stopped while the planner session ran; write to it to go on'
       : 'the controller stopped before the planner session started; finish it and plan again'
-    update(stateDir, id, { state, note, unseen: true })
     event(stateDir, id, { event: 'session-end', stage: record.stage, state, note })
+    update(stateDir, id, { state, note, unseen: true })
     return
   }
   const note = interruptedNote(record)
-  update(stateDir, id, { state: 'interrupted', note })
   event(stateDir, id, { event: 'session-end', stage: record.stage, state: 'interrupted', note })
+  update(stateDir, id, { state: 'interrupted', note })
 }
 
 // stopAll stops every session the controller runs, as it stops, and marks each process interrupted.
@@ -390,9 +390,9 @@ export function update(stateDir: string, id: string, change: Partial<CreatedReco
 
 // forget removes a process's record, its event log and its terminal script.
 export function forget(stateDir: string, id: string) {
-  rmSync(recordFile(stateDir, id), { force: true })
   rmSync(eventsFile(stateDir, id), { force: true })
   rmSync(commandFile(stateDir, id), { force: true })
+  rmSync(recordFile(stateDir, id), { force: true })
   tell(id, { gone: true })
 }
 
@@ -410,6 +410,8 @@ export function seen(stateDir: string, id: string): boolean {
   return true
 }
 
+// An end is written into the log before the record takes the state it ends in, and a record goes after
+// its log: whoever reads a record's state, as the board does, then finds the log that led to it complete.
 export function event(stateDir: string, id: string, e: Record<string, unknown>) {
   if (!existsSync(recordFile(stateDir, id))) return
   const line = { at: new Date().toISOString(), ...e }
@@ -468,8 +470,8 @@ export function begin(record: SessionRecord, project: Project, rt: Runtime, mess
     }
     // The process is unseen until its page is opened, so the dashboard marks it until then. A planner
     // that waits for input is told on the board alone, as a question of a session is.
-    const ended = update(rt.stateDir, id, { state, note, unseen: true })
     event(rt.stateDir, id, { event: 'session-end', stage, state, note })
+    const ended = update(rt.stateDir, id, { state, note, unseen: true })
     if (ended && state !== 'input') rt.announce(ended)
   }
   // A write that fails, as on a full or read-only disk, ends this process failed where it still can and
@@ -572,7 +574,7 @@ async function session(
   const agent = agentOf(record)
   const plugins = sessionPlugins(rt.plugins, record)
   const missing = plugins.find((path) => !existsSync(join(path, '.claude-plugin', 'plugin.json')))
-  if (missing) return { state: 'failed', note: `the bundled plugin is missing at ${missing}; reinstall workflows` }
+  if (missing) return { state: 'failed', note: `the bundled plugin is missing at ${missing}; reinstall ameise` }
   // The brief names the branch and the base in commands the session runs; a name from origin with a
   // shell character in it does not reach the prompt.
   for (const name of [record.branch, record.base]) {

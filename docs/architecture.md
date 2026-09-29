@@ -15,7 +15,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `spec-checker` agent | Judges every checkable statement of a spec against the code during an acceptance. | `plugins/planner/agents/spec-checker.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
-| controller | The local workflow: headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `workflows`; [controller/](../controller/README.md#install) |
+| controller | The local workflow: headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | Herdr | Terminal workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |
@@ -29,18 +29,18 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ### Planning
 1. `/orchestrator:plan [<idea | #N>]`: `plan.sh` creates `plan/<slug>`, a worktree and a workspace, and starts the planner on `/planner:plan`.
    - Without an argument it opens an open session, `plan/open-<yyyymmdd-hhmm>`.
-   - `workflows plan` opens it headless ([plan process](../controller/README.md#plan-process)).
+   - `ameise plan` opens it headless ([plan process](../controller/README.md#plan-process)).
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
 5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
-   - `workflows accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
+   - `ameise accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - The controller's `workflows claim` refuses the same and starts a headless session ([implement session](../controller/README.md#implement-session)).
+   - The controller's `ameise claim` refuses the same and starts a headless session ([implement session](../controller/README.md#implement-session)).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -59,7 +59,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 16. `repair.sh round` counts repair rounds per pull request and refuses past `WF_CI_REPAIR_ROUNDS`. `WF_REVIEW_MANDATE` restarts it once per review.
 17. Manual mode: the worker reports `ready:` or `blocked:`, and `/orchestrator:merge PR` removes the worktree, squash-merges and deletes the branch.
     - A merge outside the default branch also closes the issue.
-    - `workflows merge` does the same ([merge](../controller/README.md#merge)).
+    - `ameise merge` does the same ([merge](../controller/README.md#merge)).
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.
 
 ### Test hunt
@@ -112,7 +112,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 2. `/orchestrator:release vX.Y.Z`: `release.sh` refuses while the milestone is missing or has open issues, or the tag exists.
 3. With `dev` plus `main` it opens the promotion pull request, which `merge.sh` merges with a merge commit, and tags that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
 4. With `main` alone it tags the head of `main`. It publishes the GitHub release and closes the milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)).
-   - `workflows release` does the same ([release](../controller/README.md#release)).
+   - `ameise release` does the same ([release](../controller/README.md#release)).
 
 ## Boundaries and constraints
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.

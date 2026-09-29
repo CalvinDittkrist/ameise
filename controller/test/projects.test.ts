@@ -65,7 +65,7 @@ test('adding a project through the CLI and the API writes its path alone into th
   expect(JSON.parse(read(m.config))).toEqual({ listen: m.listen, quota_axi: '', quota_minimum: 12, notifications: true, notifier: '', terminal: '', projects: [a, b] })
   expect(snapshot(m.state)).toEqual(state)
   expect(snapshot(join(m.root, 'src'))).toEqual(sources)
-  expect(readdirSync(join(m.root, 'config', 'workflows'))).toEqual(['config.json'])
+  expect(readdirSync(join(m.root, 'config', 'ameise'))).toEqual(['config.json'])
   expect(cli(m, ['projects']).stdout).toBe(`${a}  owner/a  base main\n${b}  owner/b  base trunk\n`)
 })
 
@@ -199,7 +199,7 @@ test('removing a project through the CLI and the API rewrites the configuration 
   expect(JSON.parse(read(m.config)).projects).toEqual([b])
   expect(await api(m, 'DELETE', '/api/projects', { path: b })).toEqual({ status: 200, body: { path: b } })
   expect(JSON.parse(read(m.config)).projects).toEqual([])
-  expect(cli(m, ['projects', 'remove', b]).stderr).toBe(`error: ${b} is not a project; workflows projects lists them\n`)
+  expect(cli(m, ['projects', 'remove', b]).stderr).toBe(`error: ${b} is not a project; ameise projects lists them\n`)
 
   expect(snapshot(m.state)).toEqual(state)
   expect(snapshot(join(m.root, 'src'))).toEqual(sources)

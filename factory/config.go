@@ -372,7 +372,7 @@ func Load(path string) (Settings, error) {
 		owner, name, _ := strings.Cut(r.Name, "/")
 		if !repository.MatchString(r.Name) || strings.Trim(owner, ".") == "" || strings.Trim(name, ".") == "" ||
 			strings.HasPrefix(owner, "-") || strings.HasPrefix(name, "-") {
-			return bad("repository %q is not owner/name; write it as \"CalvinDittkrist/workflows\"", r.Name)
+			return bad("repository %q is not owner/name; write it as \"CalvinDittkrist/ameise\"", r.Name)
 		}
 		// The base branch is given to git as a ref and to gh as an argument, so a name that opens
 		// with a hyphen or walks out of refs/heads is refused here rather than in a command line.

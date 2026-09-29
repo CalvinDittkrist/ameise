@@ -154,7 +154,7 @@ Run the following as root unless it says otherwise.
    - `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN` also runs a worker, but it writes no credentials file.
    - Then quota-axi has nothing to read, and every run carries a warning that the check could not answer.
 5. **No plugin.** Every session the factory starts runs on the factory's own prompts, compiled into the binary ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
-   - It switches the `worker`, `planner` and `orchestrator` plugins of the `workflows` marketplace off.
+   - It switches the `worker`, `planner`, `orchestrator` and `repo-standards` plugins of the `ameise` marketplace off.
    - So the host needs Claude Code, `git`, `gh`, the factory binary and the tools of the gates above, and no plugin of this repository.
    - A host that carries the plugin from an earlier factory moves over in [Moving a host off the plugin](#moving-a-host-off-the-plugin).
 6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64`, `checksums.txt` and `factory-v<version>.sigstore.json`.
@@ -163,15 +163,17 @@ Run the following as root unless it says otherwise.
    - The `.sigstore.json` file is the attestation of both binaries: the release workflow signed their digests when it built them.
 
    ```sh
-   version=0.4.1   # a release after 0.2.3: those up to 0.2.3 carry no attestation
+   version=0.5.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
+   repo=CalvinDittkrist/ameise   # before the rename on GitHub, CalvinDittkrist/workflows
+   built=CalvinDittkrist/workflows   # the old name, for the bridge release 0.5.0 and those before it; CalvinDittkrist/ameise for a later one
    cd "$(mktemp -d)" &&
-     gh release download "factory/v$version" -R CalvinDittkrist/workflows \
+     gh release download "factory/v$version" -R "$repo" \
        -p "factory-linux-$arch" -p checksums.txt -p "factory-v$version.sigstore.json" &&
      sha256sum --check --ignore-missing checksums.txt &&   # must print: factory-linux-<arch>: OK
-     gh attestation verify "factory-linux-$arch" -R CalvinDittkrist/workflows \
+     gh attestation verify "factory-linux-$arch" -R "$built" \
        --bundle "factory-v$version.sigstore.json" \
-       --cert-identity "https://github.com/CalvinDittkrist/workflows/.github/workflows/factory-release.yml@refs/tags/factory/v$version" \
+       --cert-identity "https://github.com/$built/.github/workflows/factory-release.yml@refs/tags/factory/v$version" \
        --source-ref "refs/tags/factory/v$version" \
        --deny-self-hosted-runners &&
      install -m 0755 "factory-linux-$arch" /usr/local/bin/factory
@@ -182,6 +184,9 @@ Run the following as root unless it says otherwise.
    - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
+   - `repo` is the repository's name today: `CalvinDittkrist/workflows` until the repository is renamed on GitHub, `CalvinDittkrist/ameise` after.
+   - A download from a name that does not exist yet fails. `built` is the repository's name when the release was built, because the attestation names that repository.
+   - Releases up to the bridge release `factory/v0.5.0` were built under the repository's old name `CalvinDittkrist/workflows` ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)). Later ones were built as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
    - It needs Node 22.19 or later (`engines` of the package). Node 24 from NodeSource, installed with the gate's tools, is that.
@@ -974,6 +979,57 @@ The others are yours. Update them between runs. Stopping the factory interrupts 
 
 Without auto-update, install the factory binary by hand: download and check it as in [Installation](#installation), then `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`. Look for the new version in the journal's first line.
 
+### The rename to ameise
+The repository is renamed `CalvinDittkrist/ameise`. The update tick reads the releases of one repository. It verifies their attestation against that repository. The rename therefore needs one bridge release.
+
+- **The bridge release** is `factory/v0.5.0`. It is tagged while the repository still has its old name, so its attestation names the old repository.
+  - A host that runs an earlier release verifies and installs it as usual.
+  - The bridge release reads its releases from `CalvinDittkrist/ameise` and verifies them against that name.
+- **Between the install and the rename** no repository answers under the new name.
+  - Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
+  - It installs nothing and blocks nothing. It neither signals nor restarts the factory, which goes on working.
+  - Rename the repository soon after the bridge release is installed on every host, while the factory is paused and holds no run ([ADR 0068](adr/0068-the-host-crosses-the-rename-through-a-bridge-release.md)).
+  - The first tick after the rename finds the releases.
+- **After the rename** a release is built as `CalvinDittkrist/ameise`, and its attestation names only that repository.
+  - A host still on a release before the bridge asks the old name, and GitHub redirects it.
+  - Its attestation check refuses every release built after the rename, each tick with an `error:` line.
+  - A rollback from the first release after the rename returns to the bridge release, which asks the new name as before.
+
+Install by hand on a host that refuses a release after the rename, as root:
+
+1. Download and check the release as in [Installation](#installation), with `built=CalvinDittkrist/ameise`. For the bridge release itself, `built` is the old name that [Installation](#installation) gives.
+2. `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`.
+3. Look for the new version in the journal's first line. The next tick reads the new name.
+
+A factory release keeps its tag `factory/v<version>`, its release command and the names of its files; its title reads `ameise factory v<version>`. The names on the host stay: the binary `factory`, the service `factory`, its user and its directories.
+
+#### The maintainer's list
+The rename needs these steps, which only a person can take, in this order:
+
+1. Merge the spec pull request of the rename.
+2. Wait until the factory has ended the spec run.
+3. Pause the factory ([Pausing](#pausing)). It holds no run: `.now` on the dashboard is empty.
+4. Release the factory from `main`: the bridge release, `scripts/release.sh factory --push` with `factory/VERSION` at `0.5.0`.
+   - Wait until the host reports that version: `curl -s http://127.0.0.1:7341/api/line | jq .version`.
+   - Auto-update installs it within the hour. Without auto-update, install it by hand as in [Installation](#installation), with `repo=CalvinDittkrist/workflows`: the repository is renamed only in step 5.
+5. Rename the repository on GitHub to `ameise`, under *Settings > General*.
+6. Check on GitHub that the secrets, the branch protection, the milestones and the labels are in place. GitHub does not document whether a rename keeps them.
+7. Name the connected repository `CalvinDittkrist/ameise` in `repositories` of `/etc/factory/factory.json`, in place of the old name.
+   - A running factory reads only `paused` and `auto_update` anew, so restart it while it is still paused and holds no run: `systemctl restart factory`.
+   - Then set `"paused": false`.
+8. Point the remotes of the local checkouts at the new name: `git remote set-url origin git@github.com:CalvinDittkrist/ameise.git`, or its `https` form.
+9. In every repository that uses the marketplace, and in the user's own settings, move to the marketplace `ameise`:
+   - `claude plugin marketplace list` names the old marketplace. `claude plugin marketplace remove <old name> --scope project` removes it, and `--scope user` for the user's settings.
+   - Removing a marketplace from its last scope uninstalls the plugins installed from it ([plugins reference](https://code.claude.com/docs/en/plugins/cli-reference.md)).
+   - `claude plugin marketplace add CalvinDittkrist/ameise --scope project` adds `ameise`, and `--scope user` adds it to the user's settings.
+   - `claude plugin install <plugin>@ameise --scope project` enables each plugin under the new name, for `worker`, `planner`, `repo-standards` and `orchestrator`.
+   - `claude plugin install <plugin>@ameise --scope user` does the same for each plugin the user's settings enabled.
+10. Install the local program from the controller's [GitHub release](https://github.com/CalvinDittkrist/ameise/releases), as in [its install](../controller/README.md#install).
+    It starts with no projects: it reads no directory of the old name ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)).
+11. Optional: rename the directory of a checkout, then `ameise projects add <new path>`. The controller knows a project by its path.
+
+No repository is ever created under the old name again, neither by the maintainer nor by the machine user. GitHub redirects the old name to the new one only until a repository holds it ([renaming a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)).
+
 ### Draining
 A drain stops the factory between runs. `systemctl kill --kill-whom=main -s HUP factory` sends `SIGHUP` to the factory alone, and the factory drains:
 
@@ -999,11 +1055,12 @@ Pause the factory, write those knobs and remove `worker_env` from `/etc/factory/
 
 It refuses a `--plugin-dir` in `worker_args` the same way, so take it out too. That flag would load the plugin into the implement, fix and address-reviews sessions.
 
-The plugin itself does no harm: every session switches it off, and the factory runs no plugin command. Remove it all the same, so the host carries only what its runs use, as the user `factory`:
+The plugin came from the marketplace under its name before `ameise`. Every session switches off the plugins of `ameise` only, so a plugin installed from the old marketplace stays on in every session. The host installs a release itself, so act now: set `auto_update` to `false` and pause the factory. Then, as the user `factory`, list what the old marketplace installed and remove every plugin of it and the marketplace:
 
 ```sh
-claude plugin uninstall worker@workflows
-claude plugin marketplace remove workflows
+claude plugin list
+claude plugin uninstall <plugin>@<old name>   # once for each plugin the list shows from the old marketplace
+claude plugin marketplace remove <old name>
 ```
 
 A run record written before the move still carries the worker version on the disk. The factory reads it as before and shows the versions of Claude Code and the factory alone.

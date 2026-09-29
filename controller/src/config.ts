@@ -31,12 +31,12 @@ const fields = Object.keys(defaults)
 // The directories follow the XDG base directory rule on every platform, so one variable moves each.
 export function configPath(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return join(base, 'workflows', 'config.json')
+  return join(base, 'ameise', 'config.json')
 }
 
 export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
-  return join(base, 'workflows')
+  return join(base, 'ameise')
 }
 
 export class ConfigError extends Error {}

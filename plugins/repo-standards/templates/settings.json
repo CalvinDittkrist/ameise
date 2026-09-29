@@ -1,12 +1,12 @@
 {
   "extraKnownMarketplaces": {
-    "workflows": { "source": { "source": "github", "repo": "CalvinDittkrist/workflows" } }
+    "ameise": { "source": { "source": "github", "repo": "CalvinDittkrist/ameise" } }
   },
   "enabledPlugins": {
-    "worker@workflows": true,
-    "planner@workflows": true,
-    "repo-standards@workflows": true,
-    "orchestrator@workflows": true
+    "worker@ameise": true,
+    "planner@ameise": true,
+    "repo-standards@ameise": true,
+    "orchestrator@ameise": true
   },
   "attribution": { "commit": "", "pr": "" },
   "env": {

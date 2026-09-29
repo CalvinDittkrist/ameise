@@ -1,4 +1,4 @@
-module github.com/CalvinDittkrist/workflows/factory
+module github.com/CalvinDittkrist/ameise/factory
 
 go 1.25
 

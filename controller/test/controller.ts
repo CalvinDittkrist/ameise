@@ -88,7 +88,7 @@ export interface Machine {
 // only the tools the controller calls, so a test can take one away.
 export async function machine(): Promise<Machine> {
   // The real path, as git names a checkout's top: on macOS the temporary directory is behind a link.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'workflows-')))
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ameise-')))
   made.push(root)
   const bin = join(root, 'bin')
   mkdirSync(bin)
@@ -101,7 +101,7 @@ export async function machine(): Promise<Machine> {
   mkdirSync(github)
   const port = await freePort()
   const listen = `127.0.0.1:${port}`
-  const config = join(root, 'config', 'workflows', 'config.json')
+  const config = join(root, 'config', 'ameise', 'config.json')
   mkdirSync(dirname(config), { recursive: true })
   writeFileSync(config, JSON.stringify({ listen }, null, 2) + '\n')
   const ghLog = join(root, 'gh.log')
@@ -114,12 +114,12 @@ export async function machine(): Promise<Machine> {
     XDG_CONFIG_HOME: join(root, 'config'),
     XDG_DATA_HOME: join(root, 'data'),
     BROWSER: browser,
-    WORKFLOWS_FAKE_GH: github,
-    WORKFLOWS_FAKE_GH_LOG: ghLog,
-    WORKFLOWS_FAKE_CLAUDE: claude,
-    WORKFLOWS_FAKE_CLAUDE_LOG: claudeLog,
+    AMEISE_FAKE_GH: github,
+    AMEISE_FAKE_GH_LOG: ghLog,
+    AMEISE_FAKE_CLAUDE: claude,
+    AMEISE_FAKE_CLAUDE_LOG: claudeLog,
   }
-  return { root, env, config, state: join(root, 'data', 'workflows'), github, ghLog, claude, claudeLog, opened, bin, url: `http://${listen}`, listen, binary }
+  return { root, env, config, state: join(root, 'data', 'ameise'), github, ghLog, claude, claudeLog, opened, bin, url: `http://${listen}`, listen, binary }
 }
 
 // dashboard gives the machine a copy of the controller whose dashboard build is the files given, each
@@ -164,7 +164,7 @@ export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & {
   return new Promise((resolve) => {
     p.stdout.on('data', (d: Buffer) => {
       stdout += d
-      if (stdout.includes('workflows on ')) resolve({ running: true, code: null, stdout, stderr, process: p })
+      if (stdout.includes('ameise on ')) resolve({ running: true, code: null, stdout, stderr, process: p })
     })
     p.stderr.on('data', (d: Buffer) => (stderr += d))
     p.on('exit', (code) => resolve({ running: false, code, stdout, stderr, process: p }))

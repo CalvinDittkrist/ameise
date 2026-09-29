@@ -7,7 +7,10 @@ s=.claude/settings.json
 edit() { mkdir -p .claude; [ -f "$s" ] || echo '{}' > "$s"; jq "$@" "$s" > "$s.tmp" && mv "$s.tmp" "$s"; }
 case "$*" in
   "plugin marketplace add "*"/"*" --scope project")
-    r=$4; edit --arg r "$r" --arg n "${r##*/}" '.extraKnownMarketplaces[$n] = {source: {source: "github", repo: $r}}' ;;
+    # Claude Code keys a marketplace by the name in its catalogue, which the shim cannot fetch: it takes
+    # the repository's last path segment.
+    r=$4; n=${r##*/}
+    edit --arg r "$r" --arg n "$n" '.extraKnownMarketplaces[$n] = {source: {source: "github", repo: $r}}' ;;
   "plugin install "*"@"*" --scope project") edit --arg p "$3" '.enabledPlugins[$p] = true' ;;
   "plugin disable "*" --scope project")
     [ "$(jq -r --arg p "$3" '.enabledPlugins[$p] // false' "$s" 2>/dev/null)" = true ] \

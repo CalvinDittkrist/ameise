@@ -155,7 +155,7 @@ async function mergeHeld(project: Project, stateDir: string, gh: string, fake: b
     }
     await git(top, 'branch', '-D', branch).catch(() => undefined)
     for (const { file } of recordFiles(stateDir, top).filter((r) => r.record.branch === branch)) {
-      for (const f of [file, file.replace(/\.json$/, '.events.jsonl')]) {
+      for (const f of [file.replace(/\.json$/, '.events.jsonl'), file]) {
         try {
           rmSync(f, { force: true })
         } catch (err) {

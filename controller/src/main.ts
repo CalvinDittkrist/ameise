@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// workflows: with no command it starts the controller's server and opens the browser on it; every
+// ameise: with no command it starts the controller's server and opens the browser on it; every
 // other command is a client of that running server.
 import { spawn } from 'node:child_process'
 import { readFileSync, rmSync } from 'node:fs'
@@ -15,26 +15,26 @@ import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
 const usage = `usage:
-  workflows [--fake]                 start the server and open the browser
-  workflows projects                 list the projects
-  workflows projects add <path>      add the checkout at <path> as a project
-  workflows projects remove <path>   remove the project at <path>
-  workflows board [<path>]           print the board of every project, or of the project at <path>
-  workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]
+  ameise [--fake]                    start the server and open the browser
+  ameise projects                    list the projects
+  ameise projects add <path>         add the checkout at <path> as a project
+  ameise projects remove <path>      remove the project at <path>
+  ameise board [<path>]              print the board of every project, or of the project at <path>
+  ameise claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]
                                      claim the issue into a work process of the project
-  workflows abandon <issue> [--force] [--project <path>]
+  ameise abandon <issue> [--force] [--project <path>]
                                      remove the issue's worktree and process; branch and issue stay
-  workflows resume <issue> [--project <path>]
+  ameise resume <issue> [--project <path>]
                                      go on with the interrupted session of the issue's process
-  workflows adopt <issue> [--project <path>]
+  ameise adopt <issue> [--project <path>]
                                      take the issue's worktree this controller did not start into a process
-  workflows merge <pr> [--project <path>]
+  ameise merge <pr> [--project <path>]
                                      merge the ready pull request and remove its branch, worktree and process
-  workflows release <vX.Y.Z> [--project <path>]
+  ameise release <vX.Y.Z> [--project <path>]
                                      tag the finished milestone, publish its release and close it
-  workflows accept <spec> [--project <path>]
+  ameise accept <spec> [--project <path>]
                                      open a plan process on the spec with the acceptance route
-  workflows plan [<idea>... | <issue>] [--project <path>]
+  ameise plan [<idea>... | <issue>] [--project <path>]
                                      open a plan process from an idea, an issue, or nothing (an open
                                      session) and start its planner session
 
@@ -94,7 +94,7 @@ async function start(fake: boolean) {
     die(err.message)
   })
   server.listen(port, host, () => {
-    process.stdout.write(`workflows on ${url} (fake=${fake}, config ${path})\n`)
+    process.stdout.write(`ameise on ${url} (fake=${fake}, config ${path})\n`)
     browse(url)
   })
   // A stop takes no new connection, then cuts the sessions off and marks their processes interrupted,
@@ -141,7 +141,7 @@ function running(): string {
 // address the server started on first, since a listen changed in the file takes effect only at the
 // next start. The configured address comes after it, since a server that was killed leaves its record.
 // An address is taken only when its answer to GET / carries the server's identity header, so no
-// request reaches another service that took the port. A recorded address no workflows answers on is
+// request reaches another service that took the port. A recorded address no ameise answers on is
 // stale, and its record is removed.
 async function call(method: string, path: string, body?: unknown): Promise<unknown> {
   const { url } = address(config(configPath()).listen)
@@ -149,13 +149,13 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   const candidates = [...(started && loopback(started) ? [{ url: address(started).url, record: true }] : []), { url, record: false }]
   let found: string | undefined
   for (const c of candidates) {
-    if (await workflows(c.url)) {
+    if (await isAmeise(c.url)) {
       found = c.url
       break
     }
     if (c.record) rmSync(join(stateDir(), 'listen'), { force: true })
   }
-  if (!found) die(`workflows is not running on ${url}; start it with workflows`)
+  if (!found) die(`ameise is not running on ${url}; start it with ameise`)
   const res = await fetch(found + path, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
@@ -166,8 +166,8 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   return answer
 }
 
-// workflows says whether the server at url is this controller.
-async function workflows(url: string): Promise<boolean> {
+// isAmeise says whether the server at url is this controller.
+async function isAmeise(url: string): Promise<boolean> {
   try {
     const res = await fetch(url + '/')
     await res.body?.cancel()
@@ -222,7 +222,7 @@ async function processCommand(command: 'claim' | 'abandon' | 'resume' | 'adopt',
     const a = args[i] as string
     const value = () => {
       const v = args[++i]
-      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      if (v === undefined) die(`${a} needs a value; ameise help lists the commands`)
       return v
     }
     if (a === '--force' && (command === 'claim' || command === 'abandon')) force = true
@@ -230,9 +230,9 @@ async function processCommand(command: 'claim' | 'abandon' | 'resume' | 'adopt',
     else if (a === '--env' && command === 'claim') env.push(value())
     else if (a === '--project') project = resolve(value())
     else if (/^#?[0-9]+$/.test(a) && issue === undefined) issue = Number(a.replace(/^#/, ''))
-    else die(`unexpected argument ${a}; workflows help lists the commands`)
+    else die(`unexpected argument ${a}; ameise help lists the commands`)
   }
-  if (issue === undefined) die(`${command} needs an issue number; workflows help lists the commands`)
+  if (issue === undefined) die(`${command} needs an issue number; ameise help lists the commands`)
   if (command === 'resume' || command === 'adopt') {
     const r = (await call('POST', `/api/processes/${command}`, { project, issue })) as { record: { branch: string; worktree: string; state: string; note: string } }
     process.stdout.write(`${command === 'resume' ? 'resumed' : 'adopted'} #${issue}  ${r.record.branch}  ${r.record.state}  ${r.record.note}\n  ${r.record.worktree}\n`)
@@ -262,13 +262,13 @@ async function actionCommand(command: 'merge' | 'release' | 'accept', args: stri
     const a = args[i] as string
     if (a === '--project') {
       const v = args[++i]
-      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      if (v === undefined) die(`${a} needs a value; ameise help lists the commands`)
       project = resolve(v)
     } else if (target === undefined && (command === 'release' ? version : /^#?[0-9]+$/).test(a)) target = a.replace(/^#/, '')
-    else die(`unexpected argument ${a}; workflows help lists the commands`)
+    else die(`unexpected argument ${a}; ameise help lists the commands`)
   }
   const what = { merge: 'a pull request number', release: 'a milestone such as v1.2.3', accept: 'a spec number' }[command]
-  if (target === undefined) die(`${command} needs ${what}; workflows help lists the commands`)
+  if (target === undefined) die(`${command} needs ${what}; ameise help lists the commands`)
   if (command === 'merge') {
     const m = (await call('POST', '/api/merges', { project, pr: Number(target) })) as Merged
     for (const w of m.warnings) process.stderr.write(`warning: ${w}\n`)
@@ -300,9 +300,9 @@ async function planCommand(args: string[]) {
     const a = args[i] as string
     if (a === '--project') {
       const v = args[++i]
-      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      if (v === undefined) die(`${a} needs a value; ameise help lists the commands`)
       project = resolve(v)
-    } else if (a.startsWith('--')) die(`unexpected argument ${a}; workflows help lists the commands`)
+    } else if (a.startsWith('--')) die(`unexpected argument ${a}; ameise help lists the commands`)
     else words.push(a)
   }
   const idea = words.join(' ').trim()
@@ -319,7 +319,7 @@ async function main(argv: string[]) {
   if (command === 'claim' || command === 'abandon' || command === 'resume' || command === 'adopt') return processCommand(command, argv.slice(1))
   if (command === 'merge' || command === 'release' || command === 'accept') return actionCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {
-    if (sub !== undefined) die(`unexpected argument ${sub}; workflows help lists the commands`)
+    if (sub !== undefined) die(`unexpected argument ${sub}; ameise help lists the commands`)
     return start(command === '--fake')
   }
   if (command === 'help' || command === '--help' || command === '-h') {
@@ -327,7 +327,7 @@ async function main(argv: string[]) {
     return
   }
   if (command === 'board') {
-    if (arg !== undefined) die(`unexpected argument ${arg}; workflows help lists the commands`)
+    if (arg !== undefined) die(`unexpected argument ${arg}; ameise help lists the commands`)
     const boards =
       sub === undefined
         ? ((await call('GET', '/api/board')) as { projects: (ProjectBoard | { path: string; error: string })[] }).projects
@@ -335,9 +335,9 @@ async function main(argv: string[]) {
     for (const b of boards) process.stdout.write(boardLines(b).map((l) => l + '\n').join(''))
     return
   }
-  if (command !== 'projects' || rest.length > 0) die(`unknown command ${argv.join(' ')}; workflows help lists the commands`)
+  if (command !== 'projects' || rest.length > 0) die(`unknown command ${argv.join(' ')}; ameise help lists the commands`)
   if (sub === undefined || sub === 'list') {
-    if (arg !== undefined) die(`unexpected argument ${arg}; workflows help lists the commands`)
+    if (arg !== undefined) die(`unexpected argument ${arg}; ameise help lists the commands`)
     for (const p of (await call('GET', '/api/projects')) as Listed[]) process.stdout.write(line(p) + '\n')
     return
   }
@@ -347,7 +347,7 @@ async function main(argv: string[]) {
     else process.stdout.write(`removed ${((await call('DELETE', '/api/projects', { path })) as { path: string }).path}\n`)
     return
   }
-  die(`unknown command ${argv.join(' ')}; workflows help lists the commands`)
+  die(`unknown command ${argv.join(' ')}; ameise help lists the commands`)
 }
 
 main(process.argv.slice(2)).catch((err: Error) => die(err.message))
