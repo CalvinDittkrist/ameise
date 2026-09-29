@@ -184,7 +184,8 @@ Run the following as root unless it says otherwise.
    - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
-   - `repo` is the repository's name today. `built` is the name it had when the release was built, because the attestation names that repository. Releases up to the bridge release `factory/v0.5.0` were built as `CalvinDittkrist/workflows`, later ones as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
+   - `repo` is the repository's name today. `built` is the name it had when the release was built, because the attestation names that repository.
+   - Releases up to the bridge release `factory/v0.5.0` were built as `CalvinDittkrist/workflows`, later ones as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
    - It needs Node 22.19 or later (`engines` of the package). Node 24 from NodeSource, installed with the gate's tools, is that.
@@ -984,10 +985,11 @@ The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. 
   - A host that runs an earlier release verifies and installs it as usual.
   - The bridge release reads its releases from `CalvinDittkrist/ameise` and verifies them against that name.
 - **Between the install and the rename** no repository answers under the new name. Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
-  - It installs nothing, puts nothing on the block list and neither signals nor restarts the factory. The running factory goes on working.
+  - It installs nothing and blocks nothing. It neither signals nor restarts the factory, which goes on working.
   - Rename the repository soon after the bridge release is installed on every host. The first tick after the rename finds the releases.
 - **After the rename** a release is built as `CalvinDittkrist/ameise`, and its attestation names only that repository.
-  - A host still on a release before the bridge asks the old name. GitHub redirects it, but its attestation check refuses every release built after the rename, each tick with an `error:` line.
+  - A host still on a release before the bridge asks the old name, and GitHub redirects it.
+  - Its attestation check refuses every release built after the rename, each tick with an `error:` line.
   - A rollback from the first release after the rename returns to the bridge release, which asks the new name as before.
 
 Install by hand on a host that refuses a release after the rename, as root:
