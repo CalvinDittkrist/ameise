@@ -4,7 +4,7 @@ Public repository of Claude Code plugins for agent-driven development: an orches
 
 Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
-`controller/` is the local program `workflows`, which holds this machine's projects and serves a local API. `dashboard/` is its browser interface, which the controller serves.
+`controller/` is the local program `ameise`, which holds this machine's projects and serves a local API. `dashboard/` is its browser interface, which the controller serves.
 
 ## Commands
 - Gate: `make check` runs everything CI runs. `make lint`, `make validate`, `make standard`, `make test`, `make ui`, `make factory`, `make browser`, `make controller`, `make dashboard` run one part.
@@ -25,7 +25,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - A fresh clone has only the placeholder. Until it is built, `/` answers 404 while the API works.
   - `npm --prefix factory/ui run dev` serves the dashboard with hot reload against a factory beside it.
 - Controller: `make controller` runs its lint and tests. `npm --prefix controller run build && node controller/dist/main.js --fake` starts it against the scripted gh.
-  - Its configuration is `~/.config/workflows/config.json`, its state `~/.local/share/workflows`; `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them.
+  - Its configuration is `~/.config/ameise/config.json`, its state `~/.local/share/ameise`; `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them.
   - It serves the dashboard at `/` once `npm --prefix dashboard run build` has written it into `controller/dist/dashboard`. Until then `/` answers 404 while the API works.
   - `npm --prefix dashboard run dev` serves the dashboard with hot reload against a controller beside it on the default address `127.0.0.1:7420`.
 - Try a plugin without installing: `claude --plugin-dir plugins/<name>`
@@ -35,7 +35,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - It tags `factory/v<version>`. That tag alone makes CI attach the static linux binaries, their checksums and their build attestation to a GitHub release.
   - `make binaries` builds the same files here.
 - Release the controller: bump `version` in `controller/package.json`, commit, `scripts/release.sh controller --push`.
-  - It has the factory's refusals and tags `controller/v<version>`. CI attaches the private npm package `workflows-controller` to that tag's GitHub release; it is not on npm.
+  - It has the factory's refusals and tags `controller/v<version>`. CI attaches the private npm package `ameise` to that tag's GitHub release; it is not on npm.
   - The build bundles `plugins/{worker,planner,repo-standards}` into `controller/dist/plugins`, which every session loads.
 
 ## Priorities

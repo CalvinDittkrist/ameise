@@ -8,7 +8,7 @@ import { test as base, expect, type Page } from "@playwright/test"
 // clones of a GitHub repository with processes, frontier and a spec ready for acceptance, and notes, a
 // directory that is no checkout.
 
-const url = (path = "/") => process.env.WORKFLOWS_URL + path
+const url = (path = "/") => process.env.AMEISE_URL + path
 const sidebar = (page: Page) => page.locator("[data-slot=sidebar]")
 const projects = (page: Page) => page.getByRole("list", { name: "Projects" })
 const main = (page: Page) => page.getByRole("main")
@@ -74,9 +74,9 @@ test("a quota the controller cannot read shows as unknown with the reason", asyn
 })
 
 test("a process that turned blocked carries a badge on its row and on the Orchestrator entry until its page is opened", async ({ page }) => {
-  const file = join(process.env.WORKFLOWS_RECORDS!, "p78.json")
+  const file = join(process.env.AMEISE_RECORDS!, "p78.json")
   writeFileSync(file, JSON.stringify({
-    project: process.env.WORKFLOWS_BACKTEST!, kind: "work", branch: "fix/78-keep-the-order-book", issue: 78,
+    project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/78-keep-the-order-book", issue: 78,
     stage: "implement", state: "blocked", note: "Which exchange first?", unseen: true, updated_at: new Date().toISOString(),
   }))
   try {
@@ -102,9 +102,9 @@ test("a process that turned blocked carries a badge on its row and on the Orches
 })
 
 test("a process page whose mark fails tries it again until the badge clears", async ({ page }) => {
-  const file = join(process.env.WORKFLOWS_RECORDS!, "p79.json")
+  const file = join(process.env.AMEISE_RECORDS!, "p79.json")
   writeFileSync(file, JSON.stringify({
-    project: process.env.WORKFLOWS_BACKTEST!, kind: "work", branch: "fix/79-retry-the-mark", issue: 79,
+    project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/79-retry-the-mark", issue: 79,
     stage: "implement", state: "ready", note: "Done", unseen: true, updated_at: new Date().toISOString(),
   }))
   try {
@@ -166,9 +166,9 @@ test("the Orchestrator page sorts the processes of every project into needs you 
 })
 
 test("a process whose session failed waits under needs you with its reason, a dark red dot and Open", async ({ page }) => {
-  const file = join(process.env.WORKFLOWS_RECORDS!, "p77.json")
+  const file = join(process.env.AMEISE_RECORDS!, "p77.json")
   writeFileSync(file, JSON.stringify({
-    project: process.env.WORKFLOWS_BACKTEST!, kind: "work", branch: "fix/77-drop-stale-ticks", issue: 77,
+    project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/77-drop-stale-ticks", issue: 77,
     stage: "implement", state: "failed", note: "the implement session exited without a result", updated_at: new Date().toISOString(),
   }))
   try {
@@ -186,10 +186,10 @@ test("a process whose session failed waits under needs you with its reason, a da
 
 test("a process page links the pull request of its branch with its checks", async ({ page }) => {
   // The ready process of the fixture turns running for this test and is ready again after it.
-  const file = join(process.env.WORKFLOWS_RECORDS!, "p131.json")
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
   const fixture = readFileSync(file, "utf8")
   writeFileSync(file, JSON.stringify({
-    project: process.env.WORKFLOWS_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
     stage: "ci", state: "running", note: "Waiting for the checks", updated_at: new Date().toISOString(),
   }))
   try {
@@ -236,18 +236,18 @@ test("a process page shows the facts, the stages and the session as a conversati
 })
 
 test("open in terminal has the terminal resume the session by its id", async ({ page }) => {
-  rmSync(process.env.WORKFLOWS_TERMINAL_LOG!, { force: true })
+  rmSync(process.env.AMEISE_TERMINAL_LOG!, { force: true })
   await page.goto(url("/#process=p118"))
   await page.getByRole("button", { name: "Open in terminal" }).click()
-  await expect.poll(() => existsSync(process.env.WORKFLOWS_TERMINAL_LOG!)).toBe(true)
-  const script = readFileSync(process.env.WORKFLOWS_TERMINAL_LOG!, "utf8").trim()
+  await expect.poll(() => existsSync(process.env.AMEISE_TERMINAL_LOG!)).toBe(true)
+  const script = readFileSync(process.env.AMEISE_TERMINAL_LOG!, "utf8").trim()
   expect(readFileSync(script, "utf8")).toMatch(/^exec '[^']+' '--resume' '7f3c9a2e-5b1d-4e8a-9c6f-2d4b8e1a0f37' /m)
   await expect(main(page).getByRole("alert")).toHaveCount(0)
 })
 
 test("a running session's permission, question and chat are answered on its page, which follows it live", async ({ page }) => {
-  const project = process.env.WORKFLOWS_SENSORS!
-  const play = join(process.env.WORKFLOWS_FAKE_CLAUDE!, "play")
+  const project = process.env.AMEISE_SENSORS!
+  const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
   writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nready Pull request #9 waits for your merge\n")
   try {
     const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
@@ -351,7 +351,7 @@ test("a project page shows its specs ready for acceptance", async ({ page }) => 
 })
 
 test("a project whose checkout no longer derives shows the controller's reason", async ({ page }) => {
-  const path = process.env.WORKFLOWS_NOT_A_CHECKOUT!
+  const path = process.env.AMEISE_NOT_A_CHECKOUT!
   await page.goto(url())
   await projects(page).getByRole("link", { name: "notes" }).click()
   await expect(main(page)).toContainText(path)
@@ -366,12 +366,12 @@ test("a project that is not on this machine says so", async ({ page }) => {
 test("a project page whose projects cannot be read says why, not that the project is missing", async ({ page }) => {
   await page.route("**/api/projects", (r) => r.abort())
   await page.goto(url("/#project=%2Fnowhere"))
-  await expect(main(page)).toContainText("The projects could not be readthe controller does not answer; start it with workflows")
+  await expect(main(page)).toContainText("The projects could not be readthe controller does not answer; start it with ameise")
   await expect(main(page)).not.toContainText("No such project")
 })
 
 test("add project refuses a path with the controller's reason and adds a checkout, whose notes both pages show", async ({ page }) => {
-  const spare = process.env.WORKFLOWS_SPARE!
+  const spare = process.env.AMEISE_SPARE!
   await page.goto(url())
   try {
     await projects(page).getByRole("button", { name: "Add project" }).click()
@@ -401,7 +401,7 @@ test("add project refuses a path with the controller's reason and adds a checkou
 })
 
 test("a ready-to-start row claims its issue with mode and knobs, and the process row abandons it", async ({ page }) => {
-  const project = process.env.WORKFLOWS_SENSORS!
+  const project = process.env.AMEISE_SENSORS!
   const branch = "feat/145-claim-from-the-frontier-by-one-action"
   await page.goto(url())
   try {
@@ -457,7 +457,7 @@ test("a ready-to-start row claims its issue with mode and knobs, and the process
 })
 
 test("a worktree the controller did not start is adopted from its row, and the interrupted process resumes", async ({ page }) => {
-  const project = process.env.WORKFLOWS_BACKTEST!
+  const project = process.env.AMEISE_BACKTEST!
   const branch = "fix/93-by-hand"
   execFileSync("git", ["-C", project, "worktree", "add", "-q", "-b", branch, join(project, ".claude", "worktrees", "fix-93-by-hand")], { stdio: "pipe" })
   try {
@@ -492,7 +492,7 @@ async function answer(page: Page, path: string, status: number, body: unknown): 
 }
 
 test("merge, accept and release each ask once, show the controller's refusal, and send the action", async ({ page }) => {
-  const project = process.env.WORKFLOWS_SENSORS!
+  const project = process.env.AMEISE_SENSORS!
   await page.goto(url())
 
   // Merge on a ready process: the controller's refusal shows in the dialog, a merge closes it.
@@ -537,7 +537,7 @@ test("merge, accept and release each ask once, show the controller's refusal, an
 })
 
 test("plan opens a plan process from an idea, nothing or an issue, and a plan's page captures its prototype and finishes it", async ({ page }) => {
-  const project = process.env.WORKFLOWS_SENSORS!
+  const project = process.env.AMEISE_SENSORS!
   const id = "plan-0123456789ab"
   const record = {
     id, project, kind: "plan", route: "idea", topic: "Offline mode", branch: "plan/offline-mode", issue: null,

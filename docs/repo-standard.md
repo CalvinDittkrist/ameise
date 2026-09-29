@@ -7,7 +7,10 @@ The baseline every repository that runs this workflow is held to. Terms are defi
 - `plugins/repo-standards/scripts/workspace.sh` brings the GitHub workspace and its milestones to the standard. The check reports its differences as warnings when GitHub is reachable.
 - `/repo-standards:apply` applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check.
 
-The local workflow that works a repository on this standard is the controller, installed as the npm package `workflows-controller` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the plugins of the marketplace `ameise`, for sessions started by hand: `claude plugin marketplace add CalvinDittkrist/workflows --scope project` registers it, and `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner`, `repo-standards` and `orchestrator`.
+The local workflow that works a repository on this standard is the controller, installed as the npm package `ameise` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the plugins of the marketplace `ameise`, for sessions started by hand:
+
+- `claude plugin marketplace add CalvinDittkrist/workflows --scope project` registers it.
+- `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner`, `repo-standards` and `orchestrator`.
 
 ## Profile
 A repository's profile is its visibility plus its branch model. Both are derived from GitHub, never configured per repository ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).

@@ -285,8 +285,8 @@ test('what GitHub does not answer is a note on the board, not an empty section t
 
 test('a path that is no project has no board, and a project whose checkout is gone is listed with the reason', async () => {
   const r = await api(m, 'GET', '/api/board?project=%2Fnowhere')
-  expect(r).toEqual({ status: 404, body: { error: '/nowhere is not a project; workflows projects lists them' } })
-  expect(cli(m, ['board', '/nowhere']).stderr).toBe('error: /nowhere is not a project; workflows projects lists them\n')
+  expect(r).toEqual({ status: 404, body: { error: '/nowhere is not a project; ameise projects lists them' } })
+  expect(cli(m, ['board', '/nowhere']).stderr).toBe('error: /nowhere is not a project; ameise projects lists them\n')
   const dir = await project('gone')
   const config = JSON.parse(read(m.config)) as { projects: string[] }
   config.projects.push('/nowhere')

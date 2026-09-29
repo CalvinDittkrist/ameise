@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# The scripted claude of the controller's fake mode (workflows --fake): the runtime the Agent SDK starts
+# The scripted claude of the controller's fake mode (ameise --fake): the runtime the Agent SDK starts
 # in place of the machine's claude. It speaks the SDK's stream-json protocol on stdin and stdout and plays
 # the session a canned directory names. The real server so runs a session with no model behind it.
 #
-#   WORKFLOWS_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
+#   AMEISE_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
 #     play                     the session to play, one step a line; the first word of a line is the step
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays play
 #     linger                   while it is there, a session that has reported its end has not exited yet
-#   WORKFLOWS_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
+#   AMEISE_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
 #
 # The session says "Working on it." when its first message arrives, then plays its steps in order:
@@ -31,9 +31,9 @@
 # --version answers as a claude does, whatever the play.
 set -euo pipefail
 
-log=${WORKFLOWS_FAKE_CLAUDE_LOG:-/dev/null}
+log=${AMEISE_FAKE_CLAUDE_LOG:-/dev/null}
 if [ "${1:-}" = --version ]; then
-  printf '2.0.0 (Claude Code, workflows fake)\n'
+  printf '2.0.0 (Claude Code, ameise fake)\n'
   exit 0
 fi
 printf '%s\n' "$@" >> "$log"
@@ -52,7 +52,7 @@ for arg in "$@"; do
 done
 
 steps=()
-canned=${WORKFLOWS_FAKE_CLAUDE:-}
+canned=${AMEISE_FAKE_CLAUDE:-}
 if [ "$file" = resume ] && { [ -z "$canned" ] || [ ! -f "$canned/resume" ]; }; then file=play; fi
 if [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
