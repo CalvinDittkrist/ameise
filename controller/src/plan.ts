@@ -7,10 +7,11 @@ import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { run } from './exec.js'
-import { recordFiles, worktrees } from './board.js'
+import { issueFromBranch, recordFiles, worktrees } from './board.js'
 import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
 import { type Project, Refusal } from './project.js'
 import { event, forget, readRecord, stop, update } from './session.js'
+import { resumed } from './terminal.js'
 
 // The routes a plan process starts on: an idea, an issue, nothing (an open session), or the
 // acceptance of a spec, which the acceptance start opens.
@@ -80,6 +81,9 @@ async function planHeld(project: Project, stateDir: string, gh: string, fake: bo
     issue = req.issue
     const recorded = recordFiles(stateDir, top).find((r) => r.record.issue === issue)
     if (recorded) throw new Refusal(`#${issue} has a process already on ${recorded.record.branch}; open it on the board, or finish it first`, 409)
+    // A worktree of the issue that no record knows is a foreign process, as the board shows it.
+    const foreign = (await worktrees(top)).find((t) => issueFromBranch(t.branch) === String(issue))
+    if (foreign) throw new Refusal(`#${issue} has a process already on ${foreign.branch} at ${foreign.path}; adopt it on the board, or remove it first`, 409)
     let found: { number: number; title: string; state: string }
     try {
       found = JSON.parse(await run(gh, ['issue', 'view', String(issue), '--repo', repo, '--json', 'number,title,state,labels'])) as typeof found
@@ -171,7 +175,11 @@ export function capture(project: Project, stateDir: string, fake: boolean, id: s
 async function captureHeld(project: Project, stateDir: string, fake: boolean, id: string, name: string): Promise<Captured> {
   const r = planOf(stateDir, id)
   if (working.includes(r.state)) throw new Refusal(`the session of ${r.branch} is at work in its worktree; capture the prototype once it waits for you`, 409)
+  await outside(r)
   const wt = r.worktree
+  // The prototype is one commit on the plan's start, so commits on the plan branch would ride along.
+  const ahead = Number(await git(wt, 'rev-list', '--count', 'HEAD', '--not', r.base))
+  if (ahead > 0) throw new Refusal(`${r.branch} has ${ahead} commit(s) not on ${r.base}, and a plan branch carries none; move them to a branch of their own, then capture`, 409)
   if ((await git(wt, 'status', '--porcelain')) === '') throw new Refusal(`nothing to capture: the worktree ${wt} is clean`, 409)
   const branch = `prototype/${r.branch.slice('plan/'.length)}-${name}`
   if (await exists(project.path, `refs/heads/${branch}`)) throw new Refusal(`the branch ${branch} exists already; pick another name`, 409)
@@ -210,6 +218,14 @@ export interface Finished {
   worktree: string | null
 }
 
+// outside refuses while the plan's session runs in a terminal the maintainer opened, which the
+// controller cannot stop and whose writes a capture or a finish would take half of or lose.
+async function outside(r: PlanRecord): Promise<void> {
+  if (r.session_id && (await resumed(r.session_id))) {
+    throw new Refusal(`the session of ${r.branch} runs in a terminal; quit it there, then try again`, 409)
+  }
+}
+
 // finish ends a plan process: it stops its session, then removes its worktree, its plan branch and its
 // record. It refuses changes not captured and commits on the plan branch, which would be lost, unless
 // force is given.
@@ -223,13 +239,16 @@ async function finishHeld(project: Project, stateDir: string, id: string, force:
   const r = planOf(stateDir, id)
   const tree = (await worktrees(top)).find((t) => t.branch === r.branch)
   const clean = async () => {
-    if (!tree || force) return
-    if ((await git(tree.path, 'status', '--porcelain')) !== '') {
+    if (force) return
+    // A worktree removed outside the controller leaves the branch, whose commits are still checked.
+    if (tree && (await git(tree.path, 'status', '--porcelain')) !== '') {
       throw new Refusal(`${tree.path} has changes not captured; capture them as a prototype, or finish with force to lose them`, 409)
     }
+    if (!(await exists(top, `refs/heads/${r.branch}`))) return
     const n = Number(await git(top, 'rev-list', '--count', r.branch, '--not', r.base))
     if (n > 0) throw new Refusal(`${r.branch} has ${n} commit(s) not on ${r.base}, and a plan branch carries none; move them to a branch of their own, or finish with force to lose them`, 409)
   }
+  await outside(r)
   await clean()
   const stopped = await stop(id)
   // The session may have written until it stopped, so the worktree is checked again. A session stopped

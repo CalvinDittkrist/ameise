@@ -1,7 +1,7 @@
 // Open in terminal: the session of a process opened in a terminal window of this machine.
 // The runtime resumes it by its id in the process's worktree, with the bundled plugin of its kind, the
 // worker or the planner, and the session's settings.
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from './project.js'
 import { commandFile, type SessionRecord, settings } from './session.js'
@@ -14,6 +14,16 @@ export function script(record: SessionRecord, claude: string, plugins: { worker:
   const agent = record.kind === 'plan' ? 'planner' : 'worker'
   const args = [claude, '--resume', record.session_id ?? '', '--plugin-dir', plugins[agent], '--agent', agent, '--settings', JSON.stringify(settings(record))]
   return ['#!/bin/sh', `cd ${quote(record.worktree)} || exit 1`, `exec ${args.map(quote).join(' ')}`, ''].join('\n')
+}
+
+// resumed tells whether a runtime that a terminal opened still resumes the session: a process whose
+// command line holds --resume <id> as the script writes it. The controller's own sessions resume with
+// --resume=<id>, so they do not count. Without pgrep nothing is found.
+export function resumed(sessionId: string): Promise<boolean> {
+  if (!/^[A-Za-z0-9-]+$/.test(sessionId)) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    execFile('pgrep', ['-f', '--', `--resume ${sessionId}( |$)`], { timeout: 5000 }, (err) => resolve(!err))
+  })
 }
 
 // native is the platform's own terminal as a command and its arguments that runs the script, or

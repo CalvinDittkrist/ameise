@@ -90,7 +90,7 @@ export async function machine(): Promise<Machine> {
   made.push(root)
   const bin = join(root, 'bin')
   mkdirSync(bin)
-  for (const tool of ['git', 'bash', 'cat']) symlinkSync(which(tool), join(bin, tool))
+  for (const tool of ['git', 'bash', 'cat', 'pgrep']) symlinkSync(which(tool), join(bin, tool))
   script(join(bin, 'claude'), 'echo "2.0.0 (Claude Code, scripted)"')
   const opened = join(root, 'opened')
   const browser = join(root, 'browser')

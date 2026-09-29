@@ -1,5 +1,5 @@
-import { type ChildProcess, execFileSync } from 'node:child_process'
-import { existsSync, writeFileSync } from 'node:fs'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -238,6 +238,60 @@ function alive(pid: number): boolean {
     return false
   }
 }
+
+test('a plan of an issue with a worktree the state does not know is refused', async () => {
+  const tree = `${dir}-feat-12`
+  git(dir, 'worktree', 'add', '-q', '-b', 'feat/12-fix-login', tree)
+  const r = await api(m, 'POST', '/api/plans', { project: dir, issue: 12 })
+  expect(r.status).toBe(409)
+  expect((r.body as { error: string }).error).toMatch(/#12 has a process already on feat\/12-fix-login/)
+  expect(git(dir, 'branch', '--list', 'plan/*')).toBe('')
+})
+
+test('a capture refuses a commit on the plan branch, and a finish checks the branch of a worktree removed by hand', async () => {
+  play(m, 'ready Here is the prototype.')
+  const r = await planned({ idea: 'Offline mode' })
+  await waiting(r.id)
+  git(r.worktree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'oops')
+  writeFileSync(join(r.worktree, 'proto.html'), '<p>proto</p>\n')
+  const c = await api(m, 'POST', '/api/processes/capture', { id: r.id, name: 'x' })
+  expect(c.status).toBe(409)
+  expect((c.body as { error: string }).error).toMatch(/1 commit\(s\) not on origin\/main/)
+  expect(git(dir, 'branch', '--list', 'prototype/*')).toBe('')
+
+  rmSync(r.worktree, { recursive: true, force: true })
+  git(dir, 'worktree', 'prune')
+  const f = await api(m, 'POST', '/api/processes/finish', { id: r.id })
+  expect(f.status).toBe(409)
+  expect((f.body as { error: string }).error).toMatch(/1 commit\(s\) not on origin\/main/)
+  expect(git(dir, 'branch', '--list', 'plan/offline-mode')).not.toBe('')
+  const forced = await api(m, 'POST', '/api/processes/finish', { id: r.id, force: true })
+  expect(forced.status, JSON.stringify(forced.body)).toBe(200)
+  expect(git(dir, 'branch', '--list', 'plan/offline-mode')).toBe('')
+})
+
+test('a capture and a finish wait while the session runs in a terminal', async () => {
+  play(m, 'ready Here is the prototype.')
+  const r = await planned({ idea: 'Offline mode' })
+  const session = (await waiting(r.id)).session_id ?? ''
+  writeFileSync(join(r.worktree, 'proto.html'), '<p>proto</p>\n')
+  // A runtime as the terminal's script starts it: --resume and the id as two arguments.
+  const resumed = spawn('sh', ['-c', 'sleep 30', 'claude', '--resume', session, '--agent', 'planner'], { stdio: 'ignore' })
+  try {
+    await new Promise((done) => setTimeout(done, 200))
+    for (const [path, body] of [['/api/processes/capture', { id: r.id, name: 'x' }], ['/api/processes/finish', { id: r.id, force: true }]] as const) {
+      const refused = await api(m, 'POST', path, body)
+      expect(refused.status).toBe(409)
+      expect((refused.body as { error: string }).error).toMatch(/runs in a terminal/)
+    }
+    expect(existsSync(r.worktree)).toBe(true)
+  } finally {
+    resumed.kill()
+  }
+  await new Promise((done) => resumed.once('exit', done))
+  const c = await api(m, 'POST', '/api/processes/capture', { id: r.id, name: 'x' })
+  expect(c.status, JSON.stringify(c.body)).toBe(201)
+})
 
 test('a capture or a finish of a process that is no plan is refused', async () => {
   expect((await api(m, 'POST', '/api/processes/capture', { id: 'plan-nothing', name: 'x' })).status).toBe(404)
