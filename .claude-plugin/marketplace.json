@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "workflows",
+  "name": "ameise",
   "description": "Agentic development workflows: orchestrator, worker pipeline, reviewers, repo standards.",
   "owner": {
     "name": "Calvin Dittkrist",

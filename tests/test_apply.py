@@ -265,9 +265,9 @@ class CleanupTests(MessyRepositoryCase):
             ".github/PULL_REQUEST_TEMPLATE.md", ".github/dependabot.yml", ".github/workflows/check.yml"})
         self.assertEqual(self.origin_git("rev-parse", "chore/standardize~1").strip(), self.head)
         settings = json.loads(self.origin_git("show", "chore/standardize:.claude/settings.json"))
-        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@workflows": True, "planner@workflows": True,
-                                                      "repo-standards@workflows": True, "worker@workflows": True})
-        self.assertEqual(settings["extraKnownMarketplaces"]["workflows"]["source"]["repo"], "CalvinDittkrist/workflows")
+        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@ameise": True, "planner@ameise": True,
+                                                      "repo-standards@ameise": True, "worker@ameise": True})
+        self.assertEqual(settings["extraKnownMarketplaces"]["ameise"]["source"]["repo"], "CalvinDittkrist/workflows")
         self.assertEqual(settings["env"]["WF_REVIEW_ROUNDS"], "5")
         self.assertEqual(settings["attribution"], {"commit": "", "pr": ""})
         self.assertIn("claude plugin disable foo@bar --scope project", self.calls())

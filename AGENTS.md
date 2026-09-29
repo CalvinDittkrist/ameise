@@ -96,5 +96,5 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - A skill's `` !`command` `` runs through the permission system.
   - Forked skills (`context: fork`) fail silently without a matching `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x.sh)` rule.
   - So every injection calls a plugin script and lists it there (tested).
-- This repository develops the plugins, so `.claude/settings.json` enables only `repo-standards@workflows`. `make standard` warns that `orchestrator`, `planner` and `worker` are off.
+- This repository develops the plugins, so `.claude/settings.json` enables only `repo-standards@ameise`. `make standard` warns that `orchestrator`, `planner` and `worker` are off.
   - Sessions load the other plugins from the checkout with `--plugin-dir` (see `scripts/dev-orchestrator.sh`).
