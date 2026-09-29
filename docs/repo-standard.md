@@ -11,6 +11,7 @@ The local workflow that works a repository on this standard is the controller, i
 
 - `claude plugin marketplace add CalvinDittkrist/workflows --scope project` registers it.
 - `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner`, `repo-standards` and `orchestrator`.
+- A repository that registered the marketplace under its earlier name first runs `claude plugin marketplace remove workflows --scope project`, so its settings hold one key for the source.
 
 ## Profile
 A repository's profile is its visibility plus its branch model. Both are derived from GitHub, never configured per repository ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
