@@ -11,9 +11,9 @@ import { accept, merge, mergeRequest, release, releaseRequest, specRequest } fro
 import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
-import { type Announce, answer, compactAt, eventsFile, implement, processId, readRecord, recover, type Runtime, say, seen, watch } from './session.js'
+import { type Announce, answer, begin, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
+import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { open } from './terminal.js'
-import type { WorkRecord } from './claim.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -23,8 +23,8 @@ export interface Options {
   stateDir: string
   gh: string
   fake: boolean
-  // runtime is what an implement session runs on: the claude executable and the bundled worker plugin.
-  runtime: { claude: string; worker: string }
+  // runtime is what a session runs on: the claude executable and the bundled worker and planner plugins.
+  runtime: { claude: string; worker: string; planner: string }
   // dashboard is the directory of the dashboard's build, which the server serves at its root.
   dashboard: string
 }
@@ -61,7 +61,7 @@ export function serve(o: Options): Server {
         process.stderr.write(`warning: ${r.id}: the turn to ${r.state} was not logged: ${(err as Error).message}\n`)
       }
       if (!c.notifications) return
-      void notify(c.notifier, { title: `${basename(r.project)} #${r.issue} ${r.state}`, body: r.note })
+      void notify(c.notifier, { title: `${basename(r.project)} ${r.issue === null ? r.branch : `#${r.issue}`} ${r.state}`, body: r.note })
     } catch (err) {
       process.stderr.write(`warning: ${r.id}: no notification of ${r.state} was sent: ${(err as Error).message}\n`)
     }
@@ -133,7 +133,7 @@ export function serve(o: Options): Server {
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.
-    const record = implement(done.record, project, rt)
+    const record = begin(done.record, project, rt)
     const q = await within(reading, quotaShare)
     send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
   }
@@ -154,7 +154,7 @@ export function serve(o: Options): Server {
     const { issue } = abandonRequest(body)
     const project = await known(body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const record = implement(await resumable(project, o.stateDir, issue), project, { ...o.runtime, stateDir: o.stateDir, announce })
+    const record = begin(await resumable(project, o.stateDir, issue), project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }
@@ -198,6 +198,40 @@ export function serve(o: Options): Server {
     send(res, 201, { record })
   }
 
+  // A plan opens a plan process from an idea, an issue or nothing and starts its planner session at once;
+  // the answer is its record as it runs.
+  async function planned(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const request = planRequest(body)
+    const project = await known(body)
+    const done = await plan(project, o.stateDir, o.gh, o.fake, request)
+    log({ event: 'planned', project: project.path, route: request.route, issue: done.issue, branch: done.branch })
+    const record = begin(done, project, rt)
+    send(res, 201, { record })
+  }
+
+  // A capture moves the prototype in a plan's worktree to a pushed prototype branch; a finish removes
+  // the plan's worktree, branch and process.
+  async function captured(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const record = recorded(body.id)
+    const name = captureRequest(body)
+    const project = await known({ project: record.project })
+    const done = await capture(project, o.stateDir, o.fake, record.id, name)
+    log({ event: 'captured', process: record.id, branch: done.branch })
+    send(res, 201, { id: record.id, ...done })
+  }
+
+  async function finished(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const record = recorded(body.id)
+    if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
+    const project = await known({ project: record.project })
+    const done = await finish(project, o.stateDir, record.id, body.force === true)
+    log({ event: 'finished', process: record.id, branch: done.branch, force: body.force === true })
+    send(res, 200, { id: record.id, ...done })
+  }
+
   // A process page that is opened marks its process seen, which clears its badge.
   async function opened(req: IncomingMessage, res: ServerResponse) {
     const id = ((await readJSON(req)) ?? {}).id
@@ -207,7 +241,7 @@ export function serve(o: Options): Server {
   }
 
   // recorded is the record of the process a body or a query names, or a refusal.
-  const recorded = (id: unknown): WorkRecord => {
+  const recorded = (id: unknown): SessionRecord => {
     const r = readRecord(o.stateDir, processId(id))
     if (!r) throw new Refusal(`${String(id)} is not a process of this machine`, 404)
     return r
@@ -224,7 +258,7 @@ export function serve(o: Options): Server {
     const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', [identity]: '1' })
     const out = (name: string, data: unknown) => res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
-    const shown = (r: WorkRecord) => ({ ...r, compact_at: compactAt })
+    const shown = (r: SessionRecord) => ({ ...r, compact_at: compactAt })
     out('record', shown(record))
     let seq = 0
     const of = (e: Record<string, unknown>): Entry[] => entries(e, seq++, record.worktree)
@@ -282,7 +316,7 @@ export function serve(o: Options): Server {
   // Open in terminal resumes the process's session by its id in a terminal window.
   async function terminal(req: IncomingMessage, res: ServerResponse) {
     const record = recorded(((await readJSON(req)) ?? {}).id)
-    const script = await open(record, o.stateDir, readConfig(o.configPath).terminal, o.runtime.claude, o.runtime.worker)
+    const script = await open(record, o.stateDir, readConfig(o.configPath).terminal, o.runtime)
     log({ event: 'terminal', process: record.id, session: record.session_id })
     send(res, 200, { id: record.id, script })
   }
@@ -358,6 +392,12 @@ export function serve(o: Options): Server {
           return released(req, res)
         case 'POST /api/acceptances':
           return accepted(req, res)
+        case 'POST /api/plans':
+          return planned(req, res)
+        case 'POST /api/processes/capture':
+          return captured(req, res)
+        case 'POST /api/processes/finish':
+          return finished(req, res)
         case 'POST /api/processes/seen':
           return opened(req, res)
         case 'GET /api/processes/events':

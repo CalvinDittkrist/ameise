@@ -20,7 +20,7 @@
 #                       then says the answer
 #   wait                it waits for the next message, then says what it read
 # A line with one of these words ends it:
-#   ready <message>     it reports ready with the message
+#   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
@@ -173,7 +173,7 @@ while next; do
       play || break
       case "$word" in
         ready | blocked)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":\"\",\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
           # A lingering runtime shrugs off the SDK's TERM as it closes the session.
           trap '' TERM
           while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done

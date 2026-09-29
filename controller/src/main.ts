@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run, which } from './exec.js'
-import { bundledWorker, stopAll } from './session.js'
+import { bundledPlanner, bundledWorker, stopAll } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
-import { version, type Merged, type PlanRecord, type Released } from './actions.js'
+import { version, type Merged, type Released } from './actions.js'
+import type { PlanRecord } from './plan.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 
@@ -33,6 +34,9 @@ const usage = `usage:
                                      tag the finished milestone, publish its release and close it
   workflows accept <spec> [--project <path>]
                                      open a plan process on the spec with the acceptance route
+  workflows plan [<idea>... | <issue>] [--project <path>]
+                                     open a plan process from an idea, an issue, or nothing (an open
+                                     session) and start its planner session
 
 --project names the checkout of the project; without it the project is the checkout of the current
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
@@ -84,7 +88,7 @@ async function start(fake: boolean) {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, worker: bundledWorker }, dashboard })
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, worker: bundledWorker, planner: bundledPlanner }, dashboard })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)
@@ -287,8 +291,31 @@ async function actionCommand(command: 'merge' | 'release' | 'accept', args: stri
   process.stdout.write(`accept #${a.record.issue}  ${a.record.branch}  from ${a.record.base}  ${a.record.state}\n  ${a.record.worktree}\n`)
 }
 
+// planCommand opens a plan process: the words of an idea, an issue number, or nothing for an open
+// session, then --project in any order.
+async function planCommand(args: string[]) {
+  let project = process.cwd()
+  const words: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string
+    if (a === '--project') {
+      const v = args[++i]
+      if (v === undefined) die(`${a} needs a value; workflows help lists the commands`)
+      project = resolve(v)
+    } else if (a.startsWith('--')) die(`unexpected argument ${a}; workflows help lists the commands`)
+    else words.push(a)
+  }
+  const idea = words.join(' ').trim()
+  const body = /^#?[0-9]+$/.test(idea) ? { project, issue: Number(idea.replace(/^#/, '')) } : idea === '' ? { project } : { project, idea }
+  const p = (await call('POST', '/api/plans', body)) as { record: PlanRecord }
+  const r = p.record
+  const what = r.route === 'issue' ? `#${r.issue}` : r.route === 'open' ? 'open session' : r.topic ?? ''
+  process.stdout.write(`plan ${what}  ${r.branch}  from ${r.base}  ${r.state}\n  ${r.worktree}\n`)
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
+  if (command === 'plan') return planCommand(argv.slice(1))
   if (command === 'claim' || command === 'abandon' || command === 'resume' || command === 'adopt') return processCommand(command, argv.slice(1))
   if (command === 'merge' || command === 'release' || command === 'accept') return actionCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {

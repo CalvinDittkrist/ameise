@@ -16,6 +16,7 @@
 - `workflows merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
 - `workflows release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
 - `workflows accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+- `workflows plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
   - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
@@ -146,7 +147,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
-The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the worker plugin, the `worker` agent and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
+The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the plugin and agent of its kind, `worker` or `planner`, and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
 
 While the headless session still runs, the terminal is a second runtime on the same session. Its turns stay out of the process's event log.
 
@@ -156,6 +157,7 @@ Stopping and starting the controller loses no process.
 - The start reads every record before it answers a request.
 - A work process still `running`, `created`, `approval` or `input` lost its session with the last run, as after a kill, and is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
+- A plan process `running` or `approval` lost its session the same way. It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
 - A resume goes on with an interrupted process: it starts the implement session again in the worktree.
   - It uses the runtime's resume by that session id, and a short brief to go on.
@@ -198,13 +200,32 @@ An acceptance start opens a plan process on a spec ready for acceptance. It crea
 
 The spec then leaves `acceptance`. No session starts yet.
 
+## Plan process
+A plan opens a plan process from an idea, an issue or nothing, an open session. It creates the branch `plan/<slug>` from `origin/<base>` and its worktree:
+- the slug of the idea,
+- the slug of the issue's title,
+- or `open-<local time to the second>` for an open session.
+
+The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
+
+The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
+- the planner plugin of this checkout (`plugins/planner`) and the `planner` agent,
+- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH`, foreground subagents, and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane: the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it. It carries no text of the issue.
+
+A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
+
+A capture moves the prototype the session left in the worktree to the branch `prototype/<plan slug>-<name>`: every change, untracked files included, as one commit on the plan branch's start. It pushes the branch and cleans the worktree, so the plan branch carries no commit. It refuses, with `409`, a clean worktree, a session at work (`created`, `running` or `approval`) and a prototype branch that exists. A push that fails keeps the commit on the local branch and the worktree as it was. In fake mode it pushes nothing.
+
+A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
+
 ## Quota
 The controller reads the quota of every runtime a work process spends. That is Claude alone, since the worker's pipeline runs inside the implement session. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
 
 A reading is unknown, with the reason, when `quota_axi` is empty, not installed, fails, takes longer than 30 seconds or prints a report it cannot read. An unknown quota warns of nothing and holds no claim.
 
 ## Notifications
-A process that turns `blocked`, `ready` or `failed` gets one native notification: the project, the issue and the state as the title, the note as the body. The event log `events.jsonl` records a `turned` event for it.
+A process that turns `blocked`, `ready` or `failed` gets one native notification: the project, the issue (the branch of a plan without one) and the state as the title, the note as the body. The event log `events.jsonl` records a `turned` event for it.
 - The notifier is the command `notifier` names, called as `<notifier> <title> <body>`.
 - Without one it is `osascript` on macOS and `notify-send` on Linux. Other platforms get none.
 - With `notifications` false nothing is sent, and the process is marked all the same.
@@ -253,6 +274,9 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
   - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
 - `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
+- `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.
+- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan and answers `200` with `{id, branch, worktree}`.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
