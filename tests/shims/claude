@@ -7,9 +7,9 @@ s=.claude/settings.json
 edit() { mkdir -p .claude; [ -f "$s" ] || echo '{}' > "$s"; jq "$@" "$s" > "$s.tmp" && mv "$s.tmp" "$s"; }
 case "$*" in
   "plugin marketplace add "*"/"*" --scope project")
-    # Claude Code keys a marketplace by the name in its catalogue, which the shim cannot fetch: the
-    # workflow's repository hosts the marketplace ameise.
-    r=$4; n=${r##*/}; [ "$r" != CalvinDittkrist/ameise ] || n=ameise
+    # Claude Code keys a marketplace by the name in its catalogue, which the shim cannot fetch: it takes
+    # the repository's last path segment.
+    r=$4; n=${r##*/}
     edit --arg r "$r" --arg n "$n" '.extraKnownMarketplaces[$n] = {source: {source: "github", repo: $r}}' ;;
   "plugin install "*"@"*" --scope project") edit --arg p "$3" '.enabledPlugins[$p] = true' ;;
   "plugin disable "*" --scope project")
