@@ -166,7 +166,7 @@ Run the following as root unless it says otherwise.
    version=0.5.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
    repo=CalvinDittkrist/ameise
-   built=CalvinDittkrist/ameise   # the earlier name for the bridge release 0.5.0 and those before it
+   built=CalvinDittkrist/workflows   # the old name, for the bridge release 0.5.0 and those before it; CalvinDittkrist/ameise for a later one
    cd "$(mktemp -d)" &&
      gh release download "factory/v$version" -R "$repo" \
        -p "factory-linux-$arch" -p checksums.txt -p "factory-v$version.sigstore.json" &&
@@ -185,7 +185,7 @@ Run the following as root unless it says otherwise.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
    - `repo` is the repository's name today. `built` is the name it had when the release was built, because the attestation names that repository.
-   - Releases up to the bridge release `factory/v0.5.0` were built under the repository's earlier name, which [ADR 0067](adr/0067-the-rename-is-a-hard-cut.md) records. Later ones were built as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
+   - Releases up to the bridge release `factory/v0.5.0` were built under the repository's old name `CalvinDittkrist/workflows` ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)). Later ones were built as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
    - It needs Node 22.19 or later (`engines` of the package). Node 24 from NodeSource, installed with the gate's tools, is that.
@@ -996,7 +996,7 @@ The repository is renamed `CalvinDittkrist/ameise`. The update tick reads the re
 
 Install by hand on a host that refuses a release after the rename, as root:
 
-1. Download and check the release as in [Installation](#installation), with `built=CalvinDittkrist/ameise`. For the bridge release itself, `built` is the old name.
+1. Download and check the release as in [Installation](#installation), with `built=CalvinDittkrist/ameise`. For the bridge release itself, `built` is the old name that [Installation](#installation) gives.
 2. `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`.
 3. Look for the new version in the journal's first line. The next tick reads the new name.
 
@@ -1022,7 +1022,8 @@ The rename needs these steps, which only a person can take, in this order:
    - `claude plugin install <plugin>@ameise --scope project` enables each plugin under the new name, for `worker`, `planner`, `repo-standards` and `orchestrator`.
 10. Install the local program from the controller's [GitHub release](https://github.com/CalvinDittkrist/ameise/releases), as in [its install](../controller/README.md#install).
     It starts with no projects: it reads no directory of the old name ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)).
-11. Optional: rename the directory of a checkout, then `ameise projects add <new path>`. The controller knows a project by its path.
+11. Remove every Docker Sandbox of a worker that was created before the rename, with `sbx rm <name>`. A reused sandbox keeps the plugins of the old marketplace; the next start creates a fresh one.
+12. Optional: rename the directory of a checkout, then `ameise projects add <new path>`. The controller knows a project by its path.
 
 No repository is ever created under the old name again, neither by the maintainer nor by the machine user. GitHub redirects the old name to the new one only until a repository holds it ([renaming a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)).
 
