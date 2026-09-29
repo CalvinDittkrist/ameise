@@ -1,0 +1,137 @@
+name: controller-release
+# The local workflow installs as one npm package: the controller, the dashboard it serves and the
+# plugins its sessions load, at one version (ADR 0060). A controller version tag, and nothing else,
+# releases it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
+# push and no other tag matches this trigger. Plugin and milestone tags carry no slash, and the
+# factory's tags start with factory/. The two checks of the package job mirror factory-release.yml,
+# so a change to one belongs in both.
+on:
+  push:
+    tags: ['controller/v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    # Packing runs other people's code: npm packages and their install and build scripts. So it
+    # runs with a token that can only read. Attaching it to the release is the other job.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the whole history, so the tagged commit can be held against main
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: The tag and controller/package.json have to name the same version
+        run: |
+          tagged="${GITHUB_REF_NAME#controller/v}"
+          said="$(node -p 'require("./controller/package.json").version')"
+          [ "$tagged" = "$said" ] || {
+            echo "error: the tag $GITHUB_REF_NAME was pushed, but controller/package.json says $said; tag with scripts/release.sh controller --push" >&2
+            exit 1
+          }
+      - name: The tagged commit has to be on main
+        # A tag can be pushed by hand from anywhere, and this package is never gated again: what
+        # stands behind it is that the commit went through a pull request onto main.
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD || {
+            echo "error: $GITHUB_SHA is not on main; a controller release is tagged on main (docs/repo-standard.md)" >&2
+            exit 1
+          }
+      - name: The package, with the dashboard and the plugins inside it
+        # The dashboard's build writes into controller/dist/dashboard. Packing builds the controller,
+        # which bundles the plugins, and refuses a package that lacks either (controller/scripts).
+        run: |
+          npm --prefix dashboard ci
+          npm --prefix dashboard run build
+          npm --prefix controller ci
+          mkdir -p "$RUNNER_TEMP/package"
+          cd controller # npm pack packs the package of the directory it runs in, whatever --prefix says
+          npm pack --pack-destination "$RUNNER_TEMP/package"
+      - name: The installed package starts and serves the dashboard
+        # Installed as a maintainer installs it, and started in fake mode, which needs no GitHub login
+        # and no claude: what is checked is that the package carries what the program reads.
+        run: |
+          prefix="$RUNNER_TEMP/prefix"
+          npm install --global --prefix "$prefix" "$RUNNER_TEMP"/package/workflows-controller-*.tgz
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/config" XDG_DATA_HOME="$RUNNER_TEMP/data" BROWSER=true
+          "$prefix/bin/workflows" --fake > "$RUNNER_TEMP/workflows.log" 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          page="$(curl --silent --show-error --fail --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:7420/)" || {
+            cat "$RUNNER_TEMP/workflows.log" >&2
+            echo "error: the installed workflows did not serve its dashboard" >&2
+            exit 1
+          }
+          grep -q '<div id="root">' <<<"$page" || { echo "error: / is not the dashboard" >&2; exit 1; }
+          installed="$prefix/lib/node_modules/workflows-controller/dist/plugins"
+          for plugin in worker planner repo-standards; do
+            [ -f "$installed/$plugin/.claude-plugin/plugin.json" ] || { echo "error: the package lacks the $plugin plugin" >&2; exit 1; }
+          done
+      - name: The checksums of the package
+        run: |
+          cd "$RUNNER_TEMP/package"
+          sha256sum workflows-controller-*.tgz > checksums.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: controller-package
+          path: ${{ runner.temp }}/package/
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    # The only job that can write, and all it runs is gh and GitHub's attestation action: nothing
+    # built here, nothing installed. It alone gets an OIDC token, because the package job runs other
+    # people's npm code, and a token there could sign anything as this workflow. The package is
+    # private, so npm refuses to publish it; it is installed from this release by its URL.
+    permissions:
+      contents: write # the release the package is attached to
+      id-token: write # the Sigstore certificate that signs the attestation
+      attestations: write # the attestation, stored with the repository
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: controller-package
+          path: dist
+      - name: Attest where the package came from
+        id: attest
+        # The subject is the tarball this job holds, digested here. A list of digests written by the
+        # package job would let that job choose what gets signed.
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/workflows-controller-*.tgz
+      - name: The bundle, named after the version
+        id: bundle
+        # The one place the bundle's name is made; the next step reads it from this step's output.
+        env:
+          ATTESTATION: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          bundle="dist/controller-v${GITHUB_REF_NAME#controller/v}.sigstore.json"
+          cp "$ATTESTATION" "$bundle"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUNDLE: ${{ steps.bundle.outputs.path }}
+        # Not the latest release: the repository's releases are its milestones, and a controller
+        # package is not one of them.
+        run: |
+          # A version is released once. A re-run that finishes a half-written upload is welcome, and
+          # --clobber is what makes it possible; a re-run of a finished release is not, because the
+          # package it would overwrite is the one machines installed under this version. Both look
+          # alike from here, so the finished release is refused and a person decides what to do.
+          tarball="dist/workflows-controller-${GITHUB_REF_NAME#controller/v}.tgz"
+          published="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length' 2>/dev/null || echo 0)"
+          if [ "$published" -ge 3 ]; then # the three files below
+            echo "error: the release $GITHUB_REF_NAME already carries its package, checksums and attestation; a released version is never rebuilt, release the next version instead" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
+            --title "controller v${GITHUB_REF_NAME#controller/v}" --generate-notes \
+            "$tarball" dist/checksums.txt "$BUNDLE" \
+            || gh release upload --clobber "$GITHUB_REF_NAME" \
+              "$tarball" dist/checksums.txt "$BUNDLE"

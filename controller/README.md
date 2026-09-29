@@ -1,6 +1,17 @@
 # Controller
 
-`workflows` is the local peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
+`workflows` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
+
+## Install
+One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/workflows/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
+
+```sh
+npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/workflows-controller-0.1.0.tgz
+workflows                          # starts the server and opens the dashboard
+workflows projects add ~/src/repo  # in a second shell, or from the dashboard
+```
+
+The build copies the plugins of the checkout into `dist/plugins`, and every session loads them from there. Packing refuses a build without the dashboard or the plugins.
 
 ## Commands
 - `workflows` starts the server on the configured loopback address and opens the browser there (`BROWSER` names another browser).
@@ -111,7 +122,7 @@ An abandon stops the process's session and waits for its runtime to exit, then r
 ## Implement session
 A claimed process runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
 - the machine's `claude` from `PATH` as the executable,
-- the worker plugin of this checkout (`plugins/worker`) loaded, and the marketplace's copies of the workflow's plugins switched off,
+- the bundled worker and repo-standards plugins (`dist/plugins`) loaded, and the marketplace's copies of the workflow's plugins switched off,
 - the user's, the repository's and the local settings, the `auto` permission mode and the `worker` agent,
 - session settings over them: `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH`, the claim's overrides, foreground subagents and the compact pin (80% of 312 500 tokens).
 
@@ -147,7 +158,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
-The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the plugin and agent of its kind, `worker` or `planner`, and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
+The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the plugins and agent of its kind, `worker` or `planner`, and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
 
 While the headless session still runs, the terminal is a second runtime on the same session. Its turns stay out of the process's event log.
 
@@ -210,7 +221,7 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
-- the planner plugin of this checkout (`plugins/planner`) and the `planner` agent,
+- the bundled planner and repo-standards plugins and the `planner` agent,
 - session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
   - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
 - a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
@@ -295,3 +306,8 @@ One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/work
 - `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.
 - The tests build the binary and start it in fake mode on a temporary machine: its own configuration, state, `PATH`, canned GitHub (see `fake/gh`) and canned runtime (see `fake/claude`).
 - They watch it over the API, its files and its output.
+- A release bumps `version` in `package.json`, commits, and runs `scripts/release.sh controller --push` on `main`.
+  - It refuses what the factory's release refuses: another branch, a dirty tree, a red gate and a tag that exists.
+  - It tags `controller/v<version>`. From that tag CI's `controller-release` packs, installs and starts the package.
+  - Then it attaches the tarball, its checksums and its build attestation to the release `controller v<version>`, which is not the latest.
+  - A release that already carries them is refused, so a released version is never overwritten.

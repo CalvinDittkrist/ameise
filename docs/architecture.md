@@ -1,7 +1,7 @@
 # Architecture
 
 ## Purpose
-This repository packages Claude Code plugins, beside the factory, a Go service for unattended delivery. The why is in the [vision](vision.md).
+This repository holds the local workflow, a controller with plugins, and the factory, a Go service for unattended delivery. The why is in the [vision](vision.md).
 
 ## Components
 | Component | Responsibility | Entry point |
@@ -15,14 +15,14 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `spec-checker` agent | Judges every checkable statement of a spec against the code during an acceptance. | `plugins/planner/agents/spec-checker.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
-| controller | Serves local projects and the [dashboard](../dashboard/README.md). | [controller/](../controller/README.md) |
+| controller | The local workflow: headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `workflows`; [controller/](../controller/README.md#install) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | Herdr | Terminal workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | Docker Sandboxes (optional) | A container per worktree for workers that should not touch the host. | `plugins/orchestrator/scripts/sbx-worker.sh` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
-| Python suite | Unittest classes that run the real plugin scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
+| Python suite | Runs the real plugin scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
 
 ## Data flow
 
@@ -44,8 +44,8 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
-4. The pane's status line writes the context size to `<worktree git dir>/worker/context`, the only thing the two plugins share ([ADR 0020](adr/0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md)).
-5. Worker knobs given to the claim with `--env` reach that session alone. Only names of the [configuration table](../README.md#configuration) pass.
+4. The pane's status line writes the context size to `<worktree git dir>/worker/context` ([ADR 0020](adr/0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md)).
+5. Worker knobs given to the claim with `--env` reach that session alone ([configuration](../README.md#configuration)).
 6. The worker's SessionStart hook assigns the issue and injects it as untrusted data. It injects a waiting handoff note once ([ADR 0029](adr/0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)).
 7. `/worker:work` merges the base with `base-sync.sh`, never rebasing; a conflict stops it with `blocked:`. Then it implements and verifies.
 8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. A record of another commit or dirty tree reads as none.
@@ -71,7 +71,7 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 6. A hunt that removed nothing reports `hunt: nothing removed` without a pull request.
 
 ### Standardisation
-1. `/repo-standards:standardize` injects `facts.sh`, runs `workspace.sh` as a dry run and launches the six auditors in parallel. Nothing changes.
+1. `/repo-standards:standardize` injects `facts.sh`, runs `workspace.sh` as a dry run and launches the six auditors in parallel, changing nothing.
 2. `report.sh` merges their `finding:` lines per category, and `approve.sh` records the answer per category ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).
 3. `/repo-standards:apply` runs `backup.sh`, `cleanup.sh prepare` on `chore/standardize`, `cleanup.sh open` for the cleanup pull request, and `issues.sh`.
 4. After the merge `finalize.sh` applies the workspace for an approved `configure` finding, posts the snapshot and runs `check.sh` ([ADR 0010](adr/0010-standardisation-audits-read-only-and-backs-up-before-deleting.md)).

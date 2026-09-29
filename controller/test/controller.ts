@@ -35,7 +35,9 @@ export function cleanup() {
       // the group is gone already
     }
   }
-  for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true })
+  // A SIGKILL is delivered, not waited for: a process of the group can still write a file into its
+  // machine while rmSync walks it, which fails with ENOTEMPTY. The retries outlast that last write.
+  for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }
 
 function which(cmd: string): string {

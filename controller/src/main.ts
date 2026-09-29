@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import { address, type Config, ConfigError, configPath, loopback, readConfig, stateDir } from './config.js'
 import { run, which } from './exec.js'
-import { bundledPlanner, bundledWorker, stopAll } from './session.js'
+import { bundledPlugins, stopAll } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
 import { version, type Merged, type Released } from './actions.js'
 import type { PlanRecord } from './plan.js'
@@ -88,7 +88,7 @@ async function start(fake: boolean) {
     die('claude is not installed; npm install -g @anthropic-ai/claude-code')
   }
   const { host, port, url } = address(c.listen)
-  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, worker: bundledWorker, planner: bundledPlanner }, dashboard })
+  const server = serve({ listen: c.listen, configPath: path, stateDir: stateDir(), gh, fake, runtime: { claude, plugins: bundledPlugins }, dashboard })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') die(`${c.listen} is in use; stop what listens there, or set another loopback address as listen in ${path}`)
     die(err.message)

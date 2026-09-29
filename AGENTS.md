@@ -34,11 +34,14 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - It runs on main only. It refuses a tag that exists here or on origin, a dirty tree and a red gate.
   - It tags `factory/v<version>`. That tag alone makes CI attach the static linux binaries, their checksums and their build attestation to a GitHub release.
   - `make binaries` builds the same files here.
+- Release the controller: bump `version` in `controller/package.json`, commit, `scripts/release.sh controller --push`.
+  - It has the factory's refusals and tags `controller/v<version>`. CI attaches the private npm package `workflows-controller` to that tag's GitHub release; it is not on npm.
+  - The build bundles `plugins/{worker,planner,repo-standards}` into `controller/dist/plugins`, which every session loads.
 
 ## Priorities
 - In this order when they conflict: security, low token use, throughput.
 - One uniform workflow that adapts per repository through `WF_*` variables and its `AGENTS.md`, never through local forks.
-- The local workflow and the factory are peers ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md)): the plugins serve hands-on sessions, the factory serves unattended delivery.
+- The local workflow and the factory are peers ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md)): the controller and its plugins serve hands-on work, the factory serves unattended delivery.
 - Each is its own unit and shares no code with the other.
 - The contract fixture `contract/fixture.json` states what both must agree on: the branch contract, the base branch rule, the frontier rule, the label vocabulary.
   - Both sides' tests read it, and neither runs the other's code. A rule changes in the fixture first.

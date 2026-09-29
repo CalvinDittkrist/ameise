@@ -95,14 +95,15 @@ test('a plan from an idea opens a plan branch and starts the planner with its pl
   const [s] = sessions()
   expect(s).toBeDefined()
   const args = s?.args ?? []
-  expect(flag(args, '--plugin-dir')).toBe(resolve(fileURLToPath(new URL('../../plugins/planner', import.meta.url))))
+  const bundled = (name: string) => resolve(fileURLToPath(new URL(`../dist/plugins/${name}`, import.meta.url)))
+  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('planner'), bundled('repo-standards')])
   expect(flag(args, '--agent')).toBe('planner')
   // A planner reports no structured result.
   expect(args).not.toContain('--json-schema')
   const settings = JSON.parse(flag(args, '--settings') ?? '{}') as { env: { [k: string]: string }; enabledPlugins: { [k: string]: boolean } }
   expect(settings.env).toMatchObject({ WF_PLAN: 'offline-mode', WF_PLAN_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
   expect(settings.env.WF_PLAN_ISSUE).toBeUndefined()
-  expect(settings.enabledPlugins).toMatchObject({ 'planner@workflows': false, 'worker@workflows': false })
+  expect(settings.enabledPlugins).toEqual({ 'worker@workflows': false, 'planner@workflows': false, 'orchestrator@workflows': false, 'repo-standards@workflows': false })
   const brief = prompt(s ?? { read: [] })
   expect(brief).toContain('/planner:plan')
   expect(brief).toContain('Planner session: offline-mode')
