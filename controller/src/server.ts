@@ -23,8 +23,8 @@ export interface Options {
   stateDir: string
   gh: string
   fake: boolean
-  // runtime is what a session runs on: the claude executable and the bundled worker and planner plugins.
-  runtime: { claude: string; worker: string; planner: string }
+  // runtime is what a session runs on: the claude executable and the directory of the bundled plugins.
+  runtime: { claude: string; plugins: string }
   // dashboard is the directory of the dashboard's build, which the server serves at its root.
   dashboard: string
 }

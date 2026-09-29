@@ -28,10 +28,8 @@ import { type Project, Refusal } from './project.js'
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
   claude: string
-  // worker is the directory of the bundled worker plugin.
-  worker: string
-  // planner is the directory of the bundled planner plugin.
-  planner: string
+  // plugins is the directory of the bundled plugins, one directory per plugin.
+  plugins: string
   stateDir: string
   // announce tells the maintainer that a process turned blocked, ready or failed (notify.ts).
   announce: Announce
@@ -44,10 +42,19 @@ export type SessionRecord = WorkRecord | PlanRecord
 // ended. A yolo process that ended ready is told of although its record is gone.
 export type Announce = (record: SessionRecord) => void
 
-// The worker and planner plugins ship with the controller: dist/session.js reaches plugins/<name> of the
-// checkout.
-export const bundledWorker = fileURLToPath(new URL('../../plugins/worker', import.meta.url))
-export const bundledPlanner = fileURLToPath(new URL('../../plugins/planner', import.meta.url))
+// The plugins ship with the controller (ADR 0060): its build copies the worker, planner and
+// repo-standards plugins of the checkout into dist/plugins, and dist/session.js reaches them there, in a
+// checkout and in the installed package alike.
+export const bundledPlugins = fileURLToPath(new URL('./plugins', import.meta.url))
+
+// agentOf is the plugin whose agent a session of the record's kind runs: the planner's for a plan
+// process, the worker's for a work process.
+export const agentOf = (record: SessionRecord): 'planner' | 'worker' => (record.kind === 'plan' ? 'planner' : 'worker')
+
+// sessionPlugins are the directories of the bundled plugins a session of the record's kind loads: the
+// plugin of its agent first, then repo-standards, whose skills every session may call. The marketplace
+// copies are switched off (see workSettings), so these are the only copies it loads.
+export const sessionPlugins = (dir: string, record: SessionRecord): string[] => [join(dir, agentOf(record)), join(dir, 'repo-standards')]
 
 // The local workflow's compact pin (ADR 0031, ADR 0034): the session compacts at 80% of a window of
 // 312 500 tokens, which is 250 000. Implement has no hand-over, so compaction is its safety net.
@@ -57,7 +64,7 @@ const compactPercentage = '80'
 export const compactAt = (compactWindow * Number(compactPercentage)) / 100
 
 // The marketplace the workflow's plugins are installed from. Its copies are switched off, so the
-// bundled worker is the one the session loads and the planner and orchestrator stay out of its context.
+// bundled plugins are the ones the session loads and the orchestrator stays out of its context.
 const marketplace = 'workflows'
 
 // The result the session reports through, as a JSON schema.
@@ -335,7 +342,7 @@ export function workSettings(record: WorkRecord): Settings {
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: compactPercentage,
     },
-    enabledPlugins: { [`worker@${marketplace}`]: false, [`planner@${marketplace}`]: false, [`orchestrator@${marketplace}`]: false },
+    enabledPlugins: { [`worker@${marketplace}`]: false, [`planner@${marketplace}`]: false, [`orchestrator@${marketplace}`]: false, [`repo-standards@${marketplace}`]: false },
     autoCompactWindow: compactWindow,
   }
 }
@@ -562,8 +569,10 @@ async function session(
   const id = record.id
   const plan = record.kind === 'plan'
   const what = sessionOf(record)
-  const plugin = plan ? { name: 'planner', path: rt.planner, skill: 'plan' } : { name: 'worker', path: rt.worker, skill: 'work' }
-  if (!existsSync(join(plugin.path, 'skills', plugin.skill, 'SKILL.md'))) return { state: 'failed', note: `the bundled ${plugin.name} plugin is missing at ${plugin.path}; reinstall workflows` }
+  const agent = agentOf(record)
+  const plugins = sessionPlugins(rt.plugins, record)
+  const missing = plugins.find((path) => !existsSync(join(path, '.claude-plugin', 'plugin.json')))
+  if (missing) return { state: 'failed', note: `the bundled plugin is missing at ${missing}; reinstall workflows` }
   // The brief names the branch and the base in commands the session runs; a name from origin with a
   // shell character in it does not reach the prompt.
   for (const name of [record.branch, record.base]) {
@@ -654,10 +663,10 @@ async function session(
       ...(record.session_id ? { resume: record.session_id } : {}),
       pathToClaudeCodeExecutable: rt.claude,
       env: runtimeEnv(),
-      plugins: [{ type: 'local', path: plugin.path }],
+      plugins: plugins.map((path) => ({ type: 'local' as const, path })),
       settingSources: ['user', 'project', 'local'],
       settings: settings(record),
-      agent: plugin.name,
+      agent,
       permissionMode: 'auto',
       canUseTool,
       extraArgs: { 'strict-mcp-config': null },
