@@ -242,7 +242,7 @@ class ControllerReleaseTests(FactoryReleaseTests):
 
     def version(self, said):
         (self.repo / "controller" / "package.json").write_text(
-            json.dumps({"name": "workflows-controller", "version": said}, indent=2) + "\n")
+            json.dumps({"name": "ameise", "version": said}, indent=2) + "\n")
 
     def test_a_package_json_that_is_no_json_is_refused(self):
         (self.repo / "controller" / "package.json").write_text("{ not json\n")
@@ -391,9 +391,9 @@ class ControllerPublishStepTests(PublishStepTests):
 
     WORKFLOW = CONTROLLER_WORKFLOW
     TAG = "controller/v0.1.0"
-    TITLE = "controller v0.1.0"
+    TITLE = "ameise controller v0.1.0"
     BUNDLE = "dist/controller-v0.1.0.sigstore.json"
-    ASSETS = ["dist/workflows-controller-0.1.0.tgz", "dist/checksums.txt", BUNDLE]
+    ASSETS = ["dist/ameise-0.1.0.tgz", "dist/checksums.txt", BUNDLE]
 
 
 class NoNpmPublishTests(unittest.TestCase):

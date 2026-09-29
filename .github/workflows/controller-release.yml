@@ -56,24 +56,24 @@ jobs:
         # and no claude: what is checked is that the package carries what the program reads.
         run: |
           prefix="$RUNNER_TEMP/prefix"
-          npm install --global --prefix "$prefix" "$RUNNER_TEMP"/package/workflows-controller-*.tgz
+          npm install --global --prefix "$prefix" "$RUNNER_TEMP"/package/ameise-*.tgz
           export XDG_CONFIG_HOME="$RUNNER_TEMP/config" XDG_DATA_HOME="$RUNNER_TEMP/data" BROWSER=true
-          "$prefix/bin/workflows" --fake > "$RUNNER_TEMP/workflows.log" 2>&1 &
+          "$prefix/bin/ameise" --fake > "$RUNNER_TEMP/ameise.log" 2>&1 &
           trap 'kill $! 2>/dev/null || true' EXIT
           page="$(curl --silent --show-error --fail --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:7420/)" || {
-            cat "$RUNNER_TEMP/workflows.log" >&2
-            echo "error: the installed workflows did not serve its dashboard" >&2
+            cat "$RUNNER_TEMP/ameise.log" >&2
+            echo "error: the installed ameise did not serve its dashboard" >&2
             exit 1
           }
           grep -q '<div id="root">' <<<"$page" || { echo "error: / is not the dashboard" >&2; exit 1; }
-          installed="$prefix/lib/node_modules/workflows-controller/dist/plugins"
+          installed="$prefix/lib/node_modules/ameise/dist/plugins"
           for plugin in worker planner repo-standards; do
             [ -f "$installed/$plugin/.claude-plugin/plugin.json" ] || { echo "error: the package lacks the $plugin plugin" >&2; exit 1; }
           done
       - name: The checksums of the package
         run: |
           cd "$RUNNER_TEMP/package"
-          sha256sum workflows-controller-*.tgz > checksums.txt
+          sha256sum ameise-*.tgz > checksums.txt
       - uses: actions/upload-artifact@v7
         with:
           name: controller-package
@@ -102,7 +102,7 @@ jobs:
         # package job would let that job choose what gets signed.
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/workflows-controller-*.tgz
+          subject-path: dist/ameise-*.tgz
       - name: The bundle, named after the version
         id: bundle
         # The one place the bundle's name is made; the next step reads it from this step's output.
@@ -124,14 +124,14 @@ jobs:
           # --clobber is what makes it possible; a re-run of a finished release is not, because the
           # package it would overwrite is the one machines installed under this version. Both look
           # alike from here, so the finished release is refused and a person decides what to do.
-          tarball="dist/workflows-controller-${GITHUB_REF_NAME#controller/v}.tgz"
+          tarball="dist/ameise-${GITHUB_REF_NAME#controller/v}.tgz"
           published="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length' 2>/dev/null || echo 0)"
           if [ "$published" -ge 3 ]; then # the three files below
             echo "error: the release $GITHUB_REF_NAME already carries its package, checksums and attestation; a released version is never rebuilt, release the next version instead" >&2
             exit 1
           fi
           gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
-            --title "controller v${GITHUB_REF_NAME#controller/v}" --generate-notes \
+            --title "ameise controller v${GITHUB_REF_NAME#controller/v}" --generate-notes \
             "$tarball" dist/checksums.txt "$BUNDLE" \
             || gh release upload --clobber "$GITHUB_REF_NAME" \
               "$tarball" dist/checksums.txt "$BUNDLE"
