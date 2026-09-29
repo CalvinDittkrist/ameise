@@ -180,6 +180,9 @@ func (f *Factory) specView(s SpecRun) specView {
 	if s.State == specHolding && s.Idle {
 		waiting = append(waiting, waitsOn(subs)...)
 	}
+	if s.Tickets == nil {
+		s.Tickets = []SpecTicket{} // a spec run that has taken no ticket yet is an empty list to the interface, never null
+	}
 	return specView{s, waiting}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -180,6 +181,14 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	}
 	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) || !equal(spec.Waiting, []int{232}) {
 		t.Errorf("the spec run named %v and waits on %v, want #232 for both", spec.WaitingOn, spec.Waiting)
+	}
+	// The dashboard maps over the tickets of a spec run that has taken none yet: null blanks its page.
+	var served struct {
+		Tickets json.RawMessage `json:"tickets"`
+	}
+	f.get(t, "/api/specs/1", &served)
+	if string(served.Tickets) != "[]" {
+		t.Errorf("the waiting spec run serves its tickets as %s, want []", served.Tickets)
 	}
 
 	gh.openTicketPull(t, 233, "feat/233-after-the-calibration", false)
