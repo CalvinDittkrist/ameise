@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -105,7 +107,7 @@ func (f *Factory) pushWorktree(ctx context.Context, record *Run, clone string, h
 		return true
 	}
 	from, ref := held.Worktree, "HEAD"
-	if _, err := os.Stat(held.Worktree); held.Worktree == "" || err != nil {
+	if _, err := os.Stat(held.Worktree); held.Worktree == "" || err != nil || unregistered(held.Worktree) {
 		from, ref = clone, "refs/heads/"+held.Branch
 		if _, err := git(ctx, clone, "rev-parse", "--verify", ref); err != nil {
 			return true // no worktree and no branch of it on this host: nothing of it to push
@@ -121,6 +123,24 @@ func (f *Factory) pushWorktree(ctx context.Context, record *Run, clone string, h
 			Body: "the push was refused because the branch moved on the remote, and origin/" + held.Branch + " holds the commits of " + from})
 	}
 	return true
+}
+
+// unregistered says whether a worktree directory is one the clone has forgotten: its .git file names
+// an administrative directory that is gone. That is what a removal git began and could not finish
+// leaves behind, and nothing can be read from such a directory as a repository. A directory whose
+// .git cannot be read, or names one that is there, is not this: git's own trouble with a worktree
+// that is registered is never taken for it.
+func unregistered(worktree string) bool {
+	data, err := os.ReadFile(filepath.Join(worktree, ".git"))
+	if err != nil {
+		return false
+	}
+	target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: ")
+	if !ok {
+		return false
+	}
+	_, err = os.Stat(target)
+	return os.IsNotExist(err)
 }
 
 // pushBranch pushes the commit ref points at in from to the branch on origin: a plain push, never a
@@ -176,12 +196,8 @@ func onRemote(ctx context.Context, clone, from, ref, branch string) bool {
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
 func (f *Factory) removeWorktree(ctx context.Context, record *Run, clone string, held Run) bool {
-	if held.Worktree != "" {
-		if _, err := git(ctx, clone, "worktree", "remove", "--force", held.Worktree); err != nil {
-			if _, there := os.Stat(held.Worktree); there == nil {
-				return f.heldUp(ctx, record, fmt.Sprintf("the worktree %s could not be removed from %s: %v; the issue stays as it is until that directory is gone", held.Worktree, clone, err))
-			}
-		}
+	if held.Worktree != "" && !f.dropWorktree(ctx, record, clone, held) {
+		return false
 	}
 	// A worktree whose directory somebody removed by hand is still registered in the clone, and the
 	// local branch is checked out by that registration until it is pruned.
@@ -201,6 +217,23 @@ func (f *Factory) removeWorktree(ctx context.Context, record *Run, clone string,
 		f.heldUp(ctx, record, fmt.Sprintf("the local branch %s could not be removed from %s: %v; its commits are on the remote, so this is a name left behind and no work", held.Branch, clone, err))
 	}
 	return true
+}
+
+// dropWorktree takes the worktree directory off this host and says whether it is gone. A directory
+// the clone no longer registers is one git cannot remove; its commits are on the remote and in the
+// clone's branch, so it is removed as the plain directory it is.
+func (f *Factory) dropWorktree(ctx context.Context, record *Run, clone string, held Run) bool {
+	_, err := git(ctx, clone, "worktree", "remove", "--force", held.Worktree)
+	if err == nil {
+		return true
+	}
+	if _, there := os.Stat(held.Worktree); there != nil {
+		return true
+	}
+	if unregistered(held.Worktree) && os.RemoveAll(held.Worktree) == nil {
+		return true
+	}
+	return f.heldUp(ctx, record, fmt.Sprintf("the worktree %s could not be removed from %s: %v; the issue stays as it is until that directory is gone", held.Worktree, clone, err))
 }
 
 // removeRemoteBranch deletes the branch on the remote when it holds no work the base does not have

@@ -260,6 +260,15 @@ func (g *gitHub) queue(ctx context.Context, held []Held) poll {
 	for _, ticket := range result.tickets {
 		seen[ticket.key()] = true
 	}
+	// A blocked ticket is no ticket to take, so its blockers are marked on their own: a list that
+	// cannot be read would otherwise be warned about anew on every poll.
+	for key, subs := range result.subIssues {
+		for _, t := range subs {
+			if t.Open && t.Elsewhere == "" && t.Blocked {
+				seen[blockersKey(repositoryOf(key), t.Number)] = true
+			}
+		}
+	}
 	g.settle(result.unreadable, read, seen)
 	return result
 }

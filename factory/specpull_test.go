@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -155,8 +156,8 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	human := openIssue(232, "Calibrate by hand", time.Now().UTC().Add(-48*time.Hour), humanLabel, specRunLabel("factory"))
 	human["repository_url"] = "https://api.github.com/repos/acme/edge-sensors"
 	blocked := gh.ticketOf(t, 233, "After the calibration")
-	blocked["issue_dependencies_summary"] = map[string]any{"blocked_by": 1, "blocking": 0}
-	gh.subIssues(t, human, blocked)
+	gh.subIssues(t, human, blockedBy(blocked))
+	gh.blockers(t, 233, human)
 	gh.comments(t, "acme/edge-sensors", specNumber)
 	c := ticketConfig(data, nil, nil)
 	c["notify"] = maintainers
@@ -181,6 +182,14 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) || !equal(spec.Waiting, []int{232}) {
 		t.Errorf("the spec run named %v and waits on %v, want #232 for both", spec.WaitingOn, spec.Waiting)
 	}
+	// The dashboard maps over the tickets of a spec run that has taken none yet: null blanks its page.
+	var served struct {
+		Tickets json.RawMessage `json:"tickets"`
+	}
+	f.get(t, "/api/specs/1", &served)
+	if string(served.Tickets) != "[]" {
+		t.Errorf("the waiting spec run serves its tickets as %s, want []", served.Tickets)
+	}
 
 	gh.openTicketPull(t, 233, "feat/233-after-the-calibration", false)
 	gh.subIssues(t, closedIssue(human), gh.ticketOf(t, 233, "After the calibration"))
@@ -194,6 +203,254 @@ func TestASpecRunWaitsForAPersonsTicketAndGoesOnOnceItIsClosed(t *testing.T) {
 	// The record keeps the ticket it named; what the spec run waits on now is nobody.
 	if spec := f.specRunNow(t); !equal(spec.WaitingOn, []int{232}) || len(spec.Waiting) != 0 {
 		t.Errorf("the spec run named %v and waits on %v, want #232 named and nobody waited on", spec.WaitingOn, spec.Waiting)
+	}
+}
+
+// humanTicket is a ticket of the spec for a person: it carries ready-for-human and the spec-run label.
+func humanTicket(number int, title string) issueJSON {
+	ticket := openIssue(number, title, time.Now().UTC().Add(-48*time.Hour), humanLabel, specRunLabel("factory"))
+	ticket["repository_url"] = "https://api.github.com/repos/acme/edge-sensors"
+	return ticket
+}
+
+// outsideIssue is an open issue of a repository that is no sub-issue of the spec.
+func outsideIssue(repository string, number int, title string) issueJSON {
+	issue := openIssue(number, title, time.Now().UTC().Add(-96*time.Hour), "enhancement")
+	issue["repository_url"] = "https://api.github.com/repos/" + repository
+	return issue
+}
+
+// blockedBy is a sub-issue GitHub summarises as blocked by one open issue.
+func blockedBy(issue issueJSON) issueJSON {
+	issue["issue_dependencies_summary"] = map[string]any{"blocked_by": 1, "blocking": 0}
+	return issue
+}
+
+// blockers is the list of the issues that block a ticket of the spec, as GitHub answers it.
+func (g *ghShim) blockers(t *testing.T, ticket int, issues ...issueJSON) {
+	t.Helper()
+	if issues == nil {
+		issues = []issueJSON{}
+	}
+	g.answer(t, "api "+blockersRequest("acme/edge-sensors", ticket), marshal(t, issues))
+}
+
+// saidOnSpec counts the times the comments on the spec say this. The shim logs a call before it keeps
+// its body, so a test that waits for a comment waits for what it says.
+func (g *ghShim) saidOnSpec(t *testing.T, phrase string) int {
+	t.Helper()
+	return strings.Count(g.commented(t, "acme/edge-sensors", specNumber), phrase)
+}
+
+// A spec whose person's ticket is blocked by a sibling, and whose free tickets are blocked by issues
+// outside the spec, waits for those issues: one comment each names it, with its repository when that
+// is another, and the tickets it holds, and none names the person's ticket. Once the outside issue in
+// the spec's repository is closed the ticket behind it is worked, and once that sibling is closed the
+// person's ticket is named with the instruction to merge and close it.
+func TestAWaitingSpecRunNamesTheBlockersOutsideTheSpecAndAPersonsTicketOnceItCanBeWorked(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	human := humanTicket(232, "Calibrate by hand")
+	outside := outsideIssue("acme/edge-sensors", 265, "Rename the product")
+	elsewhere := outsideIssue("acme/firmware", 9, "Ship the bootloader")
+	gh.subIssues(t, blockedBy(human), blockedBy(gh.ticketOf(t, 233, "After the rename")), blockedBy(gh.ticketOf(t, 234, "After the bootloader")))
+	gh.blockers(t, 232, gh.ticketOf(t, 233, "After the rename"))
+	gh.blockers(t, 233, outside, closedIssue(outsideIssue("acme/edge-sensors", 260, "Done long ago")))
+	gh.blockers(t, 234, elsewhere)
+	gh.comments(t, "acme/edge-sensors", specNumber)
+	c := ticketConfig(data, nil, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+
+	comment := commentCall("acme/edge-sensors", specNumber)
+	f.eventually(t, 30*time.Second, "the comments on the spec", func() bool { return gh.saidOnSpec(t, "waits for") == 2 })
+	reading := "api " + subIssuesRequest("acme/edge-sensors", specNumber)
+	before := gh.made(t, reading)
+	f.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, reading) >= before+5 })
+	if made := gh.made(t, comment); made != 2 {
+		t.Errorf("the factory commented %d times on the spec, want once per blocker outside the spec", made)
+	}
+	said := gh.commented(t, "acme/edge-sensors", specNumber)
+	for _, want := range []string{"@ada", "waits for #265", "blocks its ticket #233", "waits for acme/firmware#9", "blocks its ticket #234", "Once #265 is closed"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the comments on the spec do not say %q:\n%s", want, said)
+		}
+	}
+	for _, unwanted := range []string{"#232", "#260", "Merge its pull request"} {
+		if strings.Contains(said, unwanted) {
+			t.Errorf("the comments on the spec say %q, which the spec run does not wait for:\n%s", unwanted, said)
+		}
+	}
+	spec := f.specRunNow(t)
+	if len(spec.Waiting) != 0 || len(spec.WaitingOn) != 0 {
+		t.Errorf("the spec run waits on %v and named %v, want no person's ticket", spec.Waiting, spec.WaitingOn)
+	}
+	wantBlockers := []apiBlocker{{"acme/edge-sensors", 265, []int{233}}, {"acme/firmware", 9, []int{234}}}
+	if fmt.Sprint(spec.Blockers) != fmt.Sprint(wantBlockers) {
+		t.Errorf("the spec run waits on the blockers %v, want %v", spec.Blockers, wantBlockers)
+	}
+	if !equal(spec.WaitingOnBlockers, []string{"acme/edge-sensors#265", "acme/firmware#9"}) {
+		t.Errorf("the spec run named the blockers %v, want #265 and acme/firmware#9", spec.WaitingOnBlockers)
+	}
+	if !slices.ContainsFunc(spec.Events, func(e Event) bool { return e.Title == "waiting for acme/firmware#9" }) {
+		t.Errorf("the event log of the spec run does not name acme/firmware#9: %v", spec.Events)
+	}
+
+	gh.openTicketPull(t, 233, "feat/233-after-the-rename", false)
+	gh.subIssues(t, blockedBy(human), gh.ticketOf(t, 233, "After the rename"), blockedBy(gh.ticketOf(t, 234, "After the bootloader")))
+	run := f.ended(t, 1)
+	if run.Issue != 233 || run.Spec != specNumber {
+		t.Fatalf("run 1 worked #%d of spec #%d, want the ticket #233 the closed blocker held", run.Issue, run.Spec)
+	}
+	gh.subIssues(t, humanTicket(232, "Calibrate by hand"), closedIssue(gh.ticketOf(t, 233, "After the rename")), blockedBy(gh.ticketOf(t, 234, "After the bootloader")))
+	f.eventually(t, 30*time.Second, "the comment that names the person's ticket", func() bool { return gh.saidOnSpec(t, "waits for #232") == 1 })
+	said = gh.commented(t, "acme/edge-sensors", specNumber)
+	if !strings.Contains(said, "waits for #232, a ticket for a person") || !strings.Contains(said, "Merge its pull request into the spec branch") {
+		t.Errorf("the last comment on the spec does not name #232 with the instruction to merge and close it:\n%s", said)
+	}
+	before = gh.made(t, reading)
+	f.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, reading) >= before+5 })
+	if made := gh.made(t, comment); made != 3 {
+		t.Errorf("the factory commented %d times on the spec, want three", made)
+	}
+	spec = f.specRunNow(t)
+	if !equal(spec.WaitingOn, []int{232}) || !equal(spec.Waiting, []int{232}) || !equal(spec.WaitingOnBlockers, []string{"acme/firmware#9"}) {
+		t.Errorf("the spec run named %v and %v and waits on %v, want #232 and acme/firmware#9 alone", spec.WaitingOn, spec.WaitingOnBlockers, spec.Waiting)
+	}
+}
+
+// A person's ticket that gets an open blocker is no longer recorded as named, so it is named again once
+// it can be worked again, and the blocker outside the spec that held it is named meanwhile.
+func TestAPersonsTicketBlockedAgainIsNamedAgainOnceItCanBeWorked(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, humanTicket(232, "Calibrate by hand"))
+	gh.comments(t, "acme/edge-sensors", specNumber)
+	c := ticketConfig(data, nil, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	comment := commentCall("acme/edge-sensors", specNumber)
+	f.eventually(t, 30*time.Second, "the comment that names #232", func() bool { return gh.saidOnSpec(t, "waits for #232") == 1 })
+
+	gh.blockers(t, 232, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	gh.subIssues(t, blockedBy(humanTicket(232, "Calibrate by hand")))
+	f.eventually(t, 30*time.Second, "the comment that names #265", func() bool { return gh.saidOnSpec(t, "waits for #265") == 1 })
+	if spec := f.specRunNow(t); len(spec.WaitingOn) != 0 || len(spec.Waiting) != 0 {
+		t.Errorf("the spec run named %v and waits on %v while #232 is blocked, want neither", spec.WaitingOn, spec.Waiting)
+	}
+
+	gh.subIssues(t, humanTicket(232, "Calibrate by hand"))
+	f.eventually(t, 30*time.Second, "the comment that names #232 again", func() bool { return gh.saidOnSpec(t, "waits for #232") == 2 })
+	said := gh.commented(t, "acme/edge-sensors", specNumber)
+	if strings.Count(said, "waits for #232") != 2 || strings.Count(said, "waits for #265") != 1 {
+		t.Errorf("the comments on the spec do not name #232 twice and #265 once:\n%s", said)
+	}
+	if made := gh.made(t, comment); made != 3 {
+		t.Errorf("the factory commented %d times on the spec, want three", made)
+	}
+}
+
+// A record that names a person's ticket its factory named while the ticket was blocked, as a factory
+// before this rule did, names it in a comment once it can be worked.
+func TestAPersonsTicketARecordNamedWhileItWasBlockedIsNamedOnceItCanBeWorked(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	claimed := time.Now().UTC().Add(-time.Hour)
+	writeFile(t, filepath.Join(data, "spec-1.json"), marshal(t, SpecRun{ID: 1, Repository: "acme/edge-sensors", Spec: specNumber,
+		Title: specTitle, Branch: specBranch, Base: "main", State: specHolding, Idle: true, SignalAt: claimed, StartedAt: claimed,
+		ClaimedAt: &claimed, Warnings: []string{}, WaitingOn: []int{232}}))
+	gh.subIssues(t, blockedBy(humanTicket(232, "Calibrate by hand")), blockedBy(gh.ticketOf(t, 233, "After the rename")))
+	gh.blockers(t, 232, gh.ticketOf(t, 233, "After the rename"))
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	gh.comments(t, "acme/edge-sensors", specNumber)
+	c := ticketConfig(data, nil, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	comment := commentCall("acme/edge-sensors", specNumber)
+	f.eventually(t, 30*time.Second, "the comment that names #265", func() bool { return gh.saidOnSpec(t, "waits for #265") == 1 })
+	if spec := f.specRunNow(t); len(spec.WaitingOn) != 0 {
+		t.Errorf("the spec run keeps %v named while #232 is blocked, want nothing", spec.WaitingOn)
+	}
+
+	gh.subIssues(t, humanTicket(232, "Calibrate by hand"), closedIssue(gh.ticketOf(t, 233, "After the rename")))
+	f.eventually(t, 30*time.Second, "the comment that names #232", func() bool { return gh.saidOnSpec(t, "waits for #232") == 1 })
+	if made := gh.made(t, comment); made != 2 {
+		t.Errorf("the factory commented %d times on the spec, want twice", made)
+	}
+	f.eventually(t, 10*time.Second, "the record to name #232 alone", func() bool {
+		spec := f.specRunNow(t)
+		return equal(spec.WaitingOn, []int{232}) && len(spec.WaitingOnBlockers) == 0
+	})
+}
+
+// A list of blockers that cannot be read says so once, names nothing and keeps what the spec run
+// named: a failed reading is no sign that a blocker was closed. Once the list can be read, its blocker
+// is named, and a later failed reading neither forgets it nor names it again.
+func TestABlockersListThatCannotBeReadKeepsWhatWasNamedAndNamesItOnceItCanBe(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, blockedBy(gh.ticketOf(t, 233, "After the rename")))
+	request := "api " + blockersRequest("acme/edge-sensors", 233)
+	gh.answer(t, request, "not a list")
+	gh.comments(t, "acme/edge-sensors", specNumber)
+	c := ticketConfig(data, nil, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	comment := commentCall("acme/edge-sensors", specNumber)
+	warning := "error: the issues that block #233 of acme/edge-sensors could not be read"
+	polls := func(what string) {
+		t.Helper()
+		before := gh.made(t, request)
+		f.eventually(t, 20*time.Second, what, func() bool { return gh.made(t, request) >= before+3 })
+	}
+
+	polls("several readings of the blockers that fail")
+	if said := strings.Count(f.output(t), warning); said != 1 {
+		t.Errorf("the factory warned %d times that the blockers of #233 could not be read, want once:\n%s", said, f.output(t))
+	}
+	if made := gh.made(t, comment); made != 0 {
+		t.Errorf("the factory commented %d times on the spec while the blockers could not be read, want none", made)
+	}
+
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	f.eventually(t, 30*time.Second, "the comment that names #265", func() bool { return gh.saidOnSpec(t, "waits for #265") == 1 })
+	f.eventually(t, 10*time.Second, "the record to name #265", func() bool {
+		return equal(f.specRunNow(t).WaitingOnBlockers, []string{"acme/edge-sensors#265"})
+	})
+
+	gh.answer(t, request, "not a list")
+	polls("several more readings of the blockers that fail")
+	if said := strings.Count(f.output(t), warning); said != 2 {
+		t.Errorf("the factory warned %d times that the blockers of #233 could not be read, want once per failure after a reading", said)
+	}
+	if spec := f.specRunNow(t); !equal(spec.WaitingOnBlockers, []string{"acme/edge-sensors#265"}) {
+		t.Errorf("the spec run named %v after a failed reading, want #265 kept", spec.WaitingOnBlockers)
+	}
+
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	polls("several readings of the blockers that succeed")
+	if made := gh.made(t, comment); made != 1 {
+		t.Errorf("the factory commented %d times on the spec, want #265 named once", made)
+	}
+}
+
+// A factory with no logins to notify records what its spec run waits for and comments nothing.
+func TestAWaitingSpecRunOfAFactoryWithNobodyToNotifyRecordsTheBlockerAndSaysNothing(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, blockedBy(gh.ticketOf(t, 233, "After the rename")))
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	f := gh.work(t, ticketConfig(data, nil, nil))
+	f.eventually(t, 30*time.Second, "the recorded wait", func() bool {
+		var specs []apiSpecRun
+		f.get(t, "/api/specs", &specs)
+		return len(specs) == 1 && equal(specs[0].WaitingOnBlockers, []string{"acme/edge-sensors#265"})
+	})
+	if made := gh.made(t, commentCall("acme/edge-sensors", specNumber)); made != 0 {
+		t.Errorf("the factory commented %d times with nobody to notify, want none", made)
+	}
+	if spec := f.specRunNow(t); len(spec.Blockers) != 1 || spec.Blockers[0].Number != 265 {
+		t.Errorf("the spec run waits on %v, want #265", spec.Blockers)
 	}
 }
 

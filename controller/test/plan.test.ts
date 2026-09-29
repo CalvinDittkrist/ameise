@@ -276,10 +276,9 @@ test('a capture and a finish wait while the session runs in a terminal', async (
   const r = await planned({ idea: 'Offline mode' })
   const session = (await waiting(r.id)).session_id ?? ''
   writeFileSync(join(r.worktree, 'proto.html'), '<p>proto</p>\n')
-  // A runtime as the terminal's script starts it: --resume and the id as two arguments. The shell
-  // runs a second command after the sleep, so it stays itself: a shell that ran the sleep alone would
-  // exec it and take on its command line, and no process would carry --resume any more.
-  const resumed = spawn('sh', ['-c', 'sleep 30; :', 'claude', '--resume', session, '--agent', 'planner'], { stdio: 'ignore' })
+  // A runtime as the terminal's script starts it: --resume and the id as two arguments.
+  // The trailing command keeps the shell from replacing itself with sleep, which drops them from its command line.
+  const resumed = spawn('sh', ['-c', 'sleep 30; true', 'claude', '--resume', session, '--agent', 'planner'], { stdio: 'ignore' })
   try {
     await new Promise((done) => setTimeout(done, 200))
     for (const [path, body] of [['/api/processes/capture', { id: r.id, name: 'x' }], ['/api/processes/finish', { id: r.id, force: true }]] as const) {
