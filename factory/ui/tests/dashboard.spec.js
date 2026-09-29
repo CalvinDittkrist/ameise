@@ -25,6 +25,8 @@ const doneRows = (page) => page.locator('#done-runs button.row')
 
 test('the three areas render from the canned data', async ({ page }) => {
   await page.goto(working('/'))
+  await expect(page).toHaveTitle('ameise factory')
+  await expect(page.locator('.top b').first()).toHaveText('ameise factory')
 
   const repositories = page.locator('.repos li')
   await expect(repositories).toHaveCount(3)

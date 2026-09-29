@@ -284,7 +284,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="top">
-        <b>factory</b>
+        <b>ameise factory</b>
         <span className="where">
           up <Tick>{duration(status.startedAt, now)}</Tick>
         </span>
