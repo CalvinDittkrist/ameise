@@ -999,7 +999,7 @@ Pause the factory, write those knobs and remove `worker_env` from `/etc/factory/
 
 It refuses a `--plugin-dir` in `worker_args` the same way, so take it out too. That flag would load the plugin into the implement, fix and address-reviews sessions.
 
-The plugin itself does no harm: every session switches it off, and the factory runs no plugin command. Remove it all the same, so the host carries only what its runs use, as the user `factory`. It came from the marketplace under its earlier name `workflows`:
+The plugin itself does no harm: every session switches it off, and the factory runs no plugin command. Remove it all the same, so the host carries only what its runs use. The plugin came from the marketplace `workflows`, the earlier name of `ameise`. Remove both as the user `factory`:
 
 ```sh
 claude plugin uninstall worker@workflows

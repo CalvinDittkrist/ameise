@@ -37,7 +37,7 @@ ameise                             # starts it and opens the dashboard on 127.0.
 ameise projects add ~/src/repo     # then claim, plan, merge and release from the dashboard
 ```
 
-For sessions started by hand, the plugins install from this repository's marketplace `ameise` with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex reviewing.
+For sessions started by hand, the plugins install from the marketplace `ameise` with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
 
 ```sh
 claude plugin marketplace add CalvinDittkrist/workflows

@@ -47,6 +47,6 @@ Templates live in `templates/`. The README, plugin README, architecture, ADR and
 | `WF_WRITING_LENIENT` | unset | `1` turns the writing rules' failures of `check.sh` into warnings |
 
 ## Develop
-A repository adds the marketplace with `claude plugin marketplace add CalvinDittkrist/workflows --scope project` and enables each plugin of its template with `claude plugin install <plugin>@ameise --scope project`; `scaffold.sh` runs both. `check.sh` warns for a template plugin that is not enabled and for any other plugin enabled at project scope.
+A repository adds the marketplace with `claude plugin marketplace add CalvinDittkrist/workflows --scope project`. It enables each plugin of its template with `claude plugin install <plugin>@ameise --scope project`. `scaffold.sh` runs both. `check.sh` warns for a template plugin that is not enabled and for any other plugin enabled at project scope.
 
 `claude --plugin-dir plugins/repo-standards` loads the plugin without installing it. `make check` runs the gate.
