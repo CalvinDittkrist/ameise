@@ -210,7 +210,7 @@ wf_wait_agent() {
   [ -n "$agent_status" ] && return 0
   out=$(herdr pane read "$pane" --source recent --lines 20 --format text 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
   if grep -q "not found" <<<"$out"; then
-    start_error="claude exited: $(printf '%s' "$out" | grep "not found" | tail -n 1). The agent's plugin is not loaded in new sessions: install it (claude plugin install <plugin>@workflows) or set WF_CLAUDE_ARGS=\"--plugin-dir <path>\" for the orchestrator."
+    start_error="claude exited: $(printf '%s' "$out" | grep "not found" | tail -n 1). The agent's plugin is not loaded in new sessions: install it (claude plugin install <plugin>@ameise) or set WF_CLAUDE_ARGS=\"--plugin-dir <path>\" for the orchestrator."
     return 1
   fi
   # A bare shell prompt as the last line means claude exited (bad flag, crash); a slow start would still show claude.
@@ -295,7 +295,7 @@ wf_worker_settings() {
     --argjson w "$wf_compact_window" --arg p "$wf_compact_pct" --argjson e "$env_extra" \
     '{env:($e + {WF_MODE:$m, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:"1", CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:$p}
            + (if $i != "" then {WF_ISSUE:$i} else {} end) + (if $b != "" then {WF_BASE_BRANCH:$b} else {} end)),
-      enabledPlugins:{"planner@workflows":false, "orchestrator@workflows":false},
+      enabledPlugins:{"planner@ameise":false, "orchestrator@ameise":false},
       statusLine:{type:"command", command:$sl, padding:0, refreshInterval:60},
       autoCompactWindow:$w}'
 }

@@ -62,7 +62,7 @@ elif [ -n "$issue" ]; then git config "branch.$branch.description" "issue: #$iss
 
 # The planner session disables the other plugins so their skills and agents stay out of its context.
 # WF_PLANNER_LANGUAGE rides along as claude's native `language` setting: this session only, no settings file.
-settings=$(jq -cn --arg s "$slug" --arg i "$issue" --arg lang "${WF_PLANNER_LANGUAGE:-}" '{env:{WF_PLAN:$s}, enabledPlugins:{"worker@workflows":false, "orchestrator@workflows":false, "repo-standards@workflows":false}} | if $i != "" then .env.WF_PLAN_ISSUE = $i else . end | if $lang != "" then .language = $lang else . end')
+settings=$(jq -cn --arg s "$slug" --arg i "$issue" --arg lang "${WF_PLANNER_LANGUAGE:-}" '{env:{WF_PLAN:$s}, enabledPlugins:{"worker@ameise":false, "orchestrator@ameise":false, "repo-standards@ameise":false}} | if $i != "" then .env.WF_PLAN_ISSUE = $i else . end | if $lang != "" then .language = $lang else . end')
 perm="${WF_PLANNER_PERMISSION_MODE:-auto}"
 name=$(wf_agent_name "plan-$slug")
 extra="${WF_CLAUDE_ARGS:-} ${WF_PLANNER_CLAUDE_ARGS:-}"
