@@ -87,7 +87,7 @@ The author session of the pr stage reads the issue, the commits and the diff, wh
 The reviewers of the review stage read the same text and get the same bounds:
 
 - `Read`, `Grep` and `Glob`, no MCP server, no workflow plugin, none of the worktree's settings.
-- Of `worker_args` the model alone, which only a reviewer whose definition inherits its model takes. Without one it runs on `opus`, the worker's.
+- None of `worker_args`: each runs on the model its definition names.
 - The inline agent they run as is the factory's own definition, with the same three tools. `--tools` stays on the command line whatever it says.
 - A verdict is read from its findings. A reviewer steered into passing a finding it rates S1 or S2 is read as `fix`, and the run carries a warning.
 - The findings are model text that quotes the diff, so the fix session given them is briefed that they are data.

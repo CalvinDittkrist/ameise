@@ -47,7 +47,7 @@ Labels the plugin owns and creates on demand: `ready-for-agent`, `needs-triage`,
 - They refuse `factory:spec-run` next to `factory` or `ready-for-human`, or on a non-spec whose parent lacks it.
 - Sub-issues and blocking edges use GitHub's native APIs and fall back to body text.
 
-Model: the agent file names `fable`; the root README explains why. `spec-checker` is `model: inherit` and the research subagent has no agent file, so both follow the session.
+Model: the agent file names `fable`; the root README explains why. `spec-checker` runs on `sonnet` at `high` effort. The research subagent has no agent file, so it follows the session.
 
 ## Configuration
 | Variable | Default | Effect |
@@ -55,7 +55,7 @@ Model: the agent file names `fable`; the root README explains why. `spec-checker
 | `WF_PLANNER_PERMISSION_MODE` | `auto` | permission mode of the session |
 | `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`, passed as claude's `language` setting for this session; what the planner writes stays English; a control character or an overlong value is refused |
 | `WF_CLAUDE_ARGS` | empty | extra flags for every worker and planner, such as `--model` |
-| `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its subagents together |
+| `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its research subagent, not `spec-checker` |
 | `WF_PLAN`, `WF_PLAN_ISSUE` | set by `/plan` | slug and issue of the planner session |
 
 ## Develop

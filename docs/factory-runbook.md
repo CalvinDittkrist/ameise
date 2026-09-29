@@ -240,8 +240,8 @@ The factory is configured by one JSON file and nothing else: no environment vari
 
 - `--settings`, `--agents`, `--agent`, `--permission-mode`, `--output-format`, `-p` and `--print` are refused, because the factory sets them.
 - `--plugin-dir` is refused too, because the sessions run no plugin.
-- The read-only sessions, the author of the pr stage and the reviewers of the review stage, take only the `--model` of these.
-- A reviewer whose own model is named takes none. The others run on `opus` when `worker_args` names no model.
+- The author of the pr stage takes only the `--model` of these, and runs on `opus` when `worker_args` names no model.
+- A reviewer of the review stage takes none: each runs on the model its definition names.
 
 `ci`:
 
@@ -289,7 +289,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - The object may also carry `"gate"`, `"ci"`, `"review"` and `"validate"` with any of their knobs, which then stand for that repository over the host's.
 - A repository's `classes` replace the host's as a whole. An unknown knob, reviewer or validator is refused, and so is a `rounds` below 1.
 
-`quota_minimum` applies to the all-models scope, and to the scope of each model the run spends. Those are the worker's model, and the one a reviewer of the repository's panel or change classes names for itself.
+`quota_minimum` applies to the all-models scope, and to the scope of each model the run spends. Those are the worker's model, and the one each reviewer of the repository's panel, change classes or validators names.
 
 A run whose panel, change classes or validators name `codex` spends Codex as well. The check then also runs `quota_axi --provider codex --json` and holds the run back on a Codex scope below `quota_minimum` ([ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A Codex reading that fails lets the run start with a warning that names the Codex quota.
 
@@ -678,8 +678,8 @@ Each reviewer on Claude Code is a read-only session run as an inline agent of th
 
 - the tools `Read`, `Grep` and `Glob`, and `StructuredOutput` for its result, and nothing else
 - no MCP server, none of the workflow plugins and none of the worktree's settings
-- The code, docs and tests reviewers run on `sonnet`. Security and senior inherit the worker's model: `opus` unless `worker_args` names another.
-- The factory passes that model with `--model`, so no reviewer runs on the account default of the host's Claude login.
+- The code, security, docs, tests and senior reviewers run on `sonnet` at the effort `high`, both named in their definition ([subagents](https://code.claude.com/docs/en/sub-agents.md), checked 2026-09-28).
+- The model in `worker_args` moves the worker alone, and no reviewer runs on the account default of the host's Claude login.
 - The reviewer `codex` runs on Codex instead ([The Codex runtime](#the-codex-runtime)).
 - The reviewer `fable` runs on `fable`, the Fable model ([model configuration](https://code.claude.com/docs/en/model-config.md), checked 2026-09-27).
 

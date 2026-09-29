@@ -2,6 +2,7 @@
 # Test shim for claude: logs calls and emulates the project-scope plugin commands, which edit
 # .claude/settings.json in the working directory the way Claude Code does (checked against 2.x on 2026-09-18).
 printf 'claude %s\n' "$*" >> "${SHIM_LOG:-/dev/null}"
+{ printf 'claude'; for a in "$@"; do printf '\037%s' "${a//$'\n'/$'\036'}"; done; printf '\n'; } >> "${SHIM_ARGV_LOG:-/dev/null}"
 s=.claude/settings.json
 edit() { mkdir -p .claude; [ -f "$s" ] || echo '{}' > "$s"; jq "$@" "$s" > "$s.tmp" && mv "$s.tmp" "$s"; }
 case "$*" in
@@ -12,5 +13,6 @@ case "$*" in
     [ "$(jq -r --arg p "$3" '.enabledPlugins[$p] // false' "$s" 2>/dev/null)" = true ] \
       || { echo "✘ Failed to disable plugin \"$3\": Plugin \"$3\" is already disabled at project scope" >&2; exit 1; }
     edit --arg p "$3" '.enabledPlugins[$p] = false' ;;
+  "--plugin-dir "*) ;;  # an interactive session start: the argv log is what a test reads
   *) echo "claude shim: unhandled: $*" >&2; exit 64 ;;
 esac

@@ -4,6 +4,7 @@ description: Fresh-context review of documentation, comments, commit messages an
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
+effort: high
 omitClaudeMd: true
 color: cyan
 ---

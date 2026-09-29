@@ -7,4 +7,4 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 export WF_PLANNER_CLAUDE_ARGS="--plugin-dir $root/plugins/planner${WF_PLANNER_CLAUDE_ARGS:+ $WF_PLANNER_CLAUDE_ARGS}"
 export WF_WORKER_CLAUDE_ARGS="--plugin-dir $root/plugins/worker${WF_WORKER_CLAUDE_ARGS:+ $WF_WORKER_CLAUDE_ARGS}"
 cd "$root"
-exec claude --plugin-dir "$root/plugins/orchestrator" --agent orchestrator "$@"
+exec claude --plugin-dir "$root/plugins/orchestrator" --agent orchestrator --effort low "$@"

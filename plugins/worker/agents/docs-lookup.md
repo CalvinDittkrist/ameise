@@ -4,6 +4,7 @@ description: Answers one question about Claude Code from the current documentati
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
+effort: high
 omitClaudeMd: true
 color: cyan
 ---
