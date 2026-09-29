@@ -689,13 +689,14 @@ func TestAnUnhealthyReleaseIsRolledBackOntoTheBlockList(t *testing.T) {
 	}
 }
 
-// The bridge release is the first to read its releases under the new name, and it is the binary a
-// host keeps when the first release after the rename fails.
+// The bridge release is the first to read its releases under the new name. A host keeps it when
+// the first release after the rename fails.
 func TestARollbackReturnsToTheBridgeRelease(t *testing.T) {
 	t.Parallel()
-	bridge, ok := parseSemver(version)
+	const bridgeRelease = "0.5.0"
+	bridge, ok := parseSemver(bridgeRelease)
 	if !ok {
-		t.Fatalf("VERSION says %q, which is not major.minor.patch", version)
+		t.Fatalf("the bridge release %q is not major.minor.patch", bridgeRelease)
 	}
 	next := semver{bridge[0], bridge[1], bridge[2] + 1}
 	h := newJudgeHost(t, next.String(), bridge.String(), judgement{Version: next.String(), Previous: bridge.String()})
