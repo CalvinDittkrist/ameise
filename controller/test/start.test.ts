@@ -12,7 +12,9 @@ test('workflows starts the server on the configured address, opens the browser t
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   expect(await api(m, 'GET', '/api/projects')).toEqual({ status: 200, body: [] })
-  await expect.poll(() => existsSync(m.opened) && read(m.opened)).toBe(`${m.url}\n`)
+  // The browser opens after the server listens, which a machine busy with other tests delays past the
+  // second expect.poll waits by default.
+  await expect.poll(() => existsSync(m.opened) && read(m.opened), { timeout: 10000 }).toBe(`${m.url}\n`)
   expect(readdirSync(m.state)).toContain('events.jsonl')
 })
 

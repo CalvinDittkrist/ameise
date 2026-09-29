@@ -160,6 +160,94 @@ export const seen = (id: string) => call<{ id: string }>("POST", "/api/processes
 export const abandon = (path: string, issue: number, force: boolean) =>
   call<{ branch: string }>("DELETE", "/api/processes", { project: path, issue, force })
 
+// A question of the session with the options it offers, and an entry of a process's conversation as the
+// controller derives it from the event log: seq is the line of the log it comes from.
+export type Question = { question: string; header: string; options: { label: string; description: string }[]; multiSelect: boolean }
+export type Answer = "once" | "process" | "deny"
+export type Entry = { seq: number } & (
+  | { kind: "text"; text: string }
+  | { kind: "tool"; name: string; detail: string }
+  | { kind: "you"; text: string }
+  | { kind: "permission"; request: string; tool: string; detail: string; title: string; reason: string }
+  | { kind: "question"; request: string; questions: Question[] }
+  | { kind: "answer"; request: string; answer?: Answer; text?: string }
+  | { kind: "allowed"; tool: string; detail: string }
+  | { kind: "closed"; request: string }
+  | { kind: "start"; resumed: boolean }
+  | { kind: "end"; state: string; note: string }
+)
+
+// A process record as the controller keeps it, with the context size at which its session compacts.
+export type ProcessRecord = {
+  id: string
+  project: string
+  branch: string
+  issue: number
+  mode: "manual" | "yolo"
+  stage: string
+  state: Process["state"]
+  note: string
+  session_id?: string
+  context?: number
+  compact_at: number
+  unseen?: boolean
+  updated_at: string
+}
+
+// Followed is a process page's view of its process: the record and the conversation, live while the
+// connection holds and kept as they were while it reconnects.
+export type Followed =
+  | { state: "loading" }
+  | { state: "gone" }
+  | { state: "failed"; error: string }
+  | { state: "live" | "reconnecting"; record: ProcessRecord; entries: Entry[] }
+
+// useProcess follows a process over the controller's stream of its events: the record and the
+// conversation so far when it connects, then every change. The browser reconnects a stream that breaks,
+// and each connection starts with the whole conversation again.
+export function useProcess(id: string): Followed {
+  const [followed, setFollowed] = useState<Followed>({ state: "loading" })
+  useEffect(() => {
+    const source = new EventSource(`/api/processes/events?${new URLSearchParams({ id }).toString()}`)
+    let record: ProcessRecord | undefined
+    let entries: Entry[] = []
+    let fresh = true
+    const show = () => record && setFollowed({ state: "live", record, entries })
+    source.addEventListener("open", () => (fresh = true))
+    source.addEventListener("record", (e) => {
+      record = JSON.parse(e.data) as ProcessRecord
+      show()
+    })
+    source.addEventListener("entries", (e) => {
+      const more = JSON.parse(e.data) as Entry[]
+      entries = fresh ? more : [...entries, ...more]
+      fresh = false
+      show()
+    })
+    source.addEventListener("gone", () => {
+      source.close()
+      setFollowed({ state: "gone" })
+    })
+    source.addEventListener("error", () => {
+      // A stream the controller refused, as for a process it does not know, is closed for good.
+      if (source.readyState === EventSource.CLOSED) setFollowed({ state: "failed", error: `${id} is not a process of this machine, or the controller does not answer` })
+      else if (record) setFollowed({ state: "reconnecting", record, entries })
+    })
+    return () => source.close()
+  }, [id])
+  return followed
+}
+
+// say writes a message to the process's session: the answer to its question, its next turn, or the turn
+// that resumes it.
+export const say = (id: string, text: string) => call<{ delivered: "answered" | "sent" | "resumed" }>("POST", "/api/processes/message", { id, text })
+
+// answer answers a permission request of the process's session.
+export const answer = (id: string, request: string, a: Answer) => call<{ answer: Answer }>("POST", "/api/processes/answer", { id, request, answer: a })
+
+// openTerminal opens the process's session in a terminal window of this machine.
+export const openTerminal = (id: string) => call<{ script: string }>("POST", "/api/processes/terminal", { id })
+
 // resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
 export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
 

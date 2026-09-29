@@ -94,7 +94,7 @@ async function start(fake: boolean) {
     browse(url)
   })
   // A stop takes no new connection, then cuts the sessions off and marks their processes interrupted,
-  // so a later resume can go on with them.
+  // so a later resume can go on with them. The exit ends the streams the process pages follow.
   let stopping = false
   const stop = () => {
     if (stopping) return

@@ -7,7 +7,8 @@ import { age, type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
-const dot: Record<Process["state"], string> = {
+// dot is the colour of a process's state, on its row and on its page.
+export const dot: Record<Process["state"], string> = {
   running: "bg-blue-500",
   waiting: "bg-amber-500",
   blocked: "bg-red-500",
@@ -20,8 +21,10 @@ const dot: Record<Process["state"], string> = {
   foreign: "border-2 border-dashed border-muted-foreground",
 }
 
-// The controller carries out claim, abandon, resume, adopt, merge and the start of an acceptance. It
-// does not serve any other action yet, so a row shows those disabled.
+// The controller carries out claim, abandon, resume, adopt, merge and the start of an acceptance. A
+// permission, a question, a blocked session and a failed one are answered or read on the process's
+// page, which their actions open. It does not serve any other action yet, so a row shows those disabled.
+const opens = ["Answer", "Approve", "Continue", "Open"]
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work
@@ -53,6 +56,15 @@ export function ProcessRow({ p, project, path, reload }: { p: Process; project?:
         </span>
         {p.action === "Merge" && p.pr ? (
           <Merge p={{ ...p, pr: p.pr }} path={path} reload={reload} />
+        ) : opens.includes(p.action) ? (
+          <Button
+            size="sm"
+            variant={p.needs ? "default" : "ghost"}
+            disabled={p.id === null}
+            onClick={() => p.id !== null && (location.hash = href({ page: "process", id: p.id }))}
+          >
+            {p.action}
+          </Button>
         ) : (
           <ProcessAction p={p} path={path} reload={reload} />
         )}

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { rmSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { test as base, expect, type Page } from "@playwright/test"
 
@@ -88,7 +88,7 @@ test("a process that turned blocked carries a badge on its row and on the Orches
 
     await row.getByRole("link", { name: "fix/78-keep-the-order-book" }).click()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("#78 fix/78-keep-the-order-book")
-    await expect(page.getByRole("definition").filter({ hasText: "Which exchange first?" })).toBeVisible()
+    await expect(main(page).getByLabel("Note")).toHaveText("Which exchange first?")
     await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0)
     const board = await (await fetch(url("/api/board"))).json()
     const p = board.projects.flatMap((b: { processes?: { id: string; unseen: boolean }[] }) => b.processes ?? []).find((x: { id: string }) => x.id === "p78")
@@ -141,8 +141,10 @@ test("the Orchestrator page sorts the processes of every project into needs you 
     "plan/open-20260928-0011",
     "#100",
   ])
-  await expect(actions(page, "Needs you")).toHaveText(["Answer", "Merge", "Continue", "Accept"])
-  await expect(rows(page, "Needs you").first()).toContainText("edge-sensors#118feat/118-refuse-a-project-without-originAsks: keep the project in the file, or drop it?implement2h")
+  await expect(actions(page, "Needs you")).toHaveText(["Approve", "Merge", "Continue", "Accept"])
+  await expect(rows(page, "Needs you").first()).toContainText(
+    "edge-sensors#118feat/118-refuse-a-project-without-originBash wants to run: git remote set-url origin git@github.com:acme/edge-sensors.gitimplement2h",
+  )
   expect(await rows(page, "Running").evaluateAll((r) => r.map((x) => x.getAttribute("aria-label")))).toEqual([
     "feat/142-read-the-configuration",
     "feat/88-reconnect-the-broker-stream",
@@ -179,6 +181,117 @@ test("a process whose session failed waits under needs you with its reason, a da
     await expect(section(page, "Running").locator("[aria-label='fix/77-drop-stale-ticks']")).toHaveCount(0)
   } finally {
     rmSync(file, { force: true })
+  }
+})
+
+test("a process page links the pull request of its branch with its checks", async ({ page }) => {
+  // The ready process of the fixture turns running for this test and is ready again after it.
+  const file = join(process.env.WORKFLOWS_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  writeFileSync(file, JSON.stringify({
+    project: process.env.WORKFLOWS_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "ci", state: "running", note: "Waiting for the checks", updated_at: new Date().toISOString(),
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("#131 fix/131-log-the-sensor-drift")
+    const pr = main(page).getByLabel("Pull request")
+    await expect(pr).toHaveText("#250 checks pass")
+    await expect(pr.getByRole("link", { name: "#250" })).toHaveAttribute("href", "https://github.com/acme/pull/250")
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
+test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
+  await page.goto(url())
+  await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
+  await expect(main(page).getByLabel("Facts")).toHaveText("acme/edge-sensorsfeat/118-refuse-a-project-without-originmanual2hcontext84k")
+  await expect(main(page).getByLabel("Context", { exact: true })).toHaveAttribute("title", "84,213 of 250,000 tokens before it compacts")
+  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement"])
+
+  const turns = main(page).getByLabel("Conversation").getByRole("article")
+  expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question", "Session", "You", "Session", "Permission"])
+  // The tool calls are chips under the text, paths inside the worktree relative to it.
+  await expect(turns.nth(0).getByRole("list", { name: "Tool calls" }).getByRole("listitem")).toHaveText([
+    "Readsrc/config.ts",
+    "Edittest/config.test.ts",
+    "Bashnpx vitest run test/config.test.ts",
+  ])
+  // A call the maintainer allowed for the process is marked on its chip.
+  await expect(turns.nth(2).getByRole("listitem").nth(1).locator("[title]")).toHaveAttribute("title", "Bash npx vitest run: allowed for this process")
+  // A question that was answered keeps its answer and offers no options.
+  await expect(turns.nth(1).getByRole("status")).toHaveText("You answered: Keep it, marked unusable, and say why on the board.")
+  await expect(turns.nth(1).getByRole("button")).toHaveCount(0)
+  await expect(turns.nth(3)).toHaveText("Read the URL, never change it. An ssh URL and an https URL name the same repository.")
+  // The permission waits with its three answers. Its session is not running here, so the controller refuses the answer with the reason.
+  const permission = turns.nth(5)
+  await expect(permission).toContainText("Bash wants to run")
+  await expect(permission.locator("code")).toHaveText("git remote set-url origin git@github.com:acme/edge-sensors.git")
+  await expect(permission.getByRole("button")).toHaveText(["Allow once", "Allow for this process", "Deny"])
+  await permission.getByRole("button", { name: "Allow once" }).click()
+  await expect(permission.getByRole("alert")).toHaveText(/^no permission request toolu-remote waits in p118; it was answered, or its session has ended$/)
+  await expect(main(page).getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Write to the session…")
+})
+
+test("open in terminal has the terminal resume the session by its id", async ({ page }) => {
+  rmSync(process.env.WORKFLOWS_TERMINAL_LOG!, { force: true })
+  await page.goto(url("/#process=p118"))
+  await page.getByRole("button", { name: "Open in terminal" }).click()
+  await expect.poll(() => existsSync(process.env.WORKFLOWS_TERMINAL_LOG!)).toBe(true)
+  const script = readFileSync(process.env.WORKFLOWS_TERMINAL_LOG!, "utf8").trim()
+  expect(readFileSync(script, "utf8")).toMatch(/^exec '[^']+' '--resume' '7f3c9a2e-5b1d-4e8a-9c6f-2d4b8e1a0f37' /m)
+  await expect(main(page).getByRole("alert")).toHaveCount(0)
+})
+
+test("a running session's permission, question and chat are answered on its page, which follows it live", async ({ page }) => {
+  const project = process.env.WORKFLOWS_SENSORS!
+  const play = join(process.env.WORKFLOWS_FAKE_CLAUDE!, "play")
+  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nready Pull request #9 waits for your merge\n")
+  try {
+    const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
+    expect(claimed.status).toBe(201)
+    const { record } = await claimed.json()
+    await page.goto(url(`/#process=${record.id}`))
+    const conversation = main(page).getByLabel("Conversation")
+    const permission = conversation.getByRole("article", { name: "Permission" })
+    await expect(permission.locator("code")).toHaveText("npm test")
+    await expect(main(page).locator("[title=approval]")).toHaveCount(1)
+    await permission.getByRole("button", { name: "Allow once" }).click()
+    await expect(permission.getByRole("status")).toHaveText("Allowed once")
+    await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "Ran npm test." })).toHaveCount(1)
+
+    const question = conversation.getByRole("article", { name: "Question" }).first()
+    await expect(question).toContainText("Keep the old flag, or drop it?")
+    await expect(main(page).getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Answer the question…")
+    await question.getByRole("button", { name: "Drop" }).click()
+    await expect(question.getByRole("status")).toHaveText("You answered: Drop")
+    await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You answered: Drop." })).toHaveCount(1)
+
+    // A question that takes several options sends the ones chosen together, in the order it offers them.
+    const choice = conversation.getByRole("article", { name: "Question" }).filter({ hasText: "Which of the flags go?" })
+    const send = choice.getByRole("button", { name: "Send" })
+    await expect(send).toBeDisabled()
+    await choice.getByRole("button", { name: "Drop" }).click()
+    await choice.getByRole("button", { name: "Keep" }).click()
+    await expect(choice.getByRole("button", { name: "Keep" })).toHaveAttribute("aria-pressed", "true")
+    await expect(choice.getByRole("status")).toHaveText("Answer below")
+    await send.click()
+    await expect(choice.getByRole("status")).toHaveText("You answered: Keep, Drop")
+
+    const message = main(page).getByRole("textbox", { name: "Message" })
+    await message.fill("Name it --keep")
+    await message.press("Enter")
+    await expect(message).toHaveValue("")
+    await expect(conversation.getByRole("article", { name: "You" })).toHaveText("Name it --keep")
+    await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You wrote: Name it --keep." })).toHaveCount(1)
+    await expect(conversation.getByRole("note")).toHaveText("Reported ready: Pull request #9 waits for your merge")
+    await expect(main(page).locator("[title=ready]")).toHaveCount(1)
+    await expect(message).toHaveAttribute("placeholder", "Write to resume the session…")
+  } finally {
+    rmSync(play, { force: true })
+    await fetch(url("/api/processes"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
   }
 })
 
@@ -449,6 +562,9 @@ for (const scheme of ["light", "dark"] as const) {
         if (name === "process") {
           await section(page, "Needs you").getByRole("link", { name: "feat/118-refuse-a-project-without-origin" }).click()
           await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
+          // The process page holds a question card and a permission card that waits for its answer.
+          await expect(main(page).getByRole("article", { name: "Permission" }).getByRole("button")).toHaveCount(3)
+          await expect(main(page).getByRole("article", { name: "Question" })).toHaveCount(1)
         }
         await page.evaluate(() => document.fonts.ready)
         await expect(page).toHaveScreenshot(`${name}-${scheme}.png`, {

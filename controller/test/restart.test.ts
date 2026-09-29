@@ -118,6 +118,17 @@ test('a controller killed with its session running finds it interrupted at its n
   expect(recordOf(r.id).state).toBe('interrupted')
 })
 
+test('a controller killed while its session waits for a permission finds it interrupted at its next start', async () => {
+  play(m, 'permit git push')
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  const id = (r.body as { record: Record }).record.id
+  const waiting = await until(() => recordOf(id), (x) => x.state === 'approval', 'the permission request')
+  await down('SIGKILL')
+  server = await up()
+  expect(recordOf(id)).toMatchObject({ state: 'interrupted', session_id: waiting.session_id, note: 'the controller stopped while its implement session ran; resume it to go on' })
+})
+
 test('a worktree the state does not know is foreign, a claim of its issue names it, and an adopt makes it a process a resume starts', async () => {
   const tree = worktree(dir, 'fix/8-by-hand')
   worktree(dir, 'feat/12-left-over')

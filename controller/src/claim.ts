@@ -9,7 +9,7 @@ import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
 import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
 import { type Project, Refusal } from './project.js'
-import { type Announce, event, stop, update } from './session.js'
+import { type Announce, event, forget, stop, update } from './session.js'
 
 // The worker knobs a claim may set for its process, the ones the local claim accepts with --env. The
 // claim itself sets the mode and the issue, and the base branch follows the base branch rule.
@@ -97,6 +97,10 @@ export interface CreatedRecord {
   note: string
   // session_id is the id of the implement session, once it has started.
   session_id?: string
+  // context is the size of the session's context in tokens, from the usage of its latest message.
+  context?: number
+  // allowed are the calls and rules the maintainer allowed for this process, which no card asks again.
+  allowed?: string[]
   // unseen says the process turned blocked, ready or failed and its page has not been opened since.
   unseen?: boolean
   created_at: string
@@ -460,10 +464,7 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
     await git(top, 'worktree', 'remove', '--force', tree.path)
     await git(top, 'worktree', 'prune')
   }
-  for (const { file } of records) {
-    rmSync(file, { force: true })
-    rmSync(file.replace(/\.json$/, '.events.jsonl'), { force: true })
-  }
+  for (const { file } of records) forget(stateDir, basename(file, '.json'))
   return { issue: n, branch, worktree: tree?.path ?? null }
 }
 
