@@ -48,7 +48,7 @@ export function parse(raw: string, runtime: string): { remaining: number; reset:
   } catch (err) {
     throw new Error(`quota-axi printed something that is not its JSON report: ${(err as Error).message}`, { cause: err })
   }
-  if (report.schemaVersion !== schema) throw new Error(`quota-axi reports in schema version ${report.schemaVersion} and workflows reads version ${schema}`)
+  if (report.schemaVersion !== schema) throw new Error(`quota-axi reports in schema version ${report.schemaVersion} and ameise reads version ${schema}`)
   const p = (report.providers ?? []).find((x) => x.provider === runtime)
   if (!p) throw new Error(`quota-axi reports no provider ${runtime}`)
   if (p.state?.stale) throw new Error(`quota-axi's reading of ${runtime} is stale`)
