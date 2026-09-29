@@ -184,7 +184,8 @@ Run the following as root unless it says otherwise.
    - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
-   - `repo` is the repository's name today: `CalvinDittkrist/workflows` until the repository is renamed on GitHub, `CalvinDittkrist/ameise` after. A download from a name that does not exist yet fails. `built` is the name it had when the release was built, because the attestation names that repository.
+   - `repo` is the repository's name today: `CalvinDittkrist/workflows` until the repository is renamed on GitHub, `CalvinDittkrist/ameise` after.
+   - A download from a name that does not exist yet fails. `built` is the repository's name when the release was built, because the attestation names that repository.
    - Releases up to the bridge release `factory/v0.5.0` were built under the repository's old name `CalvinDittkrist/workflows` ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)). Later ones were built as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
