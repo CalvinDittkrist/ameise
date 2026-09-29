@@ -1,6 +1,8 @@
 # workflows
 
-Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. An orchestrator session opens planning sessions that turn ideas into agent-ready issues and claims those issues into isolated worktree sessions. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green. Beside the plugins, `factory/` is a Go service that works routed issues unattended.
+Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, and each issue is claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
+
+The local workflow is the controller `workflows`: one npm package with its dashboard and the plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
 
 ```mermaid
 flowchart LR
@@ -27,7 +29,15 @@ flowchart LR
 
 ## Install
 
-Requirements: Claude Code 2.1.270 or later, an authenticated `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
+The [controller](controller/README.md) needs Node 22 or later, Claude Code, git and a logged-in `gh`:
+
+```sh
+npm install --global workflows-controller
+workflows                          # starts it and opens the dashboard on 127.0.0.1:7420
+workflows projects add ~/src/repo  # then claim, plan, merge and release from the dashboard
+```
+
+The plugins also install from the marketplace, for sessions started by hand. Requirements: Claude Code 2.1.270 or later, an authenticated `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
 
 ```sh
 claude plugin marketplace add CalvinDittkrist/workflows
@@ -105,7 +115,7 @@ A session takes its model from the first that is set:
 2. the `model` of its agent file: `fable` for `planner`, `opus` for `worker`
 3. `model` in your Claude Code settings
 
-The orchestrator, started by hand, runs on its agent file's `sonnet` at `low` effort. The planner runs on Fable because a wrong spec multiplies into every ticket. Neither it nor the worker sets an effort.
+The orchestrator, started by hand, runs on its agent file's `sonnet` at `low` effort. The planner runs on Fable. Neither it nor the worker sets an effort.
 
 Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers, auditors, the test hunter, docs lookup and spec checker, `medium` for the pull request author. `WF_*_CLAUDE_ARGS` move only their session, which the planner's research subagent follows.
 
@@ -131,7 +141,10 @@ go -C factory run . -fake -config factory.json    # the factory on a canned queu
 npm --prefix factory/ui run dev                   # the dashboard with hot reload, against a factory started beside it
 ```
 
-`dev-orchestrator.sh` points `WF_PLANNER_CLAUDE_ARGS` and `WF_WORKER_CLAUDE_ARGS` at the checkout's plugins. Without them a started session exits with `--agent 'planner' not found`, and `plan.sh` and `claim.sh` remove the worktree and print the fix. Tests run the real scripts against the `gh` and `herdr` shims in `tests/shims/`. A plugin is released by bumping `version` in its manifest and running `scripts/release.sh <plugin> --push`.
+`dev-orchestrator.sh` points `WF_PLANNER_CLAUDE_ARGS` and `WF_WORKER_CLAUDE_ARGS` at the checkout's plugins. Without them a started session exits with `--agent 'planner' not found`, and `plan.sh` and `claim.sh` remove the worktree and print the fix. Tests run the real scripts against the `gh` and `herdr` shims in `tests/shims/`.
+
+- A plugin is released by bumping `version` in its manifest and running `scripts/release.sh <plugin> --push`.
+- The controller: bump `version` in `controller/package.json`, then `scripts/release.sh controller --push` on `main`. CI publishes the package from the `controller/v<version>` tag.
 
 `factory/` is the factory, a Go service and no plugin. It is a peer of the local workflow and owns the delivery pipeline in Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
@@ -144,9 +157,6 @@ Its configuration is in the [runbook](docs/factory-runbook.md#configuration). Th
 
 - `factory/factory.example.json` is a host's configuration and runs paused. A configuration without `paused` is paused, and `-paused` never unpauses one.
 - A run on a developer's machine sets its own data directory, drops `"quota_axi"` and passes `-fake`.
-- A connected repository is `"owner/name"`, or `{"name": "owner/name", "base": "dev"}` when this host branches off another base.
-- `"notify"` names the logins, without `@`, that hear how a run ended.
-- `"worker_args"` adds flags to the writing sessions and is refused when it carries `--settings`, `--agents`, `--agent`, `--plugin-dir`, `--permission-mode`, `--output-format`, `-p` or `--print`.
 - `"gate"` runs a command in the worktree, none, or hands the gate to CI through a draft pull request ([runbook](docs/factory-runbook.md#a-gate-on-ci)).
 - `"quota_axi"` is the path of a pinned [quota-axi](https://github.com/kunchenguid/quota-axi), version 0.1.49. Below `"quota_minimum"`, default 12 %, nothing starts ([ADR 0037](docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
 
