@@ -13,7 +13,7 @@ const licence = fileURLToPath(new URL('../../LICENSE', import.meta.url))
 
 for (const name of bundled) {
   if (!existsSync(`${source}${name}/.claude-plugin/plugin.json`)) {
-    process.stderr.write(`error: no plugin at ${source}${name}; the controller is built from a checkout of the workflows repository\n`)
+    process.stderr.write(`error: no plugin at ${source}${name}; the controller is built from a checkout of the ameise repository\n`)
     process.exit(1)
   }
 }

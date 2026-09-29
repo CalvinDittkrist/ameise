@@ -267,7 +267,7 @@ class CleanupTests(MessyRepositoryCase):
         settings = json.loads(self.origin_git("show", "chore/standardize:.claude/settings.json"))
         self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@ameise": True, "planner@ameise": True,
                                                       "repo-standards@ameise": True, "worker@ameise": True})
-        self.assertEqual(settings["extraKnownMarketplaces"]["ameise"]["source"]["repo"], "CalvinDittkrist/workflows")
+        self.assertEqual(settings["extraKnownMarketplaces"]["ameise"]["source"]["repo"], "CalvinDittkrist/ameise")
         self.assertEqual(settings["env"]["WF_REVIEW_ROUNDS"], "5")
         self.assertEqual(settings["attribution"], {"commit": "", "pr": ""})
         self.assertIn("claude plugin disable foo@bar --scope project", self.calls())

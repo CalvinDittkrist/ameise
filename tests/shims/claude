@@ -9,7 +9,7 @@ case "$*" in
   "plugin marketplace add "*"/"*" --scope project")
     # Claude Code keys a marketplace by the name in its catalogue, which the shim cannot fetch: the
     # workflow's repository hosts the marketplace ameise.
-    r=$4; n=${r##*/}; [ "$r" != CalvinDittkrist/workflows ] || n=ameise
+    r=$4; n=${r##*/}; [ "$r" != CalvinDittkrist/ameise ] || n=ameise
     edit --arg r "$r" --arg n "$n" '.extraKnownMarketplaces[$n] = {source: {source: "github", repo: $r}}' ;;
   "plugin install "*"@"*" --scope project") edit --arg p "$3" '.enabledPlugins[$p] = true' ;;
   "plugin disable "*" --scope project")

@@ -63,9 +63,9 @@ class ClaimTests(ShimTest):
         # The pane the command runs in has its own working directory, so the script is named by its full path.
         self.assertEqual(words[0], str(ORCH / "sbx-worker.sh"))
 
-    def test_a_reused_sandbox_moves_its_plugins_to_the_ameise_marketplace(self):
-        # Plugins used to be installed only when the sandbox was created. A sandbox from before the rename kept
-        # worker@workflows, while the session settings name @ameise, so it ran the old worker plugin.
+    def test_a_reused_sandbox_installs_the_plugins_the_session_settings_name(self):
+        # Plugins used to be installed only when the sandbox was created, so a reused sandbox kept the plugins
+        # it was created with, whatever the session settings named.
         self.git("branch", "fix/12-x")
         wt = self.base / "wt12"
         self.git("worktree", "add", "-q", str(wt), "fix/12-x")
@@ -77,9 +77,8 @@ class ClaimTests(ShimTest):
         self.assertEqual(len(execs), 1)
         self.assertEqual(execs[0][2], "wf-repo-fix-12-x")
         steps = [s.split(">")[0].strip() for s in execs[0][-1].replace("&&", ";").split(";")]
-        self.assertLess(steps.index("claude plugin marketplace remove workflows"),
+        self.assertLess(steps.index("claude plugin marketplace add 'CalvinDittkrist/ameise'"),
                         steps.index("claude plugin install worker@ameise --scope user"))
-        self.assertIn("claude plugin uninstall worker@workflows --scope user", steps)
         self.assertIn("claude plugin install repo-standards@ameise --scope user", steps)
         self.assertEqual(sbx[-1][1:], ["run", "--name", "wf-repo-fix-12-x", "--", "/worker:work"])
 
