@@ -41,7 +41,7 @@ import (
 
 const (
 	// releaseRepository is the repository whose factory releases a host installs.
-	releaseRepository = "CalvinDittkrist/workflows"
+	releaseRepository = "CalvinDittkrist/ameise"
 	// releaseTagPrefix opens every factory version tag; a plugin or milestone tag never carries it.
 	releaseTagPrefix = "factory/v"
 	// updateStateDir is the updater's own directory, root's and not the factory's.

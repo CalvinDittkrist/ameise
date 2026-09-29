@@ -92,7 +92,12 @@ type tickCase struct {
 	install   bool   // the tick tries to install the newest release
 	hangup    bool   // the tick sends SIGHUP
 	wantOlder bool   // the tick says the newest release is older than the file
+	gone      bool   // no repository answers under the release repository's name
 }
+
+// renamed is the repository a host installs from since the rename, written out here so a test
+// fails when the tick asks another.
+const renamed = "CalvinDittkrist/ameise"
 
 func TestATickDoesTheOneThingItsFactsCallFor(t *testing.T) {
 	t.Parallel()
@@ -123,6 +128,9 @@ func TestATickDoesTheOneThingItsFactsCallFor(t *testing.T) {
 			wantErr: "the tick does nothing"},
 		{name: "not answering and starting", newest: "0.3.0", onDisk: "0.2.3", active: "activating", result: "success",
 			wantErr: "the tick does nothing"},
+		// The bridge release ticks before the repository carries its new name.
+		{name: "no repository under the new name", newest: "0.3.0", onDisk: "0.2.3", running: running("0.2.3"), gone: true,
+			wantErr: "the releases of " + renamed + " cannot be read"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -142,7 +150,7 @@ func runTick(t *testing.T, c tickCase) {
 	var downloads []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/repos/"+releaseRepository+"/releases":
+		case r.URL.Path == "/repos/"+renamed+"/releases" && !c.gone:
 			base := "http://" + r.Host + "/download/"
 			json.NewEncoder(w).Encode([]map[string]any{
 				{"tag_name": "factory/v9.9.9", "draft": true},
@@ -225,6 +233,9 @@ func runTick(t *testing.T, c tickCase) {
 	}
 	hangup := false
 	for _, call := range calls {
+		if strings.HasPrefix(call, systemctlCommand+" restart") {
+			t.Errorf("the tick restarted the service with %q", call)
+		}
 		if strings.HasPrefix(call, systemctlCommand+" kill") {
 			hangup = true
 			if call != systemctlCommand+" kill --kill-whom=main -s HUP "+factoryUnit {
@@ -240,6 +251,9 @@ func runTick(t *testing.T, c tickCase) {
 	}
 	if older := u.said["older"] != ""; older != c.wantOlder {
 		t.Errorf("the tick said the newest release is older: %v, want %v", older, c.wantOlder)
+	}
+	if blocked, err := u.blocked(); err != nil || len(blocked) > 0 {
+		t.Errorf("the tick left the block list %v (%v), want it empty", blocked, err)
 	}
 	if c.install {
 		checkVerified(t, c, verified, ghEnv, state)
@@ -260,8 +274,9 @@ func checkVerified(t *testing.T, c tickCase, verified, env []string, state strin
 	call := strings.Join(verified, " ")
 	for _, part := range []string{
 		ghCommand + " attestation verify ",
-		"--repo " + releaseRepository,
+		"--repo " + renamed,
 		"--cert-identity-regex " + releaseIdentity,
+		`--cert-identity-regex ^https://github\.com/` + renamed + `/\.github/workflows/factory-release\.yml@`,
 		"--source-ref refs/tags/" + releaseTagPrefix + c.newest,
 		"--cert-oidc-issuer " + actionsIssuer,
 		"--deny-self-hosted-runners",
@@ -467,7 +482,7 @@ func newJudgeHost(t *testing.T, onDisk, previous string, pending judgement) *jud
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		switch {
-		case r.URL.Path == "/repos/"+releaseRepository+"/releases":
+		case r.URL.Path == "/repos/"+renamed+"/releases":
 			var listed []map[string]any
 			for _, v := range h.releases {
 				listed = append(listed, map[string]any{"tag_name": releaseTagPrefix + v, "assets": []map[string]string{
@@ -671,6 +686,32 @@ func TestAnUnhealthyReleaseIsRolledBackOntoTheBlockList(t *testing.T) {
 				t.Errorf("the tick after the rollback answered %v and fetched %q, want nothing installed", err, h.fetched)
 			}
 		})
+	}
+}
+
+// The bridge release is the first to read its releases under the new name, and it is the binary a
+// host keeps when the first release after the rename fails.
+func TestARollbackReturnsToTheBridgeRelease(t *testing.T) {
+	t.Parallel()
+	bridge, ok := parseSemver(version)
+	if !ok {
+		t.Fatalf("VERSION says %q, which is not major.minor.patch", version)
+	}
+	next := semver{bridge[0], bridge[1], bridge[2] + 1}
+	h := newJudgeHost(t, next.String(), bridge.String(), judgement{Version: next.String(), Previous: bridge.String()})
+	h.set(func(h *judgeHost) { h.active, h.restart = "failed", bridge.String() })
+	if err := h.tick(); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if !h.blocked()[next] || !h.restarted() || h.onDisk() != bridge.String() || h.pending() != nil {
+		t.Fatalf("the rollback blocked %v, restarted %v, left %s on disk and the judgement %+v; want %s blocked, a restart, %s and no judgement",
+			h.blocked(), h.restarted(), h.onDisk(), h.pending(), next, bridge)
+	}
+	// The bridge release, back on the host, reads the releases under the new name and installs
+	// none of them: the failed one is blocked, and the other is itself.
+	h.set(func(h *judgeHost) { h.active, h.releases = "active", []string{bridge.String(), next.String()} })
+	if err := h.tick(); err != nil || len(h.fetched) != 0 {
+		t.Errorf("the tick after the rollback answered %v and fetched %q, want nothing installed", err, h.fetched)
 	}
 }
 
