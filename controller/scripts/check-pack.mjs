@@ -1,11 +1,12 @@
-// What a published package has to carry beside the controller's build: the dashboard it serves and the
-// plugins its sessions load. npm pack runs this after the build, so a package without either is never
-// written, which would start and answer 404 under / or fail every session.
+// What a published package has to carry beside the controller's build: the dashboard it serves, the
+// plugins its sessions load and the licence. npm pack runs this after the build, so it never writes a
+// package that would answer 404 under /, fail every session or ship without its terms.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url))
 const needed = [
+  ['LICENSE', 'npm --prefix controller run build'],
   ['dashboard/index.html', 'npm --prefix dashboard ci && npm --prefix dashboard run build'],
   ['plugins/worker/.claude-plugin/plugin.json', 'npm --prefix controller run build'],
   ['plugins/planner/.claude-plugin/plugin.json', 'npm --prefix controller run build'],
