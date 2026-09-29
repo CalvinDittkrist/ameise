@@ -34,13 +34,14 @@ const test = base.extend<{ quiet: void }>({
 
 test("the sidebar lists the projects of the API under the Orchestrator entry", async ({ page }) => {
   await page.goto(url())
+  await expect(page).toHaveTitle("ameise controller")
   const listed = await (await fetch(url("/api/projects"))).json()
   expect(listed.map((p: { name?: string }) => p.name)).toEqual(["edge-sensors", "backtest", undefined])
 
   await expect(projects(page).getByRole("link")).toHaveText(["edge-sensors", "backtest", "notes"])
   await expect(projects(page).getByRole("button")).toHaveText(["Add project"])
   const links = sidebar(page).getByRole("link")
-  await expect(links).toHaveText(["workflowsthis machine", "Orchestrator", "edge-sensors", "backtest", "notes"])
+  await expect(links).toHaveText(["ameise controllerthis machine", "Orchestrator", "edge-sensors", "backtest", "notes"])
   await expect(sidebar(page).getByRole("link", { name: "Orchestrator" })).toHaveAttribute("data-active", "true")
   await expect(sidebar(page).getByText("Quota", { exact: true })).toBeVisible()
 })

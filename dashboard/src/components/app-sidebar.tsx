@@ -53,7 +53,7 @@ export function AppSidebar({
                   <WorkflowIcon className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">workflows</span>
+                  <span className="truncate font-semibold">ameise controller</span>
                   <span className="truncate text-xs text-muted-foreground">this machine</span>
                 </div>
               </a>
