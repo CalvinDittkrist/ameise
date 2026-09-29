@@ -21,9 +21,9 @@ import (
 // done and takes this host off the spec; the records stay.
 //
 // A spec run whose open tickets are all a person's (ready-for-human) or blocked waits: it takes no
-// ticket and opens no spec pull request. It says on the spec what it waits for, which stands at the end
-// of the chain of blockers: a ticket of a person that has no open blocker, and every open issue outside
-// the spec that blocks a ticket of it. A ticket blocked by a sibling alone is named by neither.
+// ticket and opens no spec pull request. It says on the spec what it waits for. It names the person's
+// tickets with no open blocker. It names the open issues outside the spec that block its tickets. A
+// ticket blocked by a sibling alone is named by neither.
 
 // humanLabel marks an issue a person implements. It is the workflow's label vocabulary restated in Go,
 // as readyLabel is, and the contract fixture holds it to the planner's copy.
@@ -44,8 +44,8 @@ type subIssue struct {
 	Open      bool
 	Human     bool // it carries ready-for-human
 	Blocked   bool // an open issue blocks it
-	// Blockers is the open issues that block it, and BlockersRead whether they were read: they are read
-	// for the blocked tickets of a spec whose spec run may take none of them (specTickets).
+	// Blockers is the open issues that block it, and BlockersRead whether they were read. A poll reads
+	// them for the blocked tickets of a spec whose spec run may take none of them (specTickets).
 	Blockers     []blocker
 	BlockersRead bool
 }

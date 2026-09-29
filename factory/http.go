@@ -164,10 +164,10 @@ func (f *Factory) run(w http.ResponseWriter, r *http.Request) {
 	}{record, events})
 }
 
-// specView is a spec run as the interface serves it: its record, and what it waits for now, as the
-// last poll read its sub-issues: the tickets of a person that can be worked, and the open issues
-// outside the spec that block its tickets. The record's WaitingOn and WaitingOnBlockers are what it
-// named on the spec, one closed since among them.
+// specView is a spec run as the interface serves it: its record, and what it waits for now. The
+// last poll's sub-issues decide what it waits for. That is the person's tickets that can be worked,
+// and the open issues outside the spec that block its tickets. The record's WaitingOn and
+// WaitingOnBlockers are what it named on the spec, one closed since among them.
 type specView struct {
 	SpecRun
 	Waiting  []int            `json:"waiting"`

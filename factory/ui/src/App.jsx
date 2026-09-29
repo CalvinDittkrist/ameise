@@ -33,7 +33,7 @@ const stageOf = (run, stage = run.stage) => {
 }
 
 // What a waiting spec run waits for, in words: a person's ticket that can be worked, and an open issue
-// outside the spec that blocks its tickets, with its repository when that is not the spec's own.
+// outside the spec that blocks its tickets. A blocker names its repository when that is not the spec's.
 const waitsFor = (spec) => [
   ...(spec.waiting ?? []).map((n) => `#${n} for a person`),
   ...(spec.blockers ?? []).map(
