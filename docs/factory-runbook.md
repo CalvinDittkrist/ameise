@@ -979,7 +979,7 @@ The others are yours. Update them between runs. Stopping the factory interrupts 
 Without auto-update, install the factory binary by hand: download and check it as in [Installation](#installation), then `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`. Look for the new version in the journal's first line.
 
 ### The rename to ameise
-The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. The update tick of a release reads the releases of one repository and verifies their attestation against it, so the rename is crossed with one release in between.
+The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. The update tick reads the releases of one repository. It verifies their attestation against that repository. The rename therefore needs one bridge release.
 
 - **The bridge release** is `factory/v0.5.0`. It is tagged while the repository still has its old name, so its attestation names `CalvinDittkrist/workflows`.
   - A host that runs an earlier release verifies and installs it as usual.
