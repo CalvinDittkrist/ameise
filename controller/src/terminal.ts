@@ -1,18 +1,18 @@
 // Open in terminal: the session of a process opened in a terminal window of this machine.
-// The runtime resumes it by its id in the process's worktree, with the bundled plugin of its kind, the
-// worker or the planner, and the session's settings.
+// The runtime resumes it by its id in the process's worktree, with the bundled plugins and the settings
+// the headless session ran with.
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from './project.js'
-import { commandFile, type SessionRecord, settings } from './session.js'
+import { agentOf, commandFile, type SessionRecord, sessionPlugins, settings } from './session.js'
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 // script is the shell script the terminal runs: into the worktree, then claude resuming the session
-// with the plugin, the agent and the settings the headless session ran with.
-export function script(record: SessionRecord, claude: string, plugins: { worker: string; planner: string }): string {
-  const agent = record.kind === 'plan' ? 'planner' : 'worker'
-  const args = [claude, '--resume', record.session_id ?? '', '--plugin-dir', plugins[agent], '--agent', agent, '--settings', JSON.stringify(settings(record))]
+// with the plugins, the agent and the settings the headless session ran with.
+export function script(record: SessionRecord, claude: string, plugins: string): string {
+  const dirs = sessionPlugins(plugins, record).flatMap((dir) => ['--plugin-dir', dir])
+  const args = [claude, '--resume', record.session_id ?? '', ...dirs, '--agent', agentOf(record), '--settings', JSON.stringify(settings(record))]
   return ['#!/bin/sh', `cd ${quote(record.worktree)} || exit 1`, `exec ${args.map(quote).join(' ')}`, ''].join('\n')
 }
 
@@ -42,12 +42,12 @@ const started = 2000
 // it: the configured command, called as <terminal> <script>, or the platform's own when none is
 // configured. It answers once the command has exited, or once it has run a while and stays with its
 // window, and refuses a process without a session or a terminal that fails.
-export async function open(record: SessionRecord, stateDir: string, terminal: string, runtime: { claude: string; worker: string; planner: string }): Promise<string> {
+export async function open(record: SessionRecord, stateDir: string, terminal: string, runtime: { claude: string; plugins: string }): Promise<string> {
   if (!record.session_id) throw new Refusal('the process has no session yet; wait until its session has started', 409)
   // A session id is a word of letters, digits and hyphens; any other would reach no session.
   if (!/^[A-Za-z0-9-]+$/.test(record.session_id)) throw new Refusal(`the session id ${JSON.stringify(record.session_id)} is not the id of a session`, 409)
   const file = commandFile(stateDir, record.id)
-  writeFileSync(file, script(record, runtime.claude, runtime), { mode: 0o700 })
+  writeFileSync(file, script(record, runtime.claude, runtime.plugins), { mode: 0o700 })
   chmodSync(file, 0o700)
   const cmd = terminal === '' ? native(file) : ([terminal, [file]] as [string, string[]])
   if (!cmd) throw new Refusal(`this platform has no terminal the controller knows; set terminal in the configuration to a command that runs ${file}`, 501)

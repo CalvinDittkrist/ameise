@@ -1,16 +1,29 @@
 {
   "name": "workflows-controller",
-  "private": true,
+  "version": "0.1.0",
+  "description": "The local workflow: a controller that claims GitHub issues into headless Claude Code sessions, with its dashboard and the worker, planner and repo-standards plugins.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CalvinDittkrist/workflows.git",
+    "directory": "controller"
+  },
+  "homepage": "https://github.com/CalvinDittkrist/workflows#readme",
   "type": "module",
   "bin": {
     "workflows": "dist/main.js"
   },
+  "files": [
+    "dist",
+    "fake"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/bundle-plugins.mjs",
     "lint": "eslint . && tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build && node scripts/check-pack.mjs",
     "pretest": "npm run build",
     "test": "vitest run"
   },

@@ -86,7 +86,10 @@ test('a claim starts a session in the worktree with the worker plugin and the se
 
   const { args } = started()
   const flag = (name: string) => args[args.indexOf(name) + 1]
-  expect(flag('--plugin-dir')).toBe(resolve(fileURLToPath(new URL('../../plugins/worker', import.meta.url))))
+  // The bundled copies of the build, the worker's and repo-standards', and no other.
+  const bundled = (name: string) => resolve(fileURLToPath(new URL(`../dist/plugins/${name}`, import.meta.url)))
+  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('worker'), bundled('repo-standards')])
+  expect(flag('--agent')).toBe('worker')
   expect(flag('--permission-mode')).toBe('auto')
   expect(args).toContain('--setting-sources=user,project,local')
   const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown }
