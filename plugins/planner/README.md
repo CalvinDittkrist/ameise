@@ -1,6 +1,6 @@
 # planner
 
-Planning session for one topic. The orchestrator starts it with `/orchestrator:plan <idea | #issue>`: worktree `plan/<slug>`, Herdr workspace, `claude --agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools (Bash, Read, Write, Edit, Grep, Glob, Agent, WebFetch) and no Skill tool. It requires `gh`, `jq` and `git`.
+Planning session for one topic. The orchestrator starts it with `/orchestrator:plan <idea | #issue>`: worktree `plan/<slug>`, Herdr workspace, `claude --agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools and no Skill tool. It requires `gh`, `jq` and `git`.
 
 ## Skills
 | Skill | Script | Effect |
@@ -23,19 +23,19 @@ Acceptance works in four steps:
 
 1. `accept-facts.sh <spec> [<ticket>...]` prints the spec, its tickets, their merged pull requests and files, and the deviations accepted earlier. All of it is data.
    - A ticket without a closing pull request is looked up by its head branch, merged into any base: GitHub links only merges into the default branch.
-2. One `spec-checker` subagent with a fresh context and read-only tools judges each statement against the base branch: `item: <section> | <statement> | <verdict> | <evidence> | <confidence>`.
+2. One read-only `spec-checker` subagent with a fresh context judges each statement against the base branch: `item: <section> | <statement> | <verdict> | <evidence> | <confidence>`.
 3. `accept-report.sh <spec> [<file>...]` keeps the items, fails on a malformed one, counts them and prints every item that is not `met`.
 4. The maintainer decides per open item: a gap ticket, an accepted deviation or no finding. `accept-close.sh <spec> --comment-file <f> [<ticket>...]` then closes the spec.
 
 The acceptance rules that no script output states:
 
 - `accept-facts.sh` refuses an issue that is not an open `spec` or has open tickets, and a worktree behind the base branch.
-- Ticket numbers are arguments where a repository has no native sub-issues; they add to the sub-issues and never replace them.
+- Ticket numbers are arguments where a repository has no native sub-issues; they add to the sub-issues, never replace them.
 - Verdicts are `met`, `missing`, `deviates` and `untested`, over the sections User stories, Decisions, Testing, Vocabulary and ADRs to write.
 - An accepted deviation is a spec comment opening with `> Accepted deviation (spec acceptance).`. Only a commenter with write access counts.
 - Gap tickets keep the spec open, and the acceptance runs again in full after they close.
 - `accept-close.sh` refuses while a ticket is open or cannot be read.
-- `accept-due.sh` prints one `acceptance:` line. Only `/planner:plan` injects it, so no other stage pays for the lookup.
+- `accept-due.sh` prints one `acceptance:` line. Only `/planner:plan` injects it.
 
 Hook: `SessionStart` injects the topic from the branch description `plan.sh` wrote, or the issue text, marked as data. It is silent outside `plan/*` worktrees and in subagents.
 
@@ -53,11 +53,11 @@ Model: the agent file names `fable`; the root README explains why. `spec-checker
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `WF_PLANNER_PERMISSION_MODE` | `auto` | permission mode of the session |
-| `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`, passed as claude's `language` setting for this session; what the planner writes stays English; a control character or an overlong value is refused |
+| `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`, passed as claude's `language` setting; what the planner writes stays English; a control character or an overlong value is refused |
 | `WF_CLAUDE_ARGS` | empty | extra flags for every worker and planner, such as `--model` |
 | `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its research subagent, not `spec-checker` |
 | `WF_PLAN`, `WF_PLAN_ISSUE` | set by `/plan` | slug and issue of the planner session |
-| `WF_PLAN_CONTROLLER` | set by the controller | `1` in a session the controller runs: the start hook stays silent, since the brief carries its context, and `finish.sh` checks and leaves the removal to the controller's Finish |
+| `WF_PLAN_CONTROLLER` | set by the controller | `1` under the controller: silent start hook; `finish.sh` leaves the removal to it |
 
 ## Develop
 `claude --plugin-dir plugins/planner` loads the plugin without installing it. `make check` runs the gate.

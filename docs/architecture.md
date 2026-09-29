@@ -29,13 +29,12 @@ This repository packages Claude Code plugins, beside the factory, a Go service f
 ### Planning
 1. `/orchestrator:plan [<idea | #N>]`: `plan.sh` creates `plan/<slug>`, a worktree and a workspace, and starts the planner on `/planner:plan`.
    - Without an argument it opens an open session, `plan/open-<yyyymmdd-hhmm>`.
-   - The controller's `workflows plan` and the dashboard's Plan open the same headless, with the start context in the brief ([plan process](../controller/README.md#plan-process)).
+   - `workflows plan` opens it headless ([plan process](../controller/README.md#plan-process)).
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
-   - In the controller, Capture prototype moves the worktree's changes to a pushed `prototype/` branch, and Finish removes the worktree, the branch and the process.
 5. `board.sh` lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
-6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests (closing reference, else head branch) and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
+6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
    - `workflows accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 

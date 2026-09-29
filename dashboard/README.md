@@ -22,7 +22,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
   - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
   - Open in terminal resumes the session in a terminal window of this machine.
-  - A plan's page adds Capture prototype, which asks for a name and says where the prototype went, and Finish, which removes the plan and opens its project's page. Force finishes a plan with work not captured.
+  - A plan's page adds Capture prototype, which asks for a name and says where the prototype went.
+  - Its Finish removes the plan and opens its project's page. Force finishes a plan with work not captured.
 - A project whose checkout no longer derives shows the controller's reason. What GitHub did not answer shows as a note above the sections.
 - Claim on a ready-to-start row opens a dialog for the mode, manual or yolo, and the worker knobs to override, one `NAME=VALUE` per line.
   - Force claims an issue the controller refuses as not agent-ready, routed, held in a spec run or claimed on origin.
@@ -38,7 +39,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - Accept opens a plan process on the spec with the acceptance route.
   - Release asks for the milestone. A promotion that is not green yet shows why the release waits.
   - The controller's reason for a refusal shows in the dialog, and a merge's warnings show until they are closed.
-- Plan on a project's page asks for an idea, and without one opens an open session. Plan on a ready-to-start row plans its issue. Either opens the page of the new plan, whose planner session runs there.
+- Plan on a project's page asks for an idea, and without one opens an open session. Plan on a ready-to-start row plans its issue.
+  - Either opens the page of the new plan, whose planner session runs there.
 - The controller carries out no other action yet. Until it does, the other actions are disabled.
 - Light and dark follow the system.
 
@@ -53,7 +55,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
   - A process record carries a fixture event log with an answered question and an open permission request, so the process page shows both cards.
   - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and a question, which the live test answers from the page.
-  - The tests of merge, accept, release, plan, capture and finish answer their requests in the browser, so the fake's state stays as it is; the controller's tests cover what they do.
+  - The tests of merge, accept, release, plan, capture and finish answer their requests in the browser, so the fake's state stays.
+  - The controller's tests cover what they do.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
 - After a change to the look, delete `tests/screenshots/*.png`, run the test, and approve the new ones against the prototype.
 - CI renders the Linux ones in Playwright's image, so they are written there:

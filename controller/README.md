@@ -157,7 +157,8 @@ Stopping and starting the controller loses no process.
 - The start reads every record before it answers a request.
 - A work process still `running`, `created`, `approval` or `input` lost its session with the last run, as after a kill, and is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
-- A plan process `running` or `approval` lost its session the same way. It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
+- A plan process `running` or `approval` lost its session the same way.
+  - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
 - A resume goes on with an interrupted process: it starts the implement session again in the worktree.
   - It uses the runtime's resume by that session id, and a short brief to go on.
@@ -210,12 +211,18 @@ The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`,
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the planner plugin of this checkout (`plugins/planner`) and the `planner` agent,
-- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH`, foreground subagents, and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
-- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane: the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it. It carries no text of the issue.
+- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
+  - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
+  - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
+  - It carries no text of the issue.
 
 A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
 
-A capture moves the prototype the session left in the worktree to the branch `prototype/<plan slug>-<name>`: every change, untracked files included, as one commit on the plan branch's start. It pushes the branch and cleans the worktree, so the plan branch carries no commit. It refuses, with `409`, a clean worktree, a session at work (`created`, `running` or `approval`) and a prototype branch that exists. A push that fails keeps the commit on the local branch and the worktree as it was. In fake mode it pushes nothing.
+A capture moves the prototype the session left in the worktree to the branch `prototype/<plan slug>-<name>`: every change, untracked files included, as one commit on the plan branch's start. It pushes the branch and cleans the worktree, so the plan branch carries no commit.
+- It refuses, with `409`, a clean worktree, a session at work (`created`, `running` or `approval`) and a prototype branch that exists.
+- A push that fails keeps the commit on the local branch and the worktree as it was.
+- In fake mode it pushes nothing.
 
 A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
 
