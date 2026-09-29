@@ -166,7 +166,7 @@ Run the following as root unless it says otherwise.
    version=0.5.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
    repo=CalvinDittkrist/ameise    # CalvinDittkrist/workflows until the rename
-   built=CalvinDittkrist/ameise   # CalvinDittkrist/workflows for a release built before the rename
+   built=CalvinDittkrist/workflows   # the bridge release 0.5.0 and those before it; CalvinDittkrist/ameise for a later one
    cd "$(mktemp -d)" &&
      gh release download "factory/v$version" -R "$repo" \
        -p "factory-linux-$arch" -p checksums.txt -p "factory-v$version.sigstore.json" &&
@@ -987,7 +987,8 @@ The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. 
 - **Between the install and the rename** no repository answers under the new name.
   - Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
   - It installs nothing and blocks nothing. It neither signals nor restarts the factory, which goes on working.
-  - Rename the repository soon after the bridge release is installed on every host. The first tick after the rename finds the releases.
+  - Rename the repository soon after the bridge release is installed on every host, while the factory is paused and holds no run ([ADR 0068](adr/0068-the-host-crosses-the-rename-through-a-bridge-release.md)).
+  - The first tick after the rename finds the releases.
 - **After the rename** a release is built as `CalvinDittkrist/ameise`, and its attestation names only that repository.
   - A host still on a release before the bridge asks the old name, and GitHub redirects it.
   - Its attestation check refuses every release built after the rename, each tick with an `error:` line.
