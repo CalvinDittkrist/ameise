@@ -3,7 +3,7 @@
 `workflows` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Install
-One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins at one version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It needs Node 22 or later, Claude Code, git and a logged-in `gh`.
+One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It needs Node 22 or later, Claude Code, git and a logged-in `gh`.
 
 ```sh
 npm install --global workflows-controller
