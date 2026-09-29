@@ -92,24 +92,41 @@ class ClaimTests(ShimTest):
         r = self.run_script(ORCH / "sbx-worker.sh", str(wt), "--", "/worker:work", SHIM_SBX_LS="wf-repo-fix-12-x  running")
         self.assertEqual(r.returncode, 0, r.stderr)
         command = [c for c in self.argv_calls() if c[:2] == ["sbx", "exec"]][0][-1]
-        # Run the command the sandbox would run, against a claude that holds plugins from two marketplaces.
+        # Run the command the sandbox would run, against a claude that holds plugins from two marketplaces at
+        # user and project scope. An uninstall removes a plugin only at the scope it names.
         box = self.base / "box"
         box.mkdir()
         log = box / "calls"
+        held = box / "held"
+        held.write_text("worker@old user\nrepo-standards@old project\nworker@ameise user\nother@old user\n")
         fake = box / "claude"
-        fake.write_text("#!/bin/sh\n"
-                        f"echo \"$*\" >> '{log}'\n"
-                        "[ \"$*\" = 'plugin list --json' ] && printf '%s\\n' '[{\"id\": \"worker@old\", \"scope\": \"user\"},"
-                        " {\"id\": \"repo-standards@old\", \"scope\": \"user\"}, {\"id\": \"worker@ameise\", \"scope\": \"user\"},"
-                        " {\"id\": \"other@old\", \"scope\": \"user\"}]'\n"
-                        "exit 0\n")
+        fake.write_text(r"""#!/bin/sh
+echo "$*" >> 'LOG'
+case "$*" in
+  'plugin list --json')
+    printf '['; sed 's/^\([^ ]*\) \(.*\)$/{"id": "\1", "scope": "\2"}/' 'HELD' | paste -sd, -; printf ']\n' ;;
+  'plugin uninstall '*)
+    [ -z "$REFUSE" ] && grep -qx "$3 $5" 'HELD' || exit 1
+    grep -vx "$3 $5" 'HELD' > 'HELD.new'; mv 'HELD.new' 'HELD' ;;
+esac
+exit 0
+""".replace("LOG", str(log)).replace("HELD", str(held)))
         fake.chmod(0o755)
-        subprocess.run(["sh", "-c", command], check=True, env={**os.environ, "PATH": f"{box}:{os.environ['PATH']}"})
+        env = {**os.environ, "PATH": f"{box}:{os.environ['PATH']}"}
+        run = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stderr, "")
+        self.assertEqual(held.read_text().split("\n")[:2], ["worker@ameise user", "other@old user"])
         calls = log.read_text().splitlines()
         uninstalls = [c for c in calls if c.startswith("plugin uninstall")]
-        self.assertEqual(uninstalls, ["plugin uninstall worker@old --scope user",
-                                      "plugin uninstall repo-standards@old --scope user"])
+        self.assertEqual({c.split()[2] for c in uninstalls}, {"worker@old", "repo-standards@old"})
         self.assertLess(calls.index(uninstalls[-1]), calls.index("plugin install worker@ameise --scope user"))
+        # A plugin the uninstall cannot remove is named, and the session still starts.
+        held.write_text("worker@old local\n")
+        run = subprocess.run(["sh", "-c", command], env={**env, "REFUSE": "1"}, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("warning:", run.stderr)
+        self.assertIn("worker@old", run.stderr)
 
     def test_the_status_line_command_survives_a_plugin_path_with_a_space(self):
         # claude runs the command through a shell. Unquoted, a checkout under "/Users/John Smith" splits into

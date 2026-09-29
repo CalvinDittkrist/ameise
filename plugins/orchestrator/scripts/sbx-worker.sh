@@ -20,7 +20,11 @@ if ! grep -q "^$name\b" <<<"$boxes"; then
 fi
 # Every start reconciles the plugins, so a reused sandbox loads the plugins the session settings name. It first
 # uninstalls worker and repo-standards installed from any other marketplace, such as one from before the rename to
-# ameise, which installing them from ameise would leave loaded beside them. Each step already done is a no-op.
-sbx exec "$name" sh -c "for id in \$(claude plugin list --json 2>/dev/null | grep -oE '\"(worker|repo-standards)@[^\"]+\"' | tr -d '\"'); do case \$id in *@ameise) ;; *) claude plugin uninstall \"\$id\" --scope user >/dev/null 2>&1 ;; esac; done; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null" \
+# ameise, which installing them from ameise would leave loaded beside them. A plugin may sit at user, project or local
+# scope, and an uninstall acts on one scope, so each is tried; a plugin still listed afterwards is named in a warning.
+# Each step already done is a no-op.
+others='claude plugin list --json 2>/dev/null | grep -oE "\"(worker|repo-standards)@[^\"]+\"" | tr -d "\"" | grep -v "@ameise\$" | sort -u'
+reconcile="for id in \$($others); do for scope in user project local; do claude plugin uninstall \"\$id\" --scope \$scope >/dev/null 2>&1; done; done; left=\$($others); [ -z \"\$left\" ] || echo \"warning: plugins of another marketplace stay loaded inside the sandbox: \$left; uninstall them with claude plugin uninstall <id> --scope <scope>\" >&2; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null"
+sbx exec "$name" sh -c "$reconcile" \
   || echo "warning: plugin install inside sandbox failed; the worker skills may be missing" >&2
 exec sbx run --name "$name" -- "$@"
