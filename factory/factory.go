@@ -1529,10 +1529,12 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // factory's own constants; the contract fixture does not bind them, since the pin concerns only the
 // sessions the factory starts.
 //
-// Every plugin of the workflow is switched off, the worker's with the planner's and the
-// orchestrator's: a session runs on the factory's prompts alone, so a plugin a host still carries
-// changes nothing about what an unattended session is told, and no /orchestrator:merge reaches a
-// context that must never merge what it built ([ADR 0023], [ADR 0042]).
+// Every plugin of the marketplace ameise is switched off, the worker's with the planner's, the
+// orchestrator's and the repo-standards plugin a repository's own settings enable: a session runs on
+// the factory's prompts alone, so a plugin of ameise that a host or a repository carries changes nothing
+// about what an unattended session is told, and no /orchestrator:merge reaches a context that must
+// never merge what it built ([ADR 0023], [ADR 0042]). A plugin installed from the marketplace under its
+// earlier name, workflows, is not switched off: the host uninstalls it (docs/factory-runbook.md).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
@@ -1541,7 +1543,7 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 func sessionSettings() (string, error) {
 	settings, err := json.Marshal(map[string]any{
 		"env":               sessionVariables,
-		"enabledPlugins":    map[string]bool{"worker@" + marketplace: false, "planner@" + marketplace: false, "orchestrator@" + marketplace: false},
+		"enabledPlugins":    map[string]bool{"worker@" + marketplace: false, "planner@" + marketplace: false, "orchestrator@" + marketplace: false, "repo-standards@" + marketplace: false},
 		"autoCompactWindow": compactWindow,
 	})
 	if err != nil {
