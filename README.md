@@ -1,6 +1,6 @@
 # ameise
 
-`ameise` is a set of Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
+Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
 
 The local workflow is the controller `ameise`, one package with its dashboard and plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
 
@@ -125,8 +125,7 @@ Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers,
 - [Architecture](docs/architecture.md) and [ADRs](docs/adr/README.md)
 - [The local workflow, step by step](docs/local-workflow.md)
 - [Security and sandboxing](docs/security.md)
-- [Factory host runbook](docs/factory-runbook.md): from an empty Linux machine to a running factory, and its upkeep
-- [The maintainer's list](docs/factory-runbook.md#the-maintainers-list): the steps of the rename to `ameise` that only a person can take
+- [Factory host runbook](docs/factory-runbook.md): host setup and upkeep, and [the maintainer's list](docs/factory-runbook.md#the-maintainers-list) of the rename
 - [Token budget: what loads when](docs/token-budget.md)
 - [Repository standard](docs/repo-standard.md)
 
