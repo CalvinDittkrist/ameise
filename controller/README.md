@@ -1,33 +1,35 @@
 # Controller
 
-`workflows` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
+`ameise` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Install
-One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/workflows/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
+One npm package, `ameise`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/workflows/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
 
 ```sh
-npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/workflows-controller-0.1.0.tgz
-workflows                          # starts the server and opens the dashboard
-workflows projects add ~/src/repo  # in a second shell, or from the dashboard
+npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
+ameise                             # starts the server and opens the dashboard
+ameise projects add ~/src/repo     # in a second shell, or from the dashboard
 ```
+
+The program was called `workflows` before. It does not read the directories of that name, so a machine that ran it adds its projects again ([ADR 0067](../docs/adr/0067-the-rename-is-a-hard-cut.md)).
 
 The build copies the plugins of the checkout into `dist/plugins`, and every session loads them from there. Packing refuses a build without the dashboard or the plugins.
 
 ## Commands
-- `workflows` starts the server on the configured loopback address and opens the browser there (`BROWSER` names another browser).
-- `workflows --fake` does the same against the scripted `fake/gh` and `fake/claude`, so nothing reaches GitHub or a model.
-- `workflows projects` lists the projects with their derived facts.
-- `workflows projects add <path>` adds the checkout at `<path>`; `workflows projects remove <path>` removes it.
-- `workflows board [<path>]` prints the board of every project, or of the project at `<path>`.
+- `ameise` starts the server on the configured loopback address and opens the browser there (`BROWSER` names another browser).
+- `ameise --fake` does the same against the scripted `fake/gh` and `fake/claude`, so nothing reaches GitHub or a model.
+- `ameise projects` lists the projects with their derived facts.
+- `ameise projects add <path>` adds the checkout at `<path>`; `ameise projects remove <path>` removes it.
+- `ameise board [<path>]` prints the board of every project, or of the project at `<path>`.
   - It prints a line per project, then one per process, frontier issue, spec ready for acceptance and note.
-- `workflows claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]` claims the issue into a work process; see [Claim and abandon](#claim-and-abandon).
-- `workflows abandon <issue> [--force] [--project <path>]` removes the issue's worktree and process.
-- `workflows resume <issue> [--project <path>]` goes on with the interrupted session of the issue's process; see [Restart](#restart).
-- `workflows adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
-- `workflows merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
-- `workflows release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
-- `workflows accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
-- `workflows plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
+- `ameise claim <issue> [--yolo] [--force] [--env NAME=VALUE]... [--project <path>]` claims the issue into a work process; see [Claim and abandon](#claim-and-abandon).
+- `ameise abandon <issue> [--force] [--project <path>]` removes the issue's worktree and process.
+- `ameise resume <issue> [--project <path>]` goes on with the interrupted session of the issue's process; see [Restart](#restart).
+- `ameise adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
+- `ameise merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
+- `ameise release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
+- `ameise accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+- `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
   - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
@@ -38,7 +40,7 @@ The start stops with one `error:` line that names the fix when:
 - `claude` is missing, outside fake mode, which runs on the scripted `fake/claude` it ships.
 
 ## Configuration
-One file per machine: `$XDG_CONFIG_HOME/workflows/config.json`, else `~/.config/workflows/config.json`. Without it the defaults hold.
+One file per machine: `$XDG_CONFIG_HOME/ameise/config.json`, else `~/.config/ameise/config.json`. Without it the defaults hold.
 
 ```json
 {
@@ -139,7 +141,7 @@ The session has no status line, so the worker's checkpoint answers unavailable a
 
 A session that ends `blocked`, `ready` or `failed` marks its record `unseen` and sends one [notification](#notifications).
 
-In fake mode the scripted `fake/claude` is the executable. `WORKFLOWS_FAKE_CLAUDE` names a directory whose file `play` says what the session does, and `resume` what it does when resumed (see the script).
+In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory whose file `play` says what the session does, and `resume` what it does when resumed (see the script).
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -300,7 +302,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
 
 ## State
-One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/workflows`. It holds the event log `events.jsonl`, a record per process in `processes/<id>.json` with its event log `processes/<id>.events.jsonl` and the script that opens its session in a terminal, `processes/<id>.command`, and while the server runs, `listen`: the address it started on, which the CLI reads first.
+One directory per machine: `$XDG_DATA_HOME/ameise`, else `~/.local/share/ameise`. It holds the event log `events.jsonl`, a record per process in `processes/<id>.json` with its event log `processes/<id>.events.jsonl` and the script that opens its session in a terminal, `processes/<id>.command`, and while the server runs, `listen`: the address it started on, which the CLI reads first.
 
 ## Development
 - `make controller` runs eslint, the type check and the tests. `make dashboard` builds the dashboard into this build and reads it in a browser.
@@ -309,5 +311,5 @@ One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/work
 - A release bumps `version` in `package.json`, commits, and runs `scripts/release.sh controller --push` on `main`.
   - It refuses what the factory's release refuses: another branch, a dirty tree, a red gate and a tag that exists.
   - It tags `controller/v<version>`. From that tag CI's `controller-release` packs, installs and starts the package.
-  - Then it attaches the tarball, its checksums and its build attestation to the release `controller v<version>`, which is not the latest.
+  - Then it attaches the tarball, its checksums and its build attestation to the release `ameise controller v<version>`, which is not the latest.
   - A release that already carries them is refused, so a released version is never overwritten.
