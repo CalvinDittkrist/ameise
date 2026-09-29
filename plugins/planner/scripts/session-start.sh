@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # SessionStart hook: on a plan/<slug> branch, inject the topic or the issue this session plans.
-# Silent (exit 0, no output) outside planning worktrees and in subagents.
+# Silent (exit 0, no output) outside planning worktrees, in subagents, and in a session the controller
+# runs (WF_PLAN_CONTROLLER=1), whose brief carries this context.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
+[ "${WF_PLAN_CONTROLLER:-}" != 1 ] || exit 0
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
 [ -z "$(printf '%s' "$input" | jq -r '.agent_id // empty')" ] || exit 0

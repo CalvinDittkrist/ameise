@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # End the planning session: refuse if work would be lost, then remove this worktree, workspace and branch from a detached process.
+# In a session the controller runs (WF_PLAN_CONTROLLER=1) it only checks; the controller's Finish removes them.
 # Usage: finish.sh [--force]
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -12,6 +13,12 @@ if [ "$force" = 0 ]; then
   base=$(wf_base_branch); ref="origin/$base"; git rev-parse -q --verify "$ref" >/dev/null 2>&1 || ref="$base"
   n=$(git rev-list --count "$ref..HEAD" 2>/dev/null || echo 0)
   [ "$n" = 0 ] || wf_die "$branch has $n commit(s) not on $base; they would be lost. Move them with capture-prototype.sh or pass --force"
+fi
+# A session the controller runs is finished by the controller, which stops it and removes its worktree.
+if [ "${WF_PLAN_CONTROLLER:-}" = 1 ]; then
+  wf_kv plan "$slug"
+  wf_kv cleanup "none yet: press Finish in the process view; the controller stops this session and removes worktree $path and branch $branch"
+  exit 0
 fi
 wf_notify "Planning finished: $slug" "$branch"
 wf_kv plan "$slug"
