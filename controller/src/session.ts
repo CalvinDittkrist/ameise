@@ -65,7 +65,7 @@ export const compactAt = (compactWindow * Number(compactPercentage)) / 100
 
 // The marketplace the workflow's plugins are installed from. Its copies are switched off, so the
 // bundled plugins are the ones the session loads and the orchestrator stays out of its context.
-const marketplace = 'workflows'
+const marketplace = 'ameise'
 
 // The result the session reports through, as a JSON schema.
 const report = {

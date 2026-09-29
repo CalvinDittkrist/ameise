@@ -1552,7 +1552,7 @@ func sessionSettings() (string, error) {
 
 // marketplace is the marketplace the workflow's plugins are distributed from, whose plugins every
 // session switches off.
-const marketplace = "workflows"
+const marketplace = "ameise"
 
 // sessionVariables is the env block of those settings: subagents in the foreground, as a local claim
 // runs them ([ADR 0017]), and the percentage of the compact pin.

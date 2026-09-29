@@ -86,7 +86,7 @@ func TestTheFactoryOpensThePullRequestFromTheAuthorsTitleAndBody(t *testing.T) {
 	if author.cwd != workers[0].cwd {
 		t.Errorf("the author session ran in %s, want the run's worktree %s", author.cwd, workers[0].cwd)
 	}
-	if plugins := author.settings(t).EnabledPlugins; plugins["worker@workflows"] || plugins["orchestrator@workflows"] || plugins["planner@workflows"] {
+	if plugins := author.settings(t).EnabledPlugins; plugins["worker@ameise"] || plugins["orchestrator@ameise"] || plugins["planner@ameise"] {
 		t.Errorf("the author session carries the plugins %v, want the workflow plugins switched off", plugins)
 	}
 	brief := strings.Join(factoryBodies(run, "briefed the pull request author"), "\n")
