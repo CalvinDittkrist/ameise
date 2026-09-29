@@ -178,6 +178,9 @@ func (f *Factory) specView(s SpecRun) specView {
 	f.mu.Lock()
 	subs := f.subIssues[s.key()]
 	f.mu.Unlock()
+	if s.Tickets == nil {
+		s.Tickets = []SpecTicket{} // a spec run that has taken no ticket yet is an empty list to the interface, never null
+	}
 	view := specView{SpecRun: s, Waiting: []int{}, Blockers: []outsideBlocker{}}
 	if s.State == specHolding && s.Idle {
 		wait := waitsOn(s.Repository, subs)

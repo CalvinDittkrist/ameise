@@ -545,7 +545,7 @@ function Log({ events }) {
 // this factory has no run to select.
 function Tickets({ spec, runs, specs, on, select }) {
   const byId = new Map(runs.map((r) => [r.id, r]))
-  const rows = spec.tickets.map((ticket) => {
+  const rows = (spec.tickets ?? []).map((ticket) => {
     const run = byId.get(ticket.runs.at(-1))
     const outcome = run ? stateOf(run) : ticket.mergedAt ? 'merged' : 'waiting'
     const title = ticket.title || run?.title
@@ -625,7 +625,7 @@ function Spec({ id, now, runs, specs, on, select }) {
           `spec run ${spec.id}`,
           spec.branch && `${spec.branch} from ${spec.base}`,
           (end || !specOver(spec)) && <Tick key="t">{duration(spec.startedAt, end ?? now)}</Tick>,
-          `${spec.tickets.length} ${spec.tickets.length === 1 ? 'ticket' : 'tickets'}`,
+          `${(spec.tickets ?? []).length} ${(spec.tickets ?? []).length === 1 ? 'ticket' : 'tickets'}`,
         ]}
       />
       <Tickets spec={spec} runs={runs} specs={specs} on={on} select={select} />
