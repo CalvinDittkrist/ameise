@@ -2,7 +2,7 @@
 
 Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
 
-The local workflow is the controller `workflows`, one package with its dashboard and plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
+The local workflow is the controller `ameise`, one package with its dashboard and plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
 
 ```mermaid
 flowchart LR
@@ -32,9 +32,9 @@ flowchart LR
 The [controller](controller/README.md) installs from its GitHub release, not yet from npm. It needs Node 22+, Claude Code, git, `jq` and a logged-in `gh`:
 
 ```sh
-npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/workflows-controller-0.1.0.tgz
-workflows                          # starts it and opens the dashboard on 127.0.0.1:7420
-workflows projects add ~/src/repo  # then claim, plan, merge and release from the dashboard
+npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
+ameise                             # starts it and opens the dashboard on 127.0.0.1:7420
+ameise projects add ~/src/repo     # then claim, plan, merge and release from the dashboard
 ```
 
 The plugins also install from the marketplace for sessions started by hand, with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.

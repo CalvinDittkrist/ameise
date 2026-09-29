@@ -4,11 +4,9 @@ Terms the code, the issues and the docs use, one row each.
 
 | Term | Meaning |
 | --- | --- |
+| `ameise` | The product: the local workflow and the factory, two peers in one repository. Shown as "ameise controller" and "ameise factory" where a title names a peer ([ADR 0066](adr/0066-the-product-is-named-ameise-and-its-parts-keep-their-names.md)). |
 | standard | The written baseline a repository is checked against: [repo-standard.md](repo-standard.md). |
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
-| controller | The local program `workflows`, the local peer of the factory: it holds the machine's projects and serves the local API and the dashboard. In `controller/`. |
-| project | A checkout of a GitHub repository on this machine, configured in the controller by its path alone. Owner, name and base branch are derived on read. |
-| contract fixture | A file in `contract/` that states a rule the controller and the factory share as cases with the expected output. The tests of both read it. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |
 | gate | The command that must pass before a pull request: the gate command of the change class that applies ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI. |
 | auditor | A read-only subagent that judges one area of a repository during standardisation and returns findings. |
@@ -78,13 +76,14 @@ Terms the code, the issues and the docs use, one row each.
 | update tick | One run of the factory binary's update mode by the host's timer, as root; it reads the release, the running state and the file, does one action and exits. |
 | auto-update | The configuration field `auto_update` that lets the host install factory releases; false by default, read by the update tick and reported by the factory. |
 | block list | The updater's root-owned list of versions that failed after an install and are never installed again; a line is lifted by deleting it. |
+| bridge release | The factory release that carries the new repository name and is tagged before the repository is renamed, so that the host installs it through the old name ([ADR 0068](adr/0068-the-host-crosses-the-rename-through-a-bridge-release.md)). |
 | dashboard | The page the factory serves at `/`, built into the binary from `factory/ui`. It reads the endpoints of the interface and writes nothing ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). |
-| controller | The local program `workflows`: holds the projects, their worktrees and processes, runs every session headless and serves the local dashboard. The local peer of the factory ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)). |
+| controller | The local program behind the command `ameise`: holds the projects, their worktrees and processes, runs every session headless and serves the local dashboard. The local peer of the factory ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)). In `controller/`. |
 | process | One worktree with its chain of sessions, of one process kind; the unit the board shows. |
 | process kind | `plan`, `work`, `hunt` or `standardize`: what a process does and the branch it works on. |
 | interrupted process | A process whose session stopped with the controller, or an adopted one with no session yet. A resume goes on with the stopped one's session in its worktree, and starts a fresh session for an adopted one. |
 | foreign worktree | A work worktree of a project that no process record names, as one the controller did not start. It is adopted into a process or removed. |
-| project | A configured checkout of a connected repository on this machine. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
+| project | A checkout of a connected repository on this machine, configured in the controller by its path alone. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
 | board | The controller's central view: every project, its processes, the frontier and the specs ready for acceptance. |
 | controller tool | A tool the controller registers in a session for one GitHub write, such as create issue or set labels. It owns the label vocabulary ([ADR 0059](adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)). |
 | contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share (the branch contract, the base branch rule, the frontier rule, the label vocabulary), as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |

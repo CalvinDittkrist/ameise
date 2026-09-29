@@ -7,7 +7,7 @@ import { api, cleanup, cli, freePort, machine, read, script, start } from './con
 
 afterEach(cleanup)
 
-test('workflows starts the server on the configured address, opens the browser there and answers the project list', async () => {
+test('ameise starts the server on the configured address, opens the browser there and answers the project list', async () => {
   const m = await machine()
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
@@ -74,16 +74,16 @@ test.each([
   expect(s.stderr).toMatch(fault)
 })
 
-test('the CLI against a stopped server says to start workflows and fails', async () => {
+test('the CLI against a stopped server says to start ameise and fails', async () => {
   const m = await machine()
   for (const args of [['projects'], ['projects', 'add', m.root], ['projects', 'remove', m.root]]) {
     const r = cli(m, args)
     expect(r.code).toBe(1)
-    expect(r.stderr).toBe(`error: workflows is not running on ${m.url}; start it with workflows\n`)
+    expect(r.stderr).toBe(`error: ameise is not running on ${m.url}; start it with ameise\n`)
   }
 })
 
-test('the CLI does not take another service on a stale recorded address for workflows', async () => {
+test('the CLI does not take another service on a stale recorded address for ameise', async () => {
   const m = await machine()
   const port = await freePort()
   let requests = 0
@@ -104,10 +104,34 @@ test('the CLI does not take another service on a stale recorded address for work
       ),
     )
     expect(r.code).toBe(1)
-    expect(r.stderr).toBe(`error: workflows is not running on ${m.url}; start it with workflows\n`)
+    expect(r.stderr).toBe(`error: ameise is not running on ${m.url}; start it with ameise\n`)
     expect(existsSync(record)).toBe(false)
     expect(requests).toBe(1)
   } finally {
     await new Promise((resolve) => other.close(resolve))
   }
+})
+
+test('directories under the old name are neither read, moved nor changed', async () => {
+  const m = await machine()
+  const oldConfig = join(m.root, 'config', 'workflows')
+  const oldState = join(m.root, 'data', 'workflows')
+  mkdirSync(oldConfig, { recursive: true })
+  mkdirSync(oldState, { recursive: true })
+  writeFileSync(join(oldConfig, 'config.json'), JSON.stringify({ listen: '127.0.0.1:1', projects: ['/src/old'] }) + '\n')
+  writeFileSync(join(oldState, 'events.jsonl'), '{"old": true}\n')
+  writeFileSync(join(oldState, 'listen'), '127.0.0.1:1\n')
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  expect(s.stderr).toBe('')
+  expect(s.stdout).not.toContain('workflows')
+  expect(await api(m, 'GET', '/api/projects')).toEqual({ status: 200, body: [] })
+  expect(cli(m, ['projects']).stderr).toBe('')
+  expect(readdirSync(m.state)).toContain('events.jsonl')
+  expect(read(join(m.state, 'events.jsonl'))).not.toContain('"old"')
+  expect(readdirSync(oldConfig)).toEqual(['config.json'])
+  expect(read(join(oldConfig, 'config.json'))).toBe(JSON.stringify({ listen: '127.0.0.1:1', projects: ['/src/old'] }) + '\n')
+  expect(readdirSync(oldState).sort()).toEqual(['events.jsonl', 'listen'])
+  expect(read(join(oldState, 'events.jsonl'))).toBe('{"old": true}\n')
+  expect(read(join(oldState, 'listen'))).toBe('127.0.0.1:1\n')
 })

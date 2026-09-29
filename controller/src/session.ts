@@ -572,7 +572,7 @@ async function session(
   const agent = agentOf(record)
   const plugins = sessionPlugins(rt.plugins, record)
   const missing = plugins.find((path) => !existsSync(join(path, '.claude-plugin', 'plugin.json')))
-  if (missing) return { state: 'failed', note: `the bundled plugin is missing at ${missing}; reinstall workflows` }
+  if (missing) return { state: 'failed', note: `the bundled plugin is missing at ${missing}; reinstall ameise` }
   // The brief names the branch and the base in commands the session runs; a name from origin with a
   // shell character in it does not reach the prompt.
   for (const name of [record.branch, record.base]) {

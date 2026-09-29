@@ -8,8 +8,8 @@ afterEach(cleanup)
 
 // A build as Vite writes it: an index.html that names its files by their hash under assets.
 const build = {
-  'index.html': '<!doctype html><title>workflows</title><script type="module" src="/assets/index-a1.js"></script>\n',
-  'assets/index-a1.js': 'document.title = "workflows"\n',
+  'index.html': '<!doctype html><title>ameise</title><script type="module" src="/assets/index-a1.js"></script>\n',
+  'assets/index-a1.js': 'document.title = "ameise"\n',
   'assets/index-a1.css': 'body { margin: 0 }\n',
   'assets/geist-a1.woff2': 'wOF2',
   'assets/notes.txt': 'not a kind of file the build holds',
