@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 Status: accepted
-Extends: [0038](0038-the-local-workflow-and-the-factory-are-peers.md) (the two peers get a product name above them), [0060](0060-one-release-unit-bundles-the-plugins.md) (the release unit gets its name)
+Extends: [0038](0038-the-local-workflow-and-the-factory-are-peers.md) (the two peers get a product name above them), [0060](0060-one-release-unit-bundles-the-plugins.md) (the release unit gets its name), [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) (the local command it names `workflows` is now `ameise`)
 
 ## Context
 - The repository, the local command, the marketplace and the machine's directories were all called `workflows`. Spec #302.
