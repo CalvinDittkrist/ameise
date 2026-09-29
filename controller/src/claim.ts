@@ -456,8 +456,8 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
   } catch (err) {
     const note = `the implement session was stopped by an abandon that was refused: ${(err as Error).message}`
     for (const id of stopped) {
-      const failed = update(stateDir, id, { state: 'failed', note, unseen: true })
       event(stateDir, id, { event: 'session-end', stage: 'implement', state: 'failed', note })
+      const failed = update(stateDir, id, { state: 'failed', note, unseen: true })
       if (failed) announce(failed)
     }
     throw err
