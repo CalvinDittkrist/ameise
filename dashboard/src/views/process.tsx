@@ -7,6 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { Capture, Finish } from "@/components/actions"
 import { dot } from "@/components/rows"
 import {
   age,
@@ -101,10 +102,17 @@ function Header({ record }: { record: ProcessRecord }) {
           {record.issue ? `#${record.issue} ` : ""}
           {record.branch}
         </h1>
+        {/* A plan's own actions: its prototype leaves on a branch of its own, and a finish ends it. */}
+        {record.kind === "plan" && (
+          <div className="ml-auto flex gap-2">
+            <Capture id={record.id} />
+            <Finish id={record.id} project={record.project} />
+          </div>
+        )}
         <Button
           size="sm"
           variant="outline"
-          className="ml-auto"
+          className={cn(record.kind !== "plan" && "ml-auto")}
           disabled={!record.session_id || opening}
           title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
@@ -131,7 +139,7 @@ const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 // the mode, the time since the process last changed and the size of the session's context against the
 // size at which it compacts. Below it are the stages, the current one filled, the ones done struck through.
 function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
-  const kind = process?.kind ?? "work"
+  const kind = process?.kind ?? record.kind ?? "work"
   const stages = stagesOf[kind].includes(record.stage) ? stagesOf[kind] : [...stagesOf[kind], record.stage]
   const at = stages.indexOf(record.stage)
   const share = record.context === undefined ? 0 : Math.min(100, (record.context / record.compact_at) * 100)
@@ -154,7 +162,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
             {process.checks && process.checks !== "none" && ` checks ${process.checks}`}
           </span>
         )}
-        <Badge variant="outline">{record.mode}</Badge>
+        <Badge variant="outline">{record.mode ?? record.kind}</Badge>
         <span title={record.updated_at}>{age(record.updated_at)}</span>
         <span
           aria-label="Context"

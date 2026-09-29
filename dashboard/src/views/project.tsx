@@ -1,5 +1,5 @@
 import { TriangleAlertIcon } from "lucide-react"
-import { Release } from "@/components/actions"
+import { Plan, Release } from "@/components/actions"
 import { IssueRow, Notes, ProcessRow } from "@/components/rows"
 import { Section } from "@/components/section"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { broken, type Board, type Listed, type ProjectBoard } from "@/api"
 
 // The project page: the project's facts and actions, its processes, its frontier and, when there are
-// any, its specs ready for acceptance. Its actions but release wait for the controller to serve them.
+// any, its specs ready for acceptance. Its actions but plan and release wait for the controller to serve them.
 // failed is the reason the projects could not be read, which leaves open whether this one is a project.
 export function ProjectView({
   path,
@@ -72,7 +72,7 @@ export function ProjectView({
           {project.owner} · base {project.base}
         </span>
         <div className="ml-auto flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled>Plan</Button>
+          <Plan path={project.path} />
           <Button size="sm" variant="outline" disabled>Standardize</Button>
           <Button size="sm" variant="outline" disabled>Hunt tests</Button>
           <Release path={project.path} reload={reload} />

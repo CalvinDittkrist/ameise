@@ -181,9 +181,13 @@ export type Entry = { seq: number } & (
 export type ProcessRecord = {
   id: string
   project: string
+  kind: Process["kind"]
   branch: string
-  issue: number
-  mode: "manual" | "yolo"
+  issue: number | null
+  // mode is a work process's; route and topic are a plan's.
+  mode?: "manual" | "yolo"
+  route?: "idea" | "issue" | "open" | "accept"
+  topic?: string
   stage: string
   state: Process["state"]
   note: string
@@ -268,6 +272,17 @@ export type Released =
 
 // release tags a finished milestone of the project at path, publishes its release and closes it.
 export const release = (path: string, milestone: string) => call<Released>("POST", "/api/releases", { project: path, milestone })
+
+// plan opens a plan process from an idea, an issue or neither, an open session, in the project at path,
+// and starts its planner session. It answers the record as it runs, or throws the controller's reason.
+export const plan = (path: string, from: { idea: string } | { issue: number } | Record<string, never>) =>
+  call<{ record: { id: string; branch: string } }>("POST", "/api/plans", { project: path, ...from })
+
+// capture moves the prototype in a plan's worktree to a pushed prototype branch of its own.
+export const capture = (id: string, name: string) => call<{ branch: string; url: string }>("POST", "/api/processes/capture", { id, name })
+
+// finish removes a plan's worktree, branch and process; force drops what was not captured.
+export const finish = (id: string, force: boolean) => call<{ branch: string }>("POST", "/api/processes/finish", { id, force })
 
 // accept opens a plan process with the acceptance route on a spec of the project at path.
 export const accept = (path: string, spec: number) => call<{ record: { branch: string } }>("POST", "/api/acceptances", { project: path, spec })

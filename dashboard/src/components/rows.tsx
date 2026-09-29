@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Abandon, Claim, ProcessAction } from "@/components/process-actions"
-import { Accept, Merge } from "@/components/actions"
+import { Accept, Merge, PlanIssue } from "@/components/actions"
 import { age, type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
@@ -21,7 +21,7 @@ export const dot: Record<Process["state"], string> = {
   foreign: "border-2 border-dashed border-muted-foreground",
 }
 
-// The controller carries out claim, abandon, resume, adopt, merge and the start of an acceptance. A
+// The controller carries out claim, abandon, resume, adopt, merge, plan and the start of an acceptance. A
 // permission, a question, a blocked session and a failed one are answered or read on the process's
 // page, which their actions open. It does not serve any other action yet, so a row shows those disabled.
 const opens = ["Answer", "Approve", "Continue", "Open"]
@@ -109,7 +109,7 @@ export function IssueRow({
         ) : (
           <>
             <Claim i={i} path={path} reload={reload} />
-            <Button size="sm" variant="ghost" disabled>Plan</Button>
+            <PlanIssue i={i} path={path} />
           </>
         )}
       </ItemActions>
