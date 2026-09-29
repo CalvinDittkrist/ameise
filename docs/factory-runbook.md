@@ -516,7 +516,8 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
 - A ticket whose parent carries the spec-run label never enters the line as a routed issue, whatever labels it carries.
   - A parent that cannot be read keeps its ticket out of that poll, with one warning in the journal.
 - `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events and its tickets.
-  - Each carries `waiting`, the tickets of a person it waits for now, and `blockers`, the open issues outside the spec it waits for, each with its repository and the tickets it holds. Both are as the last poll read them.
+  - Each carries `waiting`, the tickets of a person it waits for now, as the last poll read them.
+  - It carries `blockers` too: the open issues outside the spec it waits for, each with its repository and the tickets it holds.
   - The dashboard says which is which: `#307 for a person`, `#265 outside the spec`.
   - The dashboard lists the spec runs with their state and their ticket runs beneath them, and `#spec=<id>` selects one.
 
@@ -564,13 +565,16 @@ A spec run waits when its open tickets all carry `ready-for-human` or are blocke
 
 It names what stands at the end of the chain of blockers, on the interface, in its event log and in one comment on the spec each, mentioning the `notify` logins:
 
-- A ticket of a person with no open blocker. Merge its pull request into the spec branch and close the ticket, and the spec run goes on at the next poll.
-- An open issue outside the spec that blocks one of its tickets, named with its repository when that is another. The comment names the tickets it holds. Once it is closed, the spec run goes on at the next poll.
+- A ticket of a person with no open blocker.
+  - Merge its pull request into the spec branch and close the ticket, and the spec run goes on at the next poll.
+- An open issue outside the spec that blocks one of its tickets, named with its repository when that is another.
+  - The comment names the tickets it holds. Once it is closed, the spec run goes on at the next poll.
   - While the spec run waits, the factory reads the list of the issues that block each blocked ticket.
 
 A ticket blocked only by a sibling ticket is not named, and neither is a person's ticket with an open blocker.
 
-- Each is named once per time it is waited for. A person's ticket that is blocked again, and a blocker that is closed, come off the record and are named again if they are waited for again.
+- Each is named once per time it is waited for.
+  - A person's ticket that is blocked again, and a blocker that is closed, come off the record. Each is named again if it is waited for again.
 - A factory without `notify` logins records the wait and comments nothing. A comment GitHub refuses is a warning, and a later poll makes it again.
 
 ### The implement stage
