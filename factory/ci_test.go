@@ -152,7 +152,7 @@ func TestFailedChecksRunAFixSessionWithTheirLogsAndTheRunEndsReadyOnceGreen(t *t
 	// The fix session runs as the factory's own worker agent, as the implement session does, and no
 	// plugin of the workflow is on in it.
 	for i, w := range workers {
-		if w.arg("--agent") != workerAgent || w.settings(t).EnabledPlugins["worker@workflows"] {
+		if w.arg("--agent") != workerAgent || w.settings(t).EnabledPlugins["worker@ameise"] {
 			t.Errorf("session %d ran as the agent %q with the plugins %v, want the factory's %s and the worker plugin off", i+1, w.arg("--agent"), w.settings(t).EnabledPlugins, workerAgent)
 		}
 	}

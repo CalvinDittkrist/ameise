@@ -63,6 +63,26 @@ class ClaimTests(ShimTest):
         # The pane the command runs in has its own working directory, so the script is named by its full path.
         self.assertEqual(words[0], str(ORCH / "sbx-worker.sh"))
 
+    def test_a_reused_sandbox_moves_its_plugins_to_the_ameise_marketplace(self):
+        # Plugins used to be installed only when the sandbox was created. A sandbox from before the rename kept
+        # worker@workflows, while the session settings name @ameise, so it ran the old worker plugin.
+        self.git("branch", "fix/12-x")
+        wt = self.base / "wt12"
+        self.git("worktree", "add", "-q", str(wt), "fix/12-x")
+        r = self.run_script(ORCH / "sbx-worker.sh", str(wt), "--", "/worker:work", SHIM_SBX_LS="wf-repo-fix-12-x  running")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sbx = [c for c in self.argv_calls() if c[0] == "sbx"]
+        self.assertFalse([c for c in sbx if c[1] == "create"], "an existing sandbox is reused")
+        execs = [c for c in sbx if c[1] == "exec"]
+        self.assertEqual(len(execs), 1)
+        self.assertEqual(execs[0][2], "wf-repo-fix-12-x")
+        steps = [s.split(">")[0].strip() for s in execs[0][-1].replace("&&", ";").split(";")]
+        self.assertLess(steps.index("claude plugin marketplace remove workflows"),
+                        steps.index("claude plugin install worker@ameise --scope user"))
+        self.assertIn("claude plugin uninstall worker@workflows --scope user", steps)
+        self.assertIn("claude plugin install repo-standards@ameise --scope user", steps)
+        self.assertEqual(sbx[-1][1:], ["run", "--name", "wf-repo-fix-12-x", "--", "/worker:work"])
+
     def test_the_status_line_command_survives_a_plugin_path_with_a_space(self):
         # claude runs the command through a shell. Unquoted, a checkout under "/Users/John Smith" splits into
         # words, nothing renders, and the worker reads the missing value as a handoff for the rest of the run.
@@ -504,7 +524,7 @@ class ClaimEnvTests(ShimTest):
         self.assertEqual(settings["autoCompactWindow"], 312500)
         self.assertEqual(shlex.split(settings["statusLine"]["command"]), [str(ORCH / "statusline.sh"), "250000"])
         self.assertEqual(settings["enabledPlugins"],
-                         {"planner@workflows": False, "orchestrator@workflows": False})
+                         {"planner@ameise": False, "orchestrator@ameise": False})
 
     def test_a_knob_given_on_the_claim_reaches_that_session_and_changes_nothing_else(self):
         r, settings = self.claim("--env", "WF_HANDOFF_TOKENS=5000")
@@ -612,7 +632,7 @@ class PlanTests(ShimTest):
         self.assertIn("--strict-mcp-config", start)
         settings = json.loads(start[start.index("--settings") + 1])
         self.assertEqual(settings["env"], {"WF_PLAN": "offline-mode-for-the-app"})
-        self.assertEqual(settings["enabledPlugins"], {"worker@workflows": False, "orchestrator@workflows": False, "repo-standards@workflows": False})
+        self.assertEqual(settings["enabledPlugins"], {"worker@ameise": False, "orchestrator@ameise": False, "repo-standards@ameise": False})
         self.assertIn("agent_status: working", r.stdout)
         self.assertFalse([c for c in self.calls() if "issue view" in c])
 
@@ -644,7 +664,7 @@ class PlanTests(ShimTest):
         self.assertEqual(start[start.index("--permission-mode") + 1], "auto")
         settings = json.loads(start[start.index("--settings") + 1])
         self.assertEqual(settings["env"], {"WF_PLAN": f"open-{stamp}"})
-        self.assertEqual(settings["enabledPlugins"], {"worker@workflows": False, "orchestrator@workflows": False, "repo-standards@workflows": False})
+        self.assertEqual(settings["enabledPlugins"], {"worker@ameise": False, "orchestrator@ameise": False, "repo-standards@ameise": False})
         self.assertFalse([c for c in self.calls() if c.startswith("gh issue")])
 
     def test_open_session_honours_base_and_refuses_unknown_flags(self):
@@ -705,7 +725,7 @@ class PlanTests(ShimTest):
         start = [c for c in self.argv_calls() if c[1:3] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("--model") + 1], "sonnet"); self.assertIn("--verbose", start)
         settings = json.loads(start[start.index("--settings") + 1])
-        self.assertEqual(settings["enabledPlugins"], {"planner@workflows": False, "orchestrator@workflows": False})
+        self.assertEqual(settings["enabledPlugins"], {"planner@ameise": False, "orchestrator@ameise": False})
         self.assertIn("--strict-mcp-config", start)
         r = self.run_script(ORCH / "plan.sh", "Other topic", WF_PLANNER_CLAUDE_ARGS="--plugin-dir")
         self.assertNotEqual(r.returncode, 0); self.assertIn("WF_PLANNER_CLAUDE_ARGS", r.stderr)
@@ -847,7 +867,7 @@ class PlanTests(ShimTest):
         # A manual claim's session, with no issue in it: the branch names none, and the status line says so.
         self.assertEqual(settings["env"], {"WF_MODE": "manual", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
                                            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"})
-        self.assertEqual(settings["enabledPlugins"], {"planner@workflows": False, "orchestrator@workflows": False})
+        self.assertEqual(settings["enabledPlugins"], {"planner@ameise": False, "orchestrator@ameise": False})
         self.assertEqual(shlex.split(settings["statusLine"]["command"]), [str(ORCH / "statusline.sh"), "250000"])
         self.assertEqual(settings["autoCompactWindow"], 312500)
         self.assertIn("agent_status: working", r.stdout)

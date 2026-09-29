@@ -7,7 +7,11 @@ The baseline every repository that runs this workflow is held to. Terms are defi
 - `plugins/repo-standards/scripts/workspace.sh` brings the GitHub workspace and its milestones to the standard. The check reports its differences as warnings when GitHub is reachable.
 - `/repo-standards:apply` applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check.
 
-The local workflow that works a repository on this standard is the controller, installed as the npm package `ameise` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the marketplace plugins, for sessions started by hand.
+The local workflow that works a repository on this standard is the controller, installed as the npm package `ameise` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the plugins of the marketplace `ameise`, for sessions started by hand:
+
+- `claude plugin marketplace add CalvinDittkrist/workflows --scope project` registers it.
+- `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner`, `repo-standards` and `orchestrator`.
+- A repository that registered the marketplace under its earlier name first runs `claude plugin marketplace remove workflows --scope project`, so its settings hold one key for the source.
 
 ## Profile
 A repository's profile is its visibility plus its branch model. Both are derived from GitHub, never configured per repository ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
@@ -188,7 +192,7 @@ The run:
 2. `cleanup.sh prepare` creates the branch `chore/standardize` in the worktree `.claude/worktrees/chore-standardize`, so the checkout is untouched.
    - It removes the tracked targets of approved delete findings, and runs `scaffold.sh` with `--skip` for each rejected category.
    - That creates the missing baseline files, the `Makefile`, the CI job `check` when no workflow has one, `.github/dependabot.yml`, and `.claude/settings.json`.
-   - The settings file registers the marketplace and enables the workflow plugins, through `claude plugin marketplace add` and `claude plugin install --scope project`.
+   - The settings file registers the marketplace `ameise` and enables the workflow plugins as `<plugin>@ameise`, through `claude plugin marketplace add` and `claude plugin install --scope project`.
    - Every other plugin enabled at project scope is disabled.
    - A target the tag does not hold as it is, untracked or changed since an earlier tag, is named for the maintainer instead of deleted.
    - The tag could not restore such a target.
