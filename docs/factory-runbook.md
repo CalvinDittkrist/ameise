@@ -563,7 +563,7 @@ A spec run ends with its spec pull request, once the spec has sub-issues and eve
 
 A spec run waits when its open tickets all carry `ready-for-human` or are blocked. It takes no ticket and opens no spec pull request.
 
-It names what stands at the end of the chain of blockers, on the interface, in its event log and in one comment on the spec each, mentioning the `notify` logins:
+It names what it waits for. Each is named on the interface, in its event log and in one comment on the spec that mentions the `notify` logins. It waits for:
 
 - A ticket of a person with no open blocker.
   - Merge its pull request into the spec branch and close the ticket, and the spec run goes on at the next poll.
@@ -573,7 +573,7 @@ It names what stands at the end of the chain of blockers, on the interface, in i
 
 A ticket blocked only by a sibling ticket is not named, and neither is a person's ticket with an open blocker.
 
-- Each is named once per time it is waited for.
+- Each is named once until it stops being waited for.
   - A person's ticket that is blocked again, and a blocker that is closed, come off the record. Each is named again if it is waited for again.
 - A factory without `notify` logins records the wait and comments nothing. A comment GitHub refuses is a warning, and a later poll makes it again.
 

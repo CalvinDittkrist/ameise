@@ -111,10 +111,11 @@ func blockersRequest(repository string, number int) string {
 	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/dependencies/blocked_by?per_page=100"
 }
 
-// readBlockers reads the open issues that block each blocked ticket of a spec whose open tickets are
-// all a person's or blocked, which is when its spec run waits and what it waits for is named
-// (specpull.go). A spec with a ticket to take, or one in work, asks nothing. A list that cannot be read leaves that ticket's blockers unread
-// and says so once: it is blocked either way, and a later poll reads them.
+// readBlockers reads the open issues that block each blocked ticket of a spec. It reads them when the
+// open tickets are all a person's or blocked: then the spec run waits and names what it waits for
+// (specpull.go). A spec with a ticket to take, or one in work, asks nothing. A list that cannot be
+// read leaves that ticket's blockers unread and says so once. The ticket is blocked either way, and
+// a later poll reads them.
 func (g *gitHub) readBlockers(ctx context.Context, held Held, subs []subIssue) {
 	for i := range subs {
 		t := &subs[i]

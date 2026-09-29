@@ -294,9 +294,9 @@ type waiting struct {
 
 // waitsOn is what a spec run waits for when every open sub-issue of its spec is a person's or blocked.
 // Otherwise there is a ticket the factory may still take, or one it works, and the spec run waits for
-// nothing. A person's ticket is waited for while it has no open blocker; one blocked by a sibling is
-// behind that sibling, and what holds the sibling is named instead. A sub-issue from another repository
-// is no ticket of the spec's repository and is left out.
+// nothing. A person's ticket is waited for while it has no open blocker. A ticket blocked by a sibling
+// is not named, and the blockers of that sibling are. A sub-issue from another repository is no ticket
+// of the spec's repository and is left out.
 func waitsOn(repository string, subs []subIssue) waiting {
 	people := []int{}
 	for _, t := range subs {
@@ -357,12 +357,12 @@ func outsideBlockers(repository string, subs []subIssue) ([]outsideBlocker, bool
 	return out, complete
 }
 
-// waitForPeople says on each held spec what its spec run waits for, once per time it waits for it: a
-// comment on the spec that mentions the configured logins, for each ticket of a person that can be
-// worked and for each open issue outside the spec that blocks its tickets. A ticket of a person that
-// has an open blocker again is no longer recorded as named, and neither is a blocker outside the spec
-// that a complete reading no longer finds, so each is named again once it is waited for again. A
-// comment GitHub refused is a warning, and a later poll makes it again. A paused factory says nothing.
+// waitForPeople says on each held spec what its spec run waits for. It names each ticket of a person
+// that can be worked and each open issue outside the spec that blocks its tickets. Each gets one
+// comment on the spec that mentions the configured logins. A person's ticket with an open blocker
+// comes off the record, and so does a blocker a complete reading no longer finds. Each is named again
+// once it is waited for again. A comment GitHub refused is a warning, and a later poll makes it again.
+// A paused factory says nothing.
 func (f *Factory) waitForPeople(ctx context.Context) {
 	if f.Paused() || ctx.Err() != nil {
 		return
@@ -402,10 +402,10 @@ func (f *Factory) waitForPeople(ctx context.Context) {
 	}
 }
 
-// forgetNamed takes off the record of a spec run what it named and no longer waits for as it was: a
-// ticket of a person that has an open blocker, and a blocker outside the spec that a reading of every
-// blocker no longer finds. A ticket recorded while it was blocked, as a factory before this rule did,
-// is named once it can be worked.
+// forgetNamed takes names off the record of a spec run. A ticket of a person with an open blocker
+// comes off. A blocker outside the spec comes off when a complete reading of the blockers no longer
+// finds it. A ticket recorded while it was blocked, as a factory before this rule did, is named once
+// it can be worked.
 func (f *Factory) forgetNamed(s *SpecRun, held SpecRun, subs []subIssue) {
 	tickets := slices.DeleteFunc(slices.Clone(held.WaitingOn), func(n int) bool {
 		return slices.ContainsFunc(subs, func(t subIssue) bool { return t.Elsewhere == "" && t.Number == n && t.Open && t.Blocked })

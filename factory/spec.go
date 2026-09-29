@@ -83,11 +83,11 @@ type SpecRun struct {
 	// DoneAt when the factory read it merged (specpull.go).
 	PullRequest string     `json:"pullRequest,omitempty"`
 	DoneAt      *time.Time `json:"doneAt,omitempty"`
-	// WaitingOn is the tickets of a person the spec run named in a comment on the spec, each while it
-	// could be worked, and WaitingOnBlockers the open issues outside the spec it named as blocking its
-	// tickets, by owner/name#number (specpull.go). A ticket blocked again, or a blocker no longer
-	// found, comes off, so it is named again when it is waited for again.
-	WaitingOn         []int    `json:"waitingOn,omitempty"`
+	// WaitingOn is the tickets of a person the spec run named in a comment on the spec while they could
+	// be worked (specpull.go). A ticket blocked again comes off and is named again when it can be worked.
+	WaitingOn []int `json:"waitingOn,omitempty"`
+	// WaitingOnBlockers is the open issues outside the spec that it named as blocking its tickets, by
+	// owner/name#number. A blocker no longer found comes off and is named again if it blocks again.
 	WaitingOnBlockers []string `json:"waitingOnBlockers,omitempty"`
 	EventCount        int      `json:"eventCount"`
 }
