@@ -115,18 +115,24 @@ exit 0
         env = {**os.environ, "PATH": f"{box}:{os.environ['PATH']}"}
         run = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(run.stderr, "")
-        self.assertEqual(held.read_text().split("\n")[:2], ["worker@ameise user", "other@old user"])
+        # The user scope is the sandbox's own and is cleared. The project scope is the mounted worktree's
+        # .claude/settings.json: the sandbox leaves it as it is, so no settings change lands on the branch,
+        # and names the plugin it leaves.
+        self.assertEqual(held.read_text().splitlines(), ["repo-standards@old project", "worker@ameise user", "other@old user"])
         calls = log.read_text().splitlines()
         uninstalls = [c for c in calls if c.startswith("plugin uninstall")]
-        self.assertEqual({c.split()[2] for c in uninstalls}, {"worker@old", "repo-standards@old"})
+        self.assertEqual(sorted(uninstalls), ["plugin uninstall repo-standards@old --scope user",
+                                              "plugin uninstall worker@old --scope user"])
         self.assertLess(calls.index(uninstalls[-1]), calls.index("plugin install worker@ameise --scope user"))
-        # A plugin the uninstall cannot remove is named, and the session still starts.
-        held.write_text("worker@old local\n")
-        run = subprocess.run(["sh", "-c", command], env={**env, "REFUSE": "1"}, capture_output=True, text=True)
-        self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("warning:", run.stderr)
-        self.assertIn("worker@old", run.stderr)
+        self.assertIn("repo-standards@old", run.stderr)
+        self.assertNotIn("worker@old", run.stderr)
+        # With nothing of another marketplace left, the start is quiet.
+        held.write_text("worker@old user\n")
+        run = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stderr, "")
+        self.assertEqual(held.read_text(), "")
 
     def test_the_status_line_command_survives_a_plugin_path_with_a_space(self):
         # claude runs the command through a shell. Unquoted, a checkout under "/Users/John Smith" splits into
