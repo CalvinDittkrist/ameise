@@ -383,6 +383,57 @@ func TestAPersonsTicketARecordNamedWhileItWasBlockedIsNamedOnceItCanBeWorked(t *
 	})
 }
 
+// A list of blockers that cannot be read says so once, names nothing and keeps what the spec run
+// named: a failed reading is no sign that a blocker was closed. Once the list can be read, its blocker
+// is named, and a later failed reading neither forgets it nor names it again.
+func TestABlockersListThatCannotBeReadKeepsWhatWasNamedAndNamesItOnceItCanBe(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, blockedBy(gh.ticketOf(t, 233, "After the rename")))
+	request := "api " + blockersRequest("acme/edge-sensors", 233)
+	gh.answer(t, request, "not a list")
+	gh.comments(t, "acme/edge-sensors", specNumber)
+	c := ticketConfig(data, nil, nil)
+	c["notify"] = maintainers
+	f := gh.work(t, c)
+	comment := commentCall("acme/edge-sensors", specNumber)
+	warning := "error: the issues that block #233 of acme/edge-sensors could not be read"
+	polls := func(what string) {
+		t.Helper()
+		before := gh.made(t, request)
+		f.eventually(t, 20*time.Second, what, func() bool { return gh.made(t, request) >= before+3 })
+	}
+
+	polls("several readings of the blockers that fail")
+	if said := strings.Count(f.output(t), warning); said != 1 {
+		t.Errorf("the factory warned %d times that the blockers of #233 could not be read, want once:\n%s", said, f.output(t))
+	}
+	if made := gh.made(t, comment); made != 0 {
+		t.Errorf("the factory commented %d times on the spec while the blockers could not be read, want none", made)
+	}
+
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	f.eventually(t, 30*time.Second, "the comment that names #265", func() bool { return gh.saidOnSpec(t, "waits for #265") == 1 })
+	f.eventually(t, 10*time.Second, "the record to name #265", func() bool {
+		return equal(f.specRunNow(t).WaitingOnBlockers, []string{"acme/edge-sensors#265"})
+	})
+
+	gh.answer(t, request, "not a list")
+	polls("several more readings of the blockers that fail")
+	if said := strings.Count(f.output(t), warning); said != 2 {
+		t.Errorf("the factory warned %d times that the blockers of #233 could not be read, want once per failure after a reading", said)
+	}
+	if spec := f.specRunNow(t); !equal(spec.WaitingOnBlockers, []string{"acme/edge-sensors#265"}) {
+		t.Errorf("the spec run named %v after a failed reading, want #265 kept", spec.WaitingOnBlockers)
+	}
+
+	gh.blockers(t, 233, outsideIssue("acme/edge-sensors", 265, "Rename the product"))
+	polls("several readings of the blockers that succeed")
+	if made := gh.made(t, comment); made != 1 {
+		t.Errorf("the factory commented %d times on the spec, want #265 named once", made)
+	}
+}
+
 // A factory with no logins to notify records what its spec run waits for and comments nothing.
 func TestAWaitingSpecRunOfAFactoryWithNobodyToNotifyRecordsTheBlockerAndSaysNothing(t *testing.T) {
 	t.Parallel()

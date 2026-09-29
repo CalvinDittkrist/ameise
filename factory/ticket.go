@@ -111,6 +111,11 @@ func blockersRequest(repository string, number int) string {
 	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/dependencies/blocked_by?per_page=100"
 }
 
+// blockersKey is what a warning about the list of the issues that block one ticket is kept by.
+func blockersKey(repository string, number int) string {
+	return Issue{Repository: repository, Number: number}.key() + "/blockers"
+}
+
 // readBlockers reads the open issues that block each blocked ticket of a spec. It reads them when the
 // open tickets are all a person's or blocked: then the spec run waits and names what it waits for
 // (specpull.go). A spec with a ticket to take, or one in work, asks nothing. A list that cannot be
@@ -122,7 +127,7 @@ func (g *gitHub) readBlockers(ctx context.Context, held Held, subs []subIssue) {
 		if !t.Open || t.Elsewhere != "" || !t.Blocked || ctx.Err() != nil {
 			continue
 		}
-		key := Issue{Repository: held.Repository, Number: t.Number}.key() + "/blockers"
+		key := blockersKey(held.Repository, t.Number)
 		raw, err := gh(ctx, "api", blockersRequest(held.Repository, t.Number))
 		var issues []ghIssue
 		if err == nil {
