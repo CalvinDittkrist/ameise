@@ -1022,7 +1022,8 @@ The rename needs these steps, which only a person can take, in this order:
    - `claude plugin install <plugin>@ameise --scope project` enables each plugin under the new name, for `worker`, `planner`, `repo-standards` and `orchestrator`.
 10. Install the local program from the controller's [GitHub release](https://github.com/CalvinDittkrist/ameise/releases), as in [its install](../controller/README.md#install).
     It starts with no projects: it reads no directory of the old name ([ADR 0067](adr/0067-the-rename-is-a-hard-cut.md)).
-11. Remove every Docker Sandbox of a worker that was created before the rename, with `sbx rm <name>`. A reused sandbox keeps the plugins of the old marketplace; the next start creates a fresh one.
+11. Remove every worker's Docker Sandbox from before the rename with `sbx rm <name>`.
+    A reused sandbox keeps the plugins of the old marketplace; the next start creates a fresh one.
 12. Optional: rename the directory of a checkout, then `ameise projects add <new path>`. The controller knows a project by its path.
 
 No repository is ever created under the old name again, neither by the maintainer nor by the machine user. GitHub redirects the old name to the new one only until a repository holds it ([renaming a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)).
