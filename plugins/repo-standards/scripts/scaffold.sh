@@ -76,7 +76,7 @@ s="$root/.claude/settings.json"
 before=$(cat "$s" 2>/dev/null || true)
 err=$(mktemp); trap 'rm -f "$err"' EXIT
 run() { (cd "$root" && claude plugin "$@" --scope project) >/dev/null 2>"$err" || die "claude plugin $* --scope project failed: $(tail -n1 "$err")"; }
-run marketplace add "$(jq -r '.extraKnownMarketplaces.workflows.source.repo' "$tpl/settings.json")"
+run marketplace add "$(jq -r '.extraKnownMarketplaces.ameise.source.repo' "$tpl/settings.json")"
 wanted=$(jq -r '.enabledPlugins | keys[]' "$tpl/settings.json")
 for p in $wanted; do
   [ "$(jq -r --arg p "$p" '.enabledPlugins[$p] // empty' "$s" 2>/dev/null)" = true ] || run install "$p"

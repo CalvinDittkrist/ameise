@@ -124,7 +124,7 @@ func TestThePanelRunsTheFactorysReviewersReadOnlyBesideEachOther(t *testing.T) {
 		if !r.started("--tools", "Read,Grep,Glob") || !r.started("--strict-mcp-config") || !r.started("--setting-sources", "user") {
 			t.Errorf("the %s reviewer was started with %v, want only Read, Grep and Glob, no MCP server and the user's settings alone", name, r.args)
 		}
-		if plugins := r.settings(t).EnabledPlugins; plugins["worker@workflows"] {
+		if plugins := r.settings(t).EnabledPlugins; plugins["worker@ameise"] {
 			t.Errorf("the %s reviewer carries the worker plugin", name)
 		}
 		if def["model"] != "sonnet" || def["effort"] != "high" || !strings.Contains(text(def["prompt"]), "read-only") || !equal(anyStrings(def["tools"]), []string{"Read", "Grep", "Glob", "StructuredOutput"}) {

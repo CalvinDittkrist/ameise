@@ -68,7 +68,7 @@ Tools, plugins and instructions:
 - Plugin agents cannot be hidden, so the six auditor descriptions (one line each) are listed in every session that enables `repo-standards`.
 - Worker sessions keep `repo-standards` for `/repo-standards:adr` and carry those six lines; planner sessions start with it disabled.
 - Every planner skill is `disable-model-invocation: true`, which keeps even its description out of context. Enabling the plugin costs other sessions nothing.
-- Plugin token cost is visible with `claude plugin details <plugin>@workflows`; keep skill descriptions to one sentence.
+- Plugin token cost is visible with `claude plugin details <plugin>@ameise`; keep skill descriptions to one sentence.
 - Repository instruction files (`AGENTS.md`, `CLAUDE.md`) stay under 200 lines. A monorepo keeps one pair per area, which loads only when an agent works there.
 - What goes in is what every session needs, because it loads in every session and every subagent.
 - So the vision is a linked file ([vision.md](vision.md)) and not an `@` import. An import would load at launch and cost the whole text everywhere.

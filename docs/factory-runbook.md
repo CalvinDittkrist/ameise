@@ -154,7 +154,7 @@ Run the following as root unless it says otherwise.
    - `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN` also runs a worker, but it writes no credentials file.
    - Then quota-axi has nothing to read, and every run carries a warning that the check could not answer.
 5. **No plugin.** Every session the factory starts runs on the factory's own prompts, compiled into the binary ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
-   - It switches the `worker`, `planner` and `orchestrator` plugins of the `workflows` marketplace off.
+   - It switches the `worker`, `planner`, `orchestrator` and `repo-standards` plugins of the `ameise` marketplace off.
    - So the host needs Claude Code, `git`, `gh`, the factory binary and the tools of the gates above, and no plugin of this repository.
    - A host that carries the plugin from an earlier factory moves over in [Moving a host off the plugin](#moving-a-host-off-the-plugin).
 6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64`, `checksums.txt` and `factory-v<version>.sigstore.json`.
@@ -1023,10 +1023,11 @@ Pause the factory, write those knobs and remove `worker_env` from `/etc/factory/
 
 It refuses a `--plugin-dir` in `worker_args` the same way, so take it out too. That flag would load the plugin into the implement, fix and address-reviews sessions.
 
-The plugin itself does no harm: every session switches it off, and the factory runs no plugin command. Remove it all the same, so the host carries only what its runs use, as the user `factory`:
+The plugin came from the marketplace `workflows`, the earlier name of `ameise`. Every session switches off the plugins of `ameise` only, so a plugin installed from `workflows` stays on in every session. The host installs a release itself, so act now: set `auto_update` to `false` and pause the factory. Then, as the user `factory`, list what `workflows` installed and remove every plugin of it and the marketplace:
 
 ```sh
-claude plugin uninstall worker@workflows
+claude plugin list
+claude plugin uninstall <plugin>@workflows   # once for each plugin the list shows from workflows
 claude plugin marketplace remove workflows
 ```
 
