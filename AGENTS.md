@@ -35,7 +35,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - It tags `factory/v<version>`. That tag alone makes CI attach the static linux binaries, their checksums and their build attestation to a GitHub release.
   - `make binaries` builds the same files here.
 - Release the controller: bump `version` in `controller/package.json`, commit, `scripts/release.sh controller --push`.
-  - It has the factory's refusals and tags `controller/v<version>`. CI publishes the npm package `workflows-controller` from that tag.
+  - It has the factory's refusals and tags `controller/v<version>`. CI attaches the private npm package `workflows-controller` to that tag's GitHub release; it is not on npm.
   - The build bundles `plugins/{worker,planner,repo-standards}` into `controller/dist/plugins`, which every session loads.
 
 ## Priorities

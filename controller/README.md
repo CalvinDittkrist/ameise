@@ -3,10 +3,10 @@
 `workflows` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Install
-One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
+One npm package, `workflows-controller`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/workflows/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
 
 ```sh
-npm install --global workflows-controller
+npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/workflows-controller-0.1.0.tgz
 workflows                          # starts the server and opens the dashboard
 workflows projects add ~/src/repo  # in a second shell, or from the dashboard
 ```
@@ -308,5 +308,6 @@ One directory per machine: `$XDG_DATA_HOME/workflows`, else `~/.local/share/work
 - They watch it over the API, its files and its output.
 - A release bumps `version` in `package.json`, commits, and runs `scripts/release.sh controller --push` on `main`.
   - It refuses what the factory's release refuses: another branch, a dirty tree, a red gate and a tag that exists.
-  - It tags `controller/v<version>`, and CI's `controller-release` packs, installs, starts and publishes the package from that tag.
-  - Publishing reads the repository secret `NPM_TOKEN`, an npm token that may publish `workflows-controller`.
+  - It tags `controller/v<version>`. From that tag CI's `controller-release` packs, installs and starts the package.
+  - Then it attaches the tarball, its checksums and its build attestation to the release `controller v<version>`, which is not the latest.
+  - A release that already carries them is refused, so a released version is never overwritten.

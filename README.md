@@ -2,7 +2,7 @@
 
 Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
 
-The local workflow is the controller `workflows`: one npm package with its dashboard and the plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
+The local workflow is the controller `workflows`, one package with its dashboard and plugins. Beside it, `factory/` is a Go service that works routed issues unattended.
 
 ```mermaid
 flowchart LR
@@ -29,15 +29,15 @@ flowchart LR
 
 ## Install
 
-The [controller](controller/README.md) needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`:
+The [controller](controller/README.md) installs from its GitHub release, not yet from npm. It needs Node 22+, Claude Code, git, `jq` and a logged-in `gh`:
 
 ```sh
-npm install --global workflows-controller
+npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/workflows-controller-0.1.0.tgz
 workflows                          # starts it and opens the dashboard on 127.0.0.1:7420
 workflows projects add ~/src/repo  # then claim, plan, merge and release from the dashboard
 ```
 
-The plugins also install from the marketplace, for sessions started by hand. Requirements: Claude Code 2.1.270 or later, an authenticated `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
+The plugins also install from the marketplace for sessions started by hand, with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
 
 ```sh
 claude plugin marketplace add CalvinDittkrist/workflows
@@ -144,7 +144,7 @@ npm --prefix factory/ui run dev                   # the dashboard with hot reloa
 `dev-orchestrator.sh` points `WF_PLANNER_CLAUDE_ARGS` and `WF_WORKER_CLAUDE_ARGS` at the checkout's plugins. Without them a started session exits with `--agent 'planner' not found`, and `plan.sh` and `claim.sh` remove the worktree and print the fix. Tests run the real scripts against the `gh` and `herdr` shims in `tests/shims/`.
 
 - A plugin is released by bumping `version` in its manifest and running `scripts/release.sh <plugin> --push`.
-- The controller: bump `version` in `controller/package.json`, then `scripts/release.sh controller --push` on `main`. CI publishes the package from the `controller/v<version>` tag.
+- The controller: bump `version` in `controller/package.json` and run `scripts/release.sh controller --push` on `main`; CI attaches the package to its release.
 
 `factory/` is the factory, a Go service and no plugin. It is a peer of the local workflow and owns the delivery pipeline in Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
