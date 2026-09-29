@@ -345,18 +345,27 @@ test('a ticket run shows its validation and its merge, and links its spec run', 
   await expect(detail(page).locator('h3')).toContainText('#130')
 })
 
-test('a spec run that waits for a person’s ticket says which', async ({ page }) => {
-  // The canned spec has no ticket of a person, so the answer under test is put in front of the
-  // dashboard here; the factory's Go tests serve the real one (specpull_test.go).
+test('a spec run that waits for a person’s ticket or a blocker outside the spec says which', async ({ page }) => {
+  // The canned spec has no ticket of a person and no blocker outside it, so the answer under test is
+  // put in front of the dashboard here; the factory's Go tests serve the real one (specpull_test.go).
   await page.route(/\/api\/specs(\/\d+)?(\?.*)?$/, async (route) => {
     const answer = await (await route.fetch()).json()
-    const waiting = (spec) => ({ ...spec, pullRequest: undefined, waiting: [134] })
+    const waiting = (spec) => ({
+      ...spec,
+      pullRequest: undefined,
+      waiting: [134],
+      blockers: [
+        { repository: spec.repository, number: 90, tickets: [132] },
+        { repository: 'acme/platform', number: 7, tickets: [133] },
+      ],
+    })
     await route.fulfill({ json: Array.isArray(answer) ? answer.map(waiting) : waiting(answer) })
   })
   await page.goto(working(`/#spec=${SPEC_RUN}`))
-  await expect(page.locator('.specs > li > button.row')).toContainText('waiting for #134')
+  const words = 'waiting for #134 for a person, #90 outside the spec, acme/platform#7 outside the spec'
+  await expect(page.locator('.specs > li > button.row')).toContainText(words)
   await expect(page.locator('.specs > li > button.row')).toHaveClass(/state-blocked/)
-  await expect(detail(page).locator('.head .state')).toHaveText('waiting for #134')
+  await expect(detail(page).locator('.head .state')).toHaveText(words)
 })
 
 test('the selected run shows what it cost, how full its context came and what it warned about', async ({

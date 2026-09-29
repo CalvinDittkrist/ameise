@@ -32,10 +32,19 @@ const stageOf = (run, stage = run.stage) => {
     .join(', ')
 }
 
+// What a waiting spec run waits for, in words: a person's ticket that can be worked, and an open issue
+// outside the spec that blocks its tickets. A blocker names its repository when that is not the spec's.
+const waitsFor = (spec) => [
+  ...(spec.waiting ?? []).map((n) => `#${n} for a person`),
+  ...(spec.blockers ?? []).map(
+    (b) => `${sameRepository(b.repository, spec.repository) ? '' : b.repository}#${b.number} outside the spec`,
+  ),
+]
+
 // A spec run holds its spec across many runs, so what it is doing is read from its record and from the
 // run of it that is going: its word, and the colour of the run state it is like. A spec run that holds
-// its spec is working a ticket or its spec pull request, waiting for a person's ticket, waiting on its
-// open spec pull request, or claimed with nothing going.
+// its spec is working a ticket or its spec pull request, waiting for a person's ticket or a blocker
+// outside the spec, waiting on its open spec pull request, or claimed with nothing going.
 const specState = (spec, going) => {
   if (spec.state === 'claiming') return { word: 'claiming', tone: 'running' }
   if (spec.state === 'done') return { word: 'done', tone: 'ready' }
@@ -45,7 +54,8 @@ const specState = (spec, going) => {
     if (going.issue !== spec.spec) return { word: `working #${going.issue}`, tone: 'running' }
     return { word: spec.pullRequest ? 'spec pull request open' : 'opening the spec pull request', tone: 'running' }
   }
-  if (spec.waiting?.length) return { word: `waiting for ${spec.waiting.map((n) => `#${n}`).join(', ')}`, tone: 'blocked' }
+  const waits = waitsFor(spec)
+  if (waits.length) return { word: `waiting for ${waits.join(', ')}`, tone: 'blocked' }
   if (spec.pullRequest) return { word: 'spec pull request open', tone: 'ready' }
   return { word: 'claimed', tone: 'claimed' }
 }
