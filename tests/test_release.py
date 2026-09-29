@@ -1,5 +1,6 @@
 import fnmatch
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ from pathlib import Path
 from helpers import GIT_ISOLATION, ROOT
 
 WORKFLOW = ROOT / ".github" / "workflows" / "factory-release.yml"
+CONTROLLER_WORKFLOW = ROOT / ".github" / "workflows" / "controller-release.yml"
 
 
 def step_script(workflow, name):
@@ -31,7 +33,11 @@ def step_script(workflow, name):
 class FactoryReleaseTests(unittest.TestCase):
     """`scripts/release.sh factory`: it tags the version in factory/VERSION, and refuses everything
     that would tag something else. The real script runs in a repository of its own, because a
-    release tags the checkout it stands in."""
+    release tags the checkout it stands in. The controller's release runs the same way from its own
+    version file, so ControllerReleaseTests runs these tests again for it."""
+
+    UNIT = "factory"
+    WORKFLOW = WORKFLOW
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="wf-release-")
@@ -39,6 +45,7 @@ class FactoryReleaseTests(unittest.TestCase):
         self.repo = Path(self.tmp.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / "factory").mkdir()
+        (self.repo / "controller").mkdir()
         shutil.copy(ROOT / "scripts" / "release.sh", self.repo / "scripts" / "release.sh")
         self.version("0.1.0")
         self.gate(green=True)
@@ -54,6 +61,7 @@ class FactoryReleaseTests(unittest.TestCase):
         self.commit()
 
     def version(self, said):
+        """Writes the version where the unit's release reads it."""
         (self.repo / "factory" / "VERSION").write_text(f"{said}\n")
 
     def gate(self, green):
@@ -93,52 +101,52 @@ class FactoryReleaseTests(unittest.TestCase):
         return [tag for tag in named if not tag.endswith("^{}")]
 
     def test_the_factory_is_tagged_from_the_version_file_after_the_gate(self):
-        r = self.release("factory")
+        r = self.release(self.UNIT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("the gate ran", r.stdout)
-        self.assertEqual(self.tags(), ["factory/v0.1.0"])
+        self.assertEqual(self.tags(), [f"{self.UNIT}/v0.1.0"])
         # Annotated, and it says what it is: `git show` of the tag carries the message.
-        self.assertIn("factory v0.1.0", self.git("tag", "-l", "-n1", "factory/v0.1.0"))
+        self.assertIn(f"{self.UNIT} v0.1.0", self.git("tag", "-l", "-n1", f"{self.UNIT}/v0.1.0"))
         # It names the commit that was reviewed, which is the whole of what stands behind a binary.
-        self.assertEqual(self.git("rev-parse", "factory/v0.1.0^{}"), self.git("rev-parse", "HEAD"))
+        self.assertEqual(self.git("rev-parse", f"{self.UNIT}/v0.1.0^{{}}"), self.git("rev-parse", "HEAD"))
         # Nothing pushed without --push, and the command that would is printed.
         self.assertEqual(self.origin_tags(), [])
-        self.assertIn("git push origin factory/v0.1.0", r.stdout)
+        self.assertIn(f"git push origin {self.UNIT}/v0.1.0", r.stdout)
 
     def test_push_puts_the_tag_on_origin(self):
         """`release.sh factory --push` is the command the agent instructions name, and the tag on
         origin is the whole trigger: nothing else makes CI build the binaries."""
-        r = self.release("factory", "--push")
+        r = self.release(self.UNIT, "--push")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.origin_tags(), ["factory/v0.1.0"])
+        self.assertEqual(self.origin_tags(), [f"{self.UNIT}/v0.1.0"])
 
     def test_the_tag_is_neither_a_plugin_tag_nor_a_milestone_tag(self):
         """A version that would read as a milestone on its own: the namespace is what keeps the three
         kinds of tag apart, so it is read from a release of 1.2.3, not only of the fixture's 0.1.0."""
         self.version("1.2.3")
         self.commit()
-        self.assertEqual(self.release("factory").returncode, 0)
-        self.assertEqual(self.tags(), ["factory/v1.2.3"])  # not v1.2.3, and not <plugin>--v1.2.3
+        self.assertEqual(self.release(self.UNIT).returncode, 0)
+        self.assertEqual(self.tags(), [f"{self.UNIT}/v1.2.3"])  # not v1.2.3, and not <plugin>--v1.2.3
 
     def test_a_tag_that_is_here_and_not_on_origin_is_a_release_one_push_away(self):
         """Where a run without --push ends. Running it again must not say to bump the version: the
         tag already carries this one, and the release is a push away."""
-        self.assertEqual(self.release("factory").returncode, 0)
-        r = self.release("factory")
+        self.assertEqual(self.release(self.UNIT).returncode, 0)
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("error: the tag factory/v0.1.0 exists here and not on origin; "
-                      "push it with: git push origin factory/v0.1.0", r.stderr)
-        self.assertEqual(self.tags(), ["factory/v0.1.0"])
+        self.assertIn(f"error: the tag {self.UNIT}/v0.1.0 exists here and not on origin; "
+                      f"push it with: git push origin {self.UNIT}/v0.1.0", r.stderr)
+        self.assertEqual(self.tags(), [f"{self.UNIT}/v0.1.0"])
 
     def test_a_tag_that_exists_on_origin_is_refused_before_the_gate_runs(self):
         """A checkout that has not fetched for a while knows nothing of a tag another release made:
         without asking origin it would run the whole gate and only then fail on the push."""
-        self.git("tag", "factory/v0.1.0")
-        self.git("push", "-q", "origin", "factory/v0.1.0")
-        self.git("tag", "-d", "factory/v0.1.0")
-        r = self.release("factory")
+        self.git("tag", f"{self.UNIT}/v0.1.0")
+        self.git("push", "-q", "origin", f"{self.UNIT}/v0.1.0")
+        self.git("tag", "-d", f"{self.UNIT}/v0.1.0")
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("error: the tag factory/v0.1.0 exists on origin", r.stderr)
+        self.assertIn(f"error: the tag {self.UNIT}/v0.1.0 exists on origin", r.stderr)
         self.assertNotIn("the gate ran", r.stdout)
         self.assertEqual(self.tags(), [])
 
@@ -147,7 +155,7 @@ class FactoryReleaseTests(unittest.TestCase):
         that their commit went through a pull request onto main (docs/repo-standard.md)."""
         self.version("0.2.0")
         self.commit(push=False)
-        r = self.release("factory")
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn(f"error: HEAD is {self.git('rev-parse', 'HEAD').strip()} and origin/main is",
                       r.stderr)
@@ -158,14 +166,14 @@ class FactoryReleaseTests(unittest.TestCase):
     def test_a_failing_gate_tags_nothing(self):
         self.gate(green=False)
         self.commit()
-        r = self.release("factory")
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("error: the gate failed", r.stderr)
         self.assertEqual(self.tags(), [])
 
     def test_uncommitted_changes_are_refused(self):
         (self.repo / "factory" / "run.go").write_text("// not committed\n")
-        r = self.release("factory")
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("error: the working tree has uncommitted changes", r.stderr)
         self.assertEqual(self.tags(), [])
@@ -175,7 +183,7 @@ class FactoryReleaseTests(unittest.TestCase):
             with self.subTest(said=said):
                 self.version(said)
                 self.commit()
-                r = self.release("factory")
+                r = self.release(self.UNIT)
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn("write the version as X.Y.Z", r.stderr)
                 self.assertEqual(self.tags(), [])
@@ -186,9 +194,9 @@ class FactoryReleaseTests(unittest.TestCase):
         binary and no run record ever says."""
         for said in ("0. 1.0", "0.1\n.0", "0.1.0 "):
             with self.subTest(said=said):
-                (self.repo / "factory" / "VERSION").write_text(f"{said}\n")
+                self.version(said)
                 self.commit()
-                r = self.release("factory")
+                r = self.release(self.UNIT)
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn("write the version as X.Y.Z on one line", r.stderr)
                 self.assertEqual(self.tags(), [])
@@ -198,19 +206,19 @@ class FactoryReleaseTests(unittest.TestCase):
         over from an earlier attempt would release an older factory under this version. It is
         refused here, where the tag can still be deleted."""
         old = self.git("rev-parse", "HEAD").strip()
-        self.git("tag", "-a", "factory/v0.1.0", "-m", "factory v0.1.0")
+        self.git("tag", "-a", f"{self.UNIT}/v0.1.0", "-m", f"{self.UNIT} v0.1.0")
         (self.repo / "factory" / "run.go").write_text("// a commit the tag does not carry\n")
         self.commit()
-        r = self.release("factory")
+        r = self.release(self.UNIT)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn(f"error: the tag factory/v0.1.0 exists here and names {old}", r.stderr)
-        self.assertIn("git tag -d factory/v0.1.0", r.stderr)
-        self.assertNotIn("git push origin factory/v0.1.0", r.stderr)
+        self.assertIn(f"error: the tag {self.UNIT}/v0.1.0 exists here and names {old}", r.stderr)
+        self.assertIn(f"git tag -d {self.UNIT}/v0.1.0", r.stderr)
+        self.assertNotIn(f"git push origin {self.UNIT}/v0.1.0", r.stderr)
         self.assertNotIn("the gate ran", r.stdout)
         self.assertEqual(self.origin_tags(), [])
 
     def test_an_unknown_option_is_refused(self):
-        r = self.release("factory", "--force")
+        r = self.release(self.UNIT, "--force")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("error: unknown option --force", r.stderr)
         self.assertEqual(self.tags(), [])
@@ -218,11 +226,39 @@ class FactoryReleaseTests(unittest.TestCase):
     def test_the_tag_it_creates_is_the_one_ci_builds_binaries_for(self):
         """The script and the workflow are two files; a tag only one of them knows is a release that
         never builds."""
-        self.assertEqual(self.release("factory").returncode, 0)
-        trigger = re.search(r"tags: \['([^']+)'\]", WORKFLOW.read_text())
+        self.assertEqual(self.release(self.UNIT).returncode, 0)
+        trigger = re.search(r"tags: \['([^']+)'\]", self.WORKFLOW.read_text())
         self.assertIsNotNone(trigger, "the workflow names no tag pattern")
         self.assertTrue(fnmatch.fnmatch(self.tags()[0], trigger.group(1)),
                         f"{self.tags()[0]} does not match {trigger.group(1)}")
+
+
+class ControllerReleaseTests(FactoryReleaseTests):
+    """`scripts/release.sh controller`: the same release from the version in controller/package.json,
+    tagged controller/vX.Y.Z, which the controller's release workflow publishes to npm."""
+
+    UNIT = "controller"
+    WORKFLOW = CONTROLLER_WORKFLOW
+
+    def version(self, said):
+        (self.repo / "controller" / "package.json").write_text(
+            json.dumps({"name": "workflows-controller", "version": said}, indent=2) + "\n")
+
+    def test_a_package_json_that_is_no_json_is_refused(self):
+        (self.repo / "controller" / "package.json").write_text("{ not json\n")
+        self.commit()
+        r = self.release(self.UNIT)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("error: controller/package.json is no JSON npm can read", r.stderr)
+        self.assertEqual(self.tags(), [])
+
+    def test_a_version_that_is_no_string_is_refused(self):
+        (self.repo / "controller" / "package.json").write_text('{"version": [0, 1, 0]}\n')
+        self.commit()
+        r = self.release(self.UNIT)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('error: controller/package.json says ""; write the version as X.Y.Z', r.stderr)
+        self.assertEqual(self.tags(), [])
 
 
 class FactoryBinariesTests(unittest.TestCase):
@@ -347,12 +383,14 @@ esac
 
 
 class WorkflowTriggerTests(unittest.TestCase):
-    """Which push starts which workflow. The binaries are built by a factory version tag and by
-    nothing else, and a milestone tag of the orchestrator still starts nothing at all."""
+    """Which push starts which workflow. The binaries are built by a factory version tag and the
+    package published by a controller version tag, by nothing else, and a milestone tag of the
+    orchestrator still starts nothing at all."""
 
     # One push per kind of ref this repository sees, and the workflows it has to start.
     STARTS = {
         "refs/tags/factory/v0.1.0": {"factory-release"},  # what scripts/release.sh factory creates
+        "refs/tags/controller/v0.1.0": {"controller-release"},  # and scripts/release.sh controller
         "refs/tags/v1.2.3": set(),                        # a milestone the orchestrator releases
         "refs/tags/worker--v1.2.3": set(),                # a plugin release of `claude plugin tag`
         "refs/heads/main": {"ci"},
@@ -379,11 +417,13 @@ class WorkflowTriggerTests(unittest.TestCase):
                 self.assertTrue(patterns(workflow, "branches") or patterns(workflow, "tags"),
                                 "the push trigger names no branch or tag pattern in brackets")
 
-    def test_the_binaries_are_built_by_a_push_and_by_no_other_event(self):
-        """A pull_request, schedule or workflow_dispatch trigger would build release binaries from
-        something that is not a release."""
-        events = [line.strip().rstrip(":") for line in on_block(WORKFLOW) if re.fullmatch(r"  \w+:", line)]
-        self.assertEqual(events, ["push"])
+    def test_a_release_is_built_by_a_push_and_by_no_other_event(self):
+        """A pull_request, schedule or workflow_dispatch trigger would build release binaries, or
+        publish a package, from something that is not a release."""
+        for workflow in (WORKFLOW, CONTROLLER_WORKFLOW):
+            with self.subTest(workflow=workflow.name):
+                events = [line.strip().rstrip(":") for line in on_block(workflow) if re.fullmatch(r"  \w+:", line)]
+                self.assertEqual(events, ["push"])
 
 
 def on_block(workflow):
