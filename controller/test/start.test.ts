@@ -123,6 +123,8 @@ test('directories under the old name are neither read, moved nor changed', async
   writeFileSync(join(oldState, 'listen'), '127.0.0.1:1\n')
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
+  expect(s.stderr).toBe('')
+  expect(s.stdout).not.toContain('workflows')
   expect(await api(m, 'GET', '/api/projects')).toEqual({ status: 200, body: [] })
   expect(cli(m, ['projects']).stderr).toBe('')
   expect(readdirSync(m.state)).toContain('events.jsonl')
