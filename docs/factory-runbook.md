@@ -163,15 +163,17 @@ Run the following as root unless it says otherwise.
    - The `.sigstore.json` file is the attestation of both binaries: the release workflow signed their digests when it built them.
 
    ```sh
-   version=0.4.1   # a release after 0.2.3: those up to 0.2.3 carry no attestation
+   version=0.5.0   # a release after 0.2.3: those up to 0.2.3 carry no attestation
    arch=arm64   # or amd64: dpkg --print-architecture
+   repo=CalvinDittkrist/ameise    # CalvinDittkrist/workflows until the rename
+   built=CalvinDittkrist/ameise   # CalvinDittkrist/workflows for a release built before the rename
    cd "$(mktemp -d)" &&
-     gh release download "factory/v$version" -R CalvinDittkrist/workflows \
+     gh release download "factory/v$version" -R "$repo" \
        -p "factory-linux-$arch" -p checksums.txt -p "factory-v$version.sigstore.json" &&
      sha256sum --check --ignore-missing checksums.txt &&   # must print: factory-linux-<arch>: OK
-     gh attestation verify "factory-linux-$arch" -R CalvinDittkrist/workflows \
+     gh attestation verify "factory-linux-$arch" -R "$built" \
        --bundle "factory-v$version.sigstore.json" \
-       --cert-identity "https://github.com/CalvinDittkrist/workflows/.github/workflows/factory-release.yml@refs/tags/factory/v$version" \
+       --cert-identity "https://github.com/$built/.github/workflows/factory-release.yml@refs/tags/factory/v$version" \
        --source-ref "refs/tags/factory/v$version" \
        --deny-self-hosted-runners &&
      install -m 0755 "factory-linux-$arch" /usr/local/bin/factory
@@ -182,6 +184,7 @@ Run the following as root unless it says otherwise.
    - Releases up to `factory/v0.2.3` predate the attestation and carry no `.sigstore.json`, so the download of one fails. Install a later release.
    - The checksum says the file is the one the release lists. The attestation says the release workflow of this repository built it, run by the tag of this version.
    - `--cert-identity` is the release workflow at the tag `factory/v<version>`, and `--source-ref` is that same tag as the commit it was built from.
+   - `repo` is the repository's name today. `built` is the name it had when the release was built, because the attestation names that repository. Releases up to the bridge release `factory/v0.5.0` were built as `CalvinDittkrist/workflows`, later ones as `CalvinDittkrist/ameise` ([The rename to ameise](#the-rename-to-ameise)).
    - Install nothing that `sha256sum` did not answer `OK` for, and nothing that `gh attestation verify` refused.
 7. **quota-axi** in a pinned version. The factory reads the output of quota-axi 0.1.49 ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
    - It needs Node 22.19 or later (`engines` of the package). Node 24 from NodeSource, installed with the gate's tools, is that.
@@ -973,6 +976,27 @@ The others are yours. Update them between runs. Stopping the factory interrupts 
 - **Codex**, where a panel names it: `npm install -g @openai/codex@<version>` as root, then `codex --version`. `codex login status` as the user `factory` says whether its login still stands.
 
 Without auto-update, install the factory binary by hand: download and check it as in [Installation](#installation), then `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`. Look for the new version in the journal's first line.
+
+### The rename to ameise
+The repository `CalvinDittkrist/workflows` is renamed `CalvinDittkrist/ameise`. The update tick of a release reads the releases of one repository and verifies their attestation against it, so the rename is crossed with one release in between.
+
+- **The bridge release** is `factory/v0.5.0`. It is tagged while the repository still has its old name, so its attestation names `CalvinDittkrist/workflows`.
+  - A host that runs an earlier release verifies and installs it as usual.
+  - The bridge release reads its releases from `CalvinDittkrist/ameise` and verifies them against that name.
+- **Between the install and the rename** no repository answers under the new name. Every tick ends with an `error:` line that names `CalvinDittkrist/ameise`, and the journal carries it once an hour.
+  - It installs nothing, puts nothing on the block list and neither signals nor restarts the factory. The running factory goes on working.
+  - Rename the repository soon after the bridge release is installed on every host. The first tick after the rename finds the releases.
+- **After the rename** a release is built as `CalvinDittkrist/ameise`, and its attestation names only that repository.
+  - A host still on a release before the bridge asks the old name. GitHub redirects it, but its attestation check refuses every release built after the rename, each tick with an `error:` line.
+  - A rollback from the first release after the rename returns to the bridge release, which asks the new name as before.
+
+Install by hand on a host that refuses a release after the rename, as root:
+
+1. Download and check the release as in [Installation](#installation), with `built=CalvinDittkrist/ameise`. For the bridge release itself, `built=CalvinDittkrist/workflows`.
+2. `systemctl stop factory`, `install -m 0755 factory-linux-$arch /usr/local/bin/factory` and `systemctl start factory`.
+3. Look for the new version in the journal's first line. The next tick reads the new name.
+
+A factory release keeps its tag `factory/v<version>`, its release command and the names of its files; its title reads `ameise factory v<version>`. The names on the host stay: the binary `factory`, the service `factory`, its user and its directories.
 
 ### Draining
 A drain stops the factory between runs. `systemctl kill --kill-whom=main -s HUP factory` sends `SIGHUP` to the factory alone, and the factory drains:
