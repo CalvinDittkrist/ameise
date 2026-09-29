@@ -14,6 +14,6 @@
   "quota_axi": "/usr/bin/quota-axi",
   "quota_minimum": 12,
   "repositories": [
-    "CalvinDittkrist/workflows"
+    "CalvinDittkrist/ameise"
   ]
 }

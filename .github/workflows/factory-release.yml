@@ -105,7 +105,7 @@ jobs:
             exit 1
           fi
           gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
-            --title "factory v${GITHUB_REF_NAME#factory/v}" --generate-notes \
+            --title "ameise factory v${GITHUB_REF_NAME#factory/v}" --generate-notes \
             dist/factory-linux-amd64 dist/factory-linux-arm64 dist/checksums.txt "$BUNDLE" \
             || gh release upload --clobber "$GITHUB_REF_NAME" \
               dist/factory-linux-amd64 dist/factory-linux-arm64 dist/checksums.txt "$BUNDLE"

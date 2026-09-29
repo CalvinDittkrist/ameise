@@ -324,7 +324,7 @@ class PublishStepTests(unittest.TestCase):
 
     WORKFLOW = WORKFLOW
     TAG = "factory/v0.1.0"
-    TITLE = "factory v0.1.0"
+    TITLE = "ameise factory v0.1.0"
     BUNDLE = "dist/factory-v0.1.0.sigstore.json"
     ASSETS = ["dist/factory-linux-amd64", "dist/factory-linux-arm64", "dist/checksums.txt", BUNDLE]
     # A gh that says what the release already carries and writes down what it was asked to do. It
