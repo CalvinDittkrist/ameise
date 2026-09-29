@@ -21,8 +21,9 @@ import (
 // done and takes this host off the spec; the records stay.
 //
 // A spec run whose open tickets are all a person's (ready-for-human) or blocked waits: it takes no
-// ticket and opens no spec pull request, and says once per ticket of a person on the spec which one
-// it waits for.
+// ticket and opens no spec pull request. It says on the spec what it waits for, which stands at the end
+// of the chain of blockers: a ticket of a person that has no open blocker, and every open issue outside
+// the spec that blocks a ticket of it. A ticket blocked by a sibling alone is named by neither.
 
 // humanLabel marks an issue a person implements. It is the workflow's label vocabulary restated in Go,
 // as readyLabel is, and the contract fixture holds it to the planner's copy.
@@ -43,6 +44,35 @@ type subIssue struct {
 	Open      bool
 	Human     bool // it carries ready-for-human
 	Blocked   bool // an open issue blocks it
+	// Blockers is the open issues that block it, and BlockersRead whether they were read: they are read
+	// for the blocked tickets of a spec whose spec run may take none of them (specTickets).
+	Blockers     []blocker
+	BlockersRead bool
+}
+
+// blocker is an open issue that blocks a sub-issue of a held spec, as a poll read it.
+type blocker struct {
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+}
+
+func (b blocker) key() string { return Issue{Repository: b.Repository, Number: b.Number}.key() }
+
+// outsideBlocker is an open issue that blocks tickets of a spec and is no sub-issue of it, with the
+// tickets it holds.
+type outsideBlocker struct {
+	blocker
+	Tickets []int `json:"tickets"`
+}
+
+// name is how a comment on the spec names the blocker: its number alone in the spec's repository, and
+// with its repository in another.
+func (b blocker) name(repository string) string {
+	if repositoryKey(b.Repository) == repositoryKey(repository) {
+		return "#" + strconv.Itoa(b.Number)
+	}
+	return b.Repository + "#" + strconv.Itoa(b.Number)
 }
 
 // specPull says the run is the run of a spec pull request: a run on the spec itself, of its spec run.
@@ -255,27 +285,84 @@ func (f *Factory) ticketsOfSpecsLetGo(held map[string]holding, letGo map[string]
 	return letGo
 }
 
-// waitsOn is the tickets of a person a spec run waits for: the open sub-issues that carry
-// ready-for-human, when every open sub-issue carries it or is blocked. Otherwise there is a ticket the
-// factory may still take, or one it works, and the spec run waits for nobody. A sub-issue from another
-// repository is no ticket of the spec's repository and is left out.
-func waitsOn(subs []subIssue) []int {
+// waiting is what a spec run waits for: the tickets of a person that can be worked, and the open
+// issues outside the spec that block its tickets.
+type waiting struct {
+	people  []int
+	outside []outsideBlocker
+}
+
+// waitsOn is what a spec run waits for when every open sub-issue of its spec is a person's or blocked.
+// Otherwise there is a ticket the factory may still take, or one it works, and the spec run waits for
+// nothing. A person's ticket is waited for while it has no open blocker; one blocked by a sibling is
+// behind that sibling, and what holds the sibling is named instead. A sub-issue from another repository
+// is no ticket of the spec's repository and is left out.
+func waitsOn(repository string, subs []subIssue) waiting {
 	people := []int{}
 	for _, t := range subs {
 		switch {
 		case !t.Open || t.Elsewhere != "":
-		case t.Human:
+		case t.Human && !t.Blocked:
 			people = append(people, t.Number)
-		case !t.Blocked:
-			return nil
+		case !t.Human && !t.Blocked:
+			return waiting{}
 		}
 	}
-	return people
+	outside, _ := outsideBlockers(repository, subs)
+	return waiting{people: people, outside: outside}
 }
 
-// waitForPeople says on each held spec which ticket of a person its spec run waits for, once per
-// ticket: a comment on the spec that mentions the configured logins. A comment GitHub refused is a
-// warning, and a later poll makes it again. A paused factory says nothing.
+// outsideBlockers is the open issues that block an open ticket of the spec and are no sub-issue of it,
+// by repository and number, each with the tickets it holds. It answers too whether the blockers of
+// every blocked ticket were read, so the list is all there is.
+func outsideBlockers(repository string, subs []subIssue) ([]outsideBlocker, bool) {
+	sibling := map[string]bool{}
+	for _, t := range subs {
+		in := t.Elsewhere
+		if in == "" {
+			in = repository
+		}
+		sibling[Issue{Repository: in, Number: t.Number}.key()] = true
+	}
+	complete := true
+	out := []outsideBlocker{}
+	for _, t := range subs {
+		if !t.Open || t.Elsewhere != "" || !t.Blocked {
+			continue
+		}
+		complete = complete && t.BlockersRead
+		for _, b := range t.Blockers {
+			if sibling[b.key()] {
+				continue
+			}
+			i := slices.IndexFunc(out, func(o outsideBlocker) bool { return o.key() == b.key() })
+			if i < 0 {
+				out = append(out, outsideBlocker{blocker: b})
+				i = len(out) - 1
+			}
+			if !slices.Contains(out[i].Tickets, t.Number) {
+				out[i].Tickets = append(out[i].Tickets, t.Number)
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b outsideBlocker) int {
+		if x, y := repositoryKey(a.Repository), repositoryKey(b.Repository); x != y {
+			return strings.Compare(x, y)
+		}
+		return a.Number - b.Number
+	})
+	for _, o := range out {
+		slices.Sort(o.Tickets)
+	}
+	return out, complete
+}
+
+// waitForPeople says on each held spec what its spec run waits for, once per time it waits for it: a
+// comment on the spec that mentions the configured logins, for each ticket of a person that can be
+// worked and for each open issue outside the spec that blocks its tickets. A ticket of a person that
+// has an open blocker again is no longer recorded as named, and neither is a blocker outside the spec
+// that a complete reading no longer finds, so each is named again once it is waited for again. A
+// comment GitHub refused is a warning, and a later poll makes it again. A paused factory says nothing.
 func (f *Factory) waitForPeople(ctx context.Context) {
 	if f.Paused() || ctx.Err() != nil {
 		return
@@ -289,20 +376,53 @@ func (f *Factory) waitForPeople(ctx context.Context) {
 		if !ok || !known || held.State != specHolding {
 			continue
 		}
-		for _, ticket := range waitsOn(subs) {
+		s, ok := f.specs.find(held.ID)
+		if !ok {
+			continue
+		}
+		f.forgetNamed(s, held, subs)
+		held, _ = f.specs.get(held.ID)
+		wait := waitsOn(held.Repository, subs)
+		for _, ticket := range wait.people {
 			if slices.Contains(held.WaitingOn, ticket) || ctx.Err() != nil {
 				continue
 			}
-			s, ok := f.specs.find(held.ID)
-			if !ok {
+			if f.waitOn(ctx, connected, s, ticket) {
+				f.specs.update(s, func() { s.WaitingOn = append(slices.Clone(s.WaitingOn), ticket) })
+			}
+		}
+		for _, b := range wait.outside {
+			if slices.Contains(held.WaitingOnBlockers, b.key()) || ctx.Err() != nil {
 				continue
 			}
-			if !f.waitOn(ctx, connected, s, ticket) {
-				continue
+			if f.waitOnBlocker(ctx, connected, s, b) {
+				f.specs.update(s, func() { s.WaitingOnBlockers = append(slices.Clone(s.WaitingOnBlockers), b.key()) })
 			}
-			f.specs.update(s, func() { s.WaitingOn = append(slices.Clone(s.WaitingOn), ticket) })
 		}
 	}
+}
+
+// forgetNamed takes off the record of a spec run what it named and no longer waits for as it was: a
+// ticket of a person that has an open blocker, and a blocker outside the spec that a reading of every
+// blocker no longer finds. A ticket recorded while it was blocked, as a factory before this rule did,
+// is named once it can be worked.
+func (f *Factory) forgetNamed(s *SpecRun, held SpecRun, subs []subIssue) {
+	tickets := slices.DeleteFunc(slices.Clone(held.WaitingOn), func(n int) bool {
+		return slices.ContainsFunc(subs, func(t subIssue) bool { return t.Elsewhere == "" && t.Number == n && t.Open && t.Blocked })
+	})
+	blockers := slices.Clone(held.WaitingOnBlockers)
+	if outside, complete := outsideBlockers(held.Repository, subs); complete {
+		blockers = slices.DeleteFunc(blockers, func(key string) bool {
+			return !slices.ContainsFunc(outside, func(o outsideBlocker) bool { return o.key() == key })
+		})
+	}
+	if len(tickets) == len(held.WaitingOn) && len(blockers) == len(held.WaitingOnBlockers) {
+		return
+	}
+	f.specs.update(s, func() {
+		s.WaitingOn = slices.DeleteFunc(slices.Clone(s.WaitingOn), func(n int) bool { return !slices.Contains(tickets, n) })
+		s.WaitingOnBlockers = slices.DeleteFunc(slices.Clone(s.WaitingOnBlockers), func(k string) bool { return !slices.Contains(blockers, k) })
+	})
 }
 
 // waitOn says on the spec that its spec run waits for a ticket of a person, and records it on the spec
@@ -311,15 +431,46 @@ func (f *Factory) waitOn(ctx context.Context, connected Connected, s *SpecRun, t
 	held, _ := f.specs.get(s.ID)
 	body := fmt.Sprintf("The spec run of this spec waits for #%d, a ticket for a person (`%s`): the factory takes no ticket behind it and opens no spec pull request while it is open. "+
 		"Merge its pull request into the spec branch `%s` and close it, and the spec run goes on at the next poll.\n", ticket, humanLabel, held.Branch)
+	if !f.sayWait(ctx, connected, s, fmt.Sprintf("#%d", ticket), body) {
+		return false
+	}
+	log.Printf("spec run %d (%s#%d) waits for #%d, a ticket for a person", s.ID, s.Repository, s.Spec, ticket)
+	return true
+}
+
+// waitOnBlocker says on the spec that its spec run waits for an open issue outside the spec that
+// blocks its tickets, and records it on the spec run. A factory with no logins to notify records it
+// and comments nothing.
+func (f *Factory) waitOnBlocker(ctx context.Context, connected Connected, s *SpecRun, b outsideBlocker) bool {
+	name := b.name(s.Repository)
+	tickets := []string{}
+	for _, n := range b.Tickets {
+		tickets = append(tickets, "#"+strconv.Itoa(n))
+	}
+	held := "ticket " + tickets[0]
+	if len(tickets) > 1 {
+		held = "tickets " + strings.Join(tickets[:len(tickets)-1], ", ") + " and " + tickets[len(tickets)-1]
+	}
+	body := fmt.Sprintf("The spec run of this spec waits for %s, an open issue outside the spec that blocks its %s: the factory takes no ticket it blocks while it is open. "+
+		"Once %s is closed, the spec run goes on at the next poll.\n", name, held, name)
+	if !f.sayWait(ctx, connected, s, name, body) {
+		return false
+	}
+	log.Printf("spec run %d (%s#%d) waits for %s, an issue outside the spec", s.ID, s.Repository, s.Spec, name)
+	return true
+}
+
+// sayWait comments a wait on the spec when the factory has logins to notify, and logs it on the spec
+// run. A comment GitHub refused is a warning, and it answers false.
+func (f *Factory) sayWait(ctx context.Context, connected Connected, s *SpecRun, name, body string) bool {
 	if f.notifying() {
 		if err := f.source.commentOnIssue(ctx, connected.Name, s.Spec, mentions(f.settings.Notify)+"\n\n"+body); err != nil {
 			if ctx.Err() == nil {
-				f.specs.warn(s, "the wait was not said", fmt.Sprintf("the comment on spec #%d that the spec run waits for #%d could not be made: %v; a later poll tries again", s.Spec, ticket, err))
+				f.specs.warn(s, "the wait was not said", fmt.Sprintf("the comment on spec #%d that the spec run waits for %s could not be made: %v; a later poll tries again", s.Spec, name, err))
 			}
 			return false
 		}
 	}
-	f.specs.event(s, Event{Kind: "factory", Title: fmt.Sprintf("waiting for #%d", ticket), Body: body})
-	log.Printf("spec run %d (%s#%d) waits for #%d, a ticket for a person", s.ID, s.Repository, s.Spec, ticket)
+	f.specs.event(s, Event{Kind: "factory", Title: "waiting for " + name, Body: body})
 	return true
 }

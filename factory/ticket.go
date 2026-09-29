@@ -99,7 +99,50 @@ func (g *gitHub) specTickets(ctx context.Context, held Held) ([]Issue, []subIssu
 			Labels: issue.labelNames(), RoutedAt: read.routedAt, assignedAt: read.assignedAt,
 			unassignedAt: read.unassignedAt, spec: held.Number})
 	}
+	if !slices.ContainsFunc(subs, func(t subIssue) bool { return t.Open && t.Elsewhere == "" && !t.Human && !t.Blocked }) {
+		g.readBlockers(ctx, held, subs)
+	}
 	return out, subs, nil
+}
+
+// blockersRequest is the list of the issues that block one issue, open or closed, one page of it
+// (https://docs.github.com/en/rest/issues/issue-dependencies, checked 2026-09-29).
+func blockersRequest(repository string, number int) string {
+	return "repos/" + repository + "/issues/" + strconv.Itoa(number) + "/dependencies/blocked_by?per_page=100"
+}
+
+// readBlockers reads the open issues that block each blocked ticket of a spec whose open tickets are
+// all a person's or blocked, which is when its spec run waits and what it waits for is named
+// (specpull.go). A spec with a ticket to take, or one in work, asks nothing. A list that cannot be read leaves that ticket's blockers unread
+// and says so once: it is blocked either way, and a later poll reads them.
+func (g *gitHub) readBlockers(ctx context.Context, held Held, subs []subIssue) {
+	for i := range subs {
+		t := &subs[i]
+		if !t.Open || t.Elsewhere != "" || !t.Blocked || ctx.Err() != nil {
+			continue
+		}
+		key := Issue{Repository: held.Repository, Number: t.Number}.key() + "/blockers"
+		raw, err := gh(ctx, "api", blockersRequest(held.Repository, t.Number))
+		var issues []ghIssue
+		if err == nil {
+			if err = json.Unmarshal(raw, &issues); err != nil {
+				err = fmt.Errorf("the answer is not a list of issues: %w", err)
+			}
+		}
+		if err != nil {
+			if ctx.Err() == nil {
+				g.warn(g.issueWarnings, key, "error: the issues that block #%d of %s could not be read: %v; what the spec run waits for is named once they can be", t.Number, held.Repository, err)
+			}
+			continue
+		}
+		g.readable(g.issueWarnings, key)
+		t.BlockersRead, t.Blockers = true, []blocker{}
+		for _, issue := range issues {
+			if issue.State == "open" && issue.PullRequest == nil {
+				t.Blockers = append(t.Blockers, blocker{Repository: issue.repositoryName(), Number: issue.Number, Title: issue.Title})
+			}
+		}
+	}
 }
 
 // specOf is the spec an entry's run is a ticket run of: the spec of the ticket the line carries, or

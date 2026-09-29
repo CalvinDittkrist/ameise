@@ -164,23 +164,27 @@ func (f *Factory) run(w http.ResponseWriter, r *http.Request) {
 	}{record, events})
 }
 
-// specView is a spec run as the interface serves it: its record, and the tickets of a person it waits
-// for now, as the last poll read its sub-issues. The record's WaitingOn is every ticket it ever named on
-// the spec, one closed since among them.
+// specView is a spec run as the interface serves it: its record, and what it waits for now, as the
+// last poll read its sub-issues: the tickets of a person that can be worked, and the open issues
+// outside the spec that block its tickets. The record's WaitingOn and WaitingOnBlockers are what it
+// named on the spec, one closed since among them.
 type specView struct {
 	SpecRun
-	Waiting []int `json:"waiting"`
+	Waiting  []int            `json:"waiting"`
+	Blockers []outsideBlocker `json:"blockers"`
 }
 
 func (f *Factory) specView(s SpecRun) specView {
 	f.mu.Lock()
 	subs := f.subIssues[s.key()]
 	f.mu.Unlock()
-	waiting := []int{}
+	view := specView{SpecRun: s, Waiting: []int{}, Blockers: []outsideBlocker{}}
 	if s.State == specHolding && s.Idle {
-		waiting = append(waiting, waitsOn(subs)...)
+		wait := waitsOn(s.Repository, subs)
+		view.Waiting = append(view.Waiting, wait.people...)
+		view.Blockers = append(view.Blockers, wait.outside...)
 	}
-	return specView{s, waiting}
+	return view
 }
 
 // specRuns is every spec run's record, oldest first.

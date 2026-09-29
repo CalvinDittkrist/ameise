@@ -35,8 +35,18 @@ type apiSpecRun struct {
 	PullRequest string       `json:"pullRequest"`
 	DoneAt      *time.Time   `json:"doneAt"`
 	WaitingOn   []int        `json:"waitingOn"`
-	Waiting     []int        `json:"waiting"`
-	Events      []Event      `json:"events"`
+	// WaitingOnBlockers is the blockers outside the spec it named, and Blockers those it waits for now.
+	WaitingOnBlockers []string     `json:"waitingOnBlockers"`
+	Waiting           []int        `json:"waiting"`
+	Blockers          []apiBlocker `json:"blockers"`
+	Events            []Event      `json:"events"`
+}
+
+// apiBlocker is an open issue outside a spec that blocks its tickets, as the interface serves it.
+type apiBlocker struct {
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
+	Tickets    []int  `json:"tickets"`
 }
 
 // specRoutedAgo is how long before a test the spec of routedSpecFixture was routed to a spec run.
