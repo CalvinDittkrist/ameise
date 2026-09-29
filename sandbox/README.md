@@ -3,13 +3,13 @@
 `/orchestrator:claim 123 --sandbox` starts the worker through `plugins/orchestrator/scripts/sbx-worker.sh`, which:
 
 1. creates a sandbox `wf-<repo>-<branch>` with `sbx create claude <worktree>`: only that worktree is mounted read-write, the shared skills store read-only (`--skills readonly`), and `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH` are passed through;
-2. installs the marketplace and the `worker` and `repo-standards` plugins inside the container (`WF_MARKETPLACE`, default `CalvinDittkrist/workflows`);
+2. installs the marketplace and the `worker` and `repo-standards` plugins inside the container (`WF_MARKETPLACE`, default `CalvinDittkrist/ameise`);
 3. attaches with `sbx run --name … -- <claude args>` in the Herdr pane, so Herdr still detects the agent and the orchestrator prompts it the same way.
 
 Recommended one-time setup on the host:
 
 ```sh
-sbx skills add CalvinDittkrist/workflows          # skills visible in every sandbox
+sbx skills add CalvinDittkrist/ameise          # skills visible in every sandbox
 sbx secret set github                             # gh auth without exposing the token
 sbx policy deny network --resource '*' && sbx policy allow network --resource github.com --resource api.github.com --resource registry.npmjs.org
 ```

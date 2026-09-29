@@ -3,15 +3,15 @@
 `ameise` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Install
-One npm package, `ameise`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/workflows/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
+One npm package, `ameise`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it from the tarball on its [GitHub release](https://github.com/CalvinDittkrist/ameise/releases), by its URL. It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
 
 ```sh
-npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
+npm install --global https://github.com/CalvinDittkrist/ameise/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
 ameise                             # starts the server and opens the dashboard
 ameise projects add ~/src/repo     # in a second shell, or from the dashboard
 ```
 
-The program was called `workflows` before. It does not read the directories of that name, so a machine that ran it adds its projects again ([ADR 0067](../docs/adr/0067-the-rename-is-a-hard-cut.md)).
+The program had another name before `ameise`. It does not read the directories of that name, so a machine that ran it adds its projects again ([ADR 0067](../docs/adr/0067-the-rename-is-a-hard-cut.md)).
 
 The build copies the plugins of the checkout into `dist/plugins`, and every session loads them from there. Packing refuses a build without the dashboard or the plugins.
 
