@@ -37,14 +37,14 @@ workflows                          # starts it and opens the dashboard on 127.0.
 workflows projects add ~/src/repo  # then claim, plan, merge and release from the dashboard
 ```
 
-The plugins also install from the marketplace for sessions started by hand, with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
+The plugins also install from the marketplace `ameise`, which this repository hosts, for sessions started by hand, with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
 
 ```sh
 claude plugin marketplace add CalvinDittkrist/workflows
-claude plugin install worker@workflows
-claude plugin install planner@workflows
-claude plugin install repo-standards@workflows
-claude plugin install orchestrator@workflows
+claude plugin install worker@ameise
+claude plugin install planner@ameise
+claude plugin install repo-standards@ameise
+claude plugin install orchestrator@ameise
 ```
 
 Once per repository, bring it to the [standard](docs/repo-standard.md):
