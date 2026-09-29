@@ -320,10 +320,10 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(actions(page, "Processes")).toHaveText(["Open", "Open"])
   await expect(rows(page, "Processes").first()).not.toContainText("backtest")
   await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
-  for (const action of ["Plan", "Standardize", "Hunt tests"]) {
+  for (const action of ["Standardize", "Hunt tests"]) {
     await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeDisabled()
   }
-  await expect(page.getByRole("button", { name: "Release", exact: true })).toBeEnabled()
+  for (const action of ["Plan", "Release"]) await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeEnabled()
   await expect(projects(page).getByRole("link", { name: "backtest" })).toHaveAttribute("data-active", "true")
 
   await page.reload()
@@ -534,6 +534,77 @@ test("merge, accept and release each ask once, show the controller's refusal, an
   expect(sent()).toEqual({ project, milestone: "v0.12.0" })
   await waiting.getByRole("button", { name: "Done" }).click()
   await expect(waiting).toBeHidden()
+})
+
+test("plan opens a plan process from an idea, nothing or an issue, and a plan's page captures its prototype and finishes it", async ({ page }) => {
+  const project = process.env.WORKFLOWS_SENSORS!
+  const id = "plan-0123456789ab"
+  const record = {
+    id, project, kind: "plan", route: "idea", topic: "Offline mode", branch: "plan/offline-mode", issue: null,
+    stage: "plan", state: "input", note: "Which part first?", session_id: "s-1", compact_at: 250000, updated_at: new Date().toISOString(),
+  }
+  // The plan's page follows a stream the test cans: its record, and nothing said yet.
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url())
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+
+  // Plan on the project page: the controller's refusal shows in the dialog; a plan opens its page.
+  await main(page).getByRole("button", { name: "Plan", exact: true }).first().click()
+  let dialog = page.getByRole("dialog", { name: "Plan" })
+  await dialog.getByLabel("Idea").fill("Offline mode")
+  await answer(page, "/api/plans", 409, { error: "plan/offline-mode is open already" })
+  await dialog.getByRole("button", { name: "Start planning" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText("plan/offline-mode is open already")
+  await page.unroute("**/api/plans")
+  let sent = await answer(page, "/api/plans", 201, { record: { id, branch: "plan/offline-mode" } })
+  await dialog.getByRole("button", { name: "Start planning" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project, idea: "Offline mode" })
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("plan/offline-mode")
+
+  // Without an idea it is an open session.
+  await page.goBack()
+  await main(page).getByRole("button", { name: "Plan", exact: true }).first().click()
+  dialog = page.getByRole("dialog", { name: "Plan" })
+  await dialog.getByRole("button", { name: "Start planning" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project })
+
+  // Plan on a ready-to-start row plans its issue.
+  await page.goBack()
+  await section(page, "Ready to start").locator('[aria-label="#145"]').getByRole("button", { name: "Plan" }).click()
+  dialog = page.getByRole("dialog", { name: "Plan #145" })
+  await expect(dialog).toContainText("Claim from the frontier by one action")
+  await dialog.getByRole("button", { name: "Start planning" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project, issue: 145 })
+
+  // Capture prototype names the branch and says where it went.
+  await main(page).getByRole("button", { name: "Capture prototype" }).click()
+  dialog = page.getByRole("dialog", { name: "Capture prototype" })
+  await dialog.getByLabel("Name").fill("state machine")
+  const url_ = "https://github.com/acme/edge-sensors/tree/prototype/offline-mode-state-machine"
+  sent = await answer(page, "/api/processes/capture", 201, { id, branch: "prototype/offline-mode-state-machine", url: url_ })
+  await dialog.getByRole("button", { name: "Capture" }).click()
+  const captured = page.getByRole("dialog", { name: "Prototype captured" })
+  await expect(captured.getByRole("status", { name: "Warnings" })).toHaveText(url_)
+  expect(sent()).toEqual({ id, name: "state machine" })
+  await captured.getByRole("button", { name: "Done" }).click()
+
+  // Finish refuses what was not captured unless forced, then opens the project's page.
+  await main(page).getByRole("button", { name: "Finish" }).click()
+  dialog = page.getByRole("dialog", { name: "Finish" })
+  await answer(page, "/api/processes/finish", 409, { error: "the worktree has changes not captured" })
+  await dialog.getByRole("button", { name: "Finish" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText("the worktree has changes not captured")
+  await page.unroute("**/api/processes/finish")
+  sent = await answer(page, "/api/processes/finish", 200, { id, branch: "plan/offline-mode", worktree: null })
+  await dialog.getByLabel(/^Force/).check()
+  await dialog.getByRole("button", { name: "Finish" }).click()
+  await expect(page).toHaveURL(new RegExp(`#${new URLSearchParams({ project })}$`))
+  expect(sent()).toEqual({ id, force: true })
 })
 
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {

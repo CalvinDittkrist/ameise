@@ -86,7 +86,8 @@ export interface CreatedRecord {
   project: string
   kind: string
   branch: string
-  issue: number
+  // issue is the issue the process works or plans, or null for a plan from an idea or an open one.
+  issue: number | null
   worktree: string
   // base is the ref the branch merges into, origin/<base> where origin has it.
   base: string
@@ -110,6 +111,7 @@ export interface CreatedRecord {
 // A work process on an issue, as a claim writes it.
 export interface WorkRecord extends CreatedRecord {
   kind: 'work'
+  issue: number
   mode: Mode
   env: Record<string, string>
 }
@@ -216,7 +218,7 @@ export async function writeProcess(stateDir: string, record: CreatedRecord, even
       }
     }
     await undo()
-    throw new Refusal(`could not write the process of #${record.issue}: ${(err as Error).message}; the ${action} is undone`, 500)
+    throw new Refusal(`could not write the process of ${record.issue === null ? record.branch : `#${record.issue}`}: ${(err as Error).message}; the ${action} is undone`, 500)
   }
 }
 

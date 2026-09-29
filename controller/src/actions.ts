@@ -6,7 +6,8 @@ import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { run } from './exec.js'
 import { checksOf, ghApi, issueFromBranch, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
-import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
+import { addWorktree, exists, fetch, git, held, slug, writeProcess } from './claim.js'
+import type { PlanRecord } from './plan.js'
 import { type Project, Refusal } from './project.js'
 
 // The pull request as gh pr view answers it: the fields a merge decides by.
@@ -315,13 +316,6 @@ async function releaseHeld(project: Project, stateDir: string, gh: string, fake:
     throw new Refusal(`release ${v} is published at ${url}, but the milestone could not be closed: ${(err as Error).message}; close it on GitHub`, 502)
   }
   return { status: 'released', milestone: v, model: main === 'dev' ? 'dev+main' : 'main', target, release: url, promotion }
-}
-
-// A plan process on a spec, as the state directory holds it in processes/<id>.json. Its route names the
-// planner's route its session takes.
-export interface PlanRecord extends CreatedRecord {
-  kind: 'plan'
-  route: 'accept'
 }
 
 // mergeRequest reads the pull request of a merge's body, or refuses it.

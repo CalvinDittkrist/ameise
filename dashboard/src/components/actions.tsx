@@ -13,8 +13,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Refused, warn } from "@/components/process-actions"
-import { accept, type Issue, merge, type Process, release } from "@/api"
+import { Textarea } from "@/components/ui/textarea"
+import { Force, Refused, warn } from "@/components/process-actions"
+import { accept, capture, finish, type Issue, merge, plan, type Process, release } from "@/api"
+import { href } from "@/route"
 
 // Confirm asks once before an action changes anything: its trigger opens a dialog that says what the
 // action does, and its button runs it. The controller's reason for a refusal shows in the dialog.
@@ -117,6 +119,98 @@ export function Accept({ i, path, reload }: { i: Issue; path: string; reload: ()
         await reload()
       }}
     />
+  )
+}
+
+// Plan opens a plan process in the project at path from an idea, or an open session without one, and
+// opens its page, where the planner's session runs.
+export function Plan({ path }: { path: string }) {
+  const [idea, setIdea] = useState("")
+  return (
+    <Confirm
+      id="plan"
+      trigger={<Button size="sm" variant="outline">Plan</Button>}
+      title="Plan"
+      description="Opens a planning session on a plan branch of its own. Without an idea it is an open session that answers questions about the code and the design."
+      confirm="Start planning"
+      reset={() => setIdea("")}
+      run={async () => {
+        const text = idea.trim()
+        const done = await plan(path, text ? { idea: text } : {})
+        location.hash = href({ page: "process", id: done.record.id })
+      }}
+    >
+      <div className="grid gap-2">
+        <Label htmlFor="plan-idea">Idea</Label>
+        <Textarea id="plan-idea" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="Leave it empty for an open session" rows={3} />
+      </div>
+    </Confirm>
+  )
+}
+
+// PlanIssue opens a plan process on an issue of the frontier and opens its page.
+export function PlanIssue({ i, path }: { i: Issue; path: string }) {
+  return (
+    <Confirm
+      id={`plan-${i.number}`}
+      trigger={<Button size="sm" variant="ghost">Plan</Button>}
+      title={`Plan #${i.number}`}
+      description={`Opens a planning session on ${i.title}, on a plan branch of its own.`}
+      confirm="Start planning"
+      run={async () => {
+        const done = await plan(path, { issue: i.number })
+        location.hash = href({ page: "process", id: done.record.id })
+      }}
+    />
+  )
+}
+
+// Capture moves the prototype the planner left in a plan's worktree to a pushed prototype branch, so
+// the plan branch stays clean. Where it went stays on screen until it is closed.
+export function Capture({ id }: { id: string }) {
+  const [name, setName] = useState("")
+  return (
+    <Confirm
+      id="capture"
+      trigger={<Button size="sm" variant="outline">Capture prototype</Button>}
+      title="Capture prototype"
+      description="Moves every change in the worktree to a prototype branch of its own and pushes it. The plan branch stays clean."
+      confirm="Capture"
+      reset={() => setName("")}
+      run={async () => {
+        const done = await capture(id, name)
+        warn({ title: "Prototype captured", said: `The prototype is on ${done.branch}. Link it from the issue.`, warnings: [done.url] })
+      }}
+    >
+      <div className="grid gap-2">
+        <Label htmlFor="capture-name">Name</Label>
+        <Input id="capture-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="state machine" spellCheck={false} autoComplete="off" />
+      </div>
+    </Confirm>
+  )
+}
+
+// Finish ends a plan: it stops its session and removes its worktree, its plan branch and its process,
+// then opens the page of its project.
+export function Finish({ id, project }: { id: string; project: string }) {
+  const [force, setForce] = useState(false)
+  return (
+    <Confirm
+      id="finish"
+      trigger={<Button size="sm" variant="outline">Finish</Button>}
+      title="Finish"
+      description="Stops the planner session and removes the worktree, the plan branch and the process. The issues it wrote and the prototype branches stay."
+      confirm="Finish"
+      reset={() => setForce(false)}
+      run={async () => {
+        await finish(id, force)
+        location.hash = href({ page: "project", path: project })
+      }}
+    >
+      <Force id="finish-force" checked={force} onChange={setForce}>
+        Force: finish even with changes not captured or commits on the plan branch, which are lost
+      </Force>
+    </Confirm>
   )
 }
 

@@ -61,6 +61,10 @@ class SessionStartHookTests(PlanWorktree):
         ctx = json.loads(self.hook(source="resume").stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("open session without a topic", ctx)
 
+    def test_silent_in_a_session_the_controller_runs(self):
+        self.plan()
+        self.assertEqual(self.hook(WF_PLAN_CONTROLLER="1").stdout, "")
+
     def test_plan_without_description_still_says_the_topic_is_unknown(self):
         self.git("checkout", "-qb", "plan/lost")
         ctx = json.loads(self.hook().stdout)["hookSpecificOutput"]["additionalContext"]
@@ -448,6 +452,21 @@ class PrototypeAndFinishTests(PlanWorktree):
         r = self.run_script(PLANNER / "finish.sh", "--force")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("cleanup: worktree", r.stdout)
+
+    def test_finish_in_a_session_the_controller_runs_leaves_the_worktree_to_the_controller(self):
+        wt = self.repo / ".claude/worktrees/plan-offline-mode"
+        wt.parent.mkdir(parents=True)
+        self.git("worktree", "add", "-q", "-b", "plan/offline-mode", str(wt), "main")
+        (wt / "x").write_text("x")
+        r = self.run_script(PLANNER / "finish.sh", cwd=wt, WF_PLAN_CONTROLLER="1")
+        self.assertNotEqual(r.returncode, 0); self.assertIn("uncommitted", r.stderr)
+        (wt / "x").unlink()
+        r = self.run_script(PLANNER / "finish.sh", cwd=wt, WF_PLAN_CONTROLLER="1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("press Finish in the process view", r.stdout)
+        self.assertNotIn("removed in 5 seconds", r.stdout)
+        self.assertTrue(wt.exists())
+        self.assertIn("plan/offline-mode", self.git("branch", "--list", "plan/offline-mode"))
 
     def test_finish_removes_the_worktree_from_a_detached_process(self):
         wt = self.repo / ".claude/worktrees/plan-offline-mode"
