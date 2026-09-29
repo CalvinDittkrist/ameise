@@ -1,4 +1,4 @@
-# workflows
+# ameise
 
 Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
 
@@ -32,7 +32,7 @@ flowchart LR
 The [controller](controller/README.md) installs from its GitHub release, not yet from npm. It needs Node 22+, Claude Code, git, `jq` and a logged-in `gh`:
 
 ```sh
-npm install --global https://github.com/CalvinDittkrist/workflows/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
+npm install --global https://github.com/CalvinDittkrist/ameise/releases/download/controller/v0.1.0/ameise-0.1.0.tgz
 ameise                             # starts it and opens the dashboard on 127.0.0.1:7420
 ameise projects add ~/src/repo     # then claim, plan, merge and release from the dashboard
 ```
@@ -40,7 +40,7 @@ ameise projects add ~/src/repo     # then claim, plan, merge and release from th
 For sessions started by hand, the plugins install from the marketplace `ameise` with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
 
 ```sh
-claude plugin marketplace add CalvinDittkrist/workflows
+claude plugin marketplace add CalvinDittkrist/ameise
 claude plugin install worker@ameise
 claude plugin install planner@ameise
 claude plugin install repo-standards@ameise
@@ -53,7 +53,7 @@ Once per repository, bring it to the [standard](docs/repo-standard.md):
 2. `/repo-standards:apply` pushes a protected `pre-standard` tag, opens the catalogue issue and one cleanup pull request, and turns code findings into issues.
 3. After the merge, `/repo-standards:apply` again configures the GitHub workspace and runs the check.
 
-Teammates then only run the install commands. Skills also install outside Claude Code: `npx skills add CalvinDittkrist/workflows --skill <name>`, or `sbx skills add CalvinDittkrist/workflows` for Docker Sandboxes.
+Teammates then only run the install commands. Skills also install outside Claude Code: `npx skills add CalvinDittkrist/ameise --skill <name>`, or `sbx skills add CalvinDittkrist/ameise` for Docker Sandboxes.
 
 ## Daily use
 
@@ -125,7 +125,7 @@ Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers,
 - [Architecture](docs/architecture.md) and [ADRs](docs/adr/README.md)
 - [The local workflow, step by step](docs/local-workflow.md)
 - [Security and sandboxing](docs/security.md)
-- [Factory host runbook](docs/factory-runbook.md): from an empty Linux machine to a running factory, and its upkeep
+- [Factory host runbook](docs/factory-runbook.md): host setup and upkeep, and [the maintainer's list](docs/factory-runbook.md#the-maintainers-list) of the rename
 - [Token budget: what loads when](docs/token-budget.md)
 - [Repository standard](docs/repo-standard.md)
 

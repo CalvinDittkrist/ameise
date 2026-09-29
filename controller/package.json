@@ -6,10 +6,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CalvinDittkrist/workflows.git",
+    "url": "git+https://github.com/CalvinDittkrist/ameise.git",
     "directory": "controller"
   },
-  "homepage": "https://github.com/CalvinDittkrist/workflows#readme",
+  "homepage": "https://github.com/CalvinDittkrist/ameise#readme",
   "type": "module",
   "bin": {
     "ameise": "dist/main.js"

@@ -1,6 +1,6 @@
 {
   "extraKnownMarketplaces": {
-    "ameise": { "source": { "source": "github", "repo": "CalvinDittkrist/workflows" } }
+    "ameise": { "source": { "source": "github", "repo": "CalvinDittkrist/ameise" } }
   },
   "enabledPlugins": {
     "worker@ameise": true,

@@ -2,7 +2,7 @@
 # Run a worker session inside a Docker Sandbox (sbx) for one worktree.
 # Usage: sbx-worker.sh <worktree-path> [-- <claude args...>]
 # The sandbox is named wf-<repo>-<branch>. Plugins are installed inside the sandbox from the
-# marketplace named in WF_MARKETPLACE (default CalvinDittkrist/workflows).
+# marketplace named in WF_MARKETPLACE (default CalvinDittkrist/ameise).
 set -euo pipefail
 path="${1:-}"; [ -n "$path" ] || { echo "usage: sbx-worker.sh <worktree-path> [-- <claude args...>]" >&2; exit 1; }
 shift; [ "${1:-}" = "--" ] && shift
@@ -11,15 +11,20 @@ path=$(cd "$path" && pwd)
 repo=$(basename "$(dirname "$(git -C "$path" rev-parse --path-format=absolute --git-common-dir)")")
 branch=$(git -C "$path" rev-parse --abbrev-ref HEAD | tr '/' '-')
 name="wf-$repo-$branch"
-market="${WF_MARKETPLACE:-CalvinDittkrist/workflows}"
+market="${WF_MARKETPLACE:-CalvinDittkrist/ameise}"
 
 boxes=$(sbx ls 2>/dev/null || true)
 if ! grep -q "^$name\b" <<<"$boxes"; then
   # Mount only this worktree read-write; the shared skills store stays read-only.
   sbx create claude "$path" --name "$name" --skills readonly -e WF_MODE -e WF_ISSUE -e WF_BASE_BRANCH -q
 fi
-# Every start reconciles the plugins, so a sandbox created before the marketplace was renamed ameise drops its
-# copies from workflows and loads the plugins the session settings name. Each step already done is a no-op.
-sbx exec "$name" sh -c "claude plugin uninstall worker@workflows --scope user >/dev/null 2>&1; claude plugin uninstall repo-standards@workflows --scope user >/dev/null 2>&1; claude plugin marketplace remove workflows >/dev/null 2>&1; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null" \
+# Every start reconciles the plugins, so a reused sandbox loads the plugins the session settings name. It first
+# uninstalls worker and repo-standards installed from any other marketplace, such as one from before the rename to
+# ameise, which installing them from ameise would leave loaded beside them. A plugin may sit at user, project or local
+# scope, and an uninstall acts on one scope, so each is tried; a plugin still listed afterwards is named in a warning.
+# Each step already done is a no-op.
+others='claude plugin list --json 2>/dev/null | grep -oE "\"(worker|repo-standards)@[^\"]+\"" | tr -d "\"" | grep -v "@ameise\$" | sort -u'
+reconcile="for id in \$($others); do for scope in user project local; do claude plugin uninstall \"\$id\" --scope \$scope >/dev/null 2>&1; done; done; left=\$($others); [ -z \"\$left\" ] || echo \"warning: plugins of another marketplace stay loaded inside the sandbox: \$left; uninstall them with claude plugin uninstall <id> --scope <scope>\" >&2; claude plugin marketplace add '$market' >/dev/null 2>&1; claude plugin install worker@ameise --scope user >/dev/null && claude plugin install repo-standards@ameise --scope user >/dev/null"
+sbx exec "$name" sh -c "$reconcile" \
   || echo "warning: plugin install inside sandbox failed; the worker skills may be missing" >&2
 exec sbx run --name "$name" -- "$@"

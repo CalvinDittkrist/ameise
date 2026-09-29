@@ -44,7 +44,7 @@ class StandardsTests(ShimTest):
                                                         "permissions": {"allow": ["Bash(make *)", "Bash(git diff *)"]}}))
         r = self.scaffold()
         self.assertIn("updated: .claude/settings.json", r.stdout)
-        self.assertIn("claude plugin marketplace add CalvinDittkrist/workflows --scope project", self.calls())
+        self.assertIn("claude plugin marketplace add CalvinDittkrist/ameise --scope project", self.calls())
         self.assertIn("claude plugin install worker@ameise --scope project", self.calls())
         self.assertIn("claude plugin disable foo@bar --scope project", self.calls())
         self.assertNotIn("claude plugin disable old@bar --scope project", self.calls())
@@ -280,7 +280,7 @@ class StandardsTests(ShimTest):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("skip: licence and security policy not checked (visibility unknown without GitHub)", r.stdout)
 
-    def test_check_warns_for_plugins_of_the_old_marketplace_name(self):
+    def test_check_warns_for_plugins_of_another_marketplace(self):
         self.scaffold()
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
         plugins = ["orchestrator", "planner", "repo-standards", "worker"]
@@ -289,12 +289,12 @@ class StandardsTests(ShimTest):
             self.assertIn(f"ok: {p}@ameise enabled", r.stdout)
         self.assertNotIn("not enabled", r.stdout)
         self.assertNotIn("enabled at project scope", r.stdout)
-        settings["enabledPlugins"] = {f"{p}@workflows": True for p in plugins}
+        settings["enabledPlugins"] = {f"{p}@other": True for p in plugins}
         self.write(".claude/settings.json", json.dumps(settings))
         r = self.check()
         for p in plugins:
             self.assertIn(f"warn: {p}@ameise not enabled in .claude/settings.json", r.stdout)
-            self.assertIn(f"warn: {p}@workflows enabled at project scope", r.stdout)
+            self.assertIn(f"warn: {p}@other enabled at project scope", r.stdout)
 
     def test_check_holds_the_settings_to_the_workflow_plugins_without_hooks(self):
         self.scaffold()

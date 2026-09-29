@@ -775,7 +775,7 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		want   string
 	}{
 		{"no repositories", `{"data_dir":"data"}`, `repositories is empty; name at least one`},
-		{"repository without owner", `{"data_dir":"data","repositories":["workflows"]}`, `is not owner/name; write it as "CalvinDittkrist/ameise"`},
+		{"repository without owner", `{"data_dir":"data","repositories":["ameise"]}`, `is not owner/name; write it as "CalvinDittkrist/ameise"`},
 		{"repository twice", `{"data_dir":"data","repositories":["a/b","a/b"]}`, `named twice; remove the duplicate`},
 		{"repository twice in two spellings", `{"data_dir":"data","repositories":["Acme/Repo","acme/repo"]}`, `named twice; remove the duplicate`},
 		{"repository of dots", `{"data_dir":"data","repositories":["../.."]}`, `is not owner/name`},
@@ -792,8 +792,8 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"worker arguments that replace the settings", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--settings","{}"]}`, `worker_args carries --settings, which the factory gives the worker itself`},
 		{"worker arguments that replace the settings with one word", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--settings={}"]}`, `worker_args carries --settings`},
 		{"worker arguments that replace the agent", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--agent","planner"]}`, `worker_args carries --agent`},
-		{"worker arguments that load a plugin", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--plugin-dir","/opt/workflows/plugins/worker"]}`, `worker_args carries --plugin-dir, which would load a plugin into the sessions that write on the branch`},
-		{"worker arguments that load a plugin with one word", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--plugin-dir=/opt/workflows/plugins/worker"]}`, `worker_args carries --plugin-dir`},
+		{"worker arguments that load a plugin", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--plugin-dir","/opt/ameise/plugins/worker"]}`, `worker_args carries --plugin-dir, which would load a plugin into the sessions that write on the branch`},
+		{"worker arguments that load a plugin with one word", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--plugin-dir=/opt/ameise/plugins/worker"]}`, `worker_args carries --plugin-dir`},
 		{"worker arguments that replace the prompt", `{"data_dir":"data","repositories":["a/b"],"worker_args":["-p","/worker:pr"]}`, `worker_args carries -p`},
 		{"worker arguments that replace the permission mode", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--permission-mode","plan"]}`, `worker_args carries --permission-mode`},
 		{"worker arguments that replace the output format", `{"data_dir":"data","repositories":["a/b"],"worker_args":["--output-format","text"]}`, `worker_args carries --output-format`},

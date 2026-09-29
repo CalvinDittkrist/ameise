@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -63,9 +64,9 @@ class ClaimTests(ShimTest):
         # The pane the command runs in has its own working directory, so the script is named by its full path.
         self.assertEqual(words[0], str(ORCH / "sbx-worker.sh"))
 
-    def test_a_reused_sandbox_moves_its_plugins_to_the_ameise_marketplace(self):
-        # Plugins used to be installed only when the sandbox was created. A sandbox from before the rename kept
-        # worker@workflows, while the session settings name @ameise, so it ran the old worker plugin.
+    def test_a_reused_sandbox_installs_the_plugins_the_session_settings_name(self):
+        # Plugins used to be installed only when the sandbox was created, so a reused sandbox kept the plugins
+        # it was created with, whatever the session settings named.
         self.git("branch", "fix/12-x")
         wt = self.base / "wt12"
         self.git("worktree", "add", "-q", str(wt), "fix/12-x")
@@ -77,11 +78,55 @@ class ClaimTests(ShimTest):
         self.assertEqual(len(execs), 1)
         self.assertEqual(execs[0][2], "wf-repo-fix-12-x")
         steps = [s.split(">")[0].strip() for s in execs[0][-1].replace("&&", ";").split(";")]
-        self.assertLess(steps.index("claude plugin marketplace remove workflows"),
+        self.assertLess(steps.index("claude plugin marketplace add 'CalvinDittkrist/ameise'"),
                         steps.index("claude plugin install worker@ameise --scope user"))
-        self.assertIn("claude plugin uninstall worker@workflows --scope user", steps)
         self.assertIn("claude plugin install repo-standards@ameise --scope user", steps)
         self.assertEqual(sbx[-1][1:], ["run", "--name", "wf-repo-fix-12-x", "--", "/worker:work"])
+
+    def test_a_reused_sandbox_drops_the_worker_plugins_of_another_marketplace(self):
+        # Installing worker@ameise leaves a worker installed from another marketplace loaded beside it, so a sandbox
+        # created before the marketplace was renamed would run both.
+        self.git("branch", "fix/12-x")
+        wt = self.base / "wt12"
+        self.git("worktree", "add", "-q", str(wt), "fix/12-x")
+        r = self.run_script(ORCH / "sbx-worker.sh", str(wt), "--", "/worker:work", SHIM_SBX_LS="wf-repo-fix-12-x  running")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        command = [c for c in self.argv_calls() if c[:2] == ["sbx", "exec"]][0][-1]
+        # Run the command the sandbox would run, against a claude that holds plugins from two marketplaces at
+        # user and project scope. An uninstall removes a plugin only at the scope it names.
+        box = self.base / "box"
+        box.mkdir()
+        log = box / "calls"
+        held = box / "held"
+        held.write_text("worker@old user\nrepo-standards@old project\nworker@ameise user\nother@old user\n")
+        fake = box / "claude"
+        fake.write_text(r"""#!/bin/sh
+echo "$*" >> 'LOG'
+case "$*" in
+  'plugin list --json')
+    printf '['; sed 's/^\([^ ]*\) \(.*\)$/{"id": "\1", "scope": "\2"}/' 'HELD' | paste -sd, -; printf ']\n' ;;
+  'plugin uninstall '*)
+    [ -z "$REFUSE" ] && grep -qx "$3 $5" 'HELD' || exit 1
+    grep -vx "$3 $5" 'HELD' > 'HELD.new'; mv 'HELD.new' 'HELD' ;;
+esac
+exit 0
+""".replace("LOG", str(log)).replace("HELD", str(held)))
+        fake.chmod(0o755)
+        env = {**os.environ, "PATH": f"{box}:{os.environ['PATH']}"}
+        run = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stderr, "")
+        self.assertEqual(held.read_text().split("\n")[:2], ["worker@ameise user", "other@old user"])
+        calls = log.read_text().splitlines()
+        uninstalls = [c for c in calls if c.startswith("plugin uninstall")]
+        self.assertEqual({c.split()[2] for c in uninstalls}, {"worker@old", "repo-standards@old"})
+        self.assertLess(calls.index(uninstalls[-1]), calls.index("plugin install worker@ameise --scope user"))
+        # A plugin the uninstall cannot remove is named, and the session still starts.
+        held.write_text("worker@old local\n")
+        run = subprocess.run(["sh", "-c", command], env={**env, "REFUSE": "1"}, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("warning:", run.stderr)
+        self.assertIn("worker@old", run.stderr)
 
     def test_the_status_line_command_survives_a_plugin_path_with_a_space(self):
         # claude runs the command through a shell. Unquoted, a checkout under "/Users/John Smith" splits into

@@ -1,6 +1,6 @@
-# workflows
+# ameise
 
-Public repository of Claude Code plugins for agent-driven development: an orchestrator that claims GitHub issues into Herdr worktree sessions, a worker pipeline with a fresh-context reviewer panel, and repository standards.
+Public repository of `ameise`, Claude Code plugins for agent-driven development: an orchestrator that claims GitHub issues into Herdr worktree sessions, a worker pipeline with a fresh-context reviewer panel, and repository standards.
 
 Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
