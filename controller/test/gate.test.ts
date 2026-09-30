@@ -1,20 +1,20 @@
-import { execFileSync } from 'node:child_process'
+import { type ChildProcess, execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, cli, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
 
 const identity = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
 let m: Machine
 let dir: string
+let server: ChildProcess
 beforeEach(async () => {
   m = await machine()
   // The sessions and the gate commit and merge in a home without a git identity.
   m.env = { ...m.env, ...identity }
-  const s = await start(m)
-  expect(s.running, s.stderr).toBe(true)
+  server = await up()
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   canPulls(m, 'owner/repo', [])
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
@@ -23,6 +23,15 @@ beforeEach(async () => {
   expect((await api(m, 'POST', '/api/projects', { path: dir })).status).toBe(201)
   canIssue(m, 'owner/repo', 144, 'Board lists every project', ['ready-for-agent'])
 })
+
+async function up(): Promise<ChildProcess> {
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  return s.process
+}
+
+// hang is a recipe that runs for 30 s; the machine's PATH has no sleep.
+const hang = `${process.execPath} -e 'setTimeout(() => {}, 30000)'`
 
 interface Attempt {
   stage: string
@@ -184,4 +193,53 @@ test('a fix session that runs past the stage timeout ends the process failed', a
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: 'the fix session of the gate ran past its stage timeout of 1 s' })
   expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session failed'])
+})
+
+test('a gate command that runs past WF_GATE_TIMEOUT is ended and counts as a failure', async () => {
+  gated(dir, hang)
+  play(m, 'complete Implemented the board')
+  const r = await claim(['WF_GATE_TIMEOUT=1', 'WF_GATE_ROUNDS=0'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate' })
+  expect(done.note).toMatch(/^the gate spent its 0 fix session\(s\): make check failed at [0-9a-f]{7} with make check ran past the gate timeout of 1 s/)
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail'])
+})
+
+test('a message to a process whose gate command runs is refused', async () => {
+  gated(dir, hang)
+  play(m, 'complete Implemented the board')
+  const r = await claim()
+  await until(r.id, (x) => x.stage === 'gate')
+  const refused = await say(r.id, 'go on')
+  expect(refused.status).toBe(409)
+  expect(recordOf(r.id)).toMatchObject({ state: 'running', stage: 'gate' })
+})
+
+test('a stop while the gate runs marks the process interrupted, and a resume runs the gate again', async () => {
+  // The gate hangs until the file go is in the worktree.
+  gated(dir, `test -f go || ${hang}`)
+  play(m, 'complete Implemented the board')
+  const r = await claim()
+  const gating = await until(r.id, (x) => x.stage === 'gate')
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  expect(recordOf(r.id)).toMatchObject({ state: 'interrupted', stage: 'gate', note: 'the controller stopped while its gate ran; resume it to run the gate again' })
+
+  server = await up()
+  writeFileSync(join(gating.worktree, 'go'), '')
+  const resumed = cli(m, ['resume', '144', '--project', dir])
+  expect(resumed.stderr).toBe('')
+  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: expect.stringMatching(/^the gate passed at [0-9a-f]{7}, with changes not committed$/) })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass'])
+})
+
+test('a gate knob that is no whole number ends the process failed with the reason', async () => {
+  gated(dir)
+  play(m, 'complete Implemented the board')
+  const r = await claim(['WF_GATE_ROUNDS=abc'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: 'WF_GATE_ROUNDS=abc is not a whole number of at least 0; set it as such, or leave it out for 3' })
+  expect(shape(done)).toEqual(['implement session complete'])
 })
