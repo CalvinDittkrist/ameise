@@ -3,6 +3,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/geist";
+/* shadcn's typeset, copied unchanged beside this file: it styles the markdown the chat renders. */
+@import "./typeset.css";
 
 /* The state variants the components in src/components/ui are written with. shadcn ships them in the
    stylesheet of its command line package, which is taken here as the few lines they are rather than as
@@ -159,6 +161,14 @@
         --sidebar-accent-foreground: oklch(0.985 0 0);
         --sidebar-border: oklch(1 0 0 / 10%);
         --sidebar-ring: oklch(0.556 0 0);
+    }
+}
+
+/* The rhythm of the chat's bubbles: a tighter flow and leading than the typeset's defaults. */
+@layer components {
+    .typeset-chat {
+        --typeset-flow: 1em;
+        --typeset-leading: 1.6;
     }
 }
 

@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Capture, Finish } from "@/components/actions"
+import { Prose } from "@/components/markdown"
 import { dot } from "@/components/rows"
 import {
   age,
@@ -431,7 +432,15 @@ function Conversation({ record, entries }: { record: ProcessRecord; entries: Ent
   )
 }
 
-// Said is one turn of the session or of the maintainer, with the tool calls of the session as chips.
+// The typeset draws code on the muted colour, which is the session's bubble itself, so there code sits
+// on the background. The maintainer's bubble is primary, so the typeset inside it takes its text, code
+// and rules from the primary foreground. Both follow light and dark with the theme.
+const onMuted = "[--color-muted:var(--color-background)]"
+const onPrimary =
+  "[--color-foreground:var(--color-primary-foreground)] [--color-muted:color-mix(in_oklab,var(--color-primary-foreground)_15%,transparent)] [--color-muted-foreground:color-mix(in_oklab,var(--color-primary-foreground)_70%,transparent)] [--color-border:color-mix(in_oklab,var(--color-primary-foreground)_25%,transparent)]"
+
+// Said is one turn of the session or of the maintainer, its markdown rendered, with the tool calls of
+// the session as chips.
 function Said({ text, tools = [], you = false }: { text: string; tools?: { name: string; detail: string; allowed: boolean }[]; you?: boolean }) {
   return (
     <div role="article" aria-label={you ? "You" : "Session"} className={cn("flex gap-3", you && "flex-row-reverse")}>
@@ -439,7 +448,11 @@ function Said({ text, tools = [], you = false }: { text: string; tools?: { name:
         {you ? <UserIcon className="size-3.5" /> : <BotIcon className="size-3.5" />}
       </div>
       <div className={cn("flex max-w-[85%] min-w-0 flex-col gap-2", you && "items-end")}>
-        {text && <div className={cn("rounded-lg px-3 py-2 text-sm break-words whitespace-pre-wrap", you ? "bg-primary text-primary-foreground" : "bg-muted")}>{text}</div>}
+        {text && (
+          <div className={cn("max-w-full rounded-lg px-3 py-2 text-sm", you ? cn("bg-primary text-primary-foreground", onPrimary) : cn("bg-muted", onMuted))}>
+            <Prose text={text} />
+          </div>
+        )}
         {tools.length > 0 && (
           <ul aria-label="Tool calls" className="flex flex-wrap gap-1.5">
             {tools.map((t, k) => (
@@ -544,7 +557,7 @@ function Asked({ id, questions, settled }: { id: string; questions: Question[]; 
       <CardContent className="flex flex-col gap-3 text-sm">
         {questions.map((q) => (
           <div key={q.question} className="flex flex-col gap-2">
-            <p>{q.question}</p>
+            <Prose text={q.question} />
             {open && questions.length === 1 && q.options.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {q.options.map((o) =>
