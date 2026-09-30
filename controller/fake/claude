@@ -7,11 +7,13 @@
 #     play                     the session to play, one step a line; the first word of a line is the step
 #     <stage>                  the session to play in that stage of a work process, which AMEISE_STAGE
 #                              names, such as gate for a fix session of the gate; without it play
+#     reviewer-<name>          the session a reviewer of that name plays, such as reviewer-code; without
+#                              it reviewer, and without that it reports verdict pass
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
 #   AMEISE_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
-#                              beside it, <log>.env holds the environment it started with
+#                              beside it, <log>.env holds the environment of every session it started
 #
 # The session says "Working on it." when its first message arrives, then plays its steps in order:
 #   say <text>          it writes the text
@@ -23,10 +25,15 @@
 #   wait                it waits for the next message, then says what it read
 #   commit <file>       it writes the file in its directory and commits it
 #   run <command>       it runs the command in its directory with bash, whatever it exits with
+#   finding <severity> <where> <claim>
+#                       a reviewer's finding, such as finding S2 src/a.ts:3 The limit is off by one
+#   fixed <id> <note>   a fix session of the review fixed the finding of that id
+#   declined <id> <note>  it declined the finding of that id
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question and the commits it made
+#   verdict <pass|fix>  a reviewer reports the verdict with its findings
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -42,7 +49,7 @@ if [ "${1:-}" = --version ]; then
   exit 0
 fi
 printf '%s\n' "$@" >> "$log"
-if [ "$log" != /dev/null ]; then export -p > "$log.env"; fi
+if [ "$log" != /dev/null ]; then export -p >> "$log.env"; fi
 
 # A session is named by its pid, and a resumed one keeps the id it resumes.
 session=fake-session-$$
@@ -61,7 +68,13 @@ canned=${AMEISE_FAKE_CLAUDE:-}
 if [ "$file" = resume ] && { [ -z "$canned" ] || [ ! -f "$canned/resume" ]; }; then file=play; fi
 stage=${AMEISE_STAGE:-}
 case "$stage" in play | resume | linger | '' | */*) ;; *) if [ "$file" = play ] && [ -n "$canned" ] && [ -f "$canned/$stage" ]; then file=$stage; fi ;; esac
-if [ -n "$canned" ] && [ -f "$canned/$file" ]; then
+# A reviewer plays its own file, else the one of every reviewer, else a pass.
+case "$stage" in
+  reviewer-*)
+    if [ "$file" != "$stage" ]; then file=reviewer; fi
+    if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then file=''; steps=('verdict pass'); fi ;;
+esac
+if [ -n "$file" ] && [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
     if [ -n "$step" ]; then steps+=("$step"); fi
   done < "$canned/$file"
@@ -69,7 +82,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in complete | ready | blocked | silent | broken | litter) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -91,6 +104,9 @@ json() {
 say() { printf '%s\n' "$1"; }
 n=0
 tokens=1
+# findings are a reviewer's findings, fixes what a fix session of the review did with each, as JSON.
+findings=''
+fixes=''
 
 # assistant writes a message of the session with the content blocks given as JSON.
 assistant() {
@@ -163,6 +179,14 @@ play() {
         git add -- "$rest" && git commit -q -m "fix: write $rest" >/dev/null ;;
       run)
         bash -c "$rest" >/dev/null 2>&1 || true ;;
+      finding)
+        local severity=${rest%% *} where claim
+        rest=${rest#* }
+        where=${rest%% *}
+        claim=${rest#* }
+        findings="$findings${findings:+,}{\"severity\":$(json "$severity"),\"where\":$(json "$where"),\"claim\":$(json "$claim"),\"fix\":\"Fix it.\"}" ;;
+      fixed | declined)
+        fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}" ;;
       wait)
         if [ -z "$kept" ]; then
           while next; do
@@ -192,13 +216,16 @@ while next; do
       fi
       case "$word" in
         complete)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")}}"
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}}"
           exit 0 ;;
         ready | blocked)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}}"
           # A lingering runtime shrugs off the SDK's TERM as it closes the session.
           trap '' TERM
           while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done
+          exit 0 ;;
+        verdict)
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"verdict\":$(json "$message"),\"findings\":[$findings]}}"
           exit 0 ;;
         silent)
           exit 0 ;;

@@ -59,7 +59,7 @@ async function settled(want: number): Promise<Row> {
 
 test.each([
   ['blocked', 'blocked Keep the project in the file, or drop it?', 'Keep the project in the file, or drop it\\?'],
-  ['ready', 'complete Implemented the board', 'the gate passed at [0-9a-f]{7}'],
+  ['ready', 'complete Implemented the board', 'the review passed in round 1'],
   ['failed', 'silent', 'the implement session exited without a result'],
 ])('a process that turns %s sends one notification and carries a badge until its page is opened', async (state, session, note) => {
   play(m, session)

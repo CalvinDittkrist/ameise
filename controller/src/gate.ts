@@ -3,13 +3,14 @@
 // command in the worktree. A merge that conflicts and a gate command that fails each start a fix session
 // of the gate, a fresh session with the stage timeout, within the gate's budget; the gate runs again on
 // what the session leaves. Every merge that conflicts, every run and every fix session is an attempt in
-// the record's history. A pass ends the process ready; a budget spent ends it failed with the end of the
-// last output.
+// the record's history. A pass starts the review stage (review.ts); a budget spent ends the process
+// failed with the end of the last output. The gate runs again after every fix session of the review.
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type Attempt, fetch, git, type WorkRecord } from './claim.js'
 import type { Project } from './project.js'
+import { review } from './review.js'
 import { attempt, begin, event, fixBrief, runtimeEnv, type Runtime, track, update } from './session.js'
 
 // The gate command, the single gate of a repository that follows the standard (ADR 0008).
@@ -25,18 +26,23 @@ const defaultTimeout = 2700
 const tailLines = 20
 const tailChars = 4000
 
-// knob reads a whole-number knob of the process: the claim's override, else the env block of the
-// repository's .claude/settings.json, else the default. A value that is no whole number of at least min
-// is refused with the reason.
-export function knob(record: WorkRecord, name: string, fallback: number, min = 0): number {
-  let value: unknown = record.env[name]
-  if (value === undefined) {
-    try {
-      value = (JSON.parse(readFileSync(join(record.project, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, unknown> }).env?.[name]
-    } catch {
-      // a repository without settings sets no knob
-    }
+// setting reads a knob of the process: the claim's override, else the env block of the repository's
+// .claude/settings.json, else undefined.
+export function setting(record: WorkRecord, name: string): unknown {
+  const value: unknown = record.env[name]
+  if (value !== undefined) return value
+  try {
+    return (JSON.parse(readFileSync(join(record.project, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, unknown> }).env?.[name]
+  } catch {
+    // a repository without settings sets no knob
+    return undefined
   }
+}
+
+// knob reads a whole-number knob of the process, or the default where it is not set. A value that is no
+// whole number of at least min is refused with the reason.
+export function knob(record: WorkRecord, name: string, fallback: number, min = 0): number {
+  const value = setting(record, name)
   if (value === undefined || value === '') return fallback
   const n = Number(value)
   if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
@@ -45,7 +51,7 @@ export function knob(record: WorkRecord, name: string, fallback: number, min = 0
 
 // gate starts the gate stage of a process once after has settled, as the runtime of the session before
 // it has exited, and answers the record as it runs. A stop ends it and its gate command; the process's
-// history counts the fix sessions it spent since the last implement session.
+// history counts the fix sessions it spent since the session before it that was no fix of the gate.
 // before is the abort of that session, which a stop of the gate aborts too while its runtime exits.
 export function gate(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
   const id = record.id
@@ -66,7 +72,7 @@ export function gate(record: WorkRecord, project: Project, rt: Runtime, after: P
     .catch((err: unknown) => {
       process.stderr.write(`warning: ${id}: its gate ended unexpectedly: ${(err as Error).message}\n`)
     })
-  own = track(id, abort, done)
+  own = track(id, abort, done).own
   return started
 }
 
@@ -76,8 +82,8 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
   const id = record.id
   const wt = record.worktree
   const now = () => new Date().toISOString()
-  // end ends the process in the state with the note, unless a stop has taken it over.
-  const end = (state: 'ready' | 'failed', note: string, a?: Attempt) => {
+  // end ends the process failed with the note, unless a stop has taken it over.
+  const end = (state: 'failed', note: string, a?: Attempt) => {
     if (!own()) return
     event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state, note })
     const change = { state, note, unseen: true }
@@ -129,15 +135,22 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
       ...(ran.late ? { note: `${command} ran past the gate timeout of ${limit} s` } : {}),
     }
     event(rt.stateDir, id, { event: 'gate', ...a })
-    if (a.result === 'pass') return end('ready', `the gate passed at ${short(commit)}${dirty ? ', with changes not committed' : ''}`, a)
+    if (a.result === 'pass') {
+      const passed = `the gate passed at ${short(commit)}${dirty ? ', with changes not committed' : ''}`
+      event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: passed })
+      const next = attempt(rt.stateDir, id, a)
+      if (next && own()) review(next, project, rt)
+      return
+    }
     failure = a
   } else {
     event(rt.stateDir, id, { event: 'gate', ...failure })
   }
 
-  // The fix sessions this gate has spent: those since the implement session last completed.
+  // The fix sessions this gate has spent: those since the last session of another stage, the implement
+  // session or a fix session of the review, whose work this gate checks.
   const history = record.history ?? []
-  const since = history.map((h) => h.stage === 'implement').lastIndexOf(true)
+  const since = history.map((h) => h.stage !== 'gate' && h.kind === 'session').lastIndexOf(true)
   // A fix session resumed after a block is the same session, counted once.
   const fixes = new Set(history.slice(since + 1).flatMap((h, i) => (h.stage === 'gate' && h.kind === 'session' ? [h.session_id ?? `#${i}`] : []))).size
   const what =

@@ -92,7 +92,7 @@ test('a stop marks the running session interrupted with its id, the restart show
   expect(resumed.stderr).toBe('')
   expect(resumed.stdout).toMatch(/^resumed #144 {2}feat\/144-board-lists-every-project {2}running {2}implement session resumed\n/)
   const done = await until(() => recordOf(r.id), (x) => x.state !== 'running', 'the end of the resumed session')
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: expect.stringMatching(/^the gate passed at [0-9a-f]{7}$/), session_id: sessionId })
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1', session_id: sessionId })
   // The runtime was started on the session it resumes, in the same worktree.
   expect(read(m.claudeLog).split('\n')).toContain(`--resume=${sessionId}`)
 
