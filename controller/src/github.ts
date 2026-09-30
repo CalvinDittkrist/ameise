@@ -143,8 +143,10 @@ class GitHub {
 
   labelsOf = async (n: number) => (await this.issue(n)).labels.map((l) => l.name)
 
-  // parent is the number of the issue's parent, or undefined when it has none. A failed read other than
-  // no parent refuses.
+  // parent is the number of the issue's parent, or undefined when it has none. GitHub answers 404 for an
+  // issue without a parent, so only not found means no parent. A 422 is no answer about the parent, so
+  // unlike unavailable it refuses with every other failed read: a guessed no parent would let a label
+  // set through that the spec-run rule refuses.
   async parent(n: number): Promise<number | undefined> {
     try {
       return (await this.json<{ number: number }>(this.path(`issues/${n}/parent`))).number
