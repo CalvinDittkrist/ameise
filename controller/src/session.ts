@@ -838,6 +838,10 @@ function verdictOf(raw: unknown, sessionId: string | undefined, name: string): E
     const text = (v: unknown) => (typeof v === 'string' ? v : '')
     return [{ severity: x.severity as Finding['severity'], where: text(x.where), claim: text(x.claim), fix: text(x.fix) }]
   })
+  // A fix verdict without a finding leaves the fix session nothing to act on.
+  if (out.verdict === 'fix' && findings.length === 0) {
+    return { state: 'failed', note: `the reviewer ${name} said fix without a finding`, session_id: sessionId }
+  }
   const verdict = out.verdict === 'fix' || findings.some((f) => f.severity !== 'S3') ? 'fix' : 'pass'
   return { state: 'complete', note: verdict, session_id: sessionId, verdict: { verdict, findings } }
 }
@@ -964,7 +968,9 @@ async function session(
       }, o.signal)
     }
     const keys = allowance(tool, input, o.suggestions)
-    const allowed = readRecord(rt.stateDir, id)?.allowed ?? []
+    // A reviewer neither uses nor keeps the process's allowances: a grant for one call of a reviewer
+    // widens neither the process's own session nor another reviewer.
+    const allowed = run.own ? (readRecord(rt.stateDir, id)?.allowed ?? []) : []
     const shown = detail(tool, input, record.worktree)
     const title = o.title || `${tool} wants to run`
     // A call the maintainer allowed for this process is allowed again without a card.
@@ -975,7 +981,7 @@ async function session(
     const reason = [o.decisionReason || o.description || '', o.blockedPath ? `It reaches ${o.blockedPath}.` : ''].filter(Boolean).join(' ')
     return ask(request, { kind: 'permission', note: shown ? `${title}: ${shown}` : title }, { event: 'permission', tool, detail: shown, title, reason }, (a) => {
       if (typeof a !== 'string' || a === 'deny') return { behavior: 'deny', message: 'The maintainer denied this call in the process view.' }
-      if (a === 'once') return { behavior: 'allow', updatedInput: input }
+      if (a === 'once' || !run.own) return { behavior: 'allow', updatedInput: input }
       const now = readRecord(rt.stateDir, id)?.allowed ?? []
       update(rt.stateDir, id, { allowed: [...now, ...keys.filter((k) => !now.includes(k))] })
       return { behavior: 'allow', updatedInput: input, updatedPermissions: sessionScoped(o.suggestions) }
@@ -1013,7 +1019,9 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
-      permissionMode: 'auto',
+      // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
+      // every other call is a card, where auto mode would let its classifier allow a write.
+      permissionMode: run.own ? 'auto' : 'default',
       canUseTool,
       extraArgs: { 'strict-mcp-config': null },
       // A planner session reports nothing: its turns end in a question to the maintainer.

@@ -173,12 +173,12 @@ The knobs are read from the claim's overrides, then the env block of the checkou
 ## Review stage
 After the gate passes the controller runs the repository's reviewers, in the stage `review`. A round runs its reviewers in parallel:
 - each a fresh headless session with the stage timeout, as the worker's reviewer agent of its name (`worker:code-reviewer` for `code`),
-- read-only: without `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Agent`,
+- read-only: without `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Agent`, and in the permission mode `default` rather than `auto`, so each call the runtime does not know as read-only is a card,
 - briefed with the diff range, the issue and the gate's last run with the end of its output,
 - reporting through a schema: a verdict `pass` or `fix` and findings, each a severity `S1`, `S2` or `S3`, a place, a claim and a fix.
   - A finding of `S1` or `S2` makes the verdict `fix`.
 
-Their streams stay out of the event log and their ids out of the record's `session_id`. A permission a reviewer asks for is a card as any other.
+Their streams stay out of the event log and their ids out of the record's `session_id`. A permission a reviewer asks for is a card as any other, but any answer that allows it allows that one call. A reviewer's grant is kept for no later call, and the process's allowances do not reach a reviewer.
 
 `WF_REVIEWERS` names the reviewers, comma-separated among `code`, `security`, `docs`, `tests` and `senior`; unset, it is all five. Round 1 runs every one, a later round those whose last verdict is `fix`.
 

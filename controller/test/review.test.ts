@@ -167,6 +167,49 @@ test('a reviewer that reports no verdict ends the process failed with the reason
   expect(verdicts(rounds(done)[0])).toEqual({ code: 'pass', docs: 'failed' })
 })
 
+test('a pass verdict with a finding of S2 is a fix verdict', async () => {
+  playReviewer('code', 'finding S2 src/board.ts:3 The limit is off by one\nverdict pass')
+  playFix(`run ${node(`require("fs").rmSync(${JSON.stringify(join(m.claude, 'reviewer-code'))})`)}\nfixed code-1-1 Took the limit down by one\ncomplete Fixed the finding`)
+  const r = await claim(['WF_REVIEWERS=code'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 2', panel: 'pass' })
+  expect(rounds(done).map(verdicts)).toEqual([{ code: 'fix' }, { code: 'pass' }])
+})
+
+test('a fix verdict without a finding ends the process failed with the reason', async () => {
+  playReviewer('code', 'verdict fix')
+  const r = await claim(['WF_REVIEWERS=code'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'review', note: 'review round 1: the reviewer code said fix without a finding' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round failed'])
+})
+
+test("a reviewer's permission allows that one call, and the process keeps no allowance of it", async () => {
+  playReviewer('code', 'permit npm test\npermit npm test\nverdict pass')
+  const r = await claim(['WF_REVIEWERS=code'])
+  const log = join(m.state, 'processes', `${r.id}.events.jsonl`)
+  const cards = () =>
+    read(log)
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { event: string; request?: string })
+      .filter((e) => e.event === 'permission')
+  const card = async (n: number): Promise<string> => {
+    for (let i = 0; i < 400; i++) {
+      const c = existsSync(log) ? cards() : []
+      if (c.length >= n) return c[n - 1]?.request ?? ''
+      await new Promise((done) => setTimeout(done, 50))
+    }
+    throw new Error(`no permission card ${n}`)
+  }
+  // Allow for this process on a reviewer's card allows that call, and the same call asks again.
+  expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: await card(1), answer: 'process' })).status).toBe(200)
+  expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: await card(2), answer: 'once' })).status).toBe(200)
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass' })
+  expect((recordOf(r.id) as { allowed?: string[] }).allowed ?? []).toEqual([])
+})
+
 test('a review knob that is wrong ends the process failed with the reason', async () => {
   const r = await claim(['WF_REVIEWERS=code,style'])
   const done = await ended(r.id)

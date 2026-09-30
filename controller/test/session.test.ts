@@ -106,6 +106,8 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(args[args.lastIndexOf('--agent') + 1]).toBe('worker:code-reviewer')
   expect(args[args.lastIndexOf('--disallowedTools') + 1]).toMatch(/Edit,Write/)
   expect(flag('--permission-mode')).toBe('auto')
+  // A reviewer runs in the default mode, where no classifier allows a write.
+  expect(args[args.lastIndexOf('--permission-mode') + 1]).toBe('default')
   expect(args).toContain('--setting-sources=user,project,local')
   const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown; enabledPlugins: { [k: string]: boolean } }
   // The bundled plugins are the only copies: every marketplace copy of the workflow's plugins is off.
