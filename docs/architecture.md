@@ -6,7 +6,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ## Components
 | Component | Responsibility | Entry point |
 | --- | --- | --- |
-| `orchestrator` plugin | One session per repository: opens planning sessions, claims issues into worktrees, merges finished pull requests. Coordination only. | `claude --agent orchestrator`; `plugins/orchestrator/scripts/*.sh` |
+| `orchestrator` plugin | One session per repository: opens planning sessions, claims issues into worktrees, merges finished pull requests. | `claude --agent orchestrator`; `plugins/orchestrator/scripts/*.sh` |
 | `planner` plugin | One session per topic: spec, tickets, triage, research, prototypes, acceptance. Writes issues, never code. | SessionStart hook, `/planner:plan`; `plugins/planner/scripts/*.sh` |
 | `worker` plugin | One session per issue: implements, then runs review, pull request, CI and review comments through skills. | SessionStart hook, `/worker:work`; `plugins/worker/scripts/*.sh` |
 | test hunt | A worker session without an issue that removes the tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). | `/orchestrator:hunt-tests`; `plugins/worker/skills/hunt-tests`, `plugins/worker/agents/test-hunter.md` |
@@ -18,7 +18,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | controller | The local workflow: headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
-| Herdr | Terminal workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |
+| Herdr | Workspace manager: one workspace per worktree, agent lifecycle, notifications. | `herdr worktree\|agent\|workspace` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | Docker Sandboxes (optional) | A container per worktree for workers that should not touch the host. | `plugins/orchestrator/scripts/sbx-worker.sh` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
@@ -40,7 +40,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - `ameise claim` refuses the same and runs headless [implement session](../controller/README.md#implement-session), [gate](../controller/README.md#gate-stage), [review](../controller/README.md#review-stage), [pr](../controller/README.md#pr-stage), [ci](../controller/README.md#ci-stage) and [address-reviews](../controller/README.md#address-reviews-stage).
+   - `ameise claim` refuses the same and runs its [stages](../controller/README.md#implement-session) headless.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -61,7 +61,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
     - A merge outside the default branch also closes the issue.
     - `ameise merge` does the same ([merge](../controller/README.md#merge)).
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.
-    - A yolo process of `ameise` merges itself by the merge's rules once CI is green and its panel passed ([ci stage](../controller/README.md#ci-stage)).
+    - A yolo `ameise` process merges itself once CI is green and its panel passed ([ci stage](../controller/README.md#ci-stage)).
 
 ### Test hunt
 1. `/orchestrator:hunt-tests [--sandbox] [--base b]`: `hunt.sh` refuses while a `hunt/` branch exists here or on origin, or while the base has no test file.
@@ -81,8 +81,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).
 2. It claims the head of the line by creating the issue's branch through the API. An existing branch records the run as lost ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)).
    - A routed spec is held on its spec branch for its [ticket runs](factory-runbook.md#ticket-runs).
-3. The shared rules restate the orchestrator's shell in Go, bound by the [contract fixture](#the-contract-fixture) ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)), `WF_BASE_BRANCH` included.
-4. It assigns itself, makes a worktree and records the Claude Code version, updating nothing ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
+3. The shared rules restate the orchestrator's shell in Go, bound by the [contract fixture](#the-contract-fixture) ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
+4. It assigns itself, makes a worktree and records the Claude Code version ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
 5. Each session calls a runtime, Claude Code or Codex, with the factory's prompt, no plugin, a stage timeout and a result schema ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md), [ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)).
 6. Implement: one session commits the change and pushes nothing.
 7. Gate: the factory merges the base and runs the change class's gate, here or on CI ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). A failure gets a fix session.
@@ -100,7 +100,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
 18. A quota-axi check before each run waits below the minimum, failing open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
 19. Writing sessions run in auto permission mode, without Herdr or `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-20. The stages came from the worker plugin, last to first ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
+20. The stages came from the worker plugin ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
 ### The contract fixture
 1. `contract/fixture.json` states shared rules as cases: branch contract, base branch, gate's draft, frontier, labels.
