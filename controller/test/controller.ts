@@ -262,6 +262,13 @@ function apiFile(m: Machine, endpoint: string): string {
   return existsSync(file) && statSync(file).isDirectory() ? join(file, '@') : file
 }
 
+// failApi makes gh api <endpoint> fail with the message, as a GitHub that answers an error other than
+// not found does.
+export function failApi(m: Machine, endpoint: string, message: string) {
+  apiFile(m, endpoint)
+  writeFileSync(`${join(m.github, 'api', endpoint)}.fails`, message + '\n')
+}
+
 // canPages cans the answer of gh api --paginate <endpoint> as GitHub writes it over several pages: one
 // JSON array per page, one after the other.
 export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {

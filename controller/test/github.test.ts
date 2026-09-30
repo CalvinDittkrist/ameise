@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { vocabulary } from '../src/github.js'
-import { api, canApi, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -245,4 +245,60 @@ test('blockers, comments, milestones and a close as not planned are written and 
     { write: 'comment', issue: 7, body: 'Out of scope.' },
     { write: 'closed', issue: 7, reason: 'not planned' },
   ])
+})
+
+// answers are the texts the tools answered the session, in the order of its calls.
+const answers = () =>
+  read(m.claudeLog)
+    .split('\n')
+    .filter((l) => l.startsWith('< ') && l.includes('"mcp_response"') && l.includes('"content"'))
+    .map((l) => {
+      const found = /"content":\[\{"type":"text","text":("(?:[^"\\]|\\.)*")/.exec(l)
+      return found?.[1] ? (JSON.parse(found[1]) as string) : ''
+    })
+
+test('a ticket that cannot become a sub-issue is created with a warning, and its spec keeps its own milestone', async () => {
+  canLabels(vocabulary.map((l) => l.name))
+  canPages(m, 'repos/owner/repo/milestones?state=all&per_page=100', [[{ number: 3, title: 'v1.2.0', state: 'open', open_issues: 0, closed_issues: 0 }]])
+  canApi(m, 'repos/owner/repo/issues', { id: 5040, number: 40 })
+  canIssue(30, ['spec'], { milestone: { title: 'v1.2.0' } })
+  canIssue(32, ['spec'], { milestone: { title: 'v1.1.0' } })
+  failApi(m, 'repos/owner/repo/issues/32/sub_issues', 'gh: Server Error (HTTP 500)')
+  const ticket = { title: 'T', body: 'B', labels: ['ready-for-agent'], milestone: 'v1.2.0' }
+  const events = await planner(tool('create_issue', { ...ticket, parent: 30 }), tool('create_issue', { ...ticket, parent: 32 }))
+  expect(refusals(events)).toEqual([])
+  expect(answers()).toEqual([
+    [
+      'issue: #40',
+      'url: https://github.com/owner/repo/issues/40',
+      'milestone: v1.2.0',
+      'warning: #40 is not linked to #30 (sub-issues unavailable here); name #30 in its body',
+      'parent-milestone: #30 already on v1.2.0',
+    ].join('\n'),
+    [
+      'issue: #40',
+      'url: https://github.com/owner/repo/issues/40',
+      'milestone: v1.2.0',
+      'warning: linking #40 as a sub-issue of #32 failed: gh: Server Error (HTTP 500); attach it to #32 on GitHub',
+      'warning: #32 stays on milestone v1.1.0 while its sub-issues go to v1.2.0; move it if v1.2.0 releases this work',
+    ].join('\n'),
+  ])
+  // Neither ticket carries the spec-run label, so no label is taken off and no spec is moved.
+  expect(calls()).toEqual([
+    'api --method POST -f title=T -f body=B -f labels[]=ready-for-agent -F milestone=3 repos/owner/repo/issues',
+    'api --method POST -F sub_issue_id=5040 repos/owner/repo/issues/30/sub_issues',
+    'api --method POST -f title=T -f body=B -f labels[]=ready-for-agent -F milestone=3 repos/owner/repo/issues',
+    'api --method POST -F sub_issue_id=5040 repos/owner/repo/issues/32/sub_issues',
+  ])
+  expect(writes(events).map((w) => w.write)).toEqual(['issue-created', 'issue-created'])
+})
+
+test('a blocker link that fails other than for want of dependencies is refused', async () => {
+  canIssue(5, [])
+  canIssue(6, [])
+  canIssue(8, [])
+  failApi(m, 'repos/owner/repo/issues/5/dependencies/blocked_by', 'gh: Forbidden (HTTP 403)')
+  const events = await planner(tool('block', { issue: 5, by: [6, 8] }))
+  expect(refusals(events)).toEqual(['linking #5 as blocked by #6 failed: gh: Forbidden (HTTP 403)'])
+  expect(writes(events)).toEqual([])
 })
