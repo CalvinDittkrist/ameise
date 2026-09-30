@@ -105,7 +105,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
@@ -152,7 +152,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 
-In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the ci stage reads of that pull request, in their order, the last one for good.
+In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good. A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json`. `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -165,7 +165,7 @@ The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr
 - a command, such as `make check` or `npm test`: an argument list split on whitespace and run without a shell.
   - A command with shell syntax, such as a pipe or a quote, is refused.
 - `none`: no gate runs. The process goes from implement, and from every fix session of the review, straight to the review, with no merge of the base.
-- `ci` or `ci:<jobs>`, such as `ci:check,browser`: the gate on CI, which is refused for now because it is not built yet.
+- `ci` or `ci:<jobs>`, such as `ci:check,browser`: the [gate on CI](#gate-on-ci), which reads every check of the gate's draft, or the named ones.
 
 Anything else is refused with the forms: at the claim before anything is created, and at the gate, which ends the process `failed`.
 
@@ -186,6 +186,31 @@ The knobs are read from the claim's overrides, then the env block of the checkou
 - A message to a process whose gate command runs is refused with `409`.
 - A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again.
 - A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
+
+### Gate on CI
+A gate on CI reads the checks of a pull request instead of running a command in the worktree, as the factory's does:
+1. It pushes the branch, never forced. Fake mode pushes nothing.
+2. It reads the branch's open pull requests (the contract fixture's takeover rule).
+   - The one the record names, of the branch and opened by the login `gh` is logged in as, is taken over.
+   - Any other ends the process `failed` with a note naming it. Nothing is written on the issue: close that pull request or delete the branch, and claim again.
+   - With none open it opens the gate's draft against the base: the first line of the issue's title, and the body `Closes #<issue>` alone.
+3. The record gets `pull` and `draft: true`. The draft flag is the controller's record, never GitHub's draft state.
+   - A person who marks the draft ready changes no stage and spends no budget.
+4. It reads the checks of the pushed head every 30 seconds, with the state `waiting` and what it waits for in `wait`, as the ci stage does.
+   - A check still running is waited for.
+   - `ci` reads every check. Its pass stands only on two readings a poll apart that show the same checks, because GitHub registers a head's checks one workflow at a time.
+   - `ci:<jobs>` reads the named checks and passes once they pass.
+5. A pass starts the review. The run names each check read, and the reviewers get them as the gate result.
+
+A failed check is a failed gate. Its fix session gets the failed checks and the end of their failed logs (`gh run view <id> --log-failed`). Its `complete` runs the gate again, which pushes and reads the new head. `WF_GATE_ROUNDS` is the budget, and past it the process ends `failed` naming the failing checks.
+
+A named check that has not appeared `WF_CHECKS_GRACE` seconds (600) after the push, or a head with no check at all by then, ends the process `failed` naming what is missing. A draft that conflicts with the base gets the base merged in and pushed, and its new head is read. A merge that conflicts in files starts a fix session within the same budget. `WF_GATE_TIMEOUT` bounds one run of the gate on CI, past which the process ends `failed`.
+
+A run is `{stage: "gate", kind: "run", result: "pass"|"fail"|"missing", gate, commit, pr, url, checks, tail, at}`. The event log carries `gate-wait` per change of the wait and `gate-note` for the draft. The process page shows the draft, the checks read and the wait in the gate stage. The board reads the stage from the record, so it says `gate` while the draft exists.
+
+A stop while the gate waits marks the process `interrupted`. A resume takes the draft over and reads the head again, and a resume after the pass goes on with the review. The pr stage keeps the gate's draft rather than open a second pull request.
+
+The draft's workflows run with the repository's Actions secrets on commits no reviewer has read yet, as a pull request's do. Gate a repository on CI only where its workflows may run those secrets on unread code.
 
 ## Review stage
 After the gate passes the controller runs the repository's reviewers, in the stage `review`. A round runs its reviewers in parallel:
@@ -226,7 +251,7 @@ After the review the controller opens the pull request, in the stage `pr`:
 4. It runs `gh pr create` against the base, never as a draft.
 5. It asks each bot of `WF_PR_BOT_REVIEWERS` for a review with `gh pr edit --add-reviewer`. A refusal is a `pr-note` event and stops nothing.
 
-An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
+An open pull request of the branch into the base, as after a follow-up message, and the gate's draft of a [gate on CI](#gate-on-ci) take the push and are asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
 The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session or a `gh pr create` that fails ends the process `failed` with the reason. A resume runs the stage again.
 
