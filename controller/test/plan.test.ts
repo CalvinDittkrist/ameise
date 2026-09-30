@@ -101,7 +101,7 @@ test('a plan from an idea opens a plan branch and starts the planner with its pl
   // A planner reports no structured result.
   expect(args).not.toContain('--json-schema')
   const settings = JSON.parse(flag(args, '--settings') ?? '{}') as { env: { [k: string]: string }; enabledPlugins: { [k: string]: boolean } }
-  expect(settings.env).toMatchObject({ WF_PLAN: 'offline-mode', WF_PLAN_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
+  expect(settings.env).toMatchObject({ WF_PLAN: 'offline-mode', WF_PLAN_CONTROLLER: '1', WF_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
   expect(settings.env.WF_PLAN_ISSUE).toBeUndefined()
   expect(settings.enabledPlugins).toEqual({ 'worker@ameise': false, 'planner@ameise': false, 'orchestrator@ameise': false, 'repo-standards@ameise': false })
   const brief = prompt(s ?? { read: [] })

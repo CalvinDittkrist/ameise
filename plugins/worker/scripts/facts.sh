@@ -1,30 +1,25 @@
 #!/usr/bin/env bash
-# Print the session facts a worker skill needs (mode, issue, base, reviewer panel) as key: value lines.
+# Print the session facts a worker skill needs (mode, issue, base, how subagents run and whether the controller
+# runs this session) as key: value lines.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
 wf_kv mode "${WF_MODE:-manual}"
 wf_kv issue "$(wf_issue_label)"
 wf_kv base "$(wf_base_branch)"
-wf_kv reviewers "$(wf_reviewers)"
-# The one fact a reader compares rather than prints, so an unusable limit stops the session here, with the
-# fix named, instead of printing an empty value and letting panel.sh meet it.
-max_rounds=$(wf_review_rounds) || exit 1
-wf_kv max_rounds "$max_rounds"
 
-# A claim starts a worker with background tasks disabled, so a subagent's report is the result of the Agent
-# call; a session started or restarted by hand has no such setting and its subagents run in the background,
-# where ending the turn is how the agent waits (ADR 0017). The truthy set is the one Claude Code itself applies to a
+# The controller starts a session with background tasks disabled, so a subagent's report is the result of the
+# Agent call; a session started by hand has no such setting and its subagents run in the background, where
+# ending the turn is how the agent waits (ADR 0017). The truthy set is the one Claude Code itself applies to a
 # boolean environment variable (2.1.278: whitespace removed, lowercased, then matched against 1, true, yes, on).
 case "$(printf '%s' "${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
   1|true|yes|on) wf_kv subagents "foreground" ;;
   *) wf_kv subagents "background" ;;
 esac
 
-# A handoff is pending once the SessionStart hook has injected its note into a fresh context (ADR 0029):
-# this line is how that context's driver learns which stage it starts at, the stages before it having run
-# in a context that is gone. Nothing is printed without a handoff, and nothing while the note is still on
-# its way to the next context, where it would describe this one instead of it. The next handoff replaces
-# the record, and the worktree takes the last one with it.
-if state=$(wf_state_dir 2>/dev/null) && [ -f "$state/handoff" ] && [ -n "$(wf_record_field "$state/handoff" injected)" ]; then
-  wf_kv resume_stage "$(wf_record_field "$state/handoff" stage)"
+# The controller marks every session it starts with WF_CONTROLLER=1 (ADR 0063). A skill that needs it reads
+# this line and, without it, says the line to the user and stops, rather than failing somewhere later.
+if [ "${WF_CONTROLLER:-}" = 1 ]; then
+  wf_kv controller "present"
+else
+  wf_kv controller "absent; this skill needs the ameise controller, which runs its stages: start it with 'ameise', add this repository as a project and start the process from its dashboard"
 fi

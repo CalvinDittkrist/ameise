@@ -20,10 +20,6 @@ export const knobs = [
   'WF_CI_REPAIR_ROUNDS',
   'WF_PR_BOT_REVIEWERS',
   'WF_PR_REVIEW_WAIT',
-  'WF_HANDOFF_TOKENS',
-  'WF_CONTEXT_MAX_AGE',
-  'WF_HANDOFF_SESSION_MS',
-  'WF_HANDOFF_POLL_SECONDS',
   'WF_DOCS_TIMEOUT',
   'WF_GATE',
   'WF_GATE_ROUNDS',
@@ -35,7 +31,7 @@ export const knobs = [
 export const modes = ['manual', 'yolo'] as const
 export type Mode = (typeof modes)[number]
 
-const envShape = 'an override is NAME=VALUE, such as WF_HANDOFF_TOKENS=5000; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
+const envShape = 'an override is NAME=VALUE, such as WF_REVIEW_ROUNDS=5; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
 
 // overrides reads the knob overrides of a claim, each NAME=VALUE, into the names and values they set.
 // It refuses a malformed override, a name that is no knob and a name given twice, before anything is

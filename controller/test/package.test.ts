@@ -55,7 +55,7 @@ test('the package carries the build, the bundled plugins and the scripted gh and
       'fake/claude',
       'dist/LICENSE',
       'dist/plugins/worker/.claude-plugin/plugin.json',
-      'dist/plugins/worker/skills/work/SKILL.md',
+      'dist/plugins/worker/skills/hunt-tests/SKILL.md',
       'dist/plugins/planner/.claude-plugin/plugin.json',
       'dist/plugins/repo-standards/.claude-plugin/plugin.json',
     ]),
