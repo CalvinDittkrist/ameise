@@ -26,7 +26,7 @@
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
-#   blocked <message>   it reports blocked with the message as its question
+#   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -184,18 +184,18 @@ while next; do
       start=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
       text 'Working on it.'
       play || break
+      commits=''
+      if [ -n "$start" ]; then
+        while IFS= read -r c; do
+          if [ -n "$c" ]; then commits="$commits${commits:+,}$(json "$c")"; fi
+        done < <(git log --reverse --format='%h %s' "$start..HEAD" 2>/dev/null)
+      fi
       case "$word" in
         complete)
-          commits=''
-          if [ -n "$start" ]; then
-            while IFS= read -r c; do
-              if [ -n "$c" ]; then commits="$commits${commits:+,}$(json "$c")"; fi
-            done < <(git log --reverse --format='%h %s' "$start..HEAD" 2>/dev/null)
-          fi
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")}}"
           exit 0 ;;
         ready | blocked)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}}"
           # A lingering runtime shrugs off the SDK's TERM as it closes the session.
           trap '' TERM
           while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done
