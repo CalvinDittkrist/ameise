@@ -296,6 +296,7 @@ test("a process page shows the facts, the stages and the session as a conversati
   const markdown = turns.nth(4)
   await expect(markdown.locator(".typeset.typeset-chat")).toHaveCount(1)
   await expect(markdown.locator("strong")).toHaveText("both forms")
+  await expect(markdown.locator(".typeset-scroll > table")).toHaveCount(1)
   await expect(markdown.getByRole("table").getByRole("row")).toHaveText(["FormRemote", "sshgit@github.com:acme/edge-sensors.git", "httpshttps://github.com/acme/edge-sensors.git"])
   await expect(markdown.getByRole("list").getByRole("listitem")).toHaveText(["Owner and name come from the path", "A trailing .git is dropped"])
   await expect(markdown.locator("pre code")).toHaveText("const { owner, name } = parseRemote(url)")
@@ -321,7 +322,7 @@ test("a session's raw HTML and links of other schemes read as text, and the line
     project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/80-quote-the-feed", issue: 80,
     stage: "implement", state: "blocked", note: "Which **feed** first?", updated_at: new Date().toISOString(),
   }))
-  const text = "Quoting <b>the feed</b> as <img src=x onerror=alert(1)> [run it](javascript:alert(1)), [write](mailto:ops@acme.dev) or [go](/#project=x)."
+  const text = "Quoting <b>the feed</b> as <img src=x onerror=alert(1)> [run it](javascript:alert(1)), [write](mailto:ops@acme.dev) or [go](/#project=x) ![the diagram](https://acme.dev/feed.png)."
   writeFileSync(log, [
     { event: "session-start", stage: "implement" },
     { event: "stream", message: { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text }] } } },
@@ -331,7 +332,7 @@ test("a session's raw HTML and links of other schemes read as text, and the line
     await page.goto(url("/#process=p80"))
     const conversation = main(page).getByLabel("Conversation")
     const said = conversation.getByRole("article", { name: "Session" })
-    await expect(said).toHaveText("Quoting <b>the feed</b> as <img src=x onerror=alert(1)> run it, write or go.")
+    await expect(said).toHaveText("Quoting <b>the feed</b> as <img src=x onerror=alert(1)> run it, write or go the diagram.")
     await expect(said.locator("b, img, a")).toHaveCount(0)
     await expect(conversation.getByRole("note")).toHaveText("Reported blocked: Which **feed** first?")
     await expect(main(page).getByLabel("Note")).toHaveText("Which **feed** first?")

@@ -164,7 +164,7 @@
     }
 }
 
-/* The rhythm of the chat's bubbles, as the typeset documentation suggests for chat. */
+/* The rhythm of the chat's bubbles: a tighter flow and leading than the typeset's defaults. */
 @layer components {
     .typeset-chat {
         --typeset-flow: 1em;

@@ -2,7 +2,7 @@ import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 
-// A link leaves the dashboard for http and https alone, in a new tab that learns nothing of it. Any
+// A link leaves the dashboard for http and https alone, in a new tab without opener or referrer. Any
 // other scheme, and a link relative to the dashboard, reads as its text. An image reads as its
 // alternative text, so a turn loads nothing from elsewhere. A table scrolls sideways in its bubble
 // rather than squeezing its columns.
