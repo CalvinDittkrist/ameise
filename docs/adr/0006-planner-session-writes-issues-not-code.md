@@ -1,7 +1,7 @@
 # 0006. Planning is its own session that writes issues, not code
 
 Date: 2026-09-17
-Status: accepted
+Status: amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md): the controller's github tools do what `issue.sh` and `labels.sh` did
 
 ## Context
 - The pipeline consumed GitHub issues, but nothing produced good ones.
