@@ -145,6 +145,11 @@ export interface WorkRecord extends CreatedRecord {
   env: Record<string, string>
   // hold says the next complete report of the implement session keeps it open instead of starting the gate.
   hold?: boolean
+  // held says the implement session reported complete under a hold and waits for the maintainer's next
+  // message, with no session running.
+  held?: boolean
+  // fixing says the gate's work is a fix session, not the gate command, so a resume goes on with it.
+  fixing?: boolean
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }

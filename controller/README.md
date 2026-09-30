@@ -136,7 +136,7 @@ The brief names the issue, the branch, its base and the `gh` and `git` reads the
 - The session reports through a structured result: `complete` with its commits, or `blocked` with the question, each with a message.
   - `complete` starts the [gate stage](#gate-stage) once its runtime has exited, unless the process is held.
   - `blocked` ends the process `blocked` with the question as the note.
-- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process turns `input`.
+- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process turns `input`, which a restart keeps.
   - The next message resumes the session, whose next `complete` starts the gate.
 - Every session's end is an attempt in the record's `history`: `{stage, kind: "session", result, session_id, commits, note, at}`.
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
@@ -162,7 +162,7 @@ A merge that conflicts is aborted, and a gate command that fails or runs past it
 
 Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`.
 
-The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason. A message to a process whose gate command runs is refused with `409`. A stop while the gate runs ends its command and marks the process `interrupted`, and a resume runs the gate again.
+The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason. A message to a process whose gate command runs is refused with `409`. A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again. A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.

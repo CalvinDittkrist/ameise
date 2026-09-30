@@ -46,11 +46,13 @@ export function knob(record: WorkRecord, name: string, fallback: number, min = 0
 // gate starts the gate stage of a process once after has settled, as the runtime of the session before
 // it has exited, and answers the record as it runs. A stop ends it and its gate command; the process's
 // history counts the fix sessions it spent since the last implement session.
-export function gate(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve()): WorkRecord {
+// before is the abort of that session, which a stop of the gate aborts too while its runtime exits.
+export function gate(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
   const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: `the gate merges ${record.base} and runs ${command}` }) as WorkRecord | undefined) ?? record
+  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: `the gate merges ${record.base} and runs ${command}`, fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
   event(rt.stateDir, id, { event: 'gate-start', stage: 'gate' })
   const abort = new AbortController()
+  if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
   let own = () => true
   const done = after
     .then(() => (own() ? stage(started, project, rt, abort.signal, () => own()) : undefined))
@@ -147,7 +149,7 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
     return end('failed', `the gate spent its ${rounds} fix session(s): ${what}${tail}`, failure)
   }
   // A fix session is a fresh session: the one before it is in the history, not in its resume.
-  const fixing = attempt(rt.stateDir, id, failure, { session_id: undefined, note: `${what}; fix session ${fixes + 1} of ${rounds}` })
+  const fixing = attempt(rt.stateDir, id, failure, { session_id: undefined, fixing: true, note: `${what}; fix session ${fixes + 1} of ${rounds}` })
   if (!fixing || !own()) return
   begin(fixing, project, rt, fixBrief(fixing, `${project.owner}/${project.name}`, failure, command))
 }

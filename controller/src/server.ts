@@ -149,15 +149,16 @@ export function serve(o: Options): Server {
   }
 
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
-  // it has one, and starts a fresh session otherwise. A process interrupted in its gate runs the gate
-  // again.
+  // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
+  // gate again; one interrupted in a fix session of its gate goes on with that session.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue } = abandonRequest(body)
     const project = await known(body)
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = await resumable(project, o.stateDir, issue)
-    const record = interrupted.stage === 'gate' ? gate(interrupted, project, rt) : begin(interrupted, project, rt)
+    const fix = interrupted.stage === 'gate' && interrupted.fixing === true && interrupted.session_id !== undefined
+    const record = interrupted.stage === 'gate' && !fix ? gate(interrupted, project, rt) : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

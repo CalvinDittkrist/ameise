@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, cli, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, cli, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, script, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -143,13 +143,23 @@ test('a merge of the base that conflicts starts a fix session, and the gate pass
   expect(read(join(done.worktree, 'a.txt'))).toBe('a.txt\n')
 })
 
-test('a fix session that is blocked waits in needs you, and the answer resumes it into the gate', async () => {
+test('a fix session that is blocked waits in needs you with its commits, and the answer resumes it into the gate', async () => {
   gated(dir, 'test -f fixed.txt')
   play(m, 'complete Implemented the board')
-  playGate('blocked Skip the flaky test?')
+  playGate('commit partial.txt\nblocked Skip the flaky test?')
   const r = await claim()
   const blocked = await ended(r.id)
   expect(blocked).toMatchObject({ state: 'blocked', stage: 'gate', note: 'Skip the flaky test?' })
+  expect(blocked.history?.[2]?.commits).toEqual([expect.stringMatching(/partial\.txt$/)])
+  // Open in terminal resumes the fix session as it ran: without the worker's agent.
+  const opened = join(m.root, 'terminal.log')
+  const terminal = join(m.root, 'terminal')
+  script(terminal, `printf '%s\\n' "$1" >> '${opened}'`)
+  writeFileSync(m.config, JSON.stringify({ ...(JSON.parse(read(m.config)) as object), terminal }))
+  expect((await api(m, 'POST', '/api/processes/terminal', { id: r.id })).status).toBe(200)
+  const body = read(read(opened).trim())
+  expect(body).toContain(`'--resume' '${blocked.session_id}'`)
+  expect(body).not.toContain("'--agent'")
   expect(await board()).toMatchObject([{ issue: 144, state: 'blocked', stage: 'gate', note: 'Skip the flaky test?', needs: true, action: 'Answer' }])
 
   playResume('commit fixed.txt\ncomplete Fixed it instead')
@@ -172,6 +182,13 @@ test('a hold keeps the implement session open at its complete, and its next comp
   expect(open).toMatchObject({ state: 'input', stage: 'implement', hold: false, note: expect.stringMatching(/held open/) })
   expect(shape(open)).toEqual(['implement session complete'])
   expect(await board()).toMatchObject([{ issue: 144, state: 'input', stage: 'implement', needs: true, action: 'Continue' }])
+
+  // A restart keeps the held session waiting for the maintainer's message.
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  server = await up()
+  expect(recordOf(r.id)).toMatchObject({ state: 'input', stage: 'implement', note: expect.stringMatching(/held open/) })
 
   playResume('complete Renamed the flag as well')
   expect((await say(r.id, 'Rename the flag too')).body).toMatchObject({ delivered: 'resumed' })
@@ -242,4 +259,35 @@ test('a gate knob that is no whole number ends the process failed with the reaso
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: 'WF_GATE_ROUNDS=abc is not a whole number of at least 0; set it as such, or leave it out for 3' })
   expect(shape(done)).toEqual(['implement session complete'])
+})
+
+test('a gate command that leaves changes passes with changes not committed', async () => {
+  // The machine's PATH has no touch; node writes the file.
+  gated(dir, `${process.execPath} -e 'require("fs").writeFileSync("made.txt", "")'`)
+  play(m, 'complete Implemented the board')
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: expect.stringMatching(/, with changes not committed$/) })
+  expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'pass', dirty: true })
+})
+
+test('a stop while a fix session of the gate runs marks it interrupted, and a resume goes on with that session', async () => {
+  gated(dir, 'test -f fixed.txt')
+  play(m, 'complete Implemented the board')
+  // Without an end the fix session runs until it is stopped.
+  playGate('say Looking into it')
+  const r = await claim()
+  const fixing = await until(r.id, (x) => x.stage === 'gate' && x.state === 'running' && (x.history ?? []).length === 2 && !!x.session_id)
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  expect(recordOf(r.id)).toMatchObject({ state: 'interrupted', stage: 'gate', session_id: fixing.session_id, note: 'the controller stopped while the fix session of its gate ran; resume it to go on' })
+
+  server = await up()
+  playResume('commit fixed.txt\ncomplete Wrote the missing file')
+  expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
+  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'gate' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass'])
+  expect(done.history?.[2]?.session_id).toBe(fixing.session_id)
 })
