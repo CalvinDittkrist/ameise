@@ -53,7 +53,7 @@ Model: the agent file names `fable`; the root README explains why. `spec-checker
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `WF_PLANNER_PERMISSION_MODE` | `auto` | permission mode of the session |
-| `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`, read by the controller from the repository's `.claude/settings.json`, passed as claude's `language` setting; the planner writes English; refuses control characters and overlong values |
+| `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`; issues stay English. The [controller's readme](../../controller/README.md) says how it is read and checked |
 | `WF_CLAUDE_ARGS` | empty | extra flags for every worker and planner, such as `--model` |
 | `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its research subagent, not `spec-checker` |
 | `WF_PLAN`, `WF_PLAN_ISSUE` | set by `/plan` | slug and issue of the planner session |

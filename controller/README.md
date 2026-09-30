@@ -291,7 +291,7 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 
 The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
-`WF_PLANNER_LANGUAGE` in the env block of the checkout's `.claude/settings.json` names the language the planner talks in, such as `german`, as the [planner's readme](../plugins/planner/README.md#configuration) documents it. What the planner writes into issues stays English, and work sessions do not read it. The plan records the value when it opens. A value with a control character, longer than 32 characters or not text is refused with `400` and the reason, before the plan branch is created.
+`WF_PLANNER_LANGUAGE` names the language the planner talks in, such as `german`. The controller reads it from the env block of the checkout's `.claude/settings.json`. The [planner's readme](../plugins/planner/README.md#configuration) documents it. What the planner writes into issues stays English, and work sessions do not read it. The plan records the value when it opens. A value that is not text, is longer than 32 characters or holds a control or format character is refused with `400`. The refusal names the reason and comes before the plan branch is created.
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
