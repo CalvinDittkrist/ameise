@@ -1,7 +1,7 @@
 # 0021. Routing is decided in the planner, and the routing label never stands alone
 
 Date: 2026-09-21
-Status: amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md): the controller's github tools do what `issue.sh` and `labels.sh` did
+Status: accepted; amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)
 
 ## Context
 - The factory host works every open issue with `ready-for-agent` and the routing label `factory` unattended ([ADR 0014](0014-claims-require-ready-for-agent.md) made the first the gate for a claim).

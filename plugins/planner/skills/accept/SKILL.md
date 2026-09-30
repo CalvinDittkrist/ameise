@@ -49,7 +49,7 @@ The spec is $ARGUMENTS, or the issue this session started on (the `issue:` line 
      - An agent's ticket adds the label `factory:spec-run`.
      - A person's ticket takes the label `ready-for-human` in place of `ready-for-agent`.
 
-   - **Accepted deviation.** Write a comment whose first line is exactly `> Accepted deviation (spec acceptance).`, then the deviation and the reason the code is right, and post it on the spec with `comment`.
+   - **Accepted deviation.** Post on the spec with `comment`: first line exactly `> Accepted deviation (spec acceptance).`, then the deviation and why the code is right.
 
      A later acceptance reads it from that first line and does not report the deviation again. Only a comment from someone with write access counts, so post it yourself only when the user asks you to.
    - **No finding.** Write nothing. The item goes into the closing comment as overruled by the maintainer.

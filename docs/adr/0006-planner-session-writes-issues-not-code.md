@@ -1,7 +1,7 @@
 # 0006. Planning is its own session that writes issues, not code
 
 Date: 2026-09-17
-Status: amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md): the controller's github tools do what `issue.sh` and `labels.sh` did
+Status: accepted; amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)
 
 ## Context
 - The pipeline consumed GitHub issues, but nothing produced good ones.
@@ -16,7 +16,7 @@ A `planner` plugin with a main-thread `planner` agent runs as its own session th
 - The topic or issue travels in git's branch description, so a restart needs no state file.
 - The plan branch gets no commit and is never pushed. The worker of the first ticket writes the glossary terms and ADRs the spec lists.
 - Prototype code leaves through `capture-prototype.sh` onto a pushed `prototype/<plan>-<name>` branch.
-- Every planner skill has `disable-model-invocation: true`, so an unused skill costs no context. The user types each stage, such as `/planner:spec`.
+- Every planner skill has `disable-model-invocation: true`, so an unused skill costs no context. The user types each stage.
 - Skills needing the interview mechanics link to the grill skill's file rather than calling the Skill tool.
 - The workflow owns the label vocabulary (`ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`); `labels.sh` creates it.
 - `issue.sh` sets sub-issues and blocking edges through GitHub's native APIs. Rejected requests are closed `wontfix` issues.

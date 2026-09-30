@@ -2,7 +2,7 @@
 
 Planning session for one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools, the controller's github tools and no Skill tool. It requires `gh`, `jq` and `git`.
 
-The planner writes GitHub only through the tools the controller registers in its session (ADR 0059): `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone` and `create_milestone`. A session the controller did not start has none, so it plans but writes nothing to GitHub.
+It writes GitHub only through the controller's tools (ADR 0059): `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
 
 ## Skills
 | Skill | Script or tool | Effect |
@@ -41,11 +41,11 @@ The acceptance rules that no script output states:
 
 Hook: `SessionStart` injects the topic from the branch description `plan.sh` wrote, or the issue text, marked as data. It is silent outside `plan/*` worktrees and in subagents.
 
-Labels the controller's tools own and create in a repository on first use: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `factory:spec-run`, `bug`, `enhancement`.
+Labels the controller's tools create on first use: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `factory:spec-run`, `bug`, `enhancement`.
 
 - `factory` is the routing label. The ticket and triage stages ask per ticket, following `skills/tickets/routing.md`.
 - `factory:spec-run` is the spec-run label. In a spec run the spec and its agent tickets carry it.
-- `create_issue` and `set_labels` refuse a set that leaves `factory` without `ready-for-agent` or next to `ready-for-human`, and a label that is neither in the vocabulary nor in the repository.
+- `create_issue` and `set_labels` refuse a set that leaves `factory` without `ready-for-agent` or next to `ready-for-human`, and an unknown label.
 - They refuse `factory:spec-run` next to `factory` or `ready-for-human`, or on a non-spec whose parent lacks it.
 - Sub-issues and blocking edges use GitHub's native APIs and fall back to body text.
 
