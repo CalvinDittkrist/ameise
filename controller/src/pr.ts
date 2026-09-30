@@ -3,7 +3,8 @@
 // and body from the diff, the commits and the issue. It appends the verification section: the gate
 // result, the review panel, and the reviewers that did not pass when the panel failed. It opens the pull
 // request against the base, never as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a
-// review. A pull request of the branch that is open already, as for a follow-up, is pushed to and kept.
+// review. A pull request of the branch into the base that is open already, as for a follow-up, is pushed
+// to, asked of the bots and kept.
 // The opening is an attempt in the record's history, and the ci stage (ci.ts) follows. A push, an author
 // session or a gh pr create that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
@@ -65,13 +66,17 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const commit = await git(record.worktree, 'rev-parse', 'HEAD')
   const now = () => new Date().toISOString()
 
-  // A pull request of the branch that is open already takes the push, and a new one is not opened.
-  const found = await openPull(rt.gh, repo, record.branch).catch((err: Error) => {
+  const base = record.base.replace(/^origin\//, '')
+  // A pull request of the branch into its base that is open already takes the push, and a new one is not
+  // opened. The bot reviewers are asked of it as of a new one.
+  const found = await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
     event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
     return undefined
   })
   if (!own()) return
   if (found) {
+    await askBots(rt, id, repo, found.number, bots)
+    if (!own()) return
     const a: Attempt = { stage: 'pr', kind: 'open', result: 'found', at: now(), commit, pr: found.number, url: found.url }
     event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'found', pr: found.number, url: found.url })
     const next = attempt(rt.stateDir, id, a, { pull: found })
@@ -88,7 +93,7 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   let url: string
   try {
     writeFileSync(file, body)
-    url = await run(rt.gh, ['pr', 'create', '--repo', repo, '--base', record.base.replace(/^origin\//, ''), '--head', record.branch, '--title', title, '--body-file', file])
+    url = await run(rt.gh, ['pr', 'create', '--repo', repo, '--base', base, '--head', record.branch, '--title', title, '--body-file', file])
   } catch (err) {
     return fail(`could not open the pull request of ${record.branch}: ${(err as Error).message}`)
   } finally {
@@ -99,12 +104,7 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const pull: Pull = { number, url: url.trim() }
   if (!own()) return
 
-  // Each bot reviewer is asked on its own, so one GitHub will not take leaves the others asked.
-  for (const login of bots) {
-    await run(rt.gh, ['pr', 'edit', String(number), '--repo', repo, '--add-reviewer', login]).catch((err: Error) => {
-      event(rt.stateDir, id, { event: 'pr-note', note: `could not ask ${login} for a review of PR #${number}: ${err.message}` })
-    })
-  }
+  await askBots(rt, id, repo, number, bots)
   if (!own()) return
   const a: Attempt = { stage: 'pr', kind: 'open', result: 'opened', at: now(), commit, pr: number, url: pull.url, note: title }
   event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'opened', pr: number, url: pull.url })
@@ -112,16 +112,27 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   if (next && own()) ci(next, project, rt)
 }
 
-// openPull is the open pull request of the branch in the repository, not a fork's of the same name, or
-// undefined when there is none.
-async function openPull(gh: string, repo: string, branch: string): Promise<Pull | undefined> {
-  const list = JSON.parse(await run(gh, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', '100', '--json', 'number,headRefName,isCrossRepository,url'])) as {
+// askBots asks each bot reviewer for a review of the pull request on its own, so one GitHub will not
+// take leaves the others asked.
+async function askBots(rt: Runtime, id: string, repo: string, number: number, bots: string[]): Promise<void> {
+  for (const login of bots) {
+    await run(rt.gh, ['pr', 'edit', String(number), '--repo', repo, '--add-reviewer', login]).catch((err: Error) => {
+      event(rt.stateDir, id, { event: 'pr-note', note: `could not ask ${login} for a review of PR #${number}: ${err.message}` })
+    })
+  }
+}
+
+// openPull is the open pull request of the branch into the base in the repository, not a fork's of the
+// same name nor one into another base, or undefined when there is none.
+async function openPull(gh: string, repo: string, branch: string, base: string): Promise<Pull | undefined> {
+  const list = JSON.parse(await run(gh, ['pr', 'list', '--repo', repo, '--state', 'open', '--limit', '100', '--json', 'number,headRefName,baseRefName,isCrossRepository,url'])) as {
     number: number
     headRefName: string
+    baseRefName?: string
     isCrossRepository?: boolean
     url: string
   }[]
-  const p = list.find((x) => x.headRefName === branch && !x.isCrossRepository)
+  const p = list.find((x) => x.headRefName === branch && x.baseRefName === base && !x.isCrossRepository)
   return p ? { number: p.number, url: p.url } : undefined
 }
 
