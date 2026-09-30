@@ -96,6 +96,6 @@ Terms the code, the issues and the docs use, one row each.
 | test hunt | One run of `/worker:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
 | hunter | The read-only subagent `test-hunter` of a test hunt, with no shell, that reads one share of at most 1500 lines and replies with candidates. |
 | candidate | One hunter line: `candidate: <path> \| <test> \| <category> \| <reason> \| <confidence>` ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)). |
-| hunt record | The rounds, removals and kept candidates of a test hunt, kept by `hunt.sh` in the worktree's git directory; it stands in for the issue. |
+| hunt record | The rounds, removals and kept candidates of a test hunt, kept by `hunt.sh` in the worktree's git directory and copied into the hunt process's record; it stands in for the issue. |
 
 A retired term names a part of the local workflow that the controller replaces. The factory keeps the same facts in its run record.

@@ -51,11 +51,13 @@ This repository holds the local workflow, a controller with plugins, and the fac
 7. Yolo mode: the process merges itself once CI is green and its panel passed.
 
 ### Test hunt
-1. A hunt runs on a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`. The skill needs the controller and says so without it.
+1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`. The skill needs the controller and says so without it.
+   - It refuses while a hunt branch exists here or on origin, or while the base has no test file.
 2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
-4. A round without a new candidate ends the hunt. Review, pull request and CI follow, with `hunt.sh print` instead of the issue.
-5. A hunt that removed nothing reports `hunt: nothing removed` without a pull request.
+4. A round without a new candidate ends the hunt. The controller keeps the hunt record (`hunt.sh json`) in the process record.
+5. The gate, review, pull request and CI follow, with `hunt.sh print` instead of the issue.
+6. A hunt that removed nothing opens no pull request: the process turns `done` and says so, and a finish removes it.
 
 ### Standardisation
 1. `/repo-standards:standardize` injects `facts.sh`, runs `workspace.sh` as a dry run and launches the six auditors in parallel, changing nothing.
@@ -104,7 +106,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.
 - Plugins share no code; `lib.sh` is duplicated on purpose.
 - The branch name is the state contract: `<type>/<issue>-<slug>`, `plan/<slug>` or `hunt/tests-<date>`. The rest is derived from git and GitHub, so a crashed session resumes.
-- A local process's facts live in the controller's state directory; the hunt record lives in the worktree's git directory.
+- A local process's facts live in the controller's state directory. The hunt record lives in the worktree's git directory, and the process record keeps a copy of it.
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
