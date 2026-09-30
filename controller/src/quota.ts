@@ -1,12 +1,16 @@
-// The quota: how much of each runtime's subscription is left, as the configured quota-axi reads it. A
-// work process spends the runtimes named below, and the board shows each with its reset, marked when it
-// is below the configured minimum. The quota informs a claim and never holds one: a reading that cannot
-// be had is unknown, and a claim below the minimum goes on with a warning.
+// The quota: how much of each runtime's subscription is left, as the configured quota-axi reads it. The
+// board shows each runtime named below with its reset, marked when it is below the configured minimum.
+// The quota informs a claim and never holds one: a reading that cannot be had is unknown, and a claim
+// with Claude below the minimum goes on with a warning.
 import { type ChildProcess, spawn } from 'node:child_process'
 
-// runtimes are the runtimes a work process spends, as quota-axi names its providers. The implement
-// session runs on Claude Code, and the worker's pipeline runs inside that session.
-export const runtimes = ['claude']
+// runtimes are the runtimes the quota reads, as quota-axi names its providers, in the order it answers
+// them: Claude, which a work process spends, then Codex.
+export const runtimes = ['claude', 'codex']
+
+// claimRuntime is the runtime a claim reads and warns of. Every stage session of a work process runs on
+// Claude Code, so a work process spends Claude alone.
+export const claimRuntime = 'claude'
 
 // schema is the version of quota-axi's JSON report this reading is written against, the factory's own.
 const schema = 5
@@ -23,8 +27,10 @@ export type Reading =
   | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
   | { runtime: string; known: false; reason: string; below: false }
 
+// A quota with the check switched off says so with off and reads no runtime.
 export interface Quota {
   minimum: number
+  off?: true
   runtimes: Reading[]
 }
 
@@ -120,18 +126,17 @@ function readOne(command: string, runtime: string, minimum: number): Promise<Rea
   })
 }
 
-// readQuota reads every runtime a process spends with the configured command. An empty command is the
-// quota check switched off, and every runtime reads as unknown.
-export async function readQuota(command: string, minimum: number): Promise<Quota> {
-  if (command === '') {
-    return { minimum, runtimes: runtimes.map((runtime) => ({ runtime, known: false, reason: 'no quota_axi is configured', below: false })) }
-  }
-  return { minimum, runtimes: await Promise.all(runtimes.map((r) => readOne(command, r, minimum))) }
+// readQuota reads the runtimes named, every runtime unless told otherwise, with the configured command,
+// all of them at once. An empty command is the quota check switched off, which reads nothing.
+export async function readQuota(command: string, minimum: number, read: string[] = runtimes): Promise<Quota> {
+  if (command === '') return { minimum, off: true, runtimes: [] }
+  return { minimum, runtimes: await Promise.all(read.map((r) => readOne(command, r, minimum))) }
 }
 
-// warnings are what a claim says of a quota below the minimum: one line per runtime below it.
+// warnings are what a claim says of a quota below the minimum: a line when Claude is below it. A runtime
+// the work process does not spend warns no claim, however low it is.
 export function warnings(q: Quota): string[] {
   return q.runtimes
-    .filter((r): r is Extract<Reading, { known: true }> => r.known && r.below)
+    .filter((r): r is Extract<Reading, { known: true }> => r.runtime === claimRuntime && r.known && r.below)
     .map((r) => `${r.runtime} has ${Math.round(r.remaining)}% of its quota left, below the minimum of ${q.minimum}%${r.reset ? `; it resets at ${r.reset}` : ''}`)
 }

@@ -9,7 +9,7 @@ import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
 import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
-import { type Quota, readQuota, runtimes, warnings } from './quota.js'
+import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { type Announce, answer, begin, hold, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
@@ -71,14 +71,14 @@ export function serve(o: Options): Server {
   const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, fake: o.fake, announce }
 
   // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
-  // Like readQuota it never rejects: a file that cannot be read makes every runtime unknown.
-  const quota = async (): Promise<Quota> => {
+  // Like readQuota it never rejects: a file that cannot be read makes every runtime read unknown.
+  const quota = async (read: string[] = runtimes): Promise<Quota> => {
     try {
       const c = readConfig(o.configPath)
-      return await readQuota(c.quota_axi, c.quota_minimum)
+      return await readQuota(c.quota_axi, c.quota_minimum, read)
     } catch (err) {
       const reason = `the configuration cannot be read: ${(err as Error).message}`
-      return { minimum: defaults.quota_minimum, runtimes: runtimes.map((runtime) => ({ runtime, known: false, reason, below: false })) }
+      return { minimum: defaults.quota_minimum, runtimes: read.map((runtime) => ({ runtime, known: false, reason, below: false })) }
     }
   }
 
@@ -129,8 +129,9 @@ export function serve(o: Options): Server {
     const project = await known(body)
     // The quota is read beside the claim and never holds it: the session starts once the claim is
     // done, and the answer waits for the reading no longer than the quota's share allows. Below the
-    // minimum the claim goes on and its answer says so.
-    const reading = quota()
+    // minimum the claim goes on and its answer says so. It reads Claude alone, the one runtime it warns
+    // of, so a slow reading of another runtime takes no warning away.
+    const reading = quota([claimRuntime])
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
     // The claimed process starts its implement session at once; the answer is its record as it runs.

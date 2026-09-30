@@ -93,10 +93,11 @@ export function useBoard(): [Board, () => Promise<void>] {
 
 // A reading of a runtime's quota as GET /api/quota answers it: the percentage left and when the windows
 // that limit it reset, marked below when it is under the configured minimum, or unknown with the reason.
+// A quota whose check is switched off says off and holds no reading.
 export type Reading =
   | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
   | { runtime: string; known: false; reason: string; below: false }
-export type Quota = { state: "loading" } | { state: "failed"; error: string } | { state: "loaded"; minimum: number; runtimes: Reading[] }
+export type Quota = { state: "loading" } | { state: "failed"; error: string } | { state: "loaded"; minimum: number; off?: true; runtimes: Reading[] }
 
 // useQuota reads the quota when the page opens, on focus and every minute. The controller runs the
 // configured quota-axi on each request.
@@ -104,7 +105,7 @@ export function useQuota(): Quota {
   const [quota, setQuota] = useState<Quota>({ state: "loading" })
   const reload = useCallback(async () => {
     try {
-      setQuota({ state: "loaded", ...(await call<{ minimum: number; runtimes: Reading[] }>("GET", "/api/quota")) })
+      setQuota({ state: "loaded", ...(await call<{ minimum: number; off?: true; runtimes: Reading[] }>("GET", "/api/quota")) })
     } catch (err) {
       setQuota({ state: "failed", error: (err as Error).message })
     }
@@ -127,7 +128,11 @@ export function useQuota(): Quota {
 export const QuotaContext = createContext<Quota>({ state: "loading" })
 
 // runtimeName is how the dashboard names a runtime quota-axi names as a provider.
-export const runtimeName = (runtime: string) => (runtime === "claude" ? "Claude" : runtime)
+export const runtimeName = (runtime: string) => ({ claude: "Claude", codex: "Codex" })[runtime] ?? runtime
+
+// claimed is the runtime a claim warns of, as the controller's claim does: a work process spends Claude
+// alone, so a Codex below the minimum warns no claim.
+export const claimed = "claude"
 
 // until is the time to an instant, in its largest whole unit, as age tells the time since one.
 export const until = (at: string, now = Date.now()) => age(new Date(now).toISOString(), Date.parse(at))

@@ -55,7 +55,9 @@ One file per machine: `$XDG_CONFIG_HOME/ameise/config.json`, else `~/.config/ame
 ```
 
 - `listen` is a loopback address; the controller is never reachable from another machine.
-- `quota_axi` names the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage; see [Quota](#quota).
+- `quota_axi` names the quota-axi command by its absolute path; empty switches the quota check off. `quota_minimum` is a percentage. See [Quota](#quota) for the install.
+  - The controller runs the path as one program, without a shell.
+  - A relative path or one with whitespace, such as `npx quota-axi`, stops the start and every later read of the file.
 - `notifications` switches the native notifications on or off. `notifier` names the command they are sent through; empty is the platform's own. See [Notifications](#notifications).
 - `terminal` names the command that opens a session in a terminal window; empty is the platform's own. See [Open in terminal](#open-in-terminal).
 - A project is the absolute path of a checkout, stored as the top of its working tree.
@@ -115,7 +117,7 @@ A claim then:
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
-The claim reads the [quota](#quota) beside these steps, and its session starts without waiting for it. Its answer waits at most two seconds for the reading and carries `quota`: one line per runtime below the minimum, which the CLI prints as a warning. The claim goes on either way.
+The claim reads the [quota](#quota) of Claude beside these steps, and its session starts without waiting for it. Its answer waits at most two seconds for the reading. It carries `quota`: a line when Claude is below the minimum, which the CLI prints as a warning. A work process spends Claude alone, so a Codex below the minimum warns no claim. The claim goes on either way.
 
 In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 
@@ -264,9 +266,19 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
 
 ## Quota
-The controller reads the quota of every runtime a work process spends. That is Claude alone, since every stage session runs on it. It runs `<quota_axi> --provider <runtime> --json` on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
+The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
-A reading is unknown, with the reason, when `quota_axi` is empty, not installed, fails, takes longer than 30 seconds or prints a report it cannot read. An unknown quota warns of nothing and holds no claim.
+A reading is unknown, with the reason, when quota-axi is not installed or fails. So is one that answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
+
+Install quota-axi the way the [factory runbook](../docs/factory-runbook.md) does:
+
+```sh
+npm install -g quota-axi@0.1.49
+command -v quota-axi   # the path for quota_axi
+```
+
+- Configure the absolute path `command -v` printed.
+- `npx quota-axi` does not work: the value is one program, and the configuration refuses a value with whitespace or one that is not absolute.
 
 ## Notifications
 A process that turns `blocked`, `ready` or `failed` gets one native notification: the project, the issue (the branch of a plan without one) and the state as the title, the note as the body. The event log `events.jsonl` records a `turned` event for it.
@@ -303,7 +315,9 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - `409` refuses a process without a session, `502` a terminal that fails.
   - `501` refuses on a platform without a known terminal while no `terminal` is configured.
 - Each of these refuses a malformed id with `400` and an id that is no process with `404`.
-- `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}`. Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
+- `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}` with `claude` then `codex`.
+  - Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
+  - With the check off it is `{minimum, off: true, runtimes: []}`. With a command configured it has no `off`.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.

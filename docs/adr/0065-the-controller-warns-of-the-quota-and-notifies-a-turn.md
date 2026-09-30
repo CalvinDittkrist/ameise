@@ -1,7 +1,8 @@
 # 0065. The controller warns of the quota and notifies a turn
 
 Date: 2026-09-28
-Status: accepted
+Status: accepted, amended
+Amended by: [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) (the quota reads Claude and Codex, a claim warns of Claude alone, and a switched-off check says off)
 Extends: [0038](0038-the-local-workflow-and-the-factory-are-peers.md) (the peers may differ outside the contract fixture)
 
 ## Context
