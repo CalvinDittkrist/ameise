@@ -25,8 +25,10 @@
 #                                          which gh api graphql answers; absent, it has none
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
-#                                          (gh issue close, gh release create, gh pr edit --add-reviewer
-#                                          and gh api --method PATCH always hold)
+#                                          (gh issue close, gh release create and gh api --method PATCH
+#                                          always hold)
+#     repos/<owner>/<name>/unreviewable    present: gh pr edit --add-reviewer fails for it, which holds
+#                                          otherwise
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
@@ -107,6 +109,10 @@ case "$*" in
     if [ -d "$canned/repos/$4/pulls" ]; then cat "${12}" > "$canned/repos/$4/pulls/$n.body"; fi
     printf 'https://github.com/%s/pull/%s\n' "$4" "$n" ;;
   'pr edit '*' --repo '*' --add-reviewer '*)
+    if [ -n "$canned" ] && [ -e "$canned/repos/$5/unreviewable" ]; then
+      printf 'could not request reviewer: %s is not a collaborator\n' "$7" >&2
+      exit 1
+    fi
     printf 'https://github.com/%s/pull/%s\n' "$5" "$3" ;;
   'release create '*' --repo '*)
     printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
