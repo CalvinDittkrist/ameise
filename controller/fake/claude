@@ -28,9 +28,9 @@
 #                       then says the answer
 #   wait                it waits for the next message, then says what it read
 #   commit <file>       it writes the file in its directory and commits it
-#   run <command>       it runs the command in its directory with bash, whatever it exits with, and
-#                       CLAUDE_PLUGIN_ROOT the first --plugin-dir, as a plugin's script sees it; a
-#                       hunt plays the worker's hunt.sh so, as in run bash "$CLAUDE_PLUGIN_ROOT/scripts/hunt.sh" round
+#   run <command>       it runs the command with bash in its directory, whatever it exits with.
+#                       CLAUDE_PLUGIN_ROOT is the first --plugin-dir, as a plugin's script sees it.
+#                       A hunt plays the worker's hunt.sh so, as in run bash "$CLAUDE_PLUGIN_ROOT/scripts/hunt.sh" round
 #   finding <severity> <where> <claim>
 #                       a reviewer's finding, such as finding S2 src/a.ts:3 The limit is off by one
 #   fixed <id> <note>   a fix session of the review fixed the finding of that id; an address-reviews
