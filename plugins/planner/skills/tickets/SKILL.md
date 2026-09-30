@@ -39,6 +39,6 @@ Source: the spec issue named in the argument ($ARGUMENTS), or the spec this sess
        "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" attach <spec> --milestone <vX.Y.Z>
 
 8. Reply with the milestone (or none), the spec's milestone, a line per ticket (number, title, blocked by, routed or not, or who works it in a spec run).
-   - End with `next: the orchestrator claims from the frontier (/orchestrator:board); /planner:finish ends this session`.
+   - End with `next: the controller claims from the frontier on its board; /planner:finish ends this session`.
 
 No em dash character (U+2014) anywhere in the body. Do not close or edit the spec; its milestone is the script's job. Bodies carry no file paths and no code; the prototype exception from the spec applies.

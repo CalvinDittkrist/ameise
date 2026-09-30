@@ -5,8 +5,7 @@
   "enabledPlugins": {
     "worker@ameise": true,
     "planner@ameise": true,
-    "repo-standards@ameise": true,
-    "orchestrator@ameise": true
+    "repo-standards@ameise": true
   },
   "attribution": { "commit": "", "pr": "" },
   "env": {

@@ -419,13 +419,13 @@ class NoNpmPublishTests(unittest.TestCase):
 class WorkflowTriggerTests(unittest.TestCase):
     """Which push starts which workflow. The binaries are built by a factory version tag and the
     package released by a controller version tag, by nothing else, and a milestone tag of the
-    orchestrator still starts nothing at all."""
+    controller's release action still starts nothing at all."""
 
     # One push per kind of ref this repository sees, and the workflows it has to start.
     STARTS = {
         "refs/tags/factory/v0.1.0": {"factory-release"},  # what scripts/release.sh factory creates
         "refs/tags/controller/v0.1.0": {"controller-release"},  # and scripts/release.sh controller
-        "refs/tags/v1.2.3": set(),                        # a milestone the orchestrator releases
+        "refs/tags/v1.2.3": set(),                        # a milestone the controller releases
         "refs/tags/worker--v1.2.3": set(),                # a plugin release of `claude plugin tag`
         "refs/heads/main": {"ci"},
         "refs/heads/feat/61-something": set(),

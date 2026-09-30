@@ -473,7 +473,7 @@ class PrototypeAndFinishTests(PlanWorktree):
         wt.parent.mkdir(parents=True)
         self.git("worktree", "add", "-q", "-b", "plan/offline-mode", str(wt), "main")
         self.git("config", "branch.plan/offline-mode.description", "topic: Offline mode")
-        r = self.run_script(PLANNER / "finish.sh", cwd=wt, HERDR_WORKSPACE_ID="")
+        r = self.run_script(PLANNER / "finish.sh", cwd=wt)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("plan: offline-mode", r.stdout)
         gone = lambda: not wt.exists() and "plan/offline-mode" not in self.git("branch", "--list", "plan/offline-mode")

@@ -61,19 +61,19 @@ class ContextReportTests(unittest.TestCase):
         records.append({**base, "type": "assistant", "uuid": "az", "requestId": "rz",
                         "message": {"role": "assistant",
                                     "content": [{"type": "tool_use", "id": "tz", "name": "Skill",
-                                                 "input": {"skill": "worker:review"}}],
+                                                 "input": {"skill": "worker:docs"}}],
                                     "usage": {"input_tokens": 0, "cache_read_input_tokens": 10000}}})
         return self.write(directory, name, records)
 
-    def test_reports_one_line_per_session_with_stage_contexts_and_tool_mix(self):
+    def test_reports_one_line_per_session_with_peak_context_and_tool_mix(self):
         result = self.report(str(WORKER_SESSION))
         self.assertEqual(result.returncode, 0, result.stderr)
         row = self.row(result.stdout)
         self.assertEqual(row, {
             "session": "f1a7e3aa", "version": "2.1.278", "turns": "9",
-            # The stage contexts are the first turn after the skill was invoked, the peak is the session maximum;
-            # the subagent turn in the fixture carries 900k and must not count as the worker's context.
-            "review": "50.0k", "pr": "80.0k", "peak": "90.0k",
+            # The peak is the session maximum; the subagent turn in the fixture carries 900k and must not
+            # count as the worker's context.
+            "peak": "90.0k",
             # 90 of 180 result characters came from `cat` and `sed -n`; `git log | cat` reads no file.
             "shellread": "50%",
             # Five shell calls: cat, the piped git log, grep, sed and sleep. `grep -rn "sleep"` is not a sleep.
@@ -198,21 +198,33 @@ class ContextReportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("no worker session found", result.stdout)
 
-    def test_a_stage_the_maintainer_types_as_a_slash_command_starts_it(self):
+    def test_a_worker_skill_the_maintainer_types_as_a_slash_command_makes_a_worker_session(self):
         # Claude Code writes a typed command as plain string content, with the command in a marker.
         typed = {"type": "user", "uuid": "ut", "message": {
-            "role": "user", "content": "<command-message>worker:pr</command-message>"
-                                       "<command-name>/worker:pr</command-name>"}}
-        # No skill is named worker:pr-author today, but the agent is; naming it starts no stage.
-        author = {"type": "assistant", "uuid": "aa", "requestId": "ra", "message": {
-            "role": "assistant", "usage": {"input_tokens": 0, "cache_read_input_tokens": 99000},
-            "content": [{"type": "tool_use", "id": "ta", "name": "Skill",
-                         "input": {"skill": "worker:pr-author"}}]}}
+            "role": "user", "content": "<command-message>worker:docs</command-message>"
+                                       "<command-name>/worker:docs</command-name>"}}
         with tempfile.TemporaryDirectory(prefix="wf-report-") as tmp:
-            path = self.shell_session(tmp, ["ls"], extra=[author, typed])
+            records = [json.loads(line) for line in
+                       self.shell_session(tmp, ["ls"], extra=[typed]).read_text().splitlines()]
+            records = [record for record in records
+                       if "Skill" not in json.dumps(record.get("message", {}))]
+            path = self.write(tmp, "0badc0de-0000-4000-8000-000000000006.jsonl", records)
             result = self.report(str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.row(result.stdout)["pr"], "10.0k")
+        self.assertEqual(self.row(result.stdout)["turns"], "1")
+
+    def test_prose_that_names_a_worker_skill_makes_no_worker_session(self):
+        prose = {"type": "user", "uuid": "up", "message": {
+            "role": "user", "content": "run /worker:docs when you need the documentation"}}
+        with tempfile.TemporaryDirectory(prefix="wf-report-") as tmp:
+            records = [json.loads(line) for line in
+                       self.shell_session(tmp, ["ls"], extra=[prose]).read_text().splitlines()]
+            records = [record for record in records
+                       if "Skill" not in json.dumps(record.get("message", {}))]
+            path = self.write(tmp, "0badc0de-0000-4000-8000-000000000006.jsonl", records)
+            result = self.report(str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.rows(result.stdout), [])
 
     def test_a_session_attributed_to_the_worker_plugin_counts_without_a_skill_call(self):
         # A worker whose stages were all invoked before a handover still belongs in the report.
@@ -225,7 +237,7 @@ class ContextReportTests(unittest.TestCase):
             path = self.write(tmp, "0badc0de-0000-4000-8000-000000000007.jsonl", records)
             result = self.report(str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.row(result.stdout)["review"], "-")  # no review stage, but a row
+        self.assertEqual(self.row(result.stdout)["turns"], "1")  # no skill call, but a row
 
     def test_sessions_are_reported_oldest_first(self):
         with tempfile.TemporaryDirectory(prefix="wf-report-") as tmp:

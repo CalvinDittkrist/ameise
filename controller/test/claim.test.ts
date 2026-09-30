@@ -283,10 +283,10 @@ test('a claim refuses a WF_GATE that is no gate form, as an override or in the s
 
 test('a claim records the mode and the accepted overrides on the process', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
-  const r = await claim({ issue: 144, mode: 'yolo', env: ['WF_REVIEWERS=2', 'WF_PR_BOT_REVIEWERS=', 'WF_HANDOFF_TOKENS=a=b'] })
+  const r = await claim({ issue: 144, mode: 'yolo', env: ['WF_REVIEWERS=2', 'WF_PR_BOT_REVIEWERS=', 'WF_DOCS_TIMEOUT=a=b'] })
   expect(r.status).toBe(201)
   const c = r.body as Claimed
-  const env = { WF_REVIEWERS: '2', WF_PR_BOT_REVIEWERS: '', WF_HANDOFF_TOKENS: 'a=b' }
+  const env = { WF_REVIEWERS: '2', WF_PR_BOT_REVIEWERS: '', WF_DOCS_TIMEOUT: 'a=b' }
   expect(c.record).toMatchObject({ mode: 'yolo', env })
   expect(JSON.parse(read(join(m.state, 'processes', `${c.record.id}.json`)))).toMatchObject({ mode: 'yolo', env })
 })

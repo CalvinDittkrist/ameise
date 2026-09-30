@@ -24,7 +24,7 @@ Terms the code, the issues and the docs use, one row each.
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |
 | acceptance | The check of a whole spec against the code on the base branch after its tickets are closed; it ends with gap tickets or the spec closed ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)). |
 | foreground subagent | A subagent whose report is the result of the Agent call, because background tasks are disabled; worker sessions run this way ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). |
-| context report | `scripts/context-report.py`, the maintainer's diagnostic over finished worker sessions: context at stage boundaries, peak, tool mix, sleep calls. Never an input to the pipeline. |
+| context report | `scripts/context-report.py`, the maintainer's diagnostic over finished worker sessions: peak context, tool mix, sleep calls. Never an input to the pipeline. |
 | spec checker | The read-only subagent that judges each checkable statement of a spec during an acceptance. |
 | item | One checkable statement of a spec with its verdict: `item: <section> \| <statement> \| <verdict> \| <evidence> \| <confidence>`. |
 | accepted deviation | A difference between spec and code the maintainer keeps. A writer records it on the spec in a comment that opens with `> Accepted deviation (spec acceptance).` An acceptance does not report it again. |
@@ -66,7 +66,7 @@ Terms the code, the issues and the docs use, one row each.
 | review finding | One structured finding of a reviewer session: severity, path, line, claim, why, fix. `finding` stays the auditor's line. |
 | outcome | How a factory run ended: `ready`, `merged`, `blocked`, `failed`, `timeout`, `lost`, `interrupted`, `cancelled`, `quota`. |
 | remote claim | Creating the issue's branch through the GitHub API, which exactly one claimer wins ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)). |
-| local claim | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the orchestrator's claim of an issue into a Herdr worktree (`/orchestrator:claim`). A claim through the controller replaces it. |
+| local claim | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the orchestrator plugin's claim of an issue into a worktree (`/orchestrator:claim`). A claim through the controller replaces it. |
 | release signal | Removing the assignee from an issue the factory holds, which queues a resumed run. |
 | outage signal | A held run that ended `blocked` or `failed` after the auto mode classifier gave no verdict (`Classifier unavailable`). It queues a resumed run after `outage_wait`, on the one automatic resume an interruption spends. |
 | changes-requested signal | A writer's new review asking for changes on a held issue's pull request, after the last run ended; only the latest counts. It is a mandate: the follow-up run's repair count starts at none. |
@@ -92,8 +92,8 @@ Terms the code, the issues and the docs use, one row each.
 | controller tool | A tool the controller registers in a session for one GitHub write, such as create issue or set labels. It owns the label vocabulary ([ADR 0059](adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)). |
 | contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share (the branch contract, the base branch rule, the gate's draft, the frontier rule, the label vocabulary), as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |
 | local dashboard | The page the controller serves, beside the factory's dashboard. |
-| orchestrator | Retired as a plugin ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the agent in a Herdr pane that claimed issues and opened planning sessions. The controller replaces it. |
-| test hunt | One run of `/orchestrator:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
+| orchestrator | Retired as a plugin ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the agent in a terminal pane that claimed issues and opened planning sessions. The controller replaces it. |
+| test hunt | One run of `/worker:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
 | hunter | The read-only subagent `test-hunter` of a test hunt, with no shell, that reads one share of at most 1500 lines and replies with candidates. |
 | candidate | One hunter line: `candidate: <path> \| <test> \| <category> \| <reason> \| <confidence>` ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)). |
 | hunt record | The rounds, removals and kept candidates of a test hunt, kept by `hunt.sh` in the worktree's git directory; it stands in for the issue. |

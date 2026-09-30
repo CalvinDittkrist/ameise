@@ -1,6 +1,6 @@
 # ameise
 
-Public repository of `ameise`, Claude Code plugins for agent-driven development: an orchestrator that claims GitHub issues into Herdr worktree sessions, a worker pipeline with a fresh-context reviewer panel, and repository standards.
+Public repository of `ameise`, a local controller and Claude Code plugins for agent-driven development: the controller claims GitHub issues into worktree sessions and drives their stages, and the worker, planner and repo-standards plugins carry the skills and agents they run.
 
 Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
@@ -63,7 +63,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Never pipe text with more than one line into `grep -q` when the match decides an action.
   - Read a here-string instead (`grep -qxF -e "$x" <<<"$list"`), or test a command substitution (`[ -z "$(...)" ]`).
   - Under `pipefail` the early exit of `grep -q` can kill the writer with SIGPIPE and turn a match false.
-- Every user-facing behaviour has a test in `tests/` that runs the real script with the `gh`/`herdr` shims in `tests/shims/`.
+- Every user-facing behaviour of a plugin script has a test in `tests/` that runs the real script with the `gh` shim in `tests/shims/`.
 - The factory's behaviour has a Go test in `factory/` that starts the real binary. Tests assert observable behaviour, never grep prompt text.
 - Plugins are self-contained (no shared code across plugin directories); duplicated helpers in `lib.sh` are intentional.
 - The label vocabulary is duplicated the same way, and a test in `tests/test_plugins.py` fails when either copy differs from the contract fixture.
@@ -76,7 +76,6 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 ## Gotchas
 - `claude plugin validate <dir>` validates a manifest, or a skills/agents directory; run it on both (see the `validate` target in the `Makefile`).
 - Skill and agent frontmatter is checked by the runtime; unknown fields fail `--strict`.
-- Herdr commands need `HERDR_ENV=1`; the orchestrator scripts refuse outside Herdr by design.
 - The factory is the one Go part: a module in `factory/` with no dependencies.
   - Its tests start the real binary through one helper, `factoryCommand` in `factory/process_test.go`, and watch it over HTTP and its data directory.
   - On Linux that helper has the kernel kill the binary with the test process, so a `go test` that times out or is killed leaves no factory behind.
@@ -97,5 +96,5 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - A skill's `` !`command` `` runs through the permission system.
   - Forked skills (`context: fork`) fail silently without a matching `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x.sh)` rule.
   - So every injection calls a plugin script and lists it there (tested).
-- This repository develops the plugins, so `.claude/settings.json` enables only `repo-standards@ameise`. `make standard` warns that `orchestrator`, `planner` and `worker` are off.
-  - Sessions load the other plugins from the checkout with `--plugin-dir` (see `scripts/dev-orchestrator.sh`).
+- This repository develops the plugins, so `.claude/settings.json` enables only `repo-standards@ameise`. `make standard` warns that `planner` and `worker` are off.
+  - The controller's sessions load the plugins it bundles from this checkout (`npm --prefix controller run build`); a hand-started session loads one with `--plugin-dir`.

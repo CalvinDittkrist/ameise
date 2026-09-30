@@ -1,7 +1,7 @@
 # 0005. Sandboxing strategy: layered, Docker Sandboxes opt-in
 
 Date: 2026-09-17
-Status: accepted
+Status: accepted; the Docker sandbox flag on claim is superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md), which removes the orchestrator's claim
 
 ## Context
 - Not every repository can run in a container, because of device access or local services.

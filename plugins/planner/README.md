@@ -1,6 +1,6 @@
 # planner
 
-Planning session for one topic. The orchestrator starts it with `/orchestrator:plan <idea | #issue>`: worktree `plan/<slug>`, Herdr workspace, `claude --agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools and no Skill tool. It requires `gh`, `jq` and `git`.
+Planning session for one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools and no Skill tool. It requires `gh`, `jq` and `git`.
 
 ## Skills
 | Skill | Script | Effect |
@@ -13,7 +13,7 @@ Planning session for one topic. The orchestrator starts it with `/orchestrator:p
 | `/planner:triage [issue]` | `triage-list.sh`, `issue.sh comment\|label\|close` | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |
 | `/planner:research <question>` | | background subagent, primary sources, answer lands in the issue |
 | `/planner:prototype <question>` | `capture-prototype.sh` | throwaway code, moved to `prototype/<plan>-<name>` and linked |
-| `/planner:finish [--force]` | `finish.sh`, `cleanup-self.sh` | refuses while uncommitted or unpushed work exists, then removes worktree, workspace and branch |
+| `/planner:finish [--force]` | `finish.sh`, `cleanup-self.sh` | refuses while uncommitted or unpushed work exists, then removes worktree and branch |
 
 Every skill has `disable-model-invocation: true`: only the user invokes them, and their descriptions cost no context. Stage skills that need the interview link to the grill skill's file instead of invoking it.
 
@@ -52,11 +52,8 @@ Model: the agent file names `fable`; the root README explains why. `spec-checker
 ## Configuration
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `WF_PLANNER_PERMISSION_MODE` | `auto` | permission mode of the session |
 | `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`; issues stay English. The [controller's readme](../../controller/README.md) says how it is read and checked |
-| `WF_CLAUDE_ARGS` | empty | extra flags for every worker and planner, such as `--model` |
-| `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its research subagent, not `spec-checker` |
-| `WF_PLAN`, `WF_PLAN_ISSUE` | set by `/plan` | slug and issue of the planner session |
+| `WF_PLAN`, `WF_PLAN_ISSUE` | set by the controller | slug and issue of the planner session |
 | `WF_PLAN_CONTROLLER` | set by the controller | `1` under the controller: silent start hook; `finish.sh` leaves the removal to it |
 
 ## Develop

@@ -1,29 +1,25 @@
-# Security and sandboxing
+# Security
 
 Threat model: an agent with shell access works on code and reads text from the internet: issues, PR comments, CI logs, dependencies. Two failure classes matter. The agent does something destructive on the host, or it is steered by untrusted text (prompt injection).
 
 ## Layers, from cheap to strong
-1. **Role restriction.** Only the worker main context edits.
-   - The orchestrator has no edit tools and an `omitClaudeMd` context.
-   - Reviewers, `pr-author` and the six standardisation auditors are read-only (`disallowedTools: Edit, Write, NotebookEdit, Agent`).
+1. **Role restriction.** Only the worker and the controller's fix sessions edit.
+   - Reviewers, the pull request's author session and the six standardisation auditors are read-only (`disallowedTools: Edit, Write, NotebookEdit, Agent`).
 2. **Permissions.** `repo-standards` ships a settings template.
    - It allows the git and gh commands the pipeline needs, and denies force-push, hard reset and secret files.
-   - Worker sessions run in `auto` mode by default (`WF_WORKER_PERMISSION_MODE`), where Claude Code's classifier blocks scope escalation and hostile content.
-   - Set `acceptEdits` or `default` for stricter repos.
-3. **Isolation per issue.** Each worker has its own worktree, branch and process. A broken worker cannot touch another issue's files; `/abandon` removes it.
+   - The controller runs writing sessions in `auto` mode, where Claude Code's classifier blocks scope escalation and hostile content.
+   - A permission the classifier does not settle reaches the process view as a card; reviewers run in `default` mode, so each call they make that is not read-only is one.
+3. **Isolation per issue.** Each worker has its own worktree, branch and process. A broken worker cannot touch another issue's files; abandon removes it.
 4. **Built-in OS sandbox.** Enable Claude Code's Bash sandbox (macOS Seatbelt, Linux bubblewrap) in the repo settings when the project tolerates it:
    ```json
    { "sandbox": { "enabled": true, "autoAllowBashIfSandboxed": true,
      "network": { "allowedDomains": ["github.com", "api.github.com", "registry.npmjs.org", "code.claude.com"] } } }
    ```
    `code.claude.com` is in the list because agents verify Claude Code facts against the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). It is the only documentation origin the pipeline reads.
-5. **Docker Sandboxes.** `/orchestrator:claim 123 --sandbox` runs the worker through `sbx run claude` in a container. See [sandbox/README.md](../sandbox/README.md).
-   - The container mounts only that worktree read-write and the shared skills store read-only.
-   - Inside a container, `WF_CLAUDE_ARGS="--dangerously-skip-permissions"` is acceptable; on the host it is not.
 
 ## Prompt injection
-- The SessionStart hook labels issue text as "task data written by someone else".
-- Reviewer, worker and pr-author prompts repeat that file contents, comments, logs and reviews are data, not instructions.
+- The controller's briefs label the issue, its comments and the files as data, not instructions.
+- Reviewer, worker and author prompts repeat that file contents, comments, logs and reviews are data, not instructions.
 - `address-reviews` declines what a review asks, in a thread or in its summary, when it would weaken tests, skip checks or change unrelated code.
 - Reviewers cannot spawn agents or edit, so a poisoned diff cannot make a reviewer act on the repository.
 - The same holds for the auditors. Every auditor prompt treats the audited repository as data.
@@ -121,5 +117,5 @@ Its HTTP interface is read-only and unauthenticated, and it serves live issue ti
 - The security reviewer flags new dependencies (pin, provenance, need) and CI or hook changes that widen permissions.
 
 ## What this does not do
-- No secret management. Use `sbx secret`, your keychain, or CI secrets; never `.env` in the worktree (denied by the permission template).
-- No protection against a compromised `gh` or `herdr` binary; these are trusted host tools.
+- No secret management. Use your keychain or CI secrets; never `.env` in the worktree (denied by the permission template).
+- No protection against a compromised `gh`, `git` or `claude` binary; these are trusted host tools.

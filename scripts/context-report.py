@@ -2,8 +2,7 @@
 """Context report: a maintainer diagnostic over finished worker sessions.
 
 It reads Claude Code's session transcripts (JSONL) and prints one line per worker session:
-Claude Code version, turns, the context at the start of the review and of the pull request
-stage, the peak context, the share of tool output that came from reading files through the
+Claude Code version, turns, the peak context, the share of tool output that came from reading files through the
 shell, the number of read, edit, write and shell calls, and the number of sleep calls.
 
 The transcript format is internal to Claude Code and undocumented; this script is written
@@ -167,24 +166,19 @@ def prompt_text(record):
                     if block.get("type") == "text")
 
 
-def invocations(record):
-    """The worker stages this record starts: `review` or `pr`.
+def invokes_worker_skill(record):
+    """Whether this record invokes a `worker:` skill.
 
-    A stage starts when the skill is invoked: by the agent through the Skill tool, or by the
-    maintainer as a slash command, which the transcript marks with `<command-name>`. Prose that
-    merely names the skill does not start it.
+    A skill is invoked by the agent through the Skill tool, or by the maintainer as a slash
+    command, which the transcript marks with `<command-name>`. Prose that merely names the skill
+    does not invoke it. The stages after implement run as sessions of their own under the
+    controller, so a worker session holds no review or pull request stage to measure.
     """
     texts = [json.dumps(block.get("input") or {}) for block in blocks(record.get("message") or {})
              if block.get("type") == "tool_use" and block.get("name") in ("Skill", "SlashCommand")]
     if record.get("type") == "user":
         texts += re.findall(r"<command-name>(.*?)</command-name>", prompt_text(record))
-    found = set()
-    for text in texts:
-        if re.search(r"\bworker:review\b", text):
-            found.add("review")
-        if re.search(r"\bworker:pr\b(?!-)", text):  # not worker:pr-author
-            found.add("pr")
-    return found
+    return any(re.search(r"\bworker:[a-z]", text) for text in texts)
 
 
 def read_records(path):
@@ -262,8 +256,8 @@ def measure(records, path, version):
         "label": next((r["agentName"] for r in records if r.get("type") == "agent-name" and r.get("agentName")),
                       next((r["gitBranch"] for r in records if r.get("gitBranch")), "-")),
     }
-    tools, pending, stages = {"read": 0, "edit": 0, "write": 0, "shell": 0, "sleep": 0}, {}, {}
-    peak, turns, awaiting = 0, set(), set()
+    tools, pending = {"read": 0, "edit": 0, "write": 0, "shell": 0, "sleep": 0}, {}
+    peak, turns = 0, set()
     output_chars, shell_read_chars, calls, answered = 0, 0, 0, 0
     is_worker = any(r.get("attributionPlugin") == "worker" for r in records)
 
@@ -276,9 +270,6 @@ def measure(records, path, version):
             if "input_tokens" in usage:
                 tokens = context_tokens(usage)
                 peak = max(peak, tokens)
-                for stage in awaiting:
-                    stages.setdefault(stage, tokens)
-                awaiting.clear()
                 turns.add(record.get("requestId") or record.get("uuid"))
             for block in blocks(message):
                 if block.get("type") == "tool_use":
@@ -310,10 +301,8 @@ def measure(records, path, version):
                 output_chars += size
                 if name in SHELL_TOOLS and reads_files(command):
                     shell_read_chars += size
-        stage = invocations(record)
-        if stage:
+        if invokes_worker_skill(record):
             is_worker = True
-            awaiting |= stage
 
     if not is_worker:
         return None
@@ -321,8 +310,6 @@ def measure(records, path, version):
     row.update(tools)
     row["turns"] = len(turns)
     row["peak"] = peak
-    row["review"] = stages.get("review")
-    row["pr"] = stages.get("pr")
     row["shellread"] = (shell_read_chars / output_chars) if output_chars else 0.0
     return row
 
@@ -351,8 +338,6 @@ COLUMNS = [
     ("session", lambda row: row["session"]),
     ("version", lambda row: row["version"]),
     ("turns", lambda row: str(row["turns"])),
-    ("review", lambda row: thousands(row["review"])),
-    ("pr", lambda row: thousands(row["pr"])),
     ("peak", lambda row: thousands(row["peak"])),
     ("shellread", lambda row: f"{row['shellread'] * 100:.0f}%"),
     ("read", lambda row: str(row["read"])),
@@ -402,7 +387,7 @@ def main(argv):
             rows.append(row)
     print(f"# context report: a diagnostic over Claude Code's internal session transcript format "
           f"(written against {KNOWN_VERSION}), never an input to the pipeline.")
-    print("# review/pr/peak: context tokens of the first turn of that stage and the session's maximum. "
+    print("# peak: the session's maximum context tokens. "
           "shellread: share of tool output read from files through the shell.")
     if not rows:
         print("# no worker session found")

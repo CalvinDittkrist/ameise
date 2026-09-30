@@ -8,7 +8,7 @@
 #                          refuses every line that does not fit
 #        hunt.sh removed   record the removal the last commit made, its block on stdin
 #        hunt.sh print     the hunt block the reviewer and pull request briefs carry instead of an issue
-# The records live in this worktree's git directory beside the panel and gate records (ADR 0018), and the
+# The records live in this worktree's git directory (ADR 0018), and the
 # numbers below are fixed, never knobs (ADR 0046).
 set -euo pipefail
 # shellcheck source=lib.sh
@@ -250,9 +250,9 @@ case "${1:-}" in
       n=$(rounds); removed=$(printf '%s' "$removal_list" | grep -c . || true)
       wf_kv hunt_round "none; the hunt has ended: $why"
       if [ "$removed" -gt 0 ]; then
-        wf_kv next "$removed test(s) removed in $n round(s): run the worker's gate.sh run, then review, pull request and CI as the hunt skill says"
+        wf_kv next "$removed test(s) removed in $n round(s): report 'hunt: $removed removed' and end the session; the controller runs the gate, review, pull request and CI"
       else
-        wf_kv next "nothing removed in $n round(s): open no pull request and run no review; report 'hunt: nothing removed' with the kept candidates of hunt.sh print and /orchestrator:abandon $(wf_branch) for the maintainer"
+        wf_kv next "nothing removed in $n round(s): report 'hunt: nothing removed' with the kept candidates of hunt.sh print and end the session; the controller opens no pull request for it"
       fi
       exit 0
     fi

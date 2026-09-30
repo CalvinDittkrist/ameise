@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import ORCH, PLANNER, ROOT, STANDARDS, WORKER, ShimTest
+from helpers import PLANNER, ROOT, STANDARDS, WORKER, ShimTest
 
 PLUGINS = sorted(p for p in (ROOT / "plugins").iterdir() if (p / ".claude-plugin/plugin.json").exists())
 
@@ -34,7 +34,6 @@ class ManifestTests(unittest.TestCase):
     def test_agent_models_and_efforts_match_their_role(self):
         """The model and effort of an agent are a decision. A session agent names its own model; every subagent runs on sonnet at its effort and none inherits."""
         sessions = {
-            "orchestrator/agents/orchestrator.md": ("sonnet", "low"),
             "worker/agents/worker.md": ("opus", None),
             "planner/agents/planner.md": ("fable", None),
         }
@@ -46,7 +45,6 @@ class ManifestTests(unittest.TestCase):
             "worker/agents/senior-reviewer.md": "high",
             "worker/agents/test-hunter.md": "high",
             "worker/agents/docs-lookup.md": "high",
-            "worker/agents/pr-author.md": "medium",
             "planner/agents/spec-checker.md": "high",
             "repo-standards/agents/agent-config-auditor.md": "high",
             "repo-standards/agents/docs-auditor.md": "high",
@@ -100,10 +98,21 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue({"Bash", "Edit", "Write", "NotebookEdit", "Agent"} <= set(fields["disallowedTools"].split(", ")))
         self.assertNotIn("mcpServers", fields)
 
-    def test_the_test_hunt_skills_are_user_invoked_only(self):
-        for plugin in ("orchestrator", "worker"):
-            fm = (ROOT / f"plugins/{plugin}/skills/hunt-tests/SKILL.md").read_text().split("---")[1]
-            self.assertIn("disable-model-invocation: true\n", fm, plugin)
+    def test_the_test_hunt_skill_is_user_invoked_only(self):
+        fm = (ROOT / "plugins/worker/skills/hunt-tests/SKILL.md").read_text().split("---")[1]
+        self.assertIn("disable-model-invocation: true\n", fm)
+
+    def test_the_worker_plugin_carries_skills_and_agents_and_no_hook(self):
+        """The controller drives the stages (ADR 0063): the worker plugin holds prompts, and a script only
+        where a skill injects or runs it."""
+        worker = ROOT / "plugins/worker"
+        self.assertFalse((worker / "hooks").exists(), "the worker plugin carries a hooks directory")
+        self.assertNotIn("hooks", json.loads((worker / ".claude-plugin/plugin.json").read_text()))
+        used = set()
+        for skill in worker.glob("skills/*/SKILL.md"):
+            used |= set(re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([\w.-]+)", skill.read_text()))
+        scripts = {p.name for p in (worker / "scripts").glob("*.sh")}
+        self.assertEqual(scripts - {"lib.sh"}, used, "a worker script no skill runs is steering the controller owns")
 
     def test_the_worker_reaches_the_documentation_through_its_script_and_not_through_the_web_tools(self):
         """The worker's main context holds issue text written by someone else, so its own tool list carries
@@ -327,102 +336,25 @@ class LabelVocabularyTests(ShimTest):
     def test_the_planners_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
         self.assert_follows_the_fixture(self.PLANNER_FILE, self.planner_vocabulary(), self.fixture_vocabulary(True))
 
-    def routing_label(self, scripts):
-        """WF_ROUTING_LABEL as the scripts of one plugin read it, sourced outside a git repository."""
-        file = str((scripts / "lib.sh").relative_to(ROOT))
-        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_ROUTING_LABEL"', "_", str(scripts)],
+    def test_the_routing_label_the_planner_sets_is_the_fixtures_and_in_the_vocabulary(self):
+        """The planner routes an issue to the factory by the name in WF_ROUTING_LABEL, and the frontier rule of
+        the contract fixture leaves an issue with that label to the factory; a rename in either would route an
+        issue by a name the peers do not read."""
+        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_ROUTING_LABEL"', "_", str(PLANNER)],
                            cwd=self.base, text=True, capture_output=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(r.stdout.strip(), f"{file} defines no WF_ROUTING_LABEL")
-        return r.stdout.strip()
-
-    def test_the_routing_label_the_local_claim_refuses_is_in_the_vocabulary(self):
-        """claim.sh refuses a routed issue by the name in WF_ROUTING_LABEL, and the planner sets the label by
-        that name; a rename in the vocabulary that leaves either behind would let a local claim take an issue
-        the factory owns, or route an issue by a name the factory never reads."""
-        routing = self.routing_label(ORCH)
-        self.assertEqual(routing, self.routing_label(PLANNER),
-                         "the orchestrator refuses and the planner sets two different routing labels")
+        routing = r.stdout.strip()
+        self.assertEqual(routing, json.loads((ROOT / self.FIXTURE_FILE).read_text())["frontier"]["routing_label"])
         for file, vocabulary in ((self.STANDARDS_FILE, self.standards_vocabulary()),
                                  (self.PLANNER_FILE, self.planner_vocabulary())):
             self.assertIn(routing, [name for name, _, _ in vocabulary],
-                          f"claim.sh refuses the label {routing}, which {file} does not define")
-
-    def test_the_acceptance_looks_up_a_ticket_branch_under_every_type_a_claim_gives_it(self):
-        """accept-facts.sh finds a ticket's pull request by its head branch under each type in the planner's
-        WF_BRANCH_TYPES. A type wf_branch_type gains and the planner lacks hides that ticket's pull request.
-        The types are the printf arms of wf_branch_type, so a new arm fails this test until the planner has it."""
-        source = (ORCH / "lib.sh").read_text()
-        body = re.search(r"^wf_branch_type\(\) \{\n(.*?)^\}", source, re.M | re.S)
-        self.assertIsNotNone(body, "wf_branch_type is missing from the orchestrator's lib.sh")
-        claimed = set(re.findall(r"printf '([a-z]+)\\n'", body.group(1)))
-        self.assertTrue(claimed, "wf_branch_type prints no type this test can read")
-        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_BRANCH_TYPES"', "_", str(PLANNER)],
-                           cwd=self.base, text=True, capture_output=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(claimed, set(r.stdout.split()),
-                         "the orchestrator's wf_branch_type and the planner's WF_BRANCH_TYPES name different types")
-
-
-class WorkerKnobTests(ShimTest):
-    """A claim sets a worker knob for the one session it starts (`--env NAME=VALUE`). The names it accepts are
-    the worker knobs the README's configuration table documents, so the two must not drift: a knob the README
-    gains and the claim does not cannot be set per session, and one the claim gains alone is undocumented."""
-
-    README = ROOT / "README.md"
-    # The four variables of the table a worker reads that a claim does not take: it sets the session's mode
-    # and issue itself, the base branch is what --base is for, and the review mandate is the word of the
-    # driver that starts a session to answer a review: a claim starts a session at the work stage.
-    CLAIM_OWNED = ("WF_MODE", "WF_ISSUE", "WF_BASE_BRANCH", "WF_REVIEW_MANDATE")
-    maxDiff = None
-
-    def accepted_names(self):
-        """The names claim.sh lists when it refuses one it does not accept: the set as a user meets it."""
-        r = self.run_script(ORCH / "claim.sh", "12", "--env", "NOT_A_KNOB=1")
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        listed = re.search(r"Accepted names: (.+)", r.stderr)
-        self.assertTrue(listed, f"claim.sh refused --env without naming the knobs it accepts: {r.stderr}")
-        return sorted(listed.group(1).split())
-
-    def documented_worker_knobs(self):
-        """The variables of the README's configuration table that the worker plugin names anywhere: its
-        scripts read most of them, but a skill or an agent may name one too, and a knob a worker is told
-        about is a knob a claim can set."""
-        rows = [row for row in self.README.read_text().splitlines() if row.startswith("| `WF_")]
-        self.assertTrue(rows, f"no configuration table found in {self.README.name}")
-        documented = {name for row in rows for name in re.findall(r"`(WF_[A-Z0-9_]+)`", row.split("|")[1])}
-        read = set()
-        for path in sorted(WORKER.parent.rglob("*")):
-            if path.is_file() and path.suffix in (".sh", ".md", ".json"):
-                read |= set(re.findall(r"WF_[A-Z0-9_]+", path.read_text()))
-        return sorted((documented & read) - set(self.CLAIM_OWNED))
-
-    def readme_list(self):
-        """The names the README's configuration section tells a maintainer to use with --env."""
-        listed = re.search(r"Accepted names: ((?:`WF_[A-Z0-9_]+`(?:, )?)+)", self.README.read_text())
-        self.assertTrue(listed, f"{self.README.name} does not name the knobs --env accepts")
-        return sorted(re.findall(r"`(WF_[A-Z0-9_]+)`", listed.group(1)))
-
-    def test_the_claim_accepts_exactly_the_documented_worker_knobs(self):
-        knobs = self.documented_worker_knobs()
-        self.assertTrue(knobs, f"no worker knob named in {WORKER.parent.relative_to(ROOT)} "
-                               f"and {self.README.name}")
-        self.assertEqual(self.accepted_names(), knobs,
-                         f"the names claim.sh accepts for --env and the worker knobs of the configuration "
-                         f"table in {self.README.name} (minus {', '.join(self.CLAIM_OWNED)}, which a claim "
-                         f"sets itself) differ. Whichever of the two changed, the other has to follow; do "
-                         f"not adjust this test.")
-        self.assertEqual(self.readme_list(), knobs,
-                         f"the names {self.README.name} lists for --env are not the worker knobs of its own "
-                         f"configuration table")
+                          f"the planner routes by the label {routing}, which {file} does not define")
 
 
 class TestFileRuleTests(ShimTest):
-    """The orchestrator refuses a hunt in a repository without test files and the worker splits the test files
-    among its hunters: both read them by the same rule, duplicated in the two plugins' lib.sh, and they must
-    find the same files."""
+    """The worker splits the test files among its hunters by the fixed conventions of a test hunt."""
 
-    def test_the_two_copies_of_the_test_file_rule_find_the_same_files(self):
+    def test_the_test_file_rule_finds_the_test_files_and_skips_the_rest(self):
         for name in ("tests/test_a.py", "tests/helpers.py", "tests/shim", "tests/fixtures/test_b.py", "spec/x_spec.rb",
                      "a/b_test.go", "a/b.go", "c/d_test.py", "ui/e.test.ts", "ui/f.spec.jsx", "ui/g.ts",
                      "vendor/h_test.go", "node_modules/i.test.js", "testdata/test_j.py", "k/__snapshots__/l.test.js"):
@@ -430,31 +362,11 @@ class TestFileRuleTests(ShimTest):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("")
         self.git("add", "."); self.git("commit", "-qm", "files")
-        found = {}
-        for plugin in ("orchestrator", "worker"):
-            lib = ROOT / f"plugins/{plugin}/scripts/lib.sh"
-            r = subprocess.run(["bash", "-c", f'. "{lib}"; git ls-files | wf_test_paths; printf "%s" "$wf_test_file_rule"'],
-                               cwd=self.repo, env=self.env(), capture_output=True, text=True)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            found[plugin] = r.stdout
-        self.assertEqual(found["orchestrator"], found["worker"])
-        self.assertEqual(found["worker"].splitlines()[:-1], [
+        r = subprocess.run(["bash", "-c", f'. "{WORKER / "lib.sh"}"; git ls-files | wf_test_paths'],
+                           cwd=self.repo, env=self.env(), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [
             "a/b_test.go", "c/d_test.py", "spec/x_spec.rb", "tests/helpers.py", "tests/test_a.py", "ui/e.test.ts", "ui/f.spec.jsx"])
-
-
-class ContextValueContractTests(ShimTest):
-    """The context value file is the only thing the orchestrator and the worker share (ADR 0020): the status
-    line of the pane writes it, the worker's checkpoint reads it, and no code crosses between the plugins."""
-
-    def test_the_status_line_writes_what_the_checkpoint_reads(self):
-        payload = json.dumps({"cwd": str(self.repo), "context_window": {"total_input_tokens": 130000, "context_window_size": 200000}})
-        written = self.run_script(ORCH / "statusline.sh", stdin=payload, WF_ISSUE="12", WF_MODE="manual")
-        self.assertEqual(written.returncode, 0, written.stderr)
-        self.assertIn("130k/200k", written.stdout)
-        read = self.run_script(WORKER / "checkpoint.sh", WF_ISSUE="12")
-        self.assertEqual(read.returncode, 0, read.stderr)
-        self.assertIn("context_tokens: 130000", read.stdout)
-        self.assertIn("handoff: yes", read.stdout)
 
 
 if __name__ == "__main__":

@@ -47,6 +47,28 @@ test.each(fixture.cases.map((c, i) => [c.name, c, i] as const))('the base follow
   expect(added).toEqual({ status: 201, body: { path: dir, owner: 'owner', name: `repo-${i}`, base: c.base } })
 })
 
+// The shared fixture states the same rule for both peers, with an empty field for a step that answers nothing.
+interface SharedCase {
+  case: string
+  explicit: string
+  origin_head: string
+  github_default: string
+  base: string
+}
+const shared = JSON.parse(read(fileURLToPath(new URL('../../contract/fixture.json', import.meta.url)))) as { base_branch: { cases: SharedCase[] } }
+
+test.each(shared.base_branch.cases.map((c, i) => [c.case, c, i] as const))('the base follows the shared contract fixture: %s', async (_, c, i) => {
+  const repository = `owner/shared-${i}`
+  const dir = checkout(m, `shared-${i}`, {
+    origin: `https://github.com/${repository}.git`,
+    ...(c.explicit === '' ? {} : { declared: c.explicit }),
+    ...(c.origin_head === '' ? {} : { originHead: c.origin_head }),
+  })
+  if (c.github_default !== '') canRepo(m, repository, c.github_default)
+  const added = await api(m, 'POST', '/api/projects', { path: dir })
+  expect(added).toEqual({ status: 201, body: { path: dir, owner: 'owner', name: `shared-${i}`, base: c.base } })
+})
+
 test('adding a project through the CLI and the API writes its path alone into the configuration and touches nothing else', async () => {
   const a = checkout(m, 'a', { origin: 'git@github.com:owner/a.git', originHead: 'main' })
   const b = checkout(m, 'b', { origin: 'https://github.com/owner/b', originHead: 'trunk' })

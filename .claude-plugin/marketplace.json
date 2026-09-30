@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "ameise",
-  "description": "Agentic development workflows: orchestrator, worker pipeline, reviewers, repo standards.",
+  "description": "Agentic development workflows: worker and reviewer agents, planner, repo standards.",
   "owner": {
     "name": "Calvin Dittkrist",
     "url": "https://github.com/CalvinDittkrist"
@@ -10,18 +10,6 @@
     "pluginRoot": "./plugins"
   },
   "plugins": [
-    {
-      "name": "orchestrator",
-      "source": "./plugins/orchestrator",
-      "description": "Coordinator session: /plan, /claim, /yolo-claim, /merge, /board, /abandon, /release over Herdr worktree workspaces.",
-      "category": "workflow",
-      "keywords": [
-        "herdr",
-        "worktree",
-        "orchestration",
-        "github"
-      ]
-    },
     {
       "name": "planner",
       "source": "./plugins/planner",
@@ -37,7 +25,7 @@
     {
       "name": "worker",
       "source": "./plugins/worker",
-      "description": "Issue worker pipeline: implement, independent reviewer panel, PR in fresh context, CI and review-comment loop.",
+      "description": "Worker skills and agents: the issue worker, the fresh-context reviewer panel, the test hunt and the Claude Code documentation lookup; the ameise controller drives the stages.",
       "category": "workflow",
       "keywords": [
         "review",

@@ -1,6 +1,6 @@
 ---
 name: finish
-description: End the planning session. Refuses while work would be lost, then removes this worktree, workspace and branch.
+description: End the planning session. Refuses while work would be lost, then removes this worktree and branch.
 disable-model-invocation: true
 argument-hint: [--force]
 ---

@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# Test shim for sbx (Docker Sandboxes): logs calls. A claim only checks that sbx is on PATH; the sandbox
-# itself is started by sbx-worker.sh inside the pane, which the herdr shim records instead of running.
-# SHIM_SBX_LS is what `sbx ls` prints: the sandboxes that exist already.
-printf 'sbx %s\n' "$*" >> "${SHIM_LOG:-/dev/null}"
-{ printf 'sbx'; for a in "$@"; do printf '\037%s' "${a//$'\n'/$'\036'}"; done; printf '\n'; } >> "${SHIM_ARGV_LOG:-/dev/null}"
-if [ "${1:-}" = ls ]; then printf '%s\n' "${SHIM_SBX_LS:-}"; fi
-exit 0

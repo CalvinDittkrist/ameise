@@ -5,9 +5,9 @@ wf_warn() { printf 'warning: %s\n' "$*" >&2; }
 wf_kv() { printf '%s: %s\n' "$1" "$2"; }
 wf_need() { command -v "$1" >/dev/null 2>&1 || wf_die "$1 is required but not on PATH"; }
 wf_branch() { git rev-parse --abbrev-ref HEAD 2>/dev/null || true; }
-# Planning branches are plan/<slug>; the slug is the only state contract with the orchestrator.
+# Planning branches are plan/<slug>; the slug is the only state contract with the session's driver.
 wf_plan_slug() { printf '%s\n' "$(wf_branch)" | sed -nE 's#^plan/(.+)$#\1#p'; }
-# The topic or issue travels in git's branch description (set by the orchestrator's plan.sh).
+# The topic or issue travels in git's branch description (set by the controller's plan process).
 wf_plan_desc() { git config "branch.$(wf_branch).description" 2>/dev/null || true; }
 wf_plan_issue() {
   if [ -n "${WF_PLAN_ISSUE:-}" ]; then printf '%s\n' "$WF_PLAN_ISSUE"; else wf_plan_desc | sed -nE 's/^issue: #([0-9]+).*/\1/p' | head -n 1; fi
@@ -34,10 +34,6 @@ wf_slug() {
     | sed -e 's/ä/ae/g; s/ö/oe/g; s/ü/ue/g; s/Ä/ae/g; s/Ö/oe/g; s/Ü/ue/g; s/ß/ss/g' \
     | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40 | sed -E 's/-+$//'
 }
-wf_notify() {
-  [ "${HERDR_ENV:-}" = 1 ] || return 0
-  herdr notification show "$1" --body "${2:-}" --sound "${3:-done}" >/dev/null 2>&1 || true
-}
 # An issue number with an optional leading #, or a refusal naming what was passed.
 wf_issue_num() { local n="${1#\#}"; printf '%s' "$n" | grep -Eq '^[0-9]+$' || wf_die "issue must be a number, got '$1'"; printf '%s' "$n"; }
 # GitHub's numeric database id of issue $1 (dependency and sub-issue APIs want it, not the number).
@@ -46,7 +42,7 @@ wf_issue_db_id() { gh api "repos/$(wf_repo_nwo)/issues/$1" --jq .id 2>/dev/null;
 # --- Routing to the factory ---
 
 # The factory's routing label, as the label vocabulary defines it (labels.sh). The factory host works an issue
-# that carries it unattended, with no Herdr, no screen and nobody to ask, so the planner decides per ticket
+# that carries it unattended, with no screen and nobody to ask, so the planner decides per ticket
 # whether it is routed, and issue.sh (create and label) is the only script that puts the label on an issue.
 WF_ROUTING_LABEL=factory
 # True when the label set $2... contains the name $1. The names come from GitHub, so -e keeps one that opens
@@ -109,7 +105,7 @@ wf_issue_labels() {
 
 # --- The acceptance of a spec (accept-facts.sh, accept-close.sh, accept-due.sh) ---
 
-# The branch types a claim gives an issue's branch (wf_branch_type in the orchestrator's lib.sh). The
+# The branch types a claim gives an issue's branch (branchType in the controller's claim.ts). The
 # acceptance tries them in turn to find a ticket's pull request by its head branch.
 # shellcheck disable=SC2034  # read by accept-facts.sh
 WF_BRANCH_TYPES="feat fix docs chore"

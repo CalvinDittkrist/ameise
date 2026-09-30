@@ -50,7 +50,7 @@ class StandardsTests(ShimTest):
         self.assertNotIn("claude plugin disable old@bar --scope project", self.calls())
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
         self.assertEqual(sorted(p for p, on in settings["enabledPlugins"].items() if on),
-                         ["orchestrator@ameise", "planner@ameise", "repo-standards@ameise", "worker@ameise"])
+                         ["planner@ameise", "repo-standards@ameise", "worker@ameise"])
         self.assertEqual(settings["env"]["WF_REVIEW_ROUNDS"], "5", "a value the repository set is kept")
         self.assertEqual(settings["env"]["WF_PROJECT_TEMPLATE"], "", "the project template has a place to be set in")
         self.assertEqual(settings["permissions"]["allow"][:3], ["Bash(make *)", "Bash(git diff *)", "Bash(git status *)"])
@@ -75,7 +75,7 @@ class StandardsTests(ShimTest):
         r = self.run_script(STANDARDS / "scaffold.sh", PATH=f"{bin_dir}:{self.env()['PATH']}")
         self.assertEqual(r.returncode, 0, r.stderr)
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
-        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "orchestrator@ameise": True, "planner@ameise": True,
+        self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "planner@ameise": True,
                                                       "repo-standards@ameise": True, "worker@ameise": True})
 
     def test_the_scaffolded_categories_are_the_ones_the_report_names(self):
@@ -283,7 +283,7 @@ class StandardsTests(ShimTest):
     def test_check_warns_for_plugins_of_another_marketplace(self):
         self.scaffold()
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
-        plugins = ["orchestrator", "planner", "repo-standards", "worker"]
+        plugins = ["planner", "repo-standards", "worker"]
         r = self.check()
         for p in plugins:
             self.assertIn(f"ok: {p}@ameise enabled", r.stdout)
