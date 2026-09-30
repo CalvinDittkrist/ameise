@@ -36,74 +36,8 @@ wf_slug() {
 }
 # An issue number with an optional leading #, or a refusal naming what was passed.
 wf_issue_num() { local n="${1#\#}"; printf '%s' "$n" | grep -Eq '^[0-9]+$' || wf_die "issue must be a number, got '$1'"; printf '%s' "$n"; }
-# GitHub's numeric database id of issue $1 (dependency and sub-issue APIs want it, not the number).
-wf_issue_db_id() { gh api "repos/$(wf_repo_nwo)/issues/$1" --jq .id 2>/dev/null; }
 
-# --- Routing to the factory ---
-
-# The factory's routing label, as the label vocabulary defines it (labels.sh). The factory host works an issue
-# that carries it unattended, with no screen and nobody to ask, so the planner decides per ticket
-# whether it is routed, and issue.sh (create and label) is the only script that puts the label on an issue.
-WF_ROUTING_LABEL=factory
-# True when the label set $2... contains the name $1. The names come from GitHub, so -e keeps one that opens
-# with a dash an operand instead of an option to grep.
-wf_labels_have() { local want="$1" have; shift; have=$(printf '%s\n' "$@"); grep -qxF -e "$want" <<<"$have"; }
-# Refuse a label set that routes an issue the factory cannot work: routing is only true next to
-# `ready-for-agent` (the factory takes no half-specified issue) and never next to `ready-for-human` (a person
-# implements that one). $1 names the issue in the message, $2 is how this call drops the routing label (the
-# set is the one the call would leave behind, so the label may be one the call never named), the rest is that
-# label set.
-wf_require_routable() {
-  local subject="$1" drop="$2"; shift 2
-  wf_labels_have "$WF_ROUTING_LABEL" "$@" || return 0
-  if wf_labels_have ready-for-human "$@"; then
-    wf_die "$subject would carry $WF_ROUTING_LABEL and ready-for-human: the factory works unattended, so an issue a person has to implement is never routed to it. Drop one of the two labels; $drop."
-  fi
-  if ! wf_labels_have ready-for-agent "$@"; then
-    wf_die "$subject would carry $WF_ROUTING_LABEL without ready-for-agent: the factory takes only issues a worker can finish from the brief alone. Add ready-for-agent, or $drop."
-  fi
-}
-# The spec-run label (labels.sh): the factory works the spec that carries it on a spec branch. It works the
-# tickets of that spec that carry it too, and routes none of them one by one. So it never sits beside the
-# routing label or on work a person does. It sits only on a spec or on a ticket whose spec carries it.
-WF_SPEC_RUN_LABEL=factory:spec-run
-# Refuse a label set the spec run cannot work.
-# $1 names the issue. $2 is how this call drops the spec-run label.
-# $3 is the parent's number: empty for none, read only when the set carries no spec label.
-# The rest is the label set the call would leave behind.
-wf_require_spec_run() {
-  local subject="$1" drop="$2" parent="$3" plabels l; shift 3
-  wf_labels_have "$WF_SPEC_RUN_LABEL" "$@" || return 0
-  if wf_labels_have "$WF_ROUTING_LABEL" "$@"; then
-    wf_die "$subject would carry $WF_ROUTING_LABEL and $WF_SPEC_RUN_LABEL: a spec run routes its tickets itself, so an issue carries one of the two. Drop one of them; $drop, or drop $WF_ROUTING_LABEL."
-  fi
-  if wf_labels_have ready-for-human "$@"; then
-    wf_die "$subject would carry $WF_SPEC_RUN_LABEL and ready-for-human: the factory skips a ticket a person works, so that ticket keeps ready-for-human alone. Drop one of the two labels; $drop."
-  fi
-  wf_labels_have spec "$@" && return 0
-  [ -n "$parent" ] || wf_die "$subject would carry $WF_SPEC_RUN_LABEL but is no spec and has no parent: the label marks a spec and the tickets of its spec run. Label the spec, or make the issue a ticket of a spec that carries it; $drop."
-  # The parent's labels, one per line, become the positional parameters, so each name reaches wf_labels_have whole.
-  plabels=$(wf_issue_labels "$parent"); set --
-  while IFS= read -r l; do set -- "$@" "$l"; done <<< "$plabels"
-  wf_labels_have "$WF_SPEC_RUN_LABEL" "$@" \
-    || wf_die "$subject would carry $WF_SPEC_RUN_LABEL but its spec #$parent does not: a ticket joins a spec run only once its spec is one. Label #$parent first with issue.sh label $parent --add $WF_SPEC_RUN_LABEL, or $drop."
-}
-# The number of the parent of issue $1 (its spec), or empty when it has none. A failed read other than
-# "no parent" is a refusal: the spec-run rule would be judged on a guess.
-wf_issue_parent() {
-  local out
-  if out=$(gh api "repos/$(wf_repo_nwo)/issues/$1/parent" --jq .number 2>&1); then printf '%s' "$out"; return 0; fi
-  case "$out" in *"Not Found"*|*404*) return 0 ;; esac
-  wf_die "could not read the parent of #$1; is gh authenticated for this repository, and are sub-issues available here?"
-}
-# The labels issue $1 carries now, one per line, or a refusal: the routing rule holds over the whole set, not
-# over the labels one call happens to name.
-wf_issue_labels() {
-  gh issue view "$1" --json labels --jq '.labels[].name' 2>/dev/null \
-    || wf_die "could not read the labels of #$1; is gh authenticated for this repository, and does the issue exist?"
-}
-
-# --- The acceptance of a spec (accept-facts.sh, accept-close.sh, accept-due.sh) ---
+# --- The acceptance of a spec (accept-facts.sh, accept-due.sh) ---
 
 # The branch types a claim gives an issue's branch (branchType in the controller's claim.ts). The
 # acceptance tries them in turn to find a ticket's pull request by its head branch.

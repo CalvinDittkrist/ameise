@@ -89,7 +89,7 @@ tag_ruleset() {
   jq -cn --arg t "$WF_TAG" '{name: ("standard: " + $t), target: "tag", enforcement: "active", bypass_actors: [],
     conditions: {ref_name: {include: ["refs/tags/" + $t], exclude: []}}, rules: [{type: "deletion"}, {type: "update"}]}'
 }
-# The workflow's label vocabulary (plugins/planner/scripts/labels.sh) plus skill-candidate: name|color|description.
+# The workflow's label vocabulary (the controller's github tools in controller/src/github.ts) plus skill-candidate: name|color|description.
 WF_LABELS='ready-for-agent|0E8A16|Fully specified; an agent can take it
 needs-triage|FBCA04|A maintainer has to evaluate this
 needs-info|D876E3|Waiting on the reporter

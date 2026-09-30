@@ -91,5 +91,5 @@ printf '%s\n' "$parsed" | SECTIONS="$SECTIONS" PRESENT="$present" SPEC="$spec" a
     }
     if (open) { printf "\nopen[%d]{verdict,confidence,section,statement,evidence}:\n%s", open, rows
                 print "\nnext: decide per open item: a gap ticket, an accepted deviation, or no finding" }
-    else print "\nnext: nothing is open; the spec can be closed with accept-close.sh once every decision is recorded"
+    else print "\nnext: nothing is open; the spec can be closed with the close tool once every decision is recorded"
   }'

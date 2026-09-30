@@ -42,34 +42,27 @@ The spec is $ARGUMENTS, or the issue this session started on (the `issue:` line 
 
      Show the tickets as a numbered list (title, blocked by, what it delivers) and wait for approval before publishing anything.
 
-     Then run, per ticket, with the spec's milestone from the facts block (omit `--milestone` when it has none):
-
-         "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <f> --label ready-for-agent --parent <spec> --milestone <vX.Y.Z>
-         "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" block <ticket> --by <n>,<m>
+     Then, per ticket, `create_issue` with the label `ready-for-agent`, the spec as parent and the spec's milestone from the facts block when it has one, and `block` with the tickets that block it.
 
      When the spec carries `factory:spec-run` (the labels in step 2), it is a spec run.
      - Ask per gap ticket whether an agent or a person works it, as [../tickets/routing.md](../tickets/routing.md) asks.
-     - An agent's ticket adds `--label factory:spec-run` to the create line above.
-     - A person's ticket takes `--label ready-for-human` in place of `ready-for-agent`.
+     - An agent's ticket adds the label `factory:spec-run`.
+     - A person's ticket takes the label `ready-for-human` in place of `ready-for-agent`.
 
-   - **Accepted deviation.** Write a file whose first line is exactly `> Accepted deviation (spec acceptance).`, then the deviation and the reason the code is right, and post it:
-
-         "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" comment <spec> --body-file <f>
+   - **Accepted deviation.** Write a comment whose first line is exactly `> Accepted deviation (spec acceptance).`, then the deviation and the reason the code is right, and post it on the spec with `comment`.
 
      A later acceptance reads it from that first line and does not report the deviation again. Only a comment from someone with write access counts, so post it yourself only when the user asks you to.
    - **No finding.** Write nothing. The item goes into the closing comment as overruled by the maintainer.
 6. With gap tickets created: reply with one line per ticket (number, title, blocked by).
    - Say that the spec stays open, and that the acceptance runs again in full once they are closed.
    - Stop here; do not close the spec.
-7. With nothing left open: write the closing comment, show it, ask for confirmation, then run the script below. The comment carries:
+7. With nothing left open: write the closing comment, show it, ask for confirmation, then close the spec with it. The comment carries:
    - the counts per section from the report;
    - the tickets with their merged pull requests, from the facts block;
    - the accepted deviations, and the items the maintainer overruled with their reason.
 
-   The script:
+   Close it with `close`: the spec, the comment and the reason `completed`. It refuses while any ticket is open or cannot be read.
 
-       "${CLAUDE_PLUGIN_ROOT}/scripts/accept-close.sh" <spec> --comment-file <f> [<ticket>...]
-
-   The ticket numbers are only needed where a repository has no native sub-issues. Relay its output; on `error:` quote it and stop. Reply with the spec and `next: /planner:finish ends this session`.
+   Pass the ticket numbers in `tickets` only where a repository has no native sub-issues. Relay its output; on `error:` quote it and stop. Reply with the spec and `next: /planner:finish ends this session`.
 
 No em dash character (U+2014) anywhere in what you write. Write no code and change no file in the repository; the acceptance produces issues, comments and one closed spec.

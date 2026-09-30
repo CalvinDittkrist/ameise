@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import PLANNER, ROOT, STANDARDS, WORKER, ShimTest
+from helpers import ROOT, STANDARDS, WORKER, ShimTest
 
 PLUGINS = sorted(p for p in (ROOT / "plugins").iterdir() if (p / ".claude-plugin/plugin.json").exists())
 
@@ -276,12 +276,11 @@ class ShimCallLogTests(ShimTest):
 
 
 class LabelVocabularyTests(ShimTest):
-    """repo-standards and planner each carry a copy of the label vocabulary, and the contract fixture states it
-    (ADR 0062); a copy that differs from the fixture is a bug."""
+    """repo-standards carries a copy of the label vocabulary, and the contract fixture states it (ADR 0062); a copy
+    that differs from the fixture is a bug. The controller's github tools carry the other copy, which its own
+    test holds to the fixture."""
 
-    # The two files that carry the vocabulary.
     STANDARDS_FILE = str((STANDARDS / "lib.sh").relative_to(ROOT))
-    PLANNER_FILE = str((PLANNER / "labels.sh").relative_to(ROOT))
     FIXTURE_FILE = "contract/fixture.json"
 
     def standards_vocabulary(self):
@@ -300,55 +299,28 @@ class LabelVocabularyTests(ShimTest):
             vocabulary.append(entry)
         return vocabulary
 
-    def planner_vocabulary(self):
-        """The labels labels.sh creates in a repository that has none, with the colour and description it gives them."""
-        r = self.run_script(PLANNER / "labels.sh", SHIM_NO_LABELS="1")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        vocabulary = []
-        for call in self.argv_calls():
-            if call[1:3] != ["label", "create"]:
-                continue
-            name, options = call[3], call[4:]
-            self.assertEqual(options[0::2], ["--color", "--description"],
-                             f"{self.PLANNER_FILE} creates {name} with other options than this test reads: {options}")
-            vocabulary.append((name, options[1], options[3]))
-        return vocabulary
-
-    def fixture_vocabulary(self, planner):
-        """The vocabulary of the contract fixture, in order; for the planner without the labels it does not create."""
+    def fixture_vocabulary(self):
+        """The vocabulary of the contract fixture, in order."""
         labels = json.loads((ROOT / self.FIXTURE_FILE).read_text())["labels"]["vocabulary"]
-        return [(l["name"], l["color"], l["description"]) for l in labels if not planner or l.get("planner", True)]
+        return [(l["name"], l["color"], l["description"]) for l in labels]
 
-    def assert_follows_the_fixture(self, file, copy, fixture):
-        """Fails naming the first label where the copy and the fixture differ in name, colour, description or order."""
-        self.assertTrue(copy, f"no labels read from {file}")
+    def test_the_standards_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
+        copy, fixture = self.standards_vocabulary(), self.fixture_vocabulary()
+        self.assertTrue(copy, f"no labels read from {self.STANDARDS_FILE}")
         for at, (have, want) in enumerate(zip(copy, fixture)):
             if have != want:
-                self.fail(f"label {want[0]!r}: {file} has {have} at place {at + 1}, the contract fixture {want}. "
+                self.fail(f"label {want[0]!r}: {self.STANDARDS_FILE} has {have} at place {at + 1}, the contract fixture {want}. "
                           f"Change the fixture first, then both copies; do not adjust this test.")
         if len(copy) != len(fixture):
             extra = copy[len(fixture):] or fixture[len(copy):]
-            self.fail(f"label {extra[0][0]!r}: {file} and the contract fixture differ in the labels they carry")
+            self.fail(f"label {extra[0][0]!r}: {self.STANDARDS_FILE} and the contract fixture differ in the labels they carry")
 
-    def test_the_standards_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
-        self.assert_follows_the_fixture(self.STANDARDS_FILE, self.standards_vocabulary(), self.fixture_vocabulary(False))
-
-    def test_the_planners_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
-        self.assert_follows_the_fixture(self.PLANNER_FILE, self.planner_vocabulary(), self.fixture_vocabulary(True))
-
-    def test_the_routing_label_the_planner_sets_is_the_fixtures_and_in_the_vocabulary(self):
-        """The planner routes an issue to the factory by the name in WF_ROUTING_LABEL, and the frontier rule of
-        the contract fixture leaves an issue with that label to the factory; a rename in either would route an
-        issue by a name the peers do not read."""
-        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_ROUTING_LABEL"', "_", str(PLANNER)],
-                           cwd=self.base, text=True, capture_output=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        routing = r.stdout.strip()
-        self.assertEqual(routing, json.loads((ROOT / self.FIXTURE_FILE).read_text())["frontier"]["routing_label"])
-        for file, vocabulary in ((self.STANDARDS_FILE, self.standards_vocabulary()),
-                                 (self.PLANNER_FILE, self.planner_vocabulary())):
-            self.assertIn(routing, [name for name, _, _ in vocabulary],
-                          f"the planner routes by the label {routing}, which {file} does not define")
+    def test_the_routing_label_of_the_fixture_is_in_the_standards_vocabulary(self):
+        """The frontier rule of the contract fixture leaves an issue with the routing label to the factory; a
+        repository that lacks the label could not be routed by the name the peers read."""
+        routing = json.loads((ROOT / self.FIXTURE_FILE).read_text())["frontier"]["routing_label"]
+        self.assertIn(routing, [name for name, _, _ in self.standards_vocabulary()],
+                      f"the fixture routes by the label {routing}, which {self.STANDARDS_FILE} does not define")
 
 
 class TestFileRuleTests(ShimTest):

@@ -18,14 +18,14 @@ Without an argument: show the three buckets above, one line each, and let the us
 2. Recommend category and state with reasoning and a three-line summary of the relevant code. Wait for the user.
 3. Verify the claim before any interview. Reproduce a bug from the reported steps; for a request, confirm the gap exists. Report confirmed, failed, or not enough detail (a `needs-info` signal).
 4. If the request needs shaping, run the interview rules in [../grill/SKILL.md](../grill/SKILL.md) round by round.
-5. Apply the outcome with `"${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh"`:
+5. Apply the outcome with the controller's tools:
    - `ready-for-agent`: post the brief from [brief.md](brief.md) with `comment`.
      - Then ask whether the issue is routed to the factory, following [../tickets/routing.md](../tickets/routing.md): your recommendation with its reason, for this one issue.
      - For a ticket whose parent carries `factory:spec-run` (`gh api repos/{owner}/{repo}/issues/<n>/parent`), offer that label instead: the ticket joins the spec run.
-     - Then `label <n> --add ready-for-agent --remove needs-triage`, with `--add factory` or `--add factory:spec-run` as the maintainer answered.
-   - `ready-for-human`: the same brief plus one line on why it cannot be delegated. It is never routed; the script refuses that combination.
-   - `needs-info`: post the notes template below, then `label <n> --add needs-info --remove needs-triage`.
-   - `wontfix`: `close <n> --reason not-planned --comment-file <f>`.
+     - Then `set_labels` adding `ready-for-agent` and removing `needs-triage`, adding `factory` or `factory:spec-run` as the maintainer answered.
+   - `ready-for-human`: the same brief plus one line on why it cannot be delegated. It is never routed; the tools refuse that combination.
+   - `needs-info`: post the notes template below with `comment`, then `set_labels` adding `needs-info` and removing `needs-triage`.
+   - `wontfix`: `close` with the reason `not planned` and the comment.
      - For a request that already exists, point to where it lives. For a rejected one, give the reason. The closed issue is the record; write no file.
 6. When the user says "move #n to <state>", confirm the change in one line and do it.
    - Skip the interview, but offer a brief when the target is `ready-for-agent`, and ask about routing with it.
