@@ -220,10 +220,12 @@ export interface WorkRecord extends CreatedRecord {
   panel?: 'pass' | 'failed'
   // pull is the pull request of the branch, once the gate on CI has opened its draft or the pr stage has
   // opened or found it. draft says it is the gate's draft, by the controller's record and never by
-  // GitHub's draft state. checks are the checks the gate on CI or the ci stage read last, and wait what
-  // it waits for while it waits.
+  // GitHub's draft state. readied is when the pr stage finished that draft and marked it ready for
+  // review, which clears draft. checks are the checks the gate on CI or the ci stage read last, and wait
+  // what it waits for while it waits.
   pull?: Pull
   draft?: boolean
+  readied?: string
   checks?: Check[]
   wait?: string
   // history is every attempt of a stage, in the order they ended.

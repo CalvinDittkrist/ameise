@@ -69,6 +69,7 @@ interface Record {
   wait?: string
   pull?: { number: number; url: string }
   draft?: boolean
+  readied?: string
   checks?: Check[]
   history?: Attempt[]
 }
@@ -101,6 +102,23 @@ const ghCalls = () => read(m.ghLog).trim().split('\n')
 const creates = () => ghCalls().filter((c) => c.startsWith('pr create '))
 const gateRun = (r: Record, result = 'pass') => (r.history ?? []).find((h) => h.stage === 'gate' && h.kind === 'run' && h.result === result)
 
+const events = (id: string) =>
+  read(join(m.state, 'processes', `${id}.events.jsonl`))
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l) as { event: string; wait?: string })
+const ciWaits = (id: string) => events(id).filter((e) => e.event === 'ci-wait').map((e) => e.wait ?? '')
+
+// workflow commits a workflow into the base, so the worktree claimed from it has it.
+function workflow(text: string) {
+  mkdirSync(join(dir, '.github', 'workflows'), { recursive: true })
+  writeFileSync(join(dir, '.github', 'workflows', 'ci.yml'), text)
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: { ...process.env, ...identity } })
+  git('add', '.github')
+  git('commit', '-q', '-m', 'ci: add a workflow')
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+}
+
 const board = async () =>
   ((await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as {
     processes: { issue: number; state: string; stage: string; pr: { number: number; draft: boolean } | null }[]
@@ -119,7 +137,9 @@ test('a gate on CI pushes, opens the draft and passes on two readings a poll apa
   canPull(m, 'owner/repo', 1, [reading(1), { ...reading(1, { checks: { gate: 'SUCCESS', browser: 'SUCCESS' } }), isDraft: false }])
   const r = await claim()
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 1, url: 'https://github.com/owner/repo/pull/1' }, draft: true })
+  // The record drops its draft flag and notes when the pr stage marked the draft ready.
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 1, url: 'https://github.com/owner/repo/pull/1' }, draft: false })
+  expect(Date.parse(done.readied ?? '')).toBeGreaterThan(0)
   expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   expect(gateRun(done)).toMatchObject({ gate: 'ci', pr: 1, commit: head(done), checks: [{ name: 'gate', state: 'pass' }, { name: 'browser', state: 'pass' }] })
 
@@ -128,6 +148,8 @@ test('a gate on CI pushes, opens the draft and passes on two readings a poll apa
   expect(ghCalls()).toContain('pr view 1 --repo owner/repo --json state')
   expect(ghCalls()).toContainEqual(expect.stringMatching(/^pr edit 1 --repo owner\/repo --title Fake pull request --body-file \S+$/))
   expect(ghCalls()).toContain('pr ready 1 --repo owner/repo')
+  expect(ghCalls()).toContain('pr edit 1 --repo owner/repo --add-reviewer chatgpt-codex-connector')
+  expect(ghCalls().indexOf('pr edit 1 --repo owner/repo --add-reviewer chatgpt-codex-connector')).toBeGreaterThan(ghCalls().indexOf('pr ready 1 --repo owner/repo'))
   const body = read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '1.body'))
   expect(body).toMatch(/^Closes #144\n/)
   expect(body).toContain('## Verification')
@@ -354,4 +376,42 @@ test.each(fixture.takeover.cases)('the gate on CI follows the contract fixture\'
     expect(done).toMatchObject({ state: 'waiting', pull: { number: 104 } })
     expect(opened).toBe(c.outcome === 'open' ? 1 : 0)
   }
+})
+
+test('a readied draft whose workflows run on ready_for_review is not green until a check has finished since the ready', async () => {
+  workflow('on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n')
+  canPull(m, 'owner/repo', 1, [reading(1)])
+  const r = await claim()
+  // The draft's checks finished before the ready, so they are not the pull request's.
+  const waited = await until(r.id, (x) => x.stage === 'ci' && /^the checks of marking the draft ready for review, until /.test(x.wait ?? ''))
+  expect(waited.state).toBe('waiting')
+  const finished = reading(1)
+  finished.statusCheckRollup = finished.statusCheckRollup.map((c) => ({ ...c, completedAt: new Date(Date.now() + 60_000).toISOString() }))
+  readings(1, [finished])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', draft: false })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
+})
+
+test('a readied draft whose workflows run on ready_for_review goes green once WF_CHECKS_GRACE has passed with no new check', async () => {
+  workflow('on: [pull_request_target, ready_for_review]\n')
+  canPull(m, 'owner/repo', 1, [reading(1)])
+  const r = await claim(['WF_CHECKS_GRACE=1'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', draft: false })
+  expect(ciWaits(r.id)).toContainEqual(expect.stringMatching(/^the checks of marking the draft ready for review, until /))
+})
+
+test('a readied draft without a workflow on ready_for_review goes on with its green checks and waits for the bot review after the ready', async () => {
+  workflow('on: pull_request\n')
+  canPull(m, 'owner/repo', 1, [reading(1, { reviews: [] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600'])
+  const waited = await until(r.id, (x) => x.stage === 'ci' && /^a review of chatgpt-codex-connector, until /.test(x.wait ?? ''))
+  // The draft's checks finished before the ready, and the bot reviews no draft: its wait counts from the ready.
+  const until_ = Date.parse((waited.wait ?? '').replace(/^a review of chatgpt-codex-connector, until /, ''))
+  expect(until_).toBeGreaterThanOrEqual(Date.parse(waited.readied ?? '') + 600_000)
+  readings(1, [reading(1)])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', draft: false })
+  expect(ciWaits(r.id).filter((w) => w.startsWith('the checks of marking'))).toEqual([])
 })
