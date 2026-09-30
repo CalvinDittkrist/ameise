@@ -1,5 +1,5 @@
 import { type ChildProcess, execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, cli, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, script, start } from './controller.js'
@@ -260,6 +260,50 @@ test('a gate knob that is no whole number ends the process failed with the reaso
   const r = await claim(['WF_GATE_ROUNDS=abc'])
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: 'WF_GATE_ROUNDS=abc is not a whole number of at least 0; set it as such, or leave it out for 3' })
+  expect(shape(done)).toEqual(['implement session complete'])
+})
+
+test('a gate without WF_GATE runs make check, and the record names it', async () => {
+  gated(dir)
+  play(m, 'complete Implemented the board')
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'pass', gate: 'make check' })
+})
+
+test('a gate with a command form runs that command in the worktree without a shell', async () => {
+  // make check fails; the command WF_GATE names runs the target ok, which writes its argument into a file.
+  gated(dir, "false\nok:\n\t@printf '%s' '$(WORD)' > ran.txt")
+  play(m, 'complete Implemented the board')
+  const r = await claim(['WF_GATE=make  ok WORD=word'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass'])
+  expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'pass', gate: 'make ok WORD=word', dirty: true })
+  expect(read(join(done.worktree, 'ran.txt'))).toBe('word')
+})
+
+test('a gate with the form none runs no gate and goes to the review, and the record names the form', async () => {
+  // make check would fail, so a pass means it never ran.
+  gated(dir, 'false')
+  play(m, 'complete Implemented the board')
+  const r = await claim(['WF_GATE=none'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run skipped', 'review round pass'])
+  expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'skipped', gate: 'none', commit: head(done) })
+})
+
+test('a WF_GATE the settings turn wrong after the claim ends the process failed at the gate', async () => {
+  gated(dir)
+  play(m, 'wait\ncomplete Implemented the board')
+  const r = await claim()
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_GATE: 'ci:check' } }))
+  expect((await say(r.id, 'go on')).status).toBe(200)
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: expect.stringMatching(/^WF_GATE=ci:check is the gate on CI, which the controller does not run yet/) })
   expect(shape(done)).toEqual(['implement session complete'])
 })
 

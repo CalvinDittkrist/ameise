@@ -1,8 +1,8 @@
 // The gate stage of a work process, which the controller runs itself once the implement session has
 // reported complete (ADR 0058). It merges the base into the branch and runs the repository's gate
-// command in the worktree. A merge that conflicts and a gate command that fails each start a fix session
-// of the gate, a fresh session with the stage timeout, within the gate's budget; the gate runs again on
-// what the session leaves. Every merge that conflicts, every run and every fix session is an attempt in
+// command, the form WF_GATE names, in the worktree; the form none runs no gate. A merge that conflicts
+// and a gate command that fails each start a fix session of the gate, a fresh session with the stage
+// timeout, within the gate's budget; the gate runs again on what the session leaves. Every merge that conflicts, every run and every fix session is an attempt in
 // the record's history. A pass starts the review stage (review.ts); a budget spent ends the process
 // failed with the end of the last output. The gate runs again after every fix session of the review.
 import { spawn } from 'node:child_process'
@@ -13,9 +13,31 @@ import type { Project } from './project.js'
 import { review } from './review.js'
 import { attempt, begin, event, fixBrief, runtimeEnv, type Runtime, track, update } from './session.js'
 
-// The gate command, the single gate of a repository that follows the standard (ADR 0008).
-export const gateCommand = ['make', 'check']
-const command = gateCommand.join(' ')
+// The gate command of a repository that sets no WF_GATE, the single gate of a repository that follows
+// the standard (ADR 0008).
+export const defaultGate = 'make check'
+
+// A gate form of WF_GATE: a command, an argument list the gate runs in the worktree without a shell, or
+// none, which runs no gate and goes from implement and from every fix session of the review straight to
+// the review. The gate on CI, ci or ci:<jobs>, is a form the controller does not run yet.
+export type GateForm = { form: 'command'; argv: [string, ...string[]]; name: string } | { form: 'none'; name: 'none' }
+
+const forms = `the forms are a command such as ${defaultGate}, which runs in the worktree without a shell; none, which runs no gate; ci or ci:<jobs> such as ci:check,browser, the gate on CI; or unset, for ${defaultGate}`
+
+// gateForm reads a value of WF_GATE into its gate form, or refuses it with the forms.
+export function gateForm(value: unknown): GateForm {
+  if (value === undefined || value === '') return { form: 'command', argv: ['make', 'check'], name: defaultGate }
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`WF_GATE=${JSON.stringify(value)} is no gate form; ${forms}`)
+  const v = value.trim()
+  if (v === 'none') return { form: 'none', name: 'none' }
+  if (/^ci(:|$)/.test(v)) {
+    if (/^ci(:[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+)*)?$/.test(v)) throw new Error(`WF_GATE=${v} is the gate on CI, which the controller does not run yet; set a command or none, or leave it out for ${defaultGate}`)
+    throw new Error(`WF_GATE=${v} is no gate form: ci:<jobs> names jobs separated by commas; ${forms}`)
+  }
+  if (/[|&;<>()$`"'\\]/.test(v)) throw new Error(`WF_GATE=${v} holds shell syntax, but the gate runs its command without a shell; ${forms}`)
+  const argv = v.split(/\s+/) as [string, ...string[]]
+  return { form: 'command', argv, name: argv.join(' ') }
+}
 
 // The gate's knobs: how many fix sessions a failing gate may take, and how many seconds one run of the
 // gate command may take before it is ended and counts as a failure.
@@ -28,11 +50,14 @@ const tailChars = 4000
 
 // setting reads a knob of the process: the claim's override, else the env block of the repository's
 // .claude/settings.json, else undefined.
-export function setting(record: WorkRecord, name: string): unknown {
-  const value: unknown = record.env[name]
+export const setting = (record: WorkRecord, name: string): unknown => settingOf(record.env, record.project, name)
+
+// settingOf reads a knob from the overrides, else from the env block of the checkout's settings.
+export function settingOf(env: Record<string, string>, checkout: string, name: string): unknown {
+  const value: unknown = env[name]
   if (value !== undefined) return value
   try {
-    return (JSON.parse(readFileSync(join(record.project, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, unknown> }).env?.[name]
+    return (JSON.parse(readFileSync(join(checkout, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, unknown> }).env?.[name]
   } catch {
     // a repository without settings sets no knob
     return undefined
@@ -55,7 +80,14 @@ export function knob(record: WorkRecord, name: string, fallback: number, min = 0
 // before is the abort of that session, which a stop of the gate aborts too while its runtime exits.
 export function gate(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
   const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: `the gate merges ${record.base} and runs ${command}`, fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
+  let what: string
+  try {
+    const form = gateForm(setting(record, 'WF_GATE'))
+    what = form.form === 'none' ? 'the gate form is none, so the review follows without a gate' : `the gate merges ${record.base} and runs ${form.name}`
+  } catch {
+    what = 'the gate reads its knobs'
+  }
+  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: what, fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
   event(rt.stateDir, id, { event: 'gate-start', stage: 'gate' })
   const abort = new AbortController()
   if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
@@ -92,11 +124,25 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
   }
   let rounds: number
   let limit: number
+  let form: GateForm
   try {
+    form = gateForm(setting(record, 'WF_GATE'))
     rounds = knob(record, 'WF_GATE_ROUNDS', defaultRounds)
     limit = knob(record, 'WF_GATE_TIMEOUT', defaultTimeout, 1)
   } catch (err) {
     return end('failed', (err as Error).message)
+  }
+  const command = form.name
+
+  // The form none runs no gate: its attempt names the form, and the review follows.
+  if (form.form === 'none') {
+    const a: Attempt = { stage: 'gate', kind: 'run', result: 'skipped', at: now(), commit: await git(wt, 'rev-parse', 'HEAD'), gate: command }
+    if (!own()) return
+    event(rt.stateDir, id, { event: 'gate', ...a })
+    event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'skipped', note: 'the gate form is none; no gate ran' })
+    const next = attempt(rt.stateDir, id, a)
+    if (next && own()) review(next, project, rt)
+    return
   }
 
   // The base is fetched first, so the merge takes what origin has now; offline, it takes what the
@@ -118,7 +164,7 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
 
   if (!failure) {
     const commit = await git(wt, 'rev-parse', 'HEAD')
-    const ran = await runGate(wt, limit, signal)
+    const ran = await runGate(wt, form.argv, limit, signal)
     if (!own()) return
     // The worktree is read after the run, so a gate command that formats or generates files counts as dirty.
     const dirty = (await git(wt, 'status', '--porcelain')) !== ''
@@ -130,6 +176,7 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
       at: now(),
       commit,
       dirty,
+      gate: command,
       exit: ran.exit,
       tail: ran.tail,
       ...(ran.late ? { note: `${command} ran past the gate timeout of ${limit} s` } : {}),
@@ -167,16 +214,16 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
   begin(fixing, project, rt, fixBrief(fixing, `${project.owner}/${project.name}`, failure, command))
 }
 
-// runGate runs the gate command in the worktree in a process group of its own, which a stop or the
-// timeout ends whole, and answers its exit status and the end of its output.
-function runGate(cwd: string, seconds: number, signal: AbortSignal): Promise<{ exit: number | null; tail: string; late: boolean }> {
+// runGate runs the gate command, an argument list without a shell, in the worktree in a process group of
+// its own, which a stop or the timeout ends whole, and answers its exit status and the end of its output.
+function runGate(cwd: string, argv: [string, ...string[]], seconds: number, signal: AbortSignal): Promise<{ exit: number | null; tail: string; late: boolean }> {
   return new Promise((resolve) => {
     let out = ''
     let late = false
     let settled = false
     // A stop that came before the command started ends the gate without starting it.
     if (signal.aborted) return resolve({ exit: null, tail: '', late: false })
-    const [cmd, ...args] = gateCommand as [string, ...string[]]
+    const [cmd, ...args] = argv
     const child = spawn(cmd, args, { cwd, env: runtimeEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     const keep = (d: Buffer) => (out = (out + d.toString()).slice(-65536))
     child.stdout.on('data', keep)

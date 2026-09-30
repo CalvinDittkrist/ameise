@@ -116,6 +116,17 @@ test('after the gate passes every reviewer runs in parallel, and a panel that pa
   expect(done.session_id).toBe(done.history?.[0]?.session_id)
 })
 
+test('with the gate form none a fix session of the review goes straight to the next round', async () => {
+  // make check would fail, so no round would follow if it ran.
+  gated(dir, 'false')
+  playReviewer('code', 'finding S2 src/board.ts:3 The limit is off by one\nverdict fix')
+  playFix(`run ${node(`require("fs").rmSync(${JSON.stringify(join(m.claude, 'reviewer-code'))})`)}\nfixed code-1-1 Took the limit down by one\ncomplete Fixed the findings`)
+  const r = await claim(['WF_REVIEWERS=code', 'WF_GATE=none'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 2', panel: 'pass' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run skipped', 'review round fix', 'review session complete', 'gate run skipped', 'review round pass'])
+})
+
 test('a fix verdict starts one fix session with every finding, the gate runs again, and the next round runs the reviewers that said fix', async () => {
   playReviewer('code', 'finding S2 src/board.ts:3 The limit is off by one\nfinding S3 src/board.ts:9 The name reads oddly\nverdict fix')
   // The fix session commits, and takes the code reviewer's play away, so its next round passes.
