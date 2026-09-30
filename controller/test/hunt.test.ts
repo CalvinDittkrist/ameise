@@ -168,7 +168,7 @@ test('a hunt that removed nothing keeps a worktree with changes or commits on no
   expect((dirty.body as { error: string }).error).toMatch(/has changes not committed; commit them, or finish with force to lose them$/)
 
   git(done.worktree, 'add', 'scratch.txt')
-  git(done.worktree, 'commit', '-q', '-m', 'scratch')
+  git(done.worktree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'scratch')
   const unpushed = await api(m, 'POST', '/api/processes/finish', { id: r.id })
   expect(unpushed.status).toBe(409)
   expect((unpushed.body as { error: string }).error).toMatch(/^hunt\/tests-.* has 1 commit\(s\) on no branch of origin; push them, or finish with force to lose them$/)
