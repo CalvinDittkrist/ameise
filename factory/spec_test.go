@@ -218,6 +218,9 @@ func TestARoutedSpecWhoseBranchStandsIsLostAndTouchesNothing(t *testing.T) {
 	if spec.Branch != "spec/230-an-older-title" {
 		t.Errorf("the lost spec run names %q, want the spec branch that stands on the remote", spec.Branch)
 	}
+	if spec.EndedAt == nil {
+		t.Errorf("the lost spec run records no end, want the moment it was lost")
+	}
 	if head := gh.head(t, "acme/edge-sensors", "spec/230-an-older-title"); head != earlier {
 		t.Errorf("the spec branch that stood is at %q, want it untouched at %s", head, earlier)
 	}

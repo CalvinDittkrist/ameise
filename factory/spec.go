@@ -75,6 +75,7 @@ type SpecRun struct {
 	// EndedAt is when the spec run stopped holding its spec or trying to: read done, let go, lost or
 	// failed. A spec whose latest spec run ended is claimed again only when the spec-run label was set
 	// after that end. SignalAt is no bound for it: the routing a claim reads can lag behind the label.
+	// The end is this host's clock and the routing GitHub's, so a skewed clock moves the bound by the skew.
 	EndedAt *time.Time `json:"endedAt,omitempty"`
 	// Reason is why a spec run is lost, failed or let go.
 	Reason   string   `json:"reason"`
@@ -151,7 +152,7 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 			s.event(r, Event{Kind: "error", Title: specFailed, Body: reason})
 			s.update(r, func() { r.State, r.Reason, r.EndedAt = specFailed, reason, &now })
 		}
-		// A record a factory before EndedAt wrote has its end in DoneAt or LetGoAt, and a lost or failed
+		// A record written before EndedAt existed has its end in DoneAt or LetGoAt, and a lost or failed
 		// claim ended moments after it started.
 		if ended := r.State != specClaiming && r.State != specHolding; ended && r.EndedAt == nil {
 			end := r.StartedAt
@@ -300,9 +301,8 @@ func (f *Factory) heldSpecs() []Held {
 }
 
 // claimSpecs takes the routed specs from the line, in the order they were routed. A spec is claimed
-// when no spec run of it holds it and the spec-run label was set after its latest spec run ended: the
-// label that stood when a claim was lost, a spec was let go or its spec pull request was merged is the
-// one that was acted on, and setting it again is the gesture that asks for another claim. The claim
+// when no spec run of it holds it and the spec-run label was set after its latest spec run ended. The
+// label that stood at that end was acted on, and setting it again asks for another claim. The claim
 // runs in the working loop while no run is going, so it is the only thing that writes to the clone.
 //
 // One pass claims one spec at most, and a claim the factory stopped in comes first. A claim fetches

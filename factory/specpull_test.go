@@ -600,8 +600,8 @@ func TestAMergedSpecPullRequestIsHeldUntilTheAssigneeComesOff(t *testing.T) {
 	}
 }
 
-// A spec run that ended done leaves its spec open and routed, and it stays the answer to every routing
-// set before its end: the polls after it claim nothing, with the spec branch on the remote or gone, and
+// A spec run that ended done leaves its spec open and routed. It stays the answer to every routing set
+// before its end. The polls after it claim nothing, with the spec branch on the remote or gone, and
 // neither does a factory started again on its record. A routing set after the end claims the spec again.
 func TestASpecRunThatEndedDoneIsClaimedAgainOnlyOnARoutingAfterItsEnd(t *testing.T) {
 	t.Parallel()
