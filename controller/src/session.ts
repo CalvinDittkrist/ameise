@@ -504,9 +504,8 @@ export function attempt(stateDir: string, id: string, a: Attempt, change: Partia
 
 // begin starts the session of a process, the implement session of a claimed work process or the planner
 // session of a plan, and answers its record as it runs. A process with a session id resumes that session
-// in its worktree. The session goes on after the answer; its end is written into the record. A yolo
-// session that reports ready has merged its pull request and its worktree removes itself, so its
-// process is done and goes.
+// in its worktree. The session goes on after the answer; its end is written into the record. An
+// implement session that reports complete starts the gate stage, or opens the hold when one is set.
 // A message is the first turn of the session, in place of the brief.
 export function begin(record: SessionRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
   const id = record.id
