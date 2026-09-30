@@ -159,7 +159,8 @@ The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr
 
 `WF_GATE` names the gate form, in one of four forms:
 - unset: the gate command `make check`.
-- a command, such as `make check` or `npm test`: an argument list split on whitespace and run without a shell. A command with shell syntax, such as a pipe or a quote, is refused.
+- a command, such as `make check` or `npm test`: an argument list split on whitespace and run without a shell.
+  - A command with shell syntax, such as a pipe or a quote, is refused.
 - `none`: no gate runs. The process goes from implement, and from every fix session of the review, straight to the review, with no merge of the base.
 - `ci` or `ci:<jobs>`, such as `ci:check,browser`: the gate on CI, which is refused for now because it is not built yet.
 
@@ -173,7 +174,10 @@ A merge that conflicts is aborted, and a gate command that fails or runs past it
 
 `WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the last session of another stage, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
 
-Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", gate, commit, dirty, exit, tail, at}`, whose `gate` is the command that ran. The form `none` leaves `{stage: "gate", kind: "run", result: "skipped", gate: "none", commit, at}`. The process page names the form of each run. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`, whose state is `pass`, `skipped` or `failed`.
+Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", gate, commit, dirty, exit, tail, at}`, whose `gate` is the command that ran.
+The form `none` leaves `{stage: "gate", kind: "run", result: "skipped", gate: "none", commit, at}`. The process page names the form of each run.
+
+The event log carries `gate-start`, a `gate` event per attempt and `gate-end`, whose state is `pass`, `skipped` or `failed`.
 
 The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number, and a `WF_GATE` that is no gate form, end the process `failed` with the reason.
 - A message to a process whose gate command runs is refused with `409`.
