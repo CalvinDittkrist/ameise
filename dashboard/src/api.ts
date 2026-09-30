@@ -215,8 +215,8 @@ export type Attempt = {
   round?: number
   verdicts?: Verdict[]
   fixes?: Fix[]
-  // pr and url are the pull request an opening opened or found, or a wait read; checks and reviews what
-  // a wait read of it.
+  // pr and url are the pull request an opening opened or found, or a wait or a gate on CI read; checks
+  // and reviews what it read of it.
   pr?: number
   url?: string
   checks?: Check[]
@@ -247,9 +247,11 @@ export type ProcessRecord = {
   history?: Attempt[]
   // panel is how the review ended: pass, or failed with its rounds spent.
   panel?: "pass" | "failed"
-  // pull is the pull request the pr stage opened or found; checks are those the ci stage read last, and
-  // wait what it waits for while it waits.
+  // pull is the pull request the gate on CI opened as its draft or the pr stage opened or found; draft says
+  // it is the gate's draft by the controller's record. checks are those the gate on CI or the ci stage
+  // read last, and wait what it waits for while it waits.
   pull?: { number: number; url: string }
+  draft?: boolean
   checks?: Check[]
   wait?: string
   updated_at: string

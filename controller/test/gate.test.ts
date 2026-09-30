@@ -301,10 +301,10 @@ test('a WF_GATE the settings turn wrong after the claim ends the process failed 
   play(m, 'wait\ncomplete Implemented the board')
   const r = await claim()
   mkdirSync(join(dir, '.claude'), { recursive: true })
-  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_GATE: 'ci:check' } }))
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_GATE: 'ci:' } }))
   expect((await say(r.id, 'go on')).status).toBe(200)
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: expect.stringMatching(/^WF_GATE=ci:check is the gate on CI, which the controller does not run yet/) })
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: expect.stringMatching(/^WF_GATE=ci: is no gate form: ci:<jobs> names jobs separated by commas; the forms are /) })
   expect(shape(done)).toEqual(['implement session complete'])
 })
 

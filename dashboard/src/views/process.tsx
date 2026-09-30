@@ -194,6 +194,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
             <a href={pr.url} className="hover:text-foreground hover:underline">
               #{pr.number}
             </a>
+            {record.draft && " the gate's draft"}
             {process?.checks && process.checks !== "none" && ` checks ${process.checks}`}
           </span>
         )}
@@ -248,7 +249,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
         })}
       </ol>
       <Rounds history={record.history ?? []} />
-      {record.stage === "ci" && <Wait record={record} />}
+      {(record.stage === "ci" || record.stage === "gate") && <Wait record={record} />}
     </>
   )
 }
@@ -312,8 +313,8 @@ function Rounds({ history }: { history: Attempt[] }) {
   )
 }
 
-// Wait is what the ci stage waits for while it waits, and the checks of the pull request it read last,
-// each with its state and a link to where it ran.
+// Wait is what the gate on CI or the ci stage waits for while it waits, and the checks of the pull request
+// it read last, each with its state and a link to where it ran.
 function Wait({ record }: { record: ProcessRecord }) {
   const checks = record.checks ?? []
   if (!record.wait && checks.length === 0) return null
@@ -344,7 +345,7 @@ function Wait({ record }: { record: ProcessRecord }) {
 
 // failed tells an attempt that did not get its stage through: a failed or blocked session, a conflict, a
 // failing run, a pull request that is not green.
-const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail", "conflicts", "checks-failed", "review-comments", "closed"].includes(a.result)
+const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail", "missing", "conflicts", "checks-failed", "review-comments", "closed"].includes(a.result)
 
 // described is an attempt as the stage rail lists it: what ran and how it ended.
 function described(a: Attempt): string {
@@ -354,6 +355,7 @@ function described(a: Attempt): string {
       return `merge conflict in ${(a.files ?? []).join(", ")}`
     case "run":
       if (a.result === "skipped") return `${a.gate ?? "none"}: no gate ran`
+      if (a.checks) return `${a.gate ?? "ci"} ${a.result}${at} on PR #${a.pr ?? ""}: ${a.checks.map((c) => `${c.name} ${c.state}`).join(", ") || "no check"}`
       return `${a.gate ? `${a.gate} ` : ""}${a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`}`
     case "round":
       return `round ${a.round ?? ""} ${a.result}`

@@ -28,6 +28,7 @@ export const knobs = [
   'WF_GATE',
   'WF_GATE_ROUNDS',
   'WF_GATE_TIMEOUT',
+  'WF_CHECKS_GRACE',
   'WF_STAGE_TIMEOUT',
 ]
 
@@ -166,7 +167,8 @@ export interface Attempt {
   stage: WorkStage
   kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait'
   // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
-  // skipped for a run of the gate form none, pass, fix or failed for a round, opened or found for the
+  // skipped for a run of the gate form none, missing for a run of the gate on CI that did not find the
+  // checks it reads, pass, fix or failed for a round, opened or found for the
   // opening of the pull request, and green, conflicts, checks-failed, review-comments or closed for a wait.
   result: string
   at: string
@@ -189,10 +191,11 @@ export interface Attempt {
   verdicts?: Verdict[]
   // fixes are what a fix session of the review did with each finding.
   fixes?: Fix[]
-  // pr is the number of the pull request an opening opened or found, or a wait read, and url where it is.
+  // pr is the number of the pull request an opening opened or found, a wait or a run of the gate on CI
+  // read, or a merge of the gate on CI was for, and url where it is.
   pr?: number
   url?: string
-  // checks are the checks a wait read, and reviews the requests for changes and unresolved threads it
+  // checks are the checks a wait or a run of the gate on CI read, and reviews the requests for changes and unresolved threads it
   // met, one line each.
   checks?: Check[]
   reviews?: string[]
@@ -215,9 +218,12 @@ export interface WorkRecord extends CreatedRecord {
   // panel is how the review ended: pass once every reviewer passed, failed once its rounds were spent
   // with a reviewer that still says fix. The pull request names a failed panel.
   panel?: 'pass' | 'failed'
-  // pull is the pull request of the branch, once the pr stage has opened or found it. checks are the
-  // checks the ci stage read last, and wait what it waits for while it waits.
+  // pull is the pull request of the branch, once the gate on CI has opened its draft or the pr stage has
+  // opened or found it. draft says it is the gate's draft, by the controller's record and never by
+  // GitHub's draft state. checks are the checks the gate on CI or the ci stage read last, and wait what
+  // it waits for while it waits.
   pull?: Pull
+  draft?: boolean
   checks?: Check[]
   wait?: string
   // history is every attempt of a stage, in the order they ended.

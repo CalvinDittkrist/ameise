@@ -16,6 +16,8 @@
 #                                          each call takes the next, and the last one stays
 #     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create where pulls/ exists: the body of the
 #                                          pull request it opened
+#     repos/<owner>/<name>/draft-<n>.json  written by gh pr create --draft: the draft it opened, by the
+#                                          login below, which gh pr list answers after pulls.json
 #     repos/<owner>/<name>/pulls/<n>.merged.json
 #                                          what gh pr view answers of it once gh pr merge merged it
 #     repos/<owner>/<name>/pulls/<n>.merged
@@ -31,6 +33,8 @@
 #                                          otherwise
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
+#     repos/<owner>/<name>/runs/<id>.log   the failed log gh run view <id> --log-failed answers
+#     login                                the login gh api user answers; fake without it
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
 #
 # A request without an answer fails, as a GitHub that does not answer does.
@@ -107,6 +111,12 @@ case "$*" in
     fi
     n=$(cat "$file")
     if [ -d "$canned/repos/$4/pulls" ]; then cat "${12}" > "$canned/repos/$4/pulls/$n.body"; fi
+    if [ "${13:-}" = --draft ]; then
+      login=fake
+      if [ -f "$canned/login" ]; then login=$(cat "$canned/login"); fi
+      printf '{"number":%s,"headRefName":"%s","baseRefName":"%s","isCrossRepository":false,"isDraft":true,"url":"https://github.com/%s/pull/%s","author":{"login":"%s"}}\n' \
+        "$n" "$8" "$6" "$4" "$n" "$login" > "$canned/repos/$4/draft-$n.json"
+    fi
     printf 'https://github.com/%s/pull/%s\n' "$4" "$n" ;;
   'pr edit '*' --repo '*' --add-reviewer '*)
     if [ -n "$canned" ] && [ -e "$canned/repos/$5/unreviewable" ]; then
@@ -124,6 +134,24 @@ case "$*" in
     file="$canned/repos/$4/pulls.json"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
       printf 'error: no canned pull requests of %s\n' "$4" >&2
+      exit 1
+    fi
+    list=$(cat "$file")
+    for draft in "$canned/repos/$4"/draft-*.json; do
+      if [ ! -f "$draft" ]; then continue; fi
+      list=${list%]}
+      case "$list" in
+        *'[') list="$list$(cat "$draft")]" ;;
+        *) list="$list,$(cat "$draft")]" ;;
+      esac
+    done
+    printf '%s\n' "$list" ;;
+  'api user --jq .login')
+    if [ -n "$canned" ] && [ -f "$canned/login" ]; then cat "$canned/login"; else printf 'fake\n'; fi ;;
+  'run view '*' --repo '*' --log-failed')
+    file="$canned/repos/$5/runs/$3.log"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'failed to get run log: no canned log of run %s\n' "$3" >&2
       exit 1
     fi
     cat "$file" ;;

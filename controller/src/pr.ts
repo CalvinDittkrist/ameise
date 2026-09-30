@@ -3,8 +3,8 @@
 // and body from the diff, the commits and the issue. It appends the verification section: the gate
 // result, the review panel, and the reviewers that did not pass when the panel failed. It opens the pull
 // request against the base, never as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a
-// review. A pull request of the branch into the base that is open already, as for a follow-up, is pushed
-// to, asked of the bots and kept.
+// review. A pull request of the branch into the base that is open already, as for a follow-up, and the
+// gate's draft the gate on CI opened are pushed to, asked of the bots and kept.
 // The opening is an attempt in the record's history, and the ci stage (ci.ts) follows. A push, an author
 // session or a gh pr create that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
@@ -69,10 +69,15 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const base = record.base.replace(/^origin\//, '')
   // A pull request of the branch into its base that is open already takes the push, and a new one is not
   // opened. The bot reviewers are asked of it as of a new one.
-  const found = await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
-    event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
-    return undefined
-  })
+  // The gate's draft the gate on CI opened is the process's pull request, which is kept rather than a
+  // second one opened.
+  const found =
+    record.draft && record.pull
+      ? record.pull
+      : await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
+          event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
+          return undefined
+        })
   if (!own()) return
   if (found) {
     await askBots(rt, id, repo, found.number, bots)
@@ -153,6 +158,7 @@ export function verification(record: WorkRecord, head: string): string {
   const command = gated?.gate ?? defaultGate
   if (!gated) lines.push(`No gate result was recorded for this branch.`)
   else if (gated.result === 'skipped') lines.push(`The gate form is none, so no gate ran at ${short(gated.commit)}.`)
+  else if (gated.checks) lines.push(`The gate on CI \`${command}\` ${gated.result === 'pass' ? 'passed' : 'failed'} at ${short(gated.commit)}: ${gated.checks.map((c) => `${c.name} ${c.state}`).join(', ')}.`)
   else lines.push(`The gate \`${command}\` ${gated.result === 'pass' ? 'passed' : `failed with exit ${gated.exit ?? 'none'}`} at ${short(gated.commit)}${gated.dirty ? ', with changes not committed' : ''}.`)
 
   const since = history.map((h) => h.stage === 'implement').lastIndexOf(true)
