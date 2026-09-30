@@ -34,6 +34,7 @@ type apiSpecRun struct {
 	Tickets     []SpecTicket `json:"tickets"`
 	PullRequest string       `json:"pullRequest"`
 	DoneAt      *time.Time   `json:"doneAt"`
+	EndedAt     *time.Time   `json:"endedAt"`
 	WaitingOn   []int        `json:"waitingOn"`
 	// WaitingOnBlockers is the blockers outside the spec it named, and Blockers those it waits for now.
 	WaitingOnBlockers []string     `json:"waitingOnBlockers"`
@@ -439,6 +440,88 @@ func TestASpecRunIsServedWithTheEventsAfterTheOneAskedForAndAnUnknownOneIsNotFou
 		response.Body.Close()
 		if response.StatusCode != http.StatusNotFound {
 			t.Errorf("GET %s answered %d, want 404", path, response.StatusCode)
+		}
+	}
+}
+
+// routeSpecAgain answers the spec routed once more, unassigned and changed at the time given, with the
+// spec-run label taken off and set again at the times given.
+func (g *ghShim) routeSpecAgain(t *testing.T, changed, off, on time.Time) {
+	t.Helper()
+	spec := openIssue(specNumber, specTitle, time.Now().UTC().Add(-72*time.Hour), specLabel, specRunLabel("factory"))
+	g.answer(t, "api "+specsRequest("acme/edge-sensors", "factory"), marshal(t, []issueJSON{touched(spec, changed)}))
+	g.timeline(t, "acme/edge-sensors", specNumber, labeled(specRunLabel("factory"), time.Now().UTC().Add(-specRoutedAgo)),
+		unlabeled(specRunLabel("factory"), off), labeled(specRunLabel("factory"), on))
+}
+
+// claimsNoSpec waits for several polls that read the routed specs and says whether the spec runs are
+// still the ones given, by id and state.
+func (f *factory) claimsNoSpec(t *testing.T, gh *ghShim, want ...string) {
+	t.Helper()
+	asked := "api " + specsRequest("acme/edge-sensors", "factory")
+	before := gh.made(t, asked)
+	f.eventually(t, 20*time.Second, "several more polls", func() bool { return gh.made(t, asked) >= before+5 })
+	got := []string{}
+	for _, spec := range f.specRuns(t) {
+		got = append(got, spec.State)
+	}
+	if !equal(got, want) {
+		t.Errorf("the spec runs are %v after several polls, want %v: a routing older than the end of the last spec run claims nothing", got, want)
+	}
+}
+
+// A spec run that was let go ends there: the spec routed again on a routing set before that end, even
+// one newer than the routing the spec run answered, is not claimed again.
+func TestASpecLetGoIsNotClaimedAgainOnARoutingOlderThanItsEnd(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	spec := gh.routedSpecFixture(t, "acme/edge-sensors", "factory")
+	gh.unassigns(t, "acme/edge-sensors", specNumber, "factory-bot")
+	f := gh.work(t, config{"poll": "50ms", "repositories": []string{"acme/edge-sensors"}})
+	f.specRunIn(t, specHolding)
+
+	gh.answer(t, "api "+specsRequest("acme/edge-sensors", "factory"), "[]")
+	spec["labels"] = []any{map[string]any{"name": specLabel}}
+	gh.issue(t, "acme/edge-sensors", assignedTo(spec, "factory-bot"))
+	let := f.specRunIn(t, specLetGo)
+	if let.EndedAt == nil || !let.EndedAt.Equal(*let.LetGoAt) {
+		t.Errorf("the spec run let go at %v ended at %v, want its end at the letting-go", let.LetGoAt, let.EndedAt)
+	}
+
+	now := time.Now().UTC()
+	gh.routeSpecAgain(t, now, now.Add(-40*time.Minute), now.Add(-30*time.Minute))
+	f.claimsNoSpec(t, gh, specLetGo)
+}
+
+// A spec run record written before spec runs recorded their end gets it on start: the merge it read,
+// the letting-go, or for a claim that was lost the moment it started. A spec still held has none.
+func TestASpecRunRecordWithoutItsEndGetsItFromWhatItRecorded(t *testing.T) {
+	t.Parallel()
+	at := func(ago time.Duration) *time.Time {
+		when := time.Now().UTC().Add(-ago).Truncate(time.Second)
+		return &when
+	}
+	data := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	records := []SpecRun{
+		{ID: 1, State: specDone, StartedAt: *at(5 * time.Hour), DoneAt: at(3 * time.Hour)},
+		{ID: 2, State: specLetGo, StartedAt: *at(3 * time.Hour), LetGoAt: at(2 * time.Hour)},
+		{ID: 3, State: specLost, StartedAt: *at(time.Hour)},
+		{ID: 4, State: specHolding, StartedAt: *at(time.Hour), ClaimedAt: at(time.Hour)},
+	}
+	for _, r := range records {
+		r.Repository, r.Spec, r.Title, r.Branch, r.Base, r.Warnings = "acme/edge-sensors", specNumber, specTitle, specBranch, "main", []string{}
+		writeFile(t, filepath.Join(data, "spec-"+strconv.Itoa(r.ID)+".json"), marshal(t, r))
+	}
+	f := start(t, config{"paused": true, "data_dir": data})
+
+	for i, want := range []*time.Time{records[0].DoneAt, records[1].LetGoAt, &records[2].StartedAt, nil} {
+		var spec apiSpecRun
+		f.get(t, "/api/specs/"+strconv.Itoa(i+1), &spec)
+		if (want == nil) != (spec.EndedAt == nil) || want != nil && !spec.EndedAt.Equal(*want) {
+			t.Errorf("spec run %d, %s, ended at %v, want %v", i+1, spec.State, spec.EndedAt, want)
 		}
 	}
 }

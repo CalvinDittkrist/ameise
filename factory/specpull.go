@@ -252,7 +252,7 @@ func (f *Factory) specPullMerged(ctx context.Context, h holding) bool {
 	reason := "the spec pull request " + h.pullRequest + " was merged into " + held.Base + "; the assignee was taken off the spec, and the records of the spec run stay"
 	f.specs.event(s, Event{Kind: "factory", Title: specDone, Body: reason})
 	f.specs.update(s, func() {
-		s.State, s.Idle, s.DoneAt, s.Reason = specDone, true, &now, reason
+		s.State, s.Idle, s.DoneAt, s.EndedAt, s.Reason = specDone, true, &now, &now, reason
 		s.PullRequest = h.pullRequest
 	})
 	log.Printf("spec run %d (%s#%d) done: %s is merged", s.ID, s.Repository, s.Spec, h.pullRequest)
