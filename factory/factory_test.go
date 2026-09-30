@@ -1356,33 +1356,55 @@ func (f *factory) stop(t *testing.T, signal syscall.Signal) {
 }
 
 // ended waits until the run of that id exists and has ended, and answers with it as the interface
-// serves it.
+// serves it. The wait is a bound on a run that hangs, not on one that is slow: a run of the shims ends
+// within seconds on an idle host, and a host that runs the whole gate beside other gates can stretch
+// that past a minute and a half, which a tighter bound failed as a hang.
 func (f *factory) ended(t *testing.T, id int) apiRun {
 	t.Helper()
-	return f.endedWithin(t, id, 90*time.Second)
+	return f.endedWithin(t, id, 4*time.Minute)
 }
 
 // endedWithin waits that long for the run to end. A run the factory has not claimed yet answers 404,
-// which is no failure but a run still to come.
+// which is no failure but a run still to come. A run that does not end is reported with the stage it
+// stood in and its last events, so a hang is told from a slow host by the failure alone.
 func (f *factory) endedWithin(t *testing.T, id int, within time.Duration) apiRun {
 	t.Helper()
 	var run apiRun
-	f.eventually(t, within, fmt.Sprintf("run %d to end", id), func() bool {
-		run = apiRun{}
-		response, err := http.Get(fmt.Sprintf("http://%s/api/runs/%d", f.address, id))
-		if err != nil {
-			return false
+	seen := false
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if current, ok := f.runRecord(id); ok {
+			run, seen = current, true
+			if run.State == "ended" {
+				return run
+			}
 		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			return false
+		time.Sleep(20 * time.Millisecond)
+	}
+	where := "the factory never served it"
+	if seen {
+		last := []string{}
+		for _, e := range run.Events[max(0, len(run.Events)-5):] {
+			last = append(last, e.Kind+": "+e.Title)
 		}
-		if json.NewDecoder(response.Body).Decode(&run) != nil {
-			return false
-		}
-		return run.State == "ended"
-	})
+		where = fmt.Sprintf("it stood %s in the %q stage, its last events %q", run.State, run.Stage, last)
+	}
+	t.Fatalf("waited %s for run %d to end; %s; the factory's log:\n%s", within, id, where, f.output(t))
 	return run
+}
+
+// runRecord reads the run of that id as the interface serves it, and says whether there was one.
+func (f *factory) runRecord(id int) (apiRun, bool) {
+	var run apiRun
+	response, err := http.Get(fmt.Sprintf("http://%s/api/runs/%d", f.address, id))
+	if err != nil {
+		return run, false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&run) != nil {
+		return apiRun{}, false
+	}
+	return run, true
 }
 
 // cannedRuns is how many runs fake mode makes of its canned queue: one per entry, and the two
