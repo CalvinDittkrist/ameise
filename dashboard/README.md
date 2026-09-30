@@ -27,6 +27,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - In ci, what the stage waits for follows, and the checks it read last, each with its state and a link to its run.
   - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
   - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
+  - The page scrolls below the header, with the chat under it. It opens at the end of the conversation and follows the end while the session writes.
+  - Once the maintainer scrolled up, their place holds as the log grows, and Back to the end takes them there.
   - The session's text, the maintainer's messages and the text of a question render as markdown with GitHub's extensions. Raw HTML reads as text.
   - A link opens in a new tab for http and https alone; any other link reads as its text, and an image as its alternative text.
   - The lines between turns and the process's note stay plain.
@@ -66,6 +68,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
   - A process record carries a fixture event log with an answered question and an open permission request, so the process page shows both cards.
   - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and a question, which the live test answers from the page.
+  - Another plays a session longer than the window, whose page the scroll test scrolls up and back to the end, and reloads.
   - The tests of merge, accept, release, plan, capture and finish answer their requests in the browser, so the fake's state stays.
   - The controller's tests cover what they do.
 - It compares a screenshot of each page in light and dark with the one approved for the operating system.
@@ -73,6 +76,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - CI renders the Linux ones in Playwright's image, so they are written there:
   `docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work/dashboard mcr.microsoft.com/playwright:v<version>-noble npx playwright test`.
 - `<version>` is the Playwright version in the lockfile.
-- A shadcn component is copied into `src/components/ui`, with its `cn` import pointed at `@/lib/utils`.
+- A styled shadcn component is copied into `src/components/ui`, with its `cn` import pointed at `@/lib/utils`.
+- A headless shadcn primitive comes from the package `@shadcn/react` as a dependency, such as the message scroller of the process page.
 - shadcn's typeset stylesheet is copied unchanged into `src/typeset.css` and imported after Tailwind in `src/index.css`, which defines the chat's preset `typeset-chat`.
   - To update it, copy `https://ui.shadcn.com/typeset.css` over the file again and approve the process page's screenshots anew.
