@@ -275,7 +275,12 @@ The controller waits on the pull request itself, in the stage `ci`, with the sta
 
 The record's `wait` says what it waits for, and `checks` holds the checks it read last, each `{name, url, state}`.
 
-A gate's draft the pr stage marked ready carries the draft's checks. In a repository whose workflows name the `ready_for_review` event, marking it ready starts checks of their own. There the stage waits after the checks until one has finished since `readied`, or until `WF_CHECKS_GRACE` seconds (600) have passed. The workflows are read as text: one that only mentions the event costs the wait of the grace. In every repository the bot review's wait counts from the ready at the earliest.
+A gate's draft the pr stage marked ready carries the draft's checks.
+
+- In a repository whose workflows name the `ready_for_review` event, marking it ready starts checks of their own.
+  - There the stage waits after the checks until one has finished since `readied`, or until `WF_CHECKS_GRACE` seconds (600) have passed.
+  - The workflows are read as text: one that only mentions the event costs the wait of the grace.
+- In every repository the bot review's wait counts from the ready at the earliest.
 
 - Green ends the process `ready`, and the board offers the merge.
 - A conflict or failed checks start a fix session of the ci stage, a fresh session with the stage timeout.
