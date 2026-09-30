@@ -82,6 +82,12 @@ jobs:
   factory-browser:
     # The factory's dashboard in a real browser against the real binary in fake mode.
     runs-on: ubuntu-latest
+    # Playwright's image carries the browser and the system libraries and fonts it needs. Installing them
+    # on the runner fetched them from an Ubuntu mirror that at times took six minutes for 32 MB. The tag
+    # is the Playwright version in factory/ui/package-lock.json (tested).
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host # Chromium's shared memory, as Playwright's CI guide sets it
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -100,22 +106,10 @@ jobs:
           path: ~/.cache/go-build
           key: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('factory/go.mod', 'factory/**/*.go') }}
           restore-keys: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install make, which the image leaves out
+        run: apt-get update && apt-get install -y --no-install-recommends make
       - name: Install the dashboard's dependencies
         run: npm --prefix factory/ui ci
-      - name: Read the Playwright version the dashboard installed
-        id: playwright
-        # playwright-core is the package that names the browser build it downloads
-        run: |
-          version="$(node -p "require('./factory/ui/node_modules/playwright-core/package.json').version")"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Cache the browser of Playwright ${{ steps.playwright.outputs.version }}
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ steps.playwright.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-      # With the browser restored this downloads nothing; the system libraries it needs are not cached.
-      - name: Install the browser the dashboard's test drives
-        run: npm --prefix factory/ui exec -- playwright install --with-deps chromium
       - name: Gate
         run: make browser
       - name: Keep the browser test's report and what it saw when it failed
@@ -132,6 +126,11 @@ jobs:
   local:
     # The local workflow: the controller and the dashboard it serves, read in a real browser.
     runs-on: ubuntu-latest
+    # The same image as factory-browser, for the same reason. The tag is the Playwright version in
+    # dashboard/package-lock.json (tested).
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -141,20 +140,10 @@ jobs:
           cache-dependency-path: |
             controller/package-lock.json
             dashboard/package-lock.json
+      - name: Install make, which the image leaves out
+        run: apt-get update && apt-get install -y --no-install-recommends make
       - name: Install the dashboard's dependencies
         run: npm --prefix dashboard ci
-      - name: Read the Playwright version the dashboard installed
-        id: playwright
-        run: |
-          version="$(node -p "require('./dashboard/node_modules/playwright-core/package.json').version")"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Cache the browser of Playwright ${{ steps.playwright.outputs.version }}
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ steps.playwright.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-      - name: Install the browser the dashboard's test drives
-        run: npm --prefix dashboard exec -- playwright install --with-deps chromium
       - name: Gate
         run: make controller dashboard
       - name: Keep the browser test's report and what it saw when it failed

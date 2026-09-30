@@ -223,6 +223,22 @@ class FactoryGateTests(unittest.TestCase):
         self.assertEqual(re.findall(r"key: staticcheck-([0-9.]+)-", ci), [named.group(1)])
 
 
+class BrowserImageTests(unittest.TestCase):
+    """CI runs each browser test in Playwright's image, which carries one browser build."""
+
+    def test_each_browser_job_runs_the_image_of_the_playwright_its_lockfile_installs(self):
+        # A tag behind the lockfile leaves the test without its browser, and `playwright install` in the
+        # gate would fetch it without the system libraries the image was chosen to carry.
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        for job, ui in (("factory-browser", "factory/ui"), ("local", "dashboard")):
+            block = re.search(rf"^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", ci, re.S | re.M)
+            self.assertIsNotNone(block, f"no job {job} in ci.yml")
+            tag = re.search(r"image: mcr\.microsoft\.com/playwright:v([0-9.]+)-noble\n", block.group(1))
+            self.assertIsNotNone(tag, f"job {job} runs in no Playwright image")
+            lock = json.loads((ROOT / ui / "package-lock.json").read_text())
+            self.assertEqual(tag.group(1), lock["packages"]["node_modules/playwright-core"]["version"], job)
+
+
 class PythonGateTests(unittest.TestCase):
     """`make test`, the Python part of the gate: it runs the suite through the runner, not plain discovery."""
 
