@@ -144,15 +144,18 @@ The brief names the issue, the branch, its base and the `gh` and `git` reads the
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
 
-A session that ends `blocked` or `failed`, and a gate that ends `ready` or `failed`, mark the record `unseen` and send one [notification](#notifications).
+A session that ends `blocked` or `failed`, a gate that ends `failed` and a review that ends `ready` or `failed` mark the record `unseen` and send one [notification](#notifications).
 
-In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory whose file `play` says what the implement session does, `gate` what a fix session of the gate does, and `resume` what a resumed session does (see the script).
+In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory of plays (see the script):
+- `play` says what the implement session does, `resume` what a resumed session does.
+- `gate` and `review` say what a fix session of the gate and of the review does.
+- `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
 1. It fetches the base, outside fake mode, and merges it into the branch.
 2. It runs the gate command `make check` in the worktree, in a process group of its own, within `WF_GATE_TIMEOUT` seconds (2700).
-3. A pass ends the process `ready`, with the commit it passed at as the note.
+3. A pass starts the [review stage](#review-stage).
 
 A merge that conflicts is aborted, and a gate command that fails or runs past its timeout counts as a failure. Either starts a fix session of the gate:
 - a fresh headless session, not a resume, without the worker's agent, with the conflicted files or the exit and the last 20 lines of the output in its brief,
@@ -160,14 +163,42 @@ A merge that conflicts is aborted, and a gate command that fails or runs past it
 - reporting `complete` or `blocked` as the implement session does. On `complete` the gate runs again from its merge.
   - On `blocked` the process is `blocked` in `gate`, and the answer resumes the fix session.
 
-`WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the implement session last completed, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
+`WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the last session of another stage, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
 
-Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`.
+Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`, whose state is `pass` or `failed`.
 
 The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason.
 - A message to a process whose gate command runs is refused with `409`.
 - A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again.
 - A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
+
+## Review stage
+After the gate passes the controller runs the repository's reviewers, in the stage `review`. A round runs its reviewers in parallel:
+- each a fresh headless session with the stage timeout, as the worker's reviewer agent of its name (`worker:code-reviewer` for `code`),
+- read-only: without `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Agent`, and in the permission mode `default` rather than `auto`, so each call the runtime does not know as read-only is a card,
+- briefed with the diff range, the issue and the gate's last run with the end of its output,
+- reporting through a schema: a verdict `pass` or `fix` and findings, each a severity `S1`, `S2` or `S3`, a place, a claim and a fix.
+  - A finding of `S1` or `S2` makes the verdict `fix`.
+
+Their streams stay out of the event log and their ids out of the record's `session_id`. A permission a reviewer asks for is a card as any other, but any answer that allows it allows that one call. A reviewer's grant is kept for no later call, and the process's allowances do not reach a reviewer.
+
+`WF_REVIEWERS` names the reviewers, comma-separated among `code`, `security`, `docs`, `tests` and `senior`; unset, it is all five. Round 1 runs every one, a later round those whose last verdict is `fix`.
+
+- Every reviewer at `pass` ends the review with the panel `pass` and the process `ready`.
+- A `fix` verdict starts one fix session of the review, a fresh session with the stage timeout. Its brief carries every finding of the round by its id, `<reviewer>-<round>-<n>`.
+  - It reports as the implement session does, and names in `fixes` what it did with each finding: `fixed` or `declined`, with a note.
+  - On `complete` the [gate](#gate-stage) runs again, and its pass starts the next round. On `blocked` the answer resumes it.
+- `WF_REVIEW_ROUNDS` (3) is the review's budget: the rounds since the implement session last ended. A round at that number with a `fix` verdict ends the review with the panel `failed`.
+  - The process is not stopped: it is `ready`, and the pull request names the failed panel.
+- A reviewer that reports no verdict, and a knob that is wrong, end the process `failed` with the reason.
+
+Each round is an attempt in `history`: `{stage: "review", kind: "round", result: "pass"|"fix"|"failed", round, commit, verdicts, at}`.
+- Each verdict is `{reviewer, verdict, session_id, findings, note}`, and each finding is `{id, severity, where, claim, fix}`.
+- A fix session is `{stage: "review", kind: "session", ..., fixes}`, each fix `{finding, outcome, note}`.
+- The record's `panel` is `pass` or `failed` once the review has ended.
+- The event log carries `review-start` per round, a `review` event per round and `review-end`.
+
+A message while the reviewers run is refused with `409`. A stop while they run marks the process `interrupted`, and a resume runs the round again. A stop while its fix session runs is resumed as the gate's is.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -199,7 +230,7 @@ Stopping and starting the controller loses no process.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: it starts the implement session again in the worktree, or the gate when it was in `gate`.
+- A resume goes on with an interrupted process: its implement session in the worktree, its gate, or the round its reviewers ran.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.

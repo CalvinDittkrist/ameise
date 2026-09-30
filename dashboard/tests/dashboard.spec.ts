@@ -235,13 +235,45 @@ test("a process page links the pull request of its branch with its checks", asyn
   }
 })
 
+test("a process page shows the rounds of the review with each reviewer's verdict and the findings with their fixes", async ({ page }) => {
+  // The ready process of the fixture has been reviewed in two rounds for this test, and is as it was after it.
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  const at = new Date().toISOString()
+  const finding = { id: "code-1-1", severity: "S2", where: "src/drift.ts:12", claim: "The drift is logged before it is clamped.", fix: "Clamp first." }
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "review", state: "ready", note: "the review passed in round 2", panel: "pass", updated_at: at,
+    history: [
+      { stage: "implement", kind: "session", result: "complete", at, commits: ["a1b2c3d fix: log the drift"] },
+      { stage: "gate", kind: "run", result: "pass", at, commit: "a1b2c3d4" },
+      { stage: "review", kind: "round", result: "fix", at, round: 1, verdicts: [{ reviewer: "code", verdict: "fix", findings: [finding] }, { reviewer: "docs", verdict: "pass", findings: [] }] },
+      { stage: "review", kind: "session", result: "complete", at, commits: ["e5f6a7b fix: clamp the drift first"], fixes: [{ finding: "code-1-1", outcome: "fixed", note: "Clamped before the log." }] },
+      { stage: "gate", kind: "run", result: "pass", at, commit: "e5f6a7b8" },
+      { stage: "review", kind: "round", result: "pass", at, round: 2, verdicts: [{ reviewer: "code", verdict: "pass", findings: [] }] },
+    ],
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(main(page).getByRole("list", { name: "Records of review" }).getByRole("listitem")).toContainText(["round 1 fix", "session complete, 1 commit", "round 2 pass"])
+    const rounds = main(page).getByRole("list", { name: "Review rounds" })
+    await expect(rounds.getByRole("listitem", { name: /^Round \d$/ })).toHaveCount(2)
+    const first = rounds.getByRole("listitem", { name: "Round 1" })
+    await expect(first.getByLabel(/^Verdict of /)).toContainText(["code fix", "docs pass"])
+    await expect(first.getByRole("list", { name: "Findings of code" })).toHaveText("code-1-1 S2 src/drift.ts:12: The drift is logged before it is clamped.fixed: Clamped before the log.")
+    await expect(rounds.getByRole("listitem", { name: "Round 2" }).getByLabel(/^Verdict of /)).toHaveText(["code pass"])
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
 test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
   await page.goto(url())
   await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
   await expect(main(page).getByLabel("Facts")).toHaveText("acme/edge-sensorsfeat/118-refuse-a-project-without-originmanual2hcontext84k")
   await expect(main(page).getByLabel("Context", { exact: true })).toHaveAttribute("title", "84,213 of 250,000 tokens before it compacts")
-  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate"])
+  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate", "review"])
 
   const turns = main(page).getByLabel("Conversation").getByRole("article")
   expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question", "Session", "You", "Session", "Permission"])

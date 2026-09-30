@@ -96,8 +96,9 @@ test('a gate that fails starts a fresh fix session, and the gate runs again on w
   playGate('commit fixed.txt\ncomplete Wrote the missing file')
   const r = await claim()
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: `the gate passed at ${head(done).slice(0, 7)}` })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass'])
+  // The gate's pass starts the review, whose reviewers pass.
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass', 'review round pass'])
   const [implement, failed, fix, passed] = done.history ?? []
   expect(failed).toMatchObject({ exit: 2, tail: expect.stringMatching(/Error 1/) })
   expect(fix).toMatchObject({ session_id: expect.stringMatching(/^fake-session-/), commits: [expect.stringMatching(/ fix: write fixed\.txt$/)] })
@@ -106,7 +107,7 @@ test('a gate that fails starts a fresh fix session, and the gate runs again on w
   // The fix session is a fresh session of its own stage: no resume, and no agent of the worker's pipeline.
   const log = read(m.claudeLog)
   expect(log).not.toMatch(/--resume/)
-  expect(log.split('\n').filter((l) => l === '--agent')).toHaveLength(1)
+  expect(log.split('\n').filter((l, i, all) => l === '--agent' && !all[i + 1]?.includes('reviewer'))).toHaveLength(1)
   expect(read(m.claudeLog + '.env')).toMatch(/AMEISE_STAGE="gate"/)
 })
 
@@ -137,8 +138,8 @@ test('a merge of the base that conflicts starts a fix session, and the gate pass
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
   expect((await say(r.id, 'go on')).status).toBe(200)
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate merge conflict', 'gate session complete', 'gate run pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate merge conflict', 'gate session complete', 'gate run pass', 'review round pass'])
   expect(done.history?.[1]).toMatchObject({ files: ['a.txt'] })
   expect(read(join(done.worktree, 'a.txt'))).toBe('a.txt\n')
 })
@@ -165,8 +166,8 @@ test('a fix session that is blocked waits in needs you with its commits, and the
   playResume('commit fixed.txt\ncomplete Fixed it instead')
   expect((await say(r.id, 'No, fix it')).body).toMatchObject({ delivered: 'resumed' })
   const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'blocked')
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session blocked', 'gate session complete', 'gate run pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session blocked', 'gate session complete', 'gate run pass', 'review round pass'])
   expect(done.history?.[3]?.session_id).toBe(done.history?.[2]?.session_id)
 })
 
@@ -193,8 +194,8 @@ test('a hold keeps the implement session open at its complete, and its next comp
   playResume('complete Renamed the flag as well')
   expect((await say(r.id, 'Rename the flag too')).body).toMatchObject({ delivered: 'resumed' })
   const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'input')
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate' })
-  expect(shape(done)).toEqual(['implement session complete', 'implement session complete', 'gate run pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'implement session complete', 'gate run pass', 'review round pass'])
 
   // Past implement there is nothing to hold.
   const late = await api(m, 'POST', '/api/processes/hold', { id: r.id, hold: true })
@@ -248,8 +249,9 @@ test('a stop while the gate runs marks the process interrupted, and a resume run
   const resumed = cli(m, ['resume', '144', '--project', dir])
   expect(resumed.stderr).toBe('')
   const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: expect.stringMatching(/^the gate passed at [0-9a-f]{7}, with changes not committed$/) })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass'])
+  expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'pass', dirty: true })
 })
 
 test('a gate knob that is no whole number ends the process failed with the reason', async () => {
@@ -267,7 +269,7 @@ test('a gate command that leaves changes passes with changes not committed', asy
   play(m, 'complete Implemented the board')
   const r = await claim()
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: expect.stringMatching(/, with changes not committed$/) })
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
   expect(done.history?.[1]).toMatchObject({ kind: 'run', result: 'pass', dirty: true })
 })
 
@@ -287,7 +289,7 @@ test('a stop while a fix session of the gate runs marks it interrupted, and a re
   playResume('commit fixed.txt\ncomplete Wrote the missing file')
   expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
   const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'review' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass', 'review round pass'])
   expect(done.history?.[2]?.session_id).toBe(fixing.session_id)
 })
