@@ -177,6 +177,23 @@ export type Entry = { seq: number } & (
   | { kind: "end"; state: string; note: string }
 )
 
+// An attempt of a stage as the record keeps it: a session of the stage, a merge of the base or a run of
+// the gate command, with its result and the time it ended.
+export type Attempt = {
+  stage: string
+  kind: "session" | "merge" | "run"
+  result: string
+  at: string
+  session_id?: string
+  commits?: string[]
+  note?: string
+  commit?: string
+  dirty?: boolean
+  files?: string[]
+  exit?: number | null
+  tail?: string
+}
+
 // A process record as the controller keeps it, with the context size at which its session compacts.
 export type ProcessRecord = {
   id: string
@@ -196,6 +213,9 @@ export type ProcessRecord = {
   // compact_at is the size a work session compacts at; a plan's session is not pinned.
   compact_at?: number
   unseen?: boolean
+  // hold and history are a work process's: whether its next complete stays open, and its stages' attempts.
+  hold?: boolean
+  history?: Attempt[]
   updated_at: string
 }
 
@@ -249,6 +269,9 @@ export const say = (id: string, text: string) => call<{ delivered: "answered" | 
 
 // answer answers a permission request of the process's session.
 export const answer = (id: string, request: string, a: Answer) => call<{ answer: Answer }>("POST", "/api/processes/answer", { id, request, answer: a })
+
+// hold sets whether the implement session's next complete report keeps it open instead of starting the gate.
+export const hold = (id: string, on: boolean) => call<{ hold: boolean }>("POST", "/api/processes/hold", { id, hold: on })
 
 // openTerminal opens the process's session in a terminal window of this machine.
 export const openTerminal = (id: string) => call<{ script: string }>("POST", "/api/processes/terminal", { id })

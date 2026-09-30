@@ -1,4 +1,4 @@
-import { BotIcon, MessageCircleQuestionIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
+import { BotIcon, MessageCircleQuestionIcon, PauseIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
 import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,11 @@ import {
   age,
   type Answer,
   answer,
+  type Attempt,
   type Board,
   broken,
   type Entry,
+  hold,
   openTerminal,
   type Process,
   type ProcessRecord,
@@ -28,9 +30,9 @@ import {
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
-// The stages a process of each kind runs in the controller. A work process runs implement, whose
-// session runs the worker's own pipeline after it; the later stages join as the controller drives them.
-const stagesOf: Record<Process["kind"], string[]> = { work: ["implement"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
+// The stages a process of each kind runs in the controller. A work process runs implement and the gate;
+// the later stages join as the controller drives them.
+const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
 // for the permissions and questions that wait for the maintainer, a chat that writes to the session and
@@ -83,6 +85,20 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
 function Header({ record }: { record: ProcessRecord }) {
   const [error, setError] = useState("")
   const [opening, setOpening] = useState(false)
+  const [holding, setHolding] = useState(false)
+  // A work process in implement may be held: its next complete keeps the session open, not the gate.
+  const holdable = record.kind === "work" && record.stage === "implement"
+  const toggle = async () => {
+    setHolding(true)
+    setError("")
+    try {
+      await hold(record.id, !record.hold)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setHolding(false)
+    }
+  }
   const open = async () => {
     setOpening(true)
     setError("")
@@ -109,10 +125,24 @@ function Header({ record }: { record: ProcessRecord }) {
             <Finish id={record.id} project={record.project} />
           </div>
         )}
+        {holdable && (
+          <Button
+            size="sm"
+            variant={record.hold ? "default" : "outline"}
+            className="ml-auto"
+            aria-pressed={record.hold === true}
+            disabled={holding}
+            title={record.hold ? "Its next complete keeps the session open instead of starting the gate; click to release the hold" : "Keep the session open at its next complete instead of starting the gate"}
+            onClick={() => void toggle()}
+          >
+            <PauseIcon />
+            {record.hold ? "Held" : "Hold"}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
-          className={cn(record.kind !== "plan" && "ml-auto")}
+          className={cn(record.kind !== "plan" && !holdable && "ml-auto")}
           disabled={!record.session_id || opening}
           title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
@@ -184,25 +214,54 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
       </div>
       {/* The report a session ended with: what is ready, the question a block asks, the reason of a failure. */}
       {reported.includes(record.state) && record.note && (
-        <p aria-label="Note" className={cn("text-sm", record.state === "failed" && "text-destructive")}>
+        <p aria-label="Note" className={cn("text-sm whitespace-pre-line", record.state === "failed" && "text-destructive")}>
           {record.note}
         </p>
       )}
-      <ol aria-label="Stages" className="flex flex-wrap gap-1.5">
-        {stages.map((s, j) => (
-          <li key={s}>
-            <Badge
-              variant={j === at ? "default" : "outline"}
-              aria-current={j === at ? "step" : undefined}
-              className={cn(j < at && "border-transparent bg-muted text-muted-foreground line-through", j > at && "text-muted-foreground")}
-            >
-              {s}
-            </Badge>
-          </li>
-        ))}
+      <ol aria-label="Stages" className="flex flex-wrap items-start gap-1.5">
+        {stages.map((s, j) => {
+          const attempts = (record.history ?? []).filter((a) => a.stage === s)
+          return (
+            <li key={s} className="flex flex-col gap-1">
+              <Badge
+                variant={j === at ? "default" : "outline"}
+                aria-current={j === at ? "step" : undefined}
+                className={cn(j < at && "border-transparent bg-muted text-muted-foreground line-through", j > at && "text-muted-foreground")}
+              >
+                {s}
+              </Badge>
+              {attempts.length > 0 && (
+                <ol aria-label={`Records of ${s}`} className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                  {attempts.map((a, i) => (
+                    <li key={i} className={cn(failed(a) && "text-destructive")} title={a.tail ?? a.note ?? a.at}>
+                      {described(a)} · {age(a.at)}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          )
+        })}
       </ol>
     </>
   )
+}
+
+// failed tells an attempt that did not get its stage through: a failed or blocked session, a conflict, a
+// failing run.
+const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail"].includes(a.result)
+
+// described is an attempt as the stage rail lists it: what ran and how it ended.
+function described(a: Attempt): string {
+  const at = a.commit ? ` at ${a.commit.slice(0, 7)}` : ""
+  switch (a.kind) {
+    case "merge":
+      return `merge conflict in ${(a.files ?? []).join(", ")}`
+    case "run":
+      return a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`
+    default:
+      return `session ${a.result}${a.commits?.length ? `, ${a.commits.length} commit${a.commits.length === 1 ? "" : "s"}` : ""}`
+  }
 }
 
 // A turn of the conversation as the page draws it: the session's text with the tool calls that follow

@@ -210,7 +210,7 @@ test("a process page shows the facts, the stages and the session as a conversati
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
   await expect(main(page).getByLabel("Facts")).toHaveText("acme/edge-sensorsfeat/118-refuse-a-project-without-originmanual2hcontext84k")
   await expect(main(page).getByLabel("Context", { exact: true })).toHaveAttribute("title", "84,213 of 250,000 tokens before it compacts")
-  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement"])
+  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate"])
 
   const turns = main(page).getByLabel("Conversation").getByRole("article")
   expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question", "Session", "You", "Session", "Permission"])
@@ -249,7 +249,7 @@ test("open in terminal has the terminal resume the session by its id", async ({ 
 test("a running session's permission, question and chat are answered on its page, which follows it live", async ({ page }) => {
   const project = process.env.AMEISE_SENSORS!
   const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
-  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nready Pull request #9 waits for your merge\n")
+  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nblocked Which name should the flag take?\n")
   try {
     const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
     expect(claimed.status).toBe(201)
@@ -287,9 +287,15 @@ test("a running session's permission, question and chat are answered on its page
     await expect(message).toHaveValue("")
     await expect(conversation.getByRole("article", { name: "You" })).toHaveText("Name it --keep")
     await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You wrote: Name it --keep." })).toHaveCount(1)
-    await expect(conversation.getByRole("note")).toHaveText("Reported ready: Pull request #9 waits for your merge")
-    await expect(main(page).locator("[title=ready]")).toHaveCount(1)
+    await expect(conversation.getByRole("note")).toHaveText("Reported blocked: Which name should the flag take?")
+    await expect(main(page).locator("[title=blocked]")).toHaveCount(1)
     await expect(message).toHaveAttribute("placeholder", "Write to resume the session…")
+    // The stage rail lists the session's end as a record of implement, and a hold waits for its next complete.
+    await expect(main(page).getByRole("list", { name: "Records of implement" }).getByRole("listitem")).toContainText(["session blocked"])
+    const hold = main(page).getByRole("button", { name: "Hold" })
+    await expect(hold).toHaveAttribute("aria-pressed", "false")
+    await hold.click()
+    await expect(main(page).getByRole("button", { name: "Held" })).toHaveAttribute("aria-pressed", "true")
   } finally {
     rmSync(play, { force: true })
     await fetch(url("/api/processes"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
