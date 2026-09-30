@@ -214,7 +214,7 @@ After the review the controller opens the pull request, in the stage `pr`:
 4. It runs `gh pr create` against the base, never as a draft.
 5. It asks each bot of `WF_PR_BOT_REVIEWERS` for a review with `gh pr edit --add-reviewer`. A refusal is a `pr-note` event and stops nothing.
 
-An open pull request of the branch, as after a follow-up message, takes the push, and no other is opened. The record's `pull` is `{number, url}`.
+An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
 The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session or a `gh pr create` that fails ends the process `failed` with the reason. A resume runs the stage again.
 
@@ -223,7 +223,8 @@ The controller waits on the pull request itself, in the stage `ci`, with the sta
 1. GitHub's answer whether the branch merges into its base. A conflict comes first, because GitHub runs no check on such a branch.
 2. The checks. An empty rollup in a repository with workflows waits up to 600 seconds for GitHub to register them.
 3. A review of a bot of `WF_PR_BOT_REVIEWERS` (`chatgpt-codex-connector`; empty for none), within `WF_PR_REVIEW_WAIT` seconds (1200) of the checks' end.
-4. Any standing request for changes, and any review thread not resolved.
+4. Any standing request for changes, and any review thread not resolved. The threads are read only once the waits before have passed.
+5. GitHub's merge state, which must be `CLEAN`, as the merge requires.
 
 The record's `wait` says what it waits for, and `checks` holds the checks it read last, each `{name, url, state}`.
 
@@ -232,10 +233,10 @@ The record's `wait` says what it waits for, and `checks` holds the checks it rea
   - Its brief names the conflict or the failed checks. It commits and pushes nothing.
   - On `complete` the controller pushes and waits again. On `blocked` the answer resumes it.
 - `WF_CI_REPAIR_ROUNDS` (3) is the repair budget: the fix sessions since the pull request was opened or found. A failure with it spent ends the process `failed`.
-- A request for changes or an unresolved thread is never green: the process turns `blocked` with who asked. A message resumes its session, whose `complete` pushes and waits again.
-- A closed pull request ends the process `failed`.
+- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state. A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
+- A pull request merged meanwhile turns the process `blocked`, for the maintainer to abandon it. A closed one ends it `failed`.
 
-Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
+Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
 
 A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
 

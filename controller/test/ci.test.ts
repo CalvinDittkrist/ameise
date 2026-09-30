@@ -129,14 +129,57 @@ test('a failed panel is named in the pull request, which is opened all the same'
   expect(ghCalls().some((c) => c.startsWith('pr edit '))).toBe(false)
 })
 
-test('an open pull request of the branch takes the push, and no other is opened', async () => {
-  canPulls(m, 'owner/repo', [{ number: 7, headRefName: 'feat/144-board-lists-every-project', isCrossRepository: false, url: 'https://github.com/owner/repo/pull/7', isDraft: false }])
+test('an open pull request of the branch into its base takes the push and is asked of the bots, and no other is opened', async () => {
+  const branch = 'feat/144-board-lists-every-project'
+  canPulls(m, 'owner/repo', [
+    { number: 6, headRefName: branch, baseRefName: 'release', isCrossRepository: false, url: 'https://github.com/owner/repo/pull/6', isDraft: false },
+    { number: 7, headRefName: branch, baseRefName: 'main', isCrossRepository: false, url: 'https://github.com/owner/repo/pull/7', isDraft: false },
+  ])
   canPull(m, 'owner/repo', 7, [reading(7)])
   const r = await claim()
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green, pull: { number: 7 } })
   expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
   expect(ghCalls().some((c) => c.startsWith('pr create '))).toBe(false)
+  expect(ghCalls()).toContain('pr edit 7 --repo owner/repo --add-reviewer chatgpt-codex-connector')
+})
+
+test('an open pull request of the branch into another base is not taken, and one into the base is opened', async () => {
+  canPulls(m, 'owner/repo', [
+    { number: 6, headRefName: 'feat/144-board-lists-every-project', baseRefName: 'release', isCrossRepository: false, url: 'https://github.com/owner/repo/pull/6', isDraft: false },
+  ])
+  canPull(m, 'owner/repo', 7, [reading(7)])
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green, pull: { number: 7 } })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
+})
+
+test('a merge state other than clean is never green: the process is blocked with the state', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { mergeState: 'BLOCKED' })])
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: expect.stringMatching(/^PR #7 is not green: its merge state is BLOCKED, not CLEAN; /) })
+  expect(done.history?.at(-1)).toMatchObject({ stage: 'ci', kind: 'wait', result: 'unmergeable', pr: 7 })
+})
+
+test('a pull request merged meanwhile blocks the process for an abandon, not failed', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { state: 'MERGED' })])
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: 'PR #7 is merged already on GitHub; abandon the process to remove its worktree and branch' })
+  expect(done.history?.at(-1)).toMatchObject({ stage: 'ci', kind: 'wait', result: 'merged', pr: 7 })
+})
+
+test('the review threads are read only once the checks and the bot review have passed', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { checks: { gate: 'PENDING' } }), reading(7, { checks: { gate: 'PENDING' } }), reading(7)])
+  const r = await claim()
+  await ended(r.id)
+  const calls = ghCalls()
+  const views = calls.map((c, i) => (c.startsWith('pr view 7 ') ? i : -1)).filter((i) => i >= 0)
+  const threads = calls.map((c, i) => (c.startsWith('api graphql ') ? i : -1)).filter((i) => i >= 0)
+  expect(threads).toHaveLength(1)
+  expect(threads[0]).toBeGreaterThan(views[2] ?? Infinity)
 })
 
 test('the ci stage waits for the checks, then for the bot review within the review wait, and shows what it waits for', async () => {
@@ -318,4 +361,24 @@ test('a fix session of the ci stage that is blocked waits for the answer, which 
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
   expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait checks-failed', 'ci session blocked', 'ci session complete', 'ci wait green'])
   expect(done.history?.at(-1)).toMatchObject({ commit: head(done) })
+})
+
+test('a message to a process the ci stage blocked starts a fix session, which a restart resumes as such', async () => {
+  canPull(m, 'owner/repo', 7, [
+    reading(7, {
+      reviews: [
+        { login: 'chatgpt-codex-connector', state: 'COMMENTED' },
+        { login: 'ada', state: 'CHANGES_REQUESTED' },
+      ],
+    }),
+  ])
+  const r = await claim()
+  expect(await ended(r.id)).toMatchObject({ state: 'blocked', stage: 'ci' })
+  writeFileSync(join(m.claude, 'resume'), 'say Reading the review\n')
+  expect((await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'address the review' })).status).toBe(200)
+  await until(r.id, (x) => x.state === 'running')
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  expect(recordOf(r.id)).toMatchObject({ state: 'interrupted', stage: 'ci', note: 'the controller stopped while the fix session of its ci stage ran; resume it to go on' })
 })

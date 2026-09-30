@@ -6,8 +6,9 @@
 //
 // A conflict or failed checks start a fix session of the ci stage within WF_CI_REPAIR_ROUNDS; its complete
 // comes back here, which pushes and waits again. Green ends the process ready, where the board offers
-// the merge. A standing request for changes or an unresolved thread is never green: the process is
-// blocked until the maintainer answers it. A spent repair budget ends the process failed, and so does a
+// the merge. A standing request for changes, an unresolved thread or a merge state other than clean is
+// never green: the process is blocked until the maintainer answers it. A pull request merged meanwhile
+// blocks it too, for the maintainer to abandon. A spent repair budget ends the process failed, and so does a
 // pull request that is closed. Every verdict other than a wait is an attempt in the record's history.
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -42,11 +43,12 @@ interface Reading {
   state: string
   headRefOid?: string
   mergeable: string
+  mergeStateStatus?: string
   statusCheckRollup?: { name?: string; context?: string; conclusion?: string | null; state?: string | null; status?: string | null; completedAt?: string | null; detailsUrl?: string; targetUrl?: string }[]
   reviews?: { author?: { login?: string } | null; state: string; submittedAt?: string }[]
 }
 
-const readingFields = 'number,url,state,headRefOid,mergeable,statusCheckRollup,reviews'
+const readingFields = 'number,url,state,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,reviews'
 
 const failures = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE']
 const pendings = ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED']
@@ -66,8 +68,9 @@ function checksOf(r: Reading): (Check & { completed?: number })[] {
 // The verdict of one reading: a wait with what it waits for, or an end of the wait.
 type Verdict =
   | { kind: 'waiting'; wait: string }
-  | { kind: 'closed' | 'conflicts' | 'checks-failed' | 'green' }
+  | { kind: 'closed' | 'merged' | 'conflicts' | 'checks-failed' | 'green' }
   | { kind: 'review-comments'; reviews: string[] }
+  | { kind: 'unmergeable'; status: string }
 
 interface Knobs {
   bots: string[]
@@ -78,8 +81,10 @@ interface Knobs {
 
 // judge makes the verdict of one reading, in the order of the waits. doneAt is when the checks were first
 // seen done without GitHub saying when, which the review wait counts from; it is the caller's, across
-// readings. unresolved is the number of review threads nobody resolved.
-function judge(r: Reading, unresolved: number, k: Knobs, now: number, doneAt: { at?: number }): Verdict {
+// readings. unresolved counts the review threads nobody resolved, which is asked only once every wait
+// before it has passed.
+async function judge(r: Reading, unresolved: () => Promise<number>, k: Knobs, now: number, doneAt: { at?: number }): Promise<Verdict> {
+  if (r.state === 'MERGED') return { kind: 'merged' }
   if (r.state !== 'OPEN') return { kind: 'closed' }
   if (r.mergeable === 'CONFLICTING') return { kind: 'conflicts' }
   if (r.mergeable !== 'MERGEABLE') return { kind: 'waiting', wait: 'GitHub to say whether the branch merges into its base' }
@@ -105,8 +110,13 @@ function judge(r: Reading, unresolved: number, k: Knobs, now: number, doneAt: { 
     if ((latest.get(login)?.at ?? '') <= at) latest.set(login, { state: v.state, at })
   }
   const reviews = [...latest].filter(([, v]) => v.state === 'CHANGES_REQUESTED').map(([login]) => `${login} requested changes`)
-  if (unresolved > 0) reviews.push(`${unresolved} review thread(s) not resolved`)
+  const open = await unresolved()
+  if (open > 0) reviews.push(`${open} review thread(s) not resolved`)
   if (reviews.length > 0) return { kind: 'review-comments', reviews }
+  // The merge takes only a clean pull request: one behind its base or blocked by a rule of it is not green.
+  const status = r.mergeStateStatus ?? 'UNKNOWN'
+  if (status === 'UNKNOWN') return { kind: 'waiting', wait: 'GitHub to say whether the base lets the branch merge' }
+  if (status !== 'CLEAN') return { kind: 'unmergeable', status }
   return { kind: 'green' }
 }
 
@@ -217,7 +227,7 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
       checks = checksOf(r).map((c) => ({ name: c.name, ...(c.url ? { url: c.url } : {}), state: c.state }))
       // A reading of another head is GitHub's before the push has reached it.
       if (r.headRefOid && r.headRefOid !== head && r.state === 'OPEN') verdict = { kind: 'waiting', wait: `GitHub to show the push of ${head.slice(0, 7)}` }
-      else verdict = judge(r, r.state === 'OPEN' ? await unresolved(rt.gh, project.owner, project.name, n) : 0, k, Date.now(), doneAt)
+      else verdict = await judge(r, () => unresolved(rt.gh, project.owner, project.name, n), k, Date.now(), doneAt)
     } catch (err) {
       verdict = { kind: 'waiting', wait: `GitHub to answer: ${(err as Error).message.split('\n')[0]}` }
     }
@@ -236,6 +246,8 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
     update(rt.stateDir, id, { checks } as Partial<WorkRecord>)
     const a: Attempt = { stage: 'ci', kind: 'wait', result: verdict.kind, at: now(), commit: head, pr: n, url: pull.url, checks }
     if (verdict.kind === 'green') return end('ready', `PR #${n} is green: it merges, its checks pass and no review asks for changes`, a)
+    if (verdict.kind === 'merged') return end('blocked', `PR #${n} is merged already on GitHub; abandon the process to remove its worktree and branch`, a)
+    if (verdict.kind === 'unmergeable') return end('blocked', `PR #${n} is not green: its merge state is ${verdict.status}, not CLEAN; meet the base's rules on GitHub, or write here to have the session bring the branch up to date`, a)
     if (verdict.kind === 'closed') return end('failed', `PR #${n} is closed, so there is nothing to wait on; open it again and resume, or abandon the process`, a)
     if (verdict.kind === 'review-comments') {
       a.reviews = verdict.reviews
