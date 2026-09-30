@@ -110,8 +110,10 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
 
   if (!failure) {
     const commit = await git(wt, 'rev-parse', 'HEAD')
-    const dirty = (await git(wt, 'status', '--porcelain')) !== ''
     const ran = await runGate(wt, limit, signal)
+    if (!own()) return
+    // The worktree is read after the run, so a gate command that formats or generates files counts as dirty.
+    const dirty = (await git(wt, 'status', '--porcelain')) !== ''
     if (!own()) return
     const a: Attempt = {
       stage: 'gate',
@@ -157,6 +159,8 @@ function runGate(cwd: string, seconds: number, signal: AbortSignal): Promise<{ e
     let out = ''
     let late = false
     let settled = false
+    // A stop that came before the command started ends the gate without starting it.
+    if (signal.aborted) return resolve({ exit: null, tail: '', late: false })
     const [cmd, ...args] = gateCommand as [string, ...string[]]
     const child = spawn(cmd, args, { cwd, env: runtimeEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     const keep = (d: Buffer) => (out = (out + d.toString()).slice(-65536))
@@ -169,9 +173,13 @@ function runGate(cwd: string, seconds: number, signal: AbortSignal): Promise<{ e
         // the group is gone already
       }
     }
+    // The escalation is cancelled once the command has settled, so it never signals a group whose id
+    // another process has taken since.
+    let escalate: NodeJS.Timeout | undefined
     const kill = () => {
       signalGroup('SIGTERM')
-      setTimeout(() => signalGroup('SIGKILL'), 5000).unref()
+      escalate ??= setTimeout(() => signalGroup('SIGKILL'), 5000)
+      escalate.unref()
     }
     const timer = setTimeout(() => {
       late = true
@@ -183,6 +191,7 @@ function runGate(cwd: string, seconds: number, signal: AbortSignal): Promise<{ e
       if (settled) return
       settled = true
       clearTimeout(timer)
+      clearTimeout(escalate)
       signal.removeEventListener('abort', kill)
       resolve({ exit, tail: tailOf(out), late })
     }
