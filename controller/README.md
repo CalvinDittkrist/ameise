@@ -235,7 +235,7 @@ The record's `wait` says what it waits for, and `checks` holds the checks it rea
 - A request for changes or an unresolved thread is never green: the process turns `blocked` with who asked. A message resumes its session, whose `complete` pushes and waits again.
 - A closed pull request ends the process `failed`.
 
-Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, and `ci-end`.
+Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
 
 A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
 
