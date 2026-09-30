@@ -11,9 +11,10 @@ import { accept, merge, mergeRequest, release, releaseRequest, specRequest } fro
 import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
-import { type Announce, answer, begin, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
+import { type Announce, answer, begin, hold, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { open } from './terminal.js'
+import { gate } from './gate.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -67,7 +68,7 @@ export function serve(o: Options): Server {
     }
   }
 
-  const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, announce }
+  const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, fake: o.fake, announce }
 
   // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
   // Like readQuota it never rejects: a file that cannot be read makes every runtime unknown.
@@ -148,13 +149,16 @@ export function serve(o: Options): Server {
   }
 
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
-  // it has one, and starts a fresh session otherwise.
+  // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
+  // gate again; one interrupted in a fix session of its gate goes on with that session.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue } = abandonRequest(body)
     const project = await known(body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const record = begin(await resumable(project, o.stateDir, issue), project, rt)
+    const interrupted = await resumable(project, o.stateDir, issue)
+    const fix = interrupted.stage === 'gate' && interrupted.fixing === true && interrupted.session_id !== undefined
+    const record = interrupted.stage === 'gate' && !fix ? gate(interrupted, project, rt) : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }
@@ -304,6 +308,16 @@ export function serve(o: Options): Server {
     send(res, 200, { id: record.id, delivered: how })
   }
 
+  // A hold keeps the implement session open at its next complete report instead of starting the gate.
+  async function held(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const record = recorded(body.id)
+    if (typeof body.hold !== 'boolean') throw new Refusal('hold is not true or false')
+    const done = hold(o.stateDir, record, body.hold)
+    log({ event: body.hold ? 'held' : 'hold released', process: record.id })
+    send(res, 200, { id: record.id, hold: done.hold === true })
+  }
+
   // An answer settles a permission request of the process's session: once, for the process, or deny.
   async function answered(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
@@ -407,6 +421,8 @@ export function serve(o: Options): Server {
           return message(req, res)
         case 'POST /api/processes/answer':
           return answered(req, res)
+        case 'POST /api/processes/hold':
+          return held(req, res)
         case 'POST /api/processes/terminal':
           return terminal(req, res)
         case 'GET /api/quota':

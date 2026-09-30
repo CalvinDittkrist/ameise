@@ -40,7 +40,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - The controller's `ameise claim` refuses the same and starts a headless session ([implement session](../controller/README.md#implement-session)).
+   - `ameise claim` refuses the same, starting a headless [implement session](../controller/README.md#implement-session) whose `complete` starts the [gate stage](../controller/README.md#gate-stage).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -48,7 +48,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 5. Worker knobs given to the claim with `--env` reach that session alone ([configuration](../README.md#configuration)).
 6. The worker's SessionStart hook assigns the issue and injects it as untrusted data. It injects a waiting handoff note once ([ADR 0029](adr/0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)).
 7. `/worker:work` merges the base with `base-sync.sh`, never rebasing; a conflict stops it with `blocked:`. Then it implements and verifies.
-8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. A record of another commit or dirty tree reads as none.
+8. `gate.sh run` runs the gate detached and records the result for the head in the worktree's git directory. Another commit's or dirty tree's record reads as none.
 9. `/worker:review` launches the reviewer panel in one message. The gate runs once per review, not per round, and reaches the reviewers as a fact ([ADR 0019](adr/0019-the-gate-runs-once-per-review-round.md)).
 10. The worker fixes findings and ends each round with `panel.sh round`. Rounds go on until every reviewer passes or the limit is reached ([ADR 0018](adr/0018-worker-stages-hand-facts-over-through-the-worktree-git-dir.md)).
 11. `/worker:review` and `/worker:ci` measure the context on entry with `checkpoint.sh`. Past `WF_HANDOFF_TOKENS` a fresh context takes over ([ADR 0032](adr/0032-the-stage-measures-the-context-on-entry-and-a-handoff-grants-one-skip.md)).

@@ -92,7 +92,10 @@ export async function machine(): Promise<Machine> {
   made.push(root)
   const bin = join(root, 'bin')
   mkdirSync(bin)
-  for (const tool of ['git', 'bash', 'cat', 'pgrep']) symlinkSync(which(tool), join(bin, tool))
+  // make runs the gate command make check; the rest are what the controller and the scripted tools call.
+  for (const tool of ['git', 'bash', 'cat', 'pgrep', 'make']) symlinkSync(which(tool), join(bin, tool))
+  // A merge the gate makes and a commit of the scripted claude are made in this machine's name.
+  writeFileSync(join(root, '.gitconfig'), '[user]\n\tname = t\n\temail = t@t\n')
   script(join(bin, 'claude'), 'echo "2.0.0 (Claude Code, scripted)"')
   const opened = join(root, 'opened')
   const browser = join(root, 'browser')
@@ -204,6 +207,16 @@ export function checkout(m: Machine, name: string, c: Checkout = {}): string {
     git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${c.originHead}`)
   }
   return dir
+}
+
+// gated gives the checkout the gate command make check, which runs the recipe, and moves origin's base
+// to the commit that adds it, so a worktree claimed from origin has it.
+export function gated(dir: string, recipe = '@:', base = 'main') {
+  writeFileSync(join(dir, 'Makefile'), `check:\n\t${recipe}\n`)
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' })
+  git('add', 'Makefile')
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'add the gate')
+  git('update-ref', `refs/remotes/origin/${base}`, 'HEAD')
 }
 
 // canRepo cans a repository on the fake GitHub with the default branch it names.

@@ -19,6 +19,9 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - A process's page, at `#process=<id>`, follows the process live through `GET /api/processes/events`. Opening it clears the badge.
   - Its branch on the row opens it, and so do the actions Answer, Approve, Continue and Open.
   - Its facts are the repository, the branch, the mode, the age and the context the session holds, against where it compacts. The stage pills follow.
+  - A work process has the stages implement and gate. Under each pill are its records from the record's `history`, with their age.
+  - A record is a session's end with its commits, a merge that conflicted or a run of the gate. A failed one is red, and hovering shows the output's end.
+  - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
   - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
   - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.

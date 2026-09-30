@@ -8,8 +8,8 @@ import { type ChildProcess, spawn } from 'node:child_process'
 // them: Claude, which a work process spends, then Codex.
 export const runtimes = ['claude', 'codex']
 
-// claimed is the runtime a claim warns of. The implement session runs on Claude Code and the worker's
-// pipeline runs inside that session, so a work process spends Claude alone.
+// claimed is the runtime a claim warns of. Every stage session of a work process runs on Claude Code, so
+// a work process spends Claude alone.
 const claimed = 'claude'
 
 // schema is the version of quota-axi's JSON report this reading is written against, the factory's own.

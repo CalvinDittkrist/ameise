@@ -5,8 +5,10 @@
 #
 #   AMEISE_FAKE_CLAUDE      the canned runtime; without it, or without a play in it, the session holds
 #     play                     the session to play, one step a line; the first word of a line is the step
+#     <stage>                  the session to play in that stage of a work process, which AMEISE_STAGE
+#                              names, such as gate for a fix session of the gate; without it play
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
-#                              keeps; without it a resumed session plays play
+#                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
 #   AMEISE_FAKE_CLAUDE_LOG  its arguments, one per line, then every line it reads, each after '< ';
 #                              beside it, <log>.env holds the environment it started with
@@ -19,9 +21,12 @@
 #   choose <question>   it asks the question with the options Keep and Drop, of which any may be chosen,
 #                       then says the answer
 #   wait                it waits for the next message, then says what it read
+#   commit <file>       it writes the file in its directory and commits it
+#   run <command>       it runs the command in its directory with bash, whatever it exits with
 # A line with one of these words ends it:
+#   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
-#   blocked <message>   it reports blocked with the message as its question
+#   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -54,6 +59,8 @@ done
 steps=()
 canned=${AMEISE_FAKE_CLAUDE:-}
 if [ "$file" = resume ] && { [ -z "$canned" ] || [ ! -f "$canned/resume" ]; }; then file=play; fi
+stage=${AMEISE_STAGE:-}
+case "$stage" in play | resume | linger | '' | */*) ;; *) if [ "$file" = play ] && [ -n "$canned" ] && [ -f "$canned/$stage" ]; then file=$stage; fi ;; esac
 if [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
     if [ -n "$step" ]; then steps+=("$step"); fi
@@ -62,7 +69,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in ready | blocked | silent | broken | litter) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -151,6 +158,11 @@ play() {
         ask AskUserQuestion "{\"questions\":[{\"question\":$(json "$rest"),\"header\":\"Question\",\"options\":[{\"label\":\"Keep\",\"description\":\"Keep it as it is.\"},{\"label\":\"Drop\",\"description\":\"Take it out.\"}],\"multiSelect\":$multi}]}" '[]' || return 1
         local answers=${line#*\"answers\":\{}
         text "You answered: $(field "$rest" "{$answers")." ;;
+      commit)
+        printf '%s\n' "$rest" > "$rest"
+        git add -- "$rest" && git commit -q -m "fix: write $rest" >/dev/null ;;
+      run)
+        bash -c "$rest" >/dev/null 2>&1 || true ;;
       wait)
         if [ -z "$kept" ]; then
           while next; do
@@ -169,11 +181,21 @@ while next; do
   case "$line" in
     *'"type":"user"'*)
       say "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$session\",\"uuid\":\"$session-init\",\"cwd\":$(json "$PWD"),\"tools\":[],\"mcp_servers\":[],\"model\":\"fake\",\"permissionMode\":\"auto\",\"slash_commands\":[],\"apiKeySource\":\"none\",\"output_style\":\"default\"}"
+      start=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
       text 'Working on it.'
       play || break
+      commits=''
+      if [ -n "$start" ]; then
+        while IFS= read -r c; do
+          if [ -n "$c" ]; then commits="$commits${commits:+,}$(json "$c")"; fi
+        done < <(git log --reverse --format='%h %s' "$start..HEAD" 2>/dev/null)
+      fi
       case "$word" in
+        complete)
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")}}"
+          exit 0 ;;
         ready | blocked)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"message\":$(json "$message")}}"
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}}"
           # A lingering runtime shrugs off the SDK's TERM as it closes the session.
           trap '' TERM
           while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done

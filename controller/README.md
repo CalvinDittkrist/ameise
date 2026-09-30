@@ -104,7 +104,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts. A malformed override, another name or a name given twice is refused with `400` before anything is created.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
@@ -127,22 +127,46 @@ A claimed process runs Claude Code headless through the Agent SDK in its worktre
 - the machine's `claude` from `PATH` as the executable,
 - the bundled worker and repo-standards plugins (`dist/plugins`) loaded, and the marketplace's copies of the workflow's plugins switched off,
 - the user's, the repository's and the local settings, the `auto` permission mode and the `worker` agent,
-- session settings over them: `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH`, the claim's overrides, foreground subagents and the compact pin (80% of 312 500 tokens).
+- session settings over them: `WF_MODE`, `WF_ISSUE`, `WF_BASE_BRANCH`, the claim's overrides, foreground subagents and the compact pin (80% of 312 500 tokens),
+- `AMEISE_STAGE` in its environment, the stage it runs, which the scripted claude of fake mode plays by.
 
-The brief runs `/worker:work` and names the issue, the branch, its base and the `gh` and `git` reads the session does itself. It carries no text of the issue.
-
-The session has no status line, so the worker's checkpoint answers unavailable and nothing is handed over. The worker runs its own pipeline after implement, as the sandbox path does, and the process stays in the stage `implement`.
+The brief names the issue, the branch, its base and the `gh` and `git` reads the session does itself. It carries no text of the issue. It asks the session to implement and commit only: the worker's gate, review, pr and ci skills are not invoked, since the controller runs those stages.
 
 - The stream goes into the event log, each message as a `stream` event, and the session id into the record as `session_id`.
 - The record's `context` is the size of the session's context in tokens: input, cached input and output of its latest message, leaving out subagents.
-- The session reports through a structured result: `ready` or `blocked`, each with a message that becomes the note.
-- A `yolo` session that reports `ready` has merged its pull request, and the worker removes its worktree, so its record and event log go with it.
+- The session reports through a structured result: `complete` with its commits, or `blocked` with the question, each with a message.
+  - `complete` starts the [gate stage](#gate-stage) once its runtime has exited, unless the process is held.
+  - `blocked` ends the process `blocked` with the question as the note.
+- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process turns `input`, which a restart keeps.
+  - The next message resumes the session, whose next `complete` starts the gate.
+- Every session's end is an attempt in the record's `history`: `{stage, kind: "session", result, session_id, commits, note, at}`.
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
 
-A session that ends `blocked`, `ready` or `failed` marks its record `unseen` and sends one [notification](#notifications).
+A session that ends `blocked` or `failed`, and a gate that ends `ready` or `failed`, mark the record `unseen` and send one [notification](#notifications).
 
-In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory whose file `play` says what the session does, and `resume` what it does when resumed (see the script).
+In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory whose file `play` says what the implement session does, `gate` what a fix session of the gate does, and `resume` what a resumed session does (see the script).
+
+## Gate stage
+The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
+1. It fetches the base, outside fake mode, and merges it into the branch.
+2. It runs the gate command `make check` in the worktree, in a process group of its own, within `WF_GATE_TIMEOUT` seconds (2700).
+3. A pass ends the process `ready`, with the commit it passed at as the note.
+
+A merge that conflicts is aborted, and a gate command that fails or runs past its timeout counts as a failure. Either starts a fix session of the gate:
+- a fresh headless session, not a resume, without the worker's agent, with the conflicted files or the exit and the last 20 lines of the output in its brief,
+- with the stage timeout `WF_STAGE_TIMEOUT` seconds (1800), past which it ends the process `failed`,
+- reporting `complete` or `blocked` as the implement session does. On `complete` the gate runs again from its merge.
+  - On `blocked` the process is `blocked` in `gate`, and the answer resumes the fix session.
+
+`WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the implement session last completed, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
+
+Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`.
+
+The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason.
+- A message to a process whose gate command runs is refused with `409`.
+- A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again.
+- A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -174,7 +198,7 @@ Stopping and starting the controller loses no process.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: it starts the implement session again in the worktree.
+- A resume goes on with an interrupted process: it starts the implement session again in the worktree, or the gate when it was in `gate`.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
@@ -241,7 +265,7 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
 
 ## Quota
-The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since a work process spends Claude alone.
+The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
 A reading is unknown, with the reason, when quota-axi is not installed or fails. So is one that answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
 
@@ -262,7 +286,7 @@ A process that turns `blocked`, `ready` or `failed` gets one native notification
 - With `notifications` false nothing is sent, and the process is marked all the same.
 - A notifier that fails is told on the controller's stderr and changes nothing of the process.
 
-The record keeps `unseen` until the process's page is opened, so the dashboard shows a badge until then. A yolo process that ends ready is gone with its record, so it gets the notification and no badge.
+The record keeps `unseen` until the process's page is opened, so the dashboard shows a badge until then.
 
 ## API
 - `GET /`: the [dashboard](../dashboard/README.md), which `npm --prefix dashboard run build` writes into `dist/dashboard`.
@@ -283,6 +307,8 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.
+- `POST /api/processes/hold` with `{"id": "<id>", "hold": true|false}`: sets whether the implement session's next `complete` keeps it open, and answers `200` with `{id, hold}`.
+  - `409` refuses a process that is no work process, and a hold of one past implement.
 - `POST /api/processes/answer` with `{"id": "<id>", "request": "<request>", "answer": "once"|"process"|"deny"}`: answers a permission request and answers `200`. `409` says no such request waits.
 - `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`.
   - `409` refuses a process without a session, `502` a terminal that fails.

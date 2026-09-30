@@ -4,7 +4,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from './project.js'
-import { agentOf, commandFile, type SessionRecord, sessionPlugins, settings } from './session.js'
+import { commandFile, type SessionRecord, sessionAgent, sessionPlugins, settings } from './session.js'
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
@@ -12,7 +12,8 @@ const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 // with the plugins, the agent and the settings the headless session ran with.
 export function script(record: SessionRecord, claude: string, plugins: string): string {
   const dirs = sessionPlugins(plugins, record).flatMap((dir) => ['--plugin-dir', dir])
-  const args = [claude, '--resume', record.session_id ?? '', ...dirs, '--agent', agentOf(record), '--settings', JSON.stringify(settings(record))]
+  const agent = sessionAgent(record)
+  const args = [claude, '--resume', record.session_id ?? '', ...dirs, ...(agent ? ['--agent', agent] : []), '--settings', JSON.stringify(settings(record))]
   return ['#!/bin/sh', `cd ${quote(record.worktree)} || exit 1`, `exec ${args.map(quote).join(' ')}`, ''].join('\n')
 }
 
