@@ -813,7 +813,14 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   event(rt.stateDir, id, { event: 'message', text })
   // A follow-up to a ready work process is new work on it: its session goes on as the implement session,
   // whose complete runs the gate and a review with every reviewer again.
-  const next = now.kind === 'work' && now.state === 'ready' && now.stage !== 'implement' ? (update(rt.stateDir, id, { stage: 'implement', fixing: false, panel: undefined } as Partial<CreatedRecord>) ?? now) : now
+  // A message to a work process the ci stage left blocked has its session take the review on, a fix
+  // session of the ci stage, which a restart of the controller resumes as such.
+  const next =
+    now.kind === 'work' && now.state === 'ready' && now.stage !== 'implement'
+      ? (update(rt.stateDir, id, { stage: 'implement', fixing: false, panel: undefined } as Partial<CreatedRecord>) ?? now)
+      : now.kind === 'work' && now.stage === 'ci' && !now.fixing
+        ? (update(rt.stateDir, id, { fixing: true } as Partial<CreatedRecord>) ?? now)
+        : now
   begin(next, p, rt, text)
   return 'resumed'
 }
