@@ -304,7 +304,7 @@
     ]
   },
   "draft": {
-    "about": "The draft pull request a gate on CI opens at a run's first gate, when the branch has no pull request of the run's own: from the claimed branch against its base, titled with the first line of the issue's title, its body Closes #N and nothing else. A pull request open on the branch is the peer's own, and taken over, when the peer recorded its number and its own login opened it; any other ends the run, and none opens the draft.",
+    "about": "A gate on CI opens a draft at a run's first gate, when the run has no pull request of its own yet. The draft comes from the claimed branch against its base. Its title is the first line of the issue's title. Its body is Closes #N alone. The rule for a pull request already open on the branch is under takeover.",
     "cases": [
       {
         "case": "a plain title",
@@ -329,7 +329,7 @@
       }
     ],
     "takeover": {
-      "about": "The pull requests open on the claimed branch, the number the peer recorded for the issue (0 for none) and the outcome: take over the peer's own, end the run on any other, open the draft when there is none.",
+      "about": "Each case lists the pull requests open on the claimed branch and the number the peer recorded (0 for none). The peer takes over the one it recorded and its own login opened. Any other ends the run, and none opens the draft.",
       "login": "factory-bot",
       "cases": [
         {
