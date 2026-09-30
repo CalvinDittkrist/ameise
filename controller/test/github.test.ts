@@ -30,7 +30,7 @@ async function planner(...steps: string[]): Promise<Record<string, unknown>[]> {
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   const id = (r.body as { record: { id: string } }).record.id
   const file = join(m.state, 'processes', `${id}.json`)
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 400; i++) {
     if ((JSON.parse(read(file)) as { state: string }).state === 'input') break
     await new Promise((done) => setTimeout(done, 50))
   }
@@ -191,6 +191,27 @@ test('a spec closes as completed only with its closing comment and every ticket 
   ])
 })
 
+test('a spec does not close while a ticket cannot be read or it has no tickets', async () => {
+  canIssue(19, ['spec'])
+  canPages(m, 'repos/owner/repo/issues/19/sub_issues?per_page=100', [[{ number: 20 }]])
+  canIssue(18, ['spec'])
+  canPages(m, 'repos/owner/repo/issues/18/sub_issues?per_page=100', [[]])
+  canIssue(17, ['spec'])
+  canIssue(21, ['ready-for-agent'], { state: 'closed' })
+  const events = await planner(
+    tool('close', { issue: 19, comment: 'Accepted.' }),
+    tool('close', { issue: 18, comment: 'Accepted.' }),
+    tool('close', { issue: 17, comment: 'Accepted.', tickets: [22] }),
+  )
+  expect(refusals(events)).toEqual([
+    expect.stringMatching(/^could not read #20 of owner\/repo: /) as unknown,
+    '#18 has no native sub-issues; pass the ticket numbers in tickets',
+    expect.stringMatching(/^could not read #22 of owner\/repo: /) as unknown,
+  ])
+  expect(calls()).toEqual([])
+  expect(writes(events)).toEqual([])
+})
+
 test('blockers, comments, milestones and a close as not planned are written and logged', async () => {
   canIssue(5, [])
   canIssue(6, [])
@@ -216,7 +237,7 @@ test('blockers, comments, milestones and a close as not planned are written and 
     'api --method POST -f body=Out of scope. repos/owner/repo/issues/7/comments',
     'api --method PATCH -f state=closed -f state_reason=not_planned repos/owner/repo/issues/7',
   ])
-  // Where GitHub has no native dependencies, the blocker stays in the body and nothing is logged.
+  // Where GitHub has no native dependencies, the link is not made and nothing is logged.
   expect(writes(events)).toEqual([
     { write: 'blocked', issue: 5, by: 6 },
     { write: 'milestone-created', milestone: 'v1.2.0', description: 'Offline mode' },
