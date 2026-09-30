@@ -3,6 +3,7 @@ import { Warnings } from "@/components/process-actions"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { broken, label, QuotaContext, useBoard, useProjects, useQuota } from "@/api"
+import { cn } from "@/lib/utils"
 import { useRoute } from "@/route"
 import { Orchestrator } from "@/views/orchestrator"
 import { ProcessView } from "@/views/process"
@@ -26,7 +27,8 @@ export default function App() {
     <QuotaContext.Provider value={quota}>
       <SidebarProvider>
         <AppSidebar route={route} projects={projects} quota={quota} unseen={unseen} reload={reload} />
-        <SidebarInset>
+        {/* The process page scrolls its own log below the header, so it is as tall as the window. */}
+        <SidebarInset className={cn(route.page === "process" && "h-svh")}>
           <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mx-2 data-vertical:h-4 data-vertical:self-center" />
@@ -37,7 +39,7 @@ export default function App() {
               </span>
             )}
           </header>
-          <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
+          <div className={cn("flex flex-1 flex-col gap-4", route.page === "process" ? "min-h-0" : "p-4 lg:p-6")}>
             {route.page === "orchestrator" ? (
               <Orchestrator board={board} reload={reloadBoard} />
             ) : route.page === "process" ? (

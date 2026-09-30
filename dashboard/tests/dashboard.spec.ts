@@ -410,6 +410,71 @@ test("a running session's permission, question and chat are answered on its page
   }
 })
 
+test("the conversation follows its end while the session writes, keeps the place once scrolled up, and offers the way back", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
+  // Enough text to fill more than the window, then two turns that each answer a message of the page.
+  const said = Array.from({ length: 20 }, (_, i) => `say Step ${i + 1}: ${"the reader parses the remote, keeps the owner and the name, and drops a trailing .git. ".repeat(4)}`)
+  writeFileSync(play, [...said, "wait", "wait"].join("\n") + "\n")
+  try {
+    const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
+    expect(claimed.status).toBe(201)
+    const { record } = await claimed.json()
+    await page.goto(url(`/#process=${record.id}`))
+    const viewport = main(page).getByRole("region", { name: "Process" })
+    const conversation = main(page).getByLabel("Conversation")
+    const back = main(page).getByRole("button", { name: "Back to the end" })
+    const message = main(page).getByRole("textbox", { name: "Message" })
+    const top = () => viewport.evaluate((e) => e.scrollTop)
+    const atEnd = () => viewport.evaluate((e) => e.scrollHeight - e.scrollTop - e.clientHeight <= 1)
+
+    // At the end, each new turn comes into view and no way back is offered.
+    const last = conversation.getByRole("article", { name: "Session" }).filter({ hasText: "Step 20:" })
+    await expect(last).toBeInViewport()
+    expect(await viewport.evaluate((e) => e.scrollHeight > 2 * e.clientHeight)).toBe(true)
+    await expect(back).toBeHidden()
+    await message.fill("First")
+    await message.press("Enter")
+    const first = conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You wrote: First." })
+    await expect(first).toBeInViewport()
+    await expect.poll(atEnd).toBe(true)
+    await expect(back).toBeHidden()
+
+    // Scrolled up, the place holds while the session writes on, and the way back appears.
+    await viewport.hover()
+    await page.mouse.wheel(0, -800)
+    await expect(back).toBeVisible()
+    await expect(first).not.toBeInViewport()
+    let place = -1
+    await expect.poll(async () => place === (place = await top())).toBe(true)
+    await message.fill("Second")
+    await message.press("Enter")
+    const second = conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You wrote: Second." })
+    await expect(second).toHaveCount(1)
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    expect(await top()).toBe(place)
+    await expect(second).not.toBeInViewport()
+    await expect(back).toBeVisible()
+
+    // The button scrolls back to the end and leaves.
+    await back.click()
+    await expect(second).toBeInViewport()
+    await expect.poll(atEnd).toBe(true)
+    await expect(back).toBeHidden()
+
+    // A fresh page opens at the end.
+    await page.reload()
+    await expect(viewport).toBeVisible()
+    await expect(viewport).not.toHaveAttribute("data-pending-scroll")
+    await expect(second).toBeInViewport()
+    await expect.poll(atEnd).toBe(true)
+    await expect(back).toBeHidden()
+  } finally {
+    rmSync(play, { force: true })
+    await fetch(url("/api/processes"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
+  }
+})
+
 test("while the board is derived the sections wait, and never say they are empty", async ({ page }) => {
   let release = () => {}
   const held = new Promise<void>((r) => (release = r))

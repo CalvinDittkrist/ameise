@@ -1,5 +1,6 @@
-import { BotIcon, MessageCircleQuestionIcon, PauseIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
-import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { MessageScroller } from "@shadcn/react/message-scroller"
+import { ArrowDownIcon, BotIcon, MessageCircleQuestionIcon, PauseIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -65,7 +66,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
   if (followed.state === "loading") return null
   if (followed.state === "failed" || followed.state === "gone") {
     return (
-      <Empty>
+      <Empty className="m-4 lg:m-6">
         <EmptyHeader>
           <EmptyTitle>No such process</EmptyTitle>
           <EmptyDescription>{followed.state === "gone" ? `${id} was removed.` : `${id} is not a process of this machine.`}</EmptyDescription>
@@ -74,13 +75,36 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
     )
   }
   const { record, entries } = followed
+  const { list, settled } = turns(entries)
+  const asking = list.some((t) => t.kind === "question" && !settled.has(t.entry.request))
+  // The page scrolls through shadcn's message scroller. It opens at the end of the conversation and
+  // follows the end while the log grows; once the maintainer scrolled up it keeps their place and offers
+  // the way back. The viewport stays hidden until it stands at the end, so a fresh page does not flash
+  // the top first.
   return (
-    <>
-      <Header record={record} />
-      <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
-      <Separator />
-      <Conversation record={record} entries={entries} />
-    </>
+    <MessageScroller.Provider autoScroll>
+      <MessageScroller.Root className="flex min-h-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <MessageScroller.Viewport aria-label="Process" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-3 outline-none data-pending-scroll:invisible lg:p-6 lg:pb-3">
+            <Header record={record} />
+            <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
+            <Separator />
+            <Conversation record={record} list={list} settled={settled} />
+          </MessageScroller.Viewport>
+          <div className="pointer-events-none absolute inset-x-4 bottom-3 flex max-w-3xl justify-center lg:inset-x-6">
+            <MessageScroller.Button className="pointer-events-auto data-[active=false]:hidden" render={<Button variant="outline" size="sm" className="rounded-full bg-background shadow-md" />}>
+              <ArrowDownIcon />
+              Back to the end
+            </MessageScroller.Button>
+          </div>
+        </div>
+        <Chat
+          id={record.id}
+          disabled={!writable(record)}
+          placeholder={asking ? "Answer the question…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"}
+        />
+      </MessageScroller.Root>
+    </MessageScroller.Provider>
   )
 }
 
@@ -387,50 +411,40 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
 // A process the maintainer can write to: one whose session runs, or has run and can be resumed.
 const writable = (r: ProcessRecord) => r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input"
 
-function Conversation({ record, entries }: { record: ProcessRecord; entries: Entry[] }) {
-  const { list, settled } = turns(entries)
-  const asking = list.some((t) => t.kind === "question" && !settled.has(t.entry.request))
-  // The page stays at the end of the conversation while it grows, unless the maintainer scrolled up.
-  const end = useRef<HTMLDivElement>(null)
-  const following = useRef(true)
-  useEffect(() => {
-    const scrolled = () => {
-      const el = document.scrollingElement
-      if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    }
-    addEventListener("scroll", scrolled, { passive: true })
-    return () => removeEventListener("scroll", scrolled)
-  }, [])
-  useLayoutEffect(() => {
-    if (following.current) end.current?.scrollIntoView({ block: "end" })
-  }, [entries.length])
+// Conversation is the log of the message scroller, one item per turn.
+function Conversation({ record, list, settled }: { record: ProcessRecord; list: Turn[]; settled: Map<string, Settled> }) {
+  if (list.length === 0) return <p className="text-sm text-muted-foreground">The session has written nothing yet.</p>
   return (
-    <div aria-label="Conversation" className="flex w-full max-w-3xl flex-col gap-5">
-      {list.length === 0 && <p className="text-sm text-muted-foreground">The session has written nothing yet.</p>}
+    <MessageScroller.Content aria-label="Conversation" className="flex w-full max-w-3xl flex-col gap-5">
       {/* A turn keeps its place as the log grows, and one line of the log can make several turns, so a
           turn is keyed by its place. */}
-      {list.map((t, i) => {
-        switch (t.kind) {
-          case "session":
-            return <Said key={i} text={t.text} tools={t.tools} />
-          case "you":
-            return <Said key={i} text={t.text} you />
-          case "permission":
-            return <Permission key={i} id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
-          case "question":
-            return <Asked key={i} id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
-          case "line":
-            return (
-              <p key={i} role="note" className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
-                {t.text}
-              </p>
-            )
-        }
-      })}
-      <Chat id={record.id} disabled={!writable(record)} placeholder={asking ? "Answer the question…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"} />
-      <div ref={end} />
-    </div>
+      {list.map((t, i) => (
+        <MessageScroller.Item key={i}>
+          <Turned record={record} turn={t} settled={settled} />
+        </MessageScroller.Item>
+      ))}
+    </MessageScroller.Content>
   )
+}
+
+// Turned draws one turn of the conversation.
+function Turned({ record, turn: t, settled }: { record: ProcessRecord; turn: Turn; settled: Map<string, Settled> }) {
+  switch (t.kind) {
+    case "session":
+      return <Said text={t.text} tools={t.tools} />
+    case "you":
+      return <Said text={t.text} you />
+    case "permission":
+      return <Permission id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
+    case "question":
+      return <Asked id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
+    case "line":
+      return (
+        <p role="note" className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+          {t.text}
+        </p>
+      )
+  }
 }
 
 // The typeset draws code on the muted colour, which is the session's bubble itself, so there code sits
@@ -619,28 +633,30 @@ function Chat({ id, disabled, placeholder }: { id: string; disabled: boolean; pl
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) void send(e)
   }
   return (
-    <form onSubmit={(e) => void send(e)} className="sticky bottom-0 -mx-1 flex flex-col gap-2 bg-background px-1 pt-1 pb-4">
-      <div className="flex items-end gap-2">
-        <Textarea
-          aria-label="Message"
-          placeholder={disabled ? "The session has not started" : placeholder}
-          disabled={disabled}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={keys}
-          rows={1}
-          className="max-h-48 min-h-9 resize-none"
-        />
-        <Button type="submit" size="icon-lg" disabled={disabled || sending || text.trim() === ""}>
-          <SendIcon />
-          <span className="sr-only">Send</span>
-        </Button>
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </form>
+    <div className="px-4 pt-3 pb-4 lg:px-6">
+      <form onSubmit={(e) => void send(e)} className="flex w-full max-w-3xl flex-col gap-2">
+        <div className="flex items-end gap-2">
+          <Textarea
+            aria-label="Message"
+            placeholder={disabled ? "The session has not started" : placeholder}
+            disabled={disabled}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={keys}
+            rows={1}
+            className="max-h-48 min-h-9 resize-none"
+          />
+          <Button type="submit" size="icon-lg" disabled={disabled || sending || text.trim() === ""}>
+            <SendIcon />
+            <span className="sr-only">Send</span>
+          </Button>
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+      </form>
+    </div>
   )
 }
