@@ -320,7 +320,8 @@ function described(a: Attempt): string {
     case "merge":
       return `merge conflict in ${(a.files ?? []).join(", ")}`
     case "run":
-      return a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`
+      if (a.result === "skipped") return `${a.gate ?? "none"}: no gate ran`
+      return `${a.gate ? `${a.gate} ` : ""}${a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`}`
     case "round":
       return `round ${a.round ?? ""} ${a.result}`
     default:

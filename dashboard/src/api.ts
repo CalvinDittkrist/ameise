@@ -198,6 +198,8 @@ export type Attempt = {
   kind: "session" | "merge" | "run" | "round"
   result: string
   at: string
+  // gate is the gate form a run ran: the command, or none.
+  gate?: string
   session_id?: string
   commits?: string[]
   note?: string
