@@ -462,6 +462,7 @@ export type Settings = {
   env: Record<string, string>
   enabledPlugins: Record<string, boolean>
   autoCompactWindow?: number
+  language?: string
 }
 
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
@@ -470,9 +471,11 @@ export const settings = (record: SessionRecord): Settings => (record.kind === 'p
 // planSettings are a planner session's own settings: the plan and its issue as the planner's scripts
 // read them, the base, the foreground subagents (ADR 0017), and the mark that the controller runs the
 // session, which silences the planner's start hook, since the brief carries its context. The marketplace
-// copies of the plugins are switched off, so the bundled planner is the one the session loads.
+// copies of the plugins are switched off, so the bundled planner is the one the session loads. The
+// repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the planner talks in.
 export function planSettings(record: PlanRecord): Settings {
   return {
+    ...(record.language !== undefined ? { language: record.language } : {}),
     env: {
       WF_PLAN: record.branch.slice('plan/'.length),
       ...(record.issue !== null ? { WF_PLAN_ISSUE: String(record.issue) } : {}),
