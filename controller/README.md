@@ -55,7 +55,7 @@ One file per machine: `$XDG_CONFIG_HOME/ameise/config.json`, else `~/.config/ame
 ```
 
 - `listen` is a loopback address; the controller is never reachable from another machine.
-- `quota_axi` is the absolute path of the quota-axi command; empty switches the quota check off. `quota_minimum` is a percentage. See [Quota](#quota) for the install.
+- `quota_axi` names the quota-axi command by its absolute path; empty switches the quota check off. `quota_minimum` is a percentage. See [Quota](#quota) for the install.
   - The controller runs the path as one program, without a shell. A value with whitespace, such as `npx quota-axi`, stops the start and every later read of the file.
 - `notifications` switches the native notifications on or off. `notifier` names the command they are sent through; empty is the platform's own. See [Notifications](#notifications).
 - `terminal` names the command that opens a session in a terminal window; empty is the platform's own. See [Open in terminal](#open-in-terminal).
@@ -116,7 +116,7 @@ A claim then:
 5. opens its event log `processes/<id>.events.jsonl`,
 6. starts its [implement session](#implement-session), and answers with the record in the state `running`.
 
-The claim reads the [quota](#quota) beside these steps, and its session starts without waiting for it. Its answer waits at most two seconds for the reading and carries `quota`: a line when Claude is below the minimum, which the CLI prints as a warning. A work process spends Claude alone, so a Codex below the minimum warns no claim. The claim goes on either way.
+The claim reads the [quota](#quota) beside these steps, and its session starts without waiting for it. Its answer waits at most two seconds for the reading. It carries `quota`: a line when Claude is below the minimum, which the CLI prints as a warning. A work process spends Claude alone, so a Codex below the minimum warns no claim. The claim goes on either way.
 
 In fake mode the claim fetches nothing and branches from what the checkout has of origin.
 

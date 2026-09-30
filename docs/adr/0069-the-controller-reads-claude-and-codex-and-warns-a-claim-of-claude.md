@@ -13,7 +13,7 @@ Amends: [0065](0065-the-controller-warns-of-the-quota-and-notifies-a-turn.md)
 - The quota reads Claude, then Codex, each under its own 30 second bound and both at once.
 - A claim warns of Claude alone below `quota_minimum`. A Codex below it is marked `below` and warns no claim.
 - With `quota_axi` empty the quota answers `off: true` and no runtime.
-- The configuration refuses a `quota_axi` with whitespace and names the procedure of the factory runbook: a global npm install and the absolute path `command -v quota-axi` prints, never `npx`.
+- The configuration refuses a `quota_axi` with whitespace. Its message names the factory runbook's procedure: a global npm install and the absolute path `command -v quota-axi` prints, never `npx`.
 
 ## Consequences
 - The quota shows more than a claim spends: the runtimes read and the runtime a claim warns of are two facts.
