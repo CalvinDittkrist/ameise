@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -254,6 +254,30 @@ test('a claim refuses a wrong knob, a malformed override, a repeated name and a 
     expect(r.status, JSON.stringify(body)).toBe(400)
     expect((r.body as { error: string }).error).toMatch(reason)
   }
+  nothing()
+  expect(read(m.ghLog)).not.toContain('144')
+})
+
+test('a claim refuses a WF_GATE that is no gate form, as an override or in the settings, before anything is created', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  const forms = /the forms are a command such as make check, .* none, .* ci or ci:<jobs> such as ci:check,browser, .* or unset, for make check/
+  const cases: [string[], RegExp][] = [
+    [['WF_GATE=ci'], /WF_GATE=ci is the gate on CI, which the controller does not run yet/],
+    [['WF_GATE=ci:check,browser'], /WF_GATE=ci:check,browser is the gate on CI, which the controller does not run yet/],
+    [['WF_GATE=ci:'], forms],
+    [['WF_GATE=make check | tee out'], /holds shell syntax, but the gate runs its command without a shell; /],
+    [['WF_GATE= '], forms],
+  ]
+  for (const [env, reason] of cases) {
+    const r = await claim({ issue: 144, env })
+    expect(r.status, JSON.stringify(env)).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(reason)
+  }
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_GATE: 'make && rm -rf x' } }))
+  const r = await claim({ issue: 144 })
+  expect(r.status).toBe(400)
+  expect((r.body as { error: string }).error).toMatch(/^WF_GATE=make && rm -rf x holds shell syntax/)
   nothing()
   expect(read(m.ghLog)).not.toContain('144')
 })
