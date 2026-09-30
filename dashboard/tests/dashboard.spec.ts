@@ -320,6 +320,22 @@ test("a process page shows the facts, the stages and the session as a conversati
   await expect(turns.nth(1).getByRole("status")).toHaveText("You answered: Keep it, marked unusable, and say why on the board.")
   await expect(turns.nth(1).getByRole("button")).toHaveCount(0)
   await expect(turns.nth(3)).toHaveText("Read the URL, never change it. An ssh URL and an https URL name the same repository.")
+  // The session, the maintainer and a question write markdown, which reads as written.
+  await expect(turns.nth(3).locator("strong")).toHaveText("never")
+  await expect(turns.nth(1).locator("code")).toHaveText("origin")
+  await expect(turns.nth(1).locator("strong")).toHaveText("keep")
+  const markdown = turns.nth(4)
+  await expect(markdown.locator(".typeset.typeset-chat")).toHaveCount(1)
+  await expect(markdown.locator("strong")).toHaveText("both forms")
+  await expect(markdown.locator(".typeset-scroll > table")).toHaveCount(1)
+  await expect(markdown.getByRole("table").getByRole("row")).toHaveText(["FormRemote", "sshgit@github.com:acme/edge-sensors.git", "httpshttps://github.com/acme/edge-sensors.git"])
+  await expect(markdown.getByRole("list").getByRole("listitem")).toHaveText(["Owner and name come from the path", "A trailing .git is dropped"])
+  await expect(markdown.locator("pre code")).toHaveText("const { owner, name } = parseRemote(url)")
+  for (const code of [markdown.locator("pre"), markdown.locator("li code")]) expect(await code.evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/monospace/)
+  const link = markdown.getByRole("link", { name: "issue 118" })
+  await expect(link).toHaveAttribute("href", "https://github.com/acme/edge-sensors/issues/118")
+  await expect(link).toHaveAttribute("target", "_blank")
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer")
   // The permission waits with its three answers. Its session is not running here, so the controller refuses the answer with the reason.
   const permission = turns.nth(5)
   await expect(permission).toContainText("Bash wants to run")
@@ -328,6 +344,33 @@ test("a process page shows the facts, the stages and the session as a conversati
   await permission.getByRole("button", { name: "Allow once" }).click()
   await expect(permission.getByRole("alert")).toHaveText(/^no permission request toolu-remote waits in p118; it was answered, or its session has ended$/)
   await expect(main(page).getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Write to the session…")
+})
+
+test("a session's raw HTML and links of other schemes read as text, and the lines between turns stay plain", async ({ page }) => {
+  const record = join(process.env.AMEISE_RECORDS!, "p80.json")
+  const log = join(process.env.AMEISE_RECORDS!, "p80.events.jsonl")
+  writeFileSync(record, JSON.stringify({
+    project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/80-quote-the-feed", issue: 80,
+    stage: "implement", state: "blocked", note: "Which **feed** first?", updated_at: new Date().toISOString(),
+  }))
+  const text = "Quoting <b>the feed</b> as <img src=x onerror=alert(1)> [run it](javascript:alert(1)), [write](mailto:ops@acme.dev) or [go](/#project=x) ![the diagram](https://acme.dev/feed.png)."
+  writeFileSync(log, [
+    { event: "session-start", stage: "implement" },
+    { event: "stream", message: { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text }] } } },
+    { event: "session-end", stage: "implement", state: "blocked", note: "Which **feed** first?" },
+  ].map((l) => JSON.stringify(l)).join("\n") + "\n")
+  try {
+    await page.goto(url("/#process=p80"))
+    const conversation = main(page).getByLabel("Conversation")
+    const said = conversation.getByRole("article", { name: "Session" })
+    await expect(said).toHaveText("Quoting <b>the feed</b> as <img src=x onerror=alert(1)> run it, write or go the diagram.")
+    await expect(said.locator("b, img, a")).toHaveCount(0)
+    await expect(conversation.getByRole("note")).toHaveText("Reported blocked: Which **feed** first?")
+    await expect(main(page).getByLabel("Note")).toHaveText("Which **feed** first?")
+  } finally {
+    rmSync(record, { force: true })
+    rmSync(log, { force: true })
+  }
 })
 
 test("open in terminal has the terminal resume the session by its id", async ({ page }) => {

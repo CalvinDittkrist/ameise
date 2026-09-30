@@ -218,7 +218,7 @@ function conversation(file: string, tree: string) {
       message: { content: [{ type: "text", text }, ...tools.map(([name, input]) => ({ type: "tool_use", name, input }))], usage: { input_tokens: 84000 } },
     },
   })
-  const question = "A project without an origin is refused. Should the controller keep it in the file, marked unusable, or drop it from the file?"
+  const question = "A project without an `origin` is refused. Should the controller **keep** it in the file, marked unusable, or drop it from the file?"
   const log = [
     { event: "claimed", issue: 118 },
     { event: "session-start", stage: "implement" },
@@ -243,8 +243,26 @@ function conversation(file: string, tree: string) {
     { event: "answer", request: "toolu-ask", text: "Keep it, marked unusable, and say why on the board." },
     said("Keeping it in the file and marking it unusable. Adding the case to the test.", ["Edit", { file_path: `${tree}/src/config.ts` }], ["Bash", { command: "npx vitest run" }]),
     { event: "allowed", tool: "Bash", detail: "npx vitest run" },
-    { event: "message", text: "Read the URL, never change it. An ssh URL and an https URL name the same repository." },
-    said("Understood: parsing both forms and changing nothing. The remote of this checkout still names the old repository, though."),
+    { event: "message", text: "Read the URL, **never** change it. An ssh URL and an https URL name the same repository." },
+    said(
+      [
+        "Understood: parsing **both forms** and changing nothing. The reader takes either:",
+        "",
+        "| Form | Remote |",
+        "| --- | --- |",
+        "| ssh | `git@github.com:acme/edge-sensors.git` |",
+        "| https | `https://github.com/acme/edge-sensors.git` |",
+        "",
+        "- Owner and name come from the path",
+        "- A trailing `.git` is dropped",
+        "",
+        "```ts",
+        "const { owner, name } = parseRemote(url)",
+        "```",
+        "",
+        "The remote of this checkout still names the old repository, though; see [issue 118](https://github.com/acme/edge-sensors/issues/118).",
+      ].join("\n"),
+    ),
     {
       event: "permission",
       request: "toolu-remote",
