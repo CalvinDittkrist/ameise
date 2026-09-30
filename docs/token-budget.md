@@ -66,7 +66,7 @@ Tools, plugins and instructions:
 `scripts/context-report.py` prints one line per finished worker session:
 
 - Claude Code version and turns
-- the context at the start of the review and of the pull request stage, and the peak
+- the peak context; the stages after implement run as sessions of their own, so a worker session holds none of them
 - the share of tool output that came from reading files through the shell
 - the number of read, edit, write and shell calls, and the number of sleep calls
 

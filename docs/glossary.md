@@ -24,7 +24,7 @@ Terms the code, the issues and the docs use, one row each.
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |
 | acceptance | The check of a whole spec against the code on the base branch after its tickets are closed; it ends with gap tickets or the spec closed ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)). |
 | foreground subagent | A subagent whose report is the result of the Agent call, because background tasks are disabled; worker sessions run this way ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). |
-| context report | `scripts/context-report.py`, the maintainer's diagnostic over finished worker sessions: context at stage boundaries, peak, tool mix, sleep calls. Never an input to the pipeline. |
+| context report | `scripts/context-report.py`, the maintainer's diagnostic over finished worker sessions: peak context, tool mix, sleep calls. Never an input to the pipeline. |
 | spec checker | The read-only subagent that judges each checkable statement of a spec during an acceptance. |
 | item | One checkable statement of a spec with its verdict: `item: <section> \| <statement> \| <verdict> \| <evidence> \| <confidence>`. |
 | accepted deviation | A difference between spec and code the maintainer keeps. A writer records it on the spec in a comment that opens with `> Accepted deviation (spec acceptance).` An acceptance does not report it again. |
