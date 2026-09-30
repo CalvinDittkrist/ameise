@@ -355,9 +355,10 @@ func TestACloneThatIsCutOffEndsWithTheFactoryAndLeavesNothingBehind(t *testing.T
 
 	data := filepath.Join(t.TempDir(), "data")
 	f := gh.start(t, config{"poll": "50ms", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	// The shell creates the pid file before it writes the pid, so the wait is for the pid itself.
 	f.eventually(t, 20*time.Second, "the clone and the child it runs in", func() bool {
-		_, err := os.Stat(child)
-		return err == nil
+		pid, err := os.ReadFile(child)
+		return err == nil && strings.TrimSpace(string(pid)) != ""
 	})
 	// While the clones are made there is no line yet, and the interface says which of the two it is.
 	var status map[string]any

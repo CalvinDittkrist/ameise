@@ -53,6 +53,11 @@ export function gateForm(value: unknown): GateForm {
 const defaultRounds = 3
 const defaultTimeout = 2700
 
+// How many seconds after a push a named check may take to appear, and GitHub to register any check of
+// the head, before the gate on CI ends the process naming what is missing. The ci stage waits as long
+// for the checks a ready pull request starts.
+export const defaultGrace = 600
+
 // The end of the gate command's output the record keeps and a fix session is briefed with.
 const tailLines = 20
 const tailChars = 4000

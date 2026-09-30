@@ -4,17 +4,20 @@
 // checks, then for a review of each bot of WF_PR_BOT_REVIEWERS within WF_PR_REVIEW_WAIT seconds of the
 // checks' end, then it reads the standing requests for changes and the unresolved threads.
 //
+// A gate's draft the pr stage marked ready waits for the checks its ready starts, as the README's ci
+// stage says. Bot reviewers skip drafts, so their review is waited for from the ready on.
+//
 // A conflict or failed checks start a fix session of the ci stage within WF_CI_REPAIR_ROUNDS; its complete
 // comes back here, which pushes and waits again. Green ends the process ready, where the board offers
 // the merge. A standing request for changes, an unresolved thread or a merge state other than clean is
 // never green: the process is blocked until the maintainer answers it. A pull request merged meanwhile
 // blocks it too, for the maintainer to abandon. A spent repair budget ends the process failed, and so does a
 // pull request that is closed. Every verdict other than a wait is an attempt in the record's history.
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type Attempt, type Check, fetch, git, push, type WorkRecord } from './claim.js'
 import { run } from './exec.js'
-import { knob, setting } from './gate.js'
+import { defaultGrace, knob, setting } from './gate.js'
 import type { Project } from './project.js'
 import { attempt, begin, ciFixBrief, event, type Runtime, track, update } from './session.js'
 
@@ -77,6 +80,11 @@ interface Knobs {
   reviewWait: number
   workflows: boolean
   started: number
+  // readied is when the pr stage marked the gate's draft ready, onReady says a workflow runs on that,
+  // and grace is WF_CHECKS_GRACE in seconds.
+  readied?: number
+  onReady: boolean
+  grace: number
 }
 
 // judge makes the verdict of one reading, in the order of the waits. doneAt is when the checks were first
@@ -94,8 +102,13 @@ async function judge(r: Reading, unresolved: () => Promise<number>, k: Knobs, no
   if (checks.length === 0 && k.workflows && now - k.started < checksGrace * 1000) return { kind: 'waiting', wait: 'GitHub to register the checks of the workflows' }
   if (checks.some((c) => c.state === 'fail')) return { kind: 'checks-failed' }
   const last = Math.max(0, ...checks.map((c) => c.completed ?? 0))
+  if (k.readied !== undefined && k.onReady && last <= k.readied && now - k.readied < k.grace * 1000) {
+    return { kind: 'waiting', wait: `the checks of marking the draft ready for review, until ${new Date(k.readied + k.grace * 1000).toISOString()}` }
+  }
   if (last > 0) doneAt.at = last
   else doneAt.at ??= now
+  // A bot reviews no draft, so its wait starts at the ready at the earliest.
+  if (k.readied !== undefined) doneAt.at = Math.max(doneAt.at, k.readied)
   const reviewed = (r.reviews ?? []).filter((v) => k.bots.includes((v.author?.login ?? '').replace(/\[bot\]$/, ''))).length
   if (k.bots.length > 0 && reviewed === 0 && now - doneAt.at < k.reviewWait * 1000) {
     return { kind: 'waiting', wait: `a review of ${k.bots.join(', ')}, until ${new Date(doneAt.at + k.reviewWait * 1000).toISOString()}` }
@@ -136,6 +149,20 @@ async function unresolved(gh: string, owner: string, name: string, n: number): P
 function workflowsIn(wt: string): boolean {
   try {
     return readdirSync(join(wt, '.github', 'workflows')).some((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+  } catch {
+    return false
+  }
+}
+
+// readyIn says a workflow of the worktree names the ready_for_review event, so marking a draft ready
+// starts checks of its own. It reads the text, not the YAML: a workflow that only mentions the event
+// costs a wait of the checks grace, never a green on checks that were not there yet.
+function readyIn(wt: string): boolean {
+  try {
+    const dir = join(wt, '.github', 'workflows')
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+      .some((f) => readFileSync(join(dir, f), 'utf8').includes('ready_for_review'))
   } catch {
     return false
   }
@@ -201,7 +228,16 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
   let k: Knobs
   try {
     repairs = knob(record, 'WF_CI_REPAIR_ROUNDS', defaultRepairs)
-    k = { bots: botsOf(record), reviewWait: knob(record, 'WF_PR_REVIEW_WAIT', defaultReviewWait), workflows: workflowsIn(wt), started: Date.now() }
+    const readied = record.readied ? Date.parse(record.readied) : NaN
+    k = {
+      bots: botsOf(record),
+      reviewWait: knob(record, 'WF_PR_REVIEW_WAIT', defaultReviewWait),
+      workflows: workflowsIn(wt),
+      started: Date.now(),
+      ...(Number.isFinite(readied) ? { readied } : {}),
+      onReady: readyIn(wt),
+      grace: knob(record, 'WF_CHECKS_GRACE', defaultGrace),
+    }
   } catch (err) {
     return end('failed', (err as Error).message)
   }

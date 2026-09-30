@@ -257,7 +257,11 @@ After the review the controller opens the pull request, in the stage `pr`:
 
 An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
-The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open. It gets the author's title and the body with its verification section through `gh pr edit`, and `gh pr ready` lifts its draft state. A draft closed or merged meanwhile is left, and the stage opens a pull request as above.
+The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open.
+- It gets the author's title and the body with its verification section through `gh pr edit`.
+- `gh pr ready` lifts its draft state, and the bots are asked for a review after that, as they skip drafts.
+- The record drops `draft` and notes the time in `readied`.
+- A draft closed or merged meanwhile is left, and the stage opens a pull request as above.
 
 The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found"|"finished", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session, or a `gh pr create` or `gh pr edit` that fails ends the process `failed` with the reason. A resume runs the stage again.
 
@@ -270,6 +274,13 @@ The controller waits on the pull request itself, in the stage `ci`, with the sta
 5. GitHub's merge state, which must be `CLEAN`, as the merge requires.
 
 The record's `wait` says what it waits for, and `checks` holds the checks it read last, each `{name, url, state}`.
+
+A gate's draft the pr stage marked ready carries the draft's checks.
+
+- In a repository whose workflows name the `ready_for_review` event, marking it ready starts checks of their own.
+  - There the stage waits after the checks until one has finished since `readied`, or until `WF_CHECKS_GRACE` seconds (600) have passed.
+  - The workflows are read as text: one that only mentions the event costs the wait of the grace.
+- In every repository the bot review's wait counts from the ready at the earliest.
 
 - Green ends the process `ready`, and the board offers the merge.
 - A conflict or failed checks start a fix session of the ci stage, a fresh session with the stage timeout.

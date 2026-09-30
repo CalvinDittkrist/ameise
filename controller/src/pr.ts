@@ -5,7 +5,8 @@
 // request against the base, never as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a
 // review. A pull request of the branch into the base that is open already, as for a follow-up, is pushed
 // to, asked of the bots and kept. The gate's draft the gate on CI opened, while it is open, gets the
-// author's title and body with the verification section and is marked ready for review.
+// author's title and body with the verification section, is marked ready for review and is asked of the
+// bots, and the record notes when it was readied and drops its draft flag.
 // The opening is an attempt in the record's history, and the ci stage (ci.ts) follows. A push, an author
 // session, or a gh pr create or edit that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
@@ -124,7 +125,7 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const result = draft ? 'finished' : 'opened'
   const a: Attempt = { stage: 'pr', kind: 'open', result, at: now(), commit, pr: pull.number, url: pull.url, note: title }
   event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: result, pr: pull.number, url: pull.url })
-  const next = attempt(rt.stateDir, id, a, { pull })
+  const next = attempt(rt.stateDir, id, a, draft ? { pull, draft: false, readied: a.at } : { pull })
   if (next && own()) ci(next, project, rt)
 }
 

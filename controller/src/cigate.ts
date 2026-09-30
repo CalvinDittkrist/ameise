@@ -18,14 +18,10 @@ import { join } from 'node:path'
 import { type Attempt, type Check, git, type Pull, push, type WorkRecord } from './claim.js'
 import { checksOf, pause, type Reading } from './ci.js'
 import { run } from './exec.js'
-import { type GateForm, knob, mergeBase, repair, short, tailOf } from './gate.js'
+import { defaultGrace, type GateForm, knob, mergeBase, repair, short, tailOf } from './gate.js'
 import type { Project } from './project.js'
 import { review } from './review.js'
 import { attempt, event, type Runtime, update } from './session.js'
-
-// How many seconds after a push a named check may take to appear, and GitHub to register any check of
-// the head, before the gate on CI ends the process naming what is missing.
-export const defaultGrace = 600
 
 // The failed logs a fix session is briefed with: those of at most this many runs of GitHub Actions.
 const maxLogRuns = 4

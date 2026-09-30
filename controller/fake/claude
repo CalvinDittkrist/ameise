@@ -58,8 +58,10 @@ if [ "${1:-}" = --version ]; then
   printf '2.0.0 (Claude Code, ameise fake)\n'
   exit 0
 fi
-printf '%s\n' "$@" >> "$log"
-if [ "$log" != /dev/null ]; then export -p >> "$log.env"; fi
+# Reviewers start at once, and printf flushes a long argument list in several writes that interleave
+# with theirs. cat appends the whole list in one write, so the arguments of one session stay together.
+cat <<<"$(printf '%s\n' "$@")" >> "$log"
+if [ "$log" != /dev/null ]; then cat <<<"$(export -p)" >> "$log.env"; fi
 
 # A session is named by its pid, and a resumed one keeps the id it resumes.
 session=fake-session-$$
