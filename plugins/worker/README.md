@@ -26,6 +26,7 @@ Every subagent runs on sonnet at high effort. `docs-reviewer` and `docs-lookup` 
 - `hunt.sh round` splits the tests into shares of at most 1500 lines, one `test-hunter` each.
 - `high` candidates are removed and `medium` ones checked by the worker, one commit per test. Up to three rounds run while a round finds something new.
 - The hunt record, `hunt.sh print`, stands in for the issue. A hunt that removed nothing opens no pull request.
+- `hunt.sh json` prints the same record as one JSON object, which the controller keeps in the hunt process's record.
 
 ## Documentation
 `scripts/claude-docs.sh` prints the index or a page from a hard-coded https origin; it is no network boundary.
