@@ -9,7 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHIMS = ROOT / "tests" / "shims"
-ORCH = ROOT / "plugins" / "orchestrator" / "scripts"
 WORKER = ROOT / "plugins" / "worker" / "scripts"
 STANDARDS = ROOT / "plugins" / "repo-standards" / "scripts"
 PLANNER = ROOT / "plugins" / "planner" / "scripts"
@@ -40,7 +39,7 @@ class ShimTest(unittest.TestCase):
         self.wt_root.mkdir()
 
     def await_detached(self, seconds=30):
-        """Wait for a process a script under test left running in the temp directory: the handoff starts one
+        """Wait for a process a script under test left running in the temp directory: the planner's finish starts one
         with nohup. The directory is removed when the test ends, and a process still writing into it made the
         removal fail from time to time; one that outstays the wait is ended, because what it writes into is
         about to go."""
@@ -62,7 +61,7 @@ class ShimTest(unittest.TestCase):
         # environment treats itself as a sub-make and prints "Entering directory" lines (GNU make 4 on CI,
         # not 3.81 on macOS), which would end up in the gate record of a script under test. A worker runs
         # its gate outside make, so the tests give it that environment.
-        dropped = ("WF_", "HERDR_", "SHIM_", "CLAUDE_CODE_", "MAKE", "MFLAGS")
+        dropped = ("WF_", "SHIM_", "CLAUDE_CODE_", "MAKE", "MFLAGS")
         env = {k: v for k, v in os.environ.items() if not k.startswith(dropped)}
         env.update({
             "PATH": f"{SHIMS}:{env['PATH']}",
@@ -70,8 +69,6 @@ class ShimTest(unittest.TestCase):
             "SHIM_ARGV_LOG": str(self.argv_log),
             "SHIM_WT_ROOT": str(self.wt_root),
             "SHIM_MAIN": str(self.repo),
-            "HERDR_ENV": "1",
-            "HERDR_WORKSPACE_ID": "wR",
             **GIT_ISOLATION,
         })
         env.update(extra)

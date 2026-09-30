@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End the planning session: refuse if work would be lost, then remove this worktree, workspace and branch from a detached process.
+# End the planning session: refuse if work would be lost, then remove this worktree and branch from a detached process.
 # In a session the controller runs (WF_PLAN_CONTROLLER=1) it only checks; the controller's Finish removes them.
 # Usage: finish.sh [--force]
 set -uo pipefail
@@ -20,7 +20,6 @@ if [ "${WF_PLAN_CONTROLLER:-}" = 1 ]; then
   wf_kv cleanup "none yet: press Finish in the process view; the controller stops this session and removes worktree $path and branch $branch"
   exit 0
 fi
-wf_notify "Planning finished: $slug" "$branch"
 wf_kv plan "$slug"
-wf_kv cleanup "worktree $path, branch $branch and this workspace are removed in 5 seconds"
-nohup bash "$(dirname "$0")/cleanup-self.sh" "$main_root" "$path" "$branch" "${HERDR_WORKSPACE_ID:-}" >/dev/null 2>&1 &
+wf_kv cleanup "worktree $path and branch $branch are removed in 5 seconds"
+nohup bash "$(dirname "$0")/cleanup-self.sh" "$main_root" "$path" "$branch" >/dev/null 2>&1 &
