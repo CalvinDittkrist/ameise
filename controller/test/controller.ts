@@ -277,3 +277,32 @@ export function record(m: Machine, id: string, r: Record<string, unknown>) {
   mkdirSync(join(m.state, 'processes'), { recursive: true })
   writeFileSync(join(m.state, 'processes', `${id}.json`), JSON.stringify(r))
 }
+
+// canPull cans the number gh pr create gives the next pull request of a repository, and the readings gh
+// pr view answers of it in their order, the last one for good (see fake/gh).
+export function canPull(m: Machine, repository: string, number: number, readings: unknown[]) {
+  const dir = join(m.github, 'repos', repository)
+  mkdirSync(join(dir, 'pulls', `${number}.readings`), { recursive: true })
+  writeFileSync(join(dir, 'next-pull'), `${number}\n`)
+  readings.forEach((r, i) => writeFileSync(join(dir, 'pulls', `${number}.readings`, `${String(i).padStart(3, '0')}.json`), JSON.stringify(r)))
+}
+
+// reading is a reading of an open pull request as gh pr view answers it: mergeable, with checks of the
+// given conclusions, and with the reviews given. A green one has a check that passed and a bot's review.
+export function reading(number: number, o: { mergeable?: string; checks?: Record<string, string>; reviews?: { login: string; state: string }[]; state?: string } = {}) {
+  const checks = o.checks ?? { gate: 'SUCCESS' }
+  return {
+    number,
+    url: `https://github.com/owner/repo/pull/${number}`,
+    state: o.state ?? 'OPEN',
+    mergeable: o.mergeable ?? 'MERGEABLE',
+    statusCheckRollup: Object.entries(checks).map(([name, conclusion]) =>
+      conclusion === 'PENDING' ? { name, status: 'IN_PROGRESS', conclusion: null } : { name, status: 'COMPLETED', conclusion, detailsUrl: `https://github.com/owner/repo/actions/runs/7/job/${name}` },
+    ),
+    reviews: (o.reviews ?? [{ login: 'chatgpt-codex-connector', state: 'COMMENTED' }]).map((r, i) => ({ author: { login: r.login }, state: r.state, body: 'Looked.', submittedAt: `2026-09-30T10:0${i}:00Z` })),
+  }
+}
+
+// canGreen cans pull request 1 of a repository as green from its first reading, so a process goes on
+// from its review to ready.
+export const canGreen = (m: Machine, repository: string) => canPull(m, repository, 1, [reading(1)])

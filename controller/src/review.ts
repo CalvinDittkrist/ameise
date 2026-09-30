@@ -6,11 +6,12 @@
 //
 // A fix verdict starts one fix session of the review with every finding of the round by its id; its
 // complete runs the gate again, whose pass starts the next round. Once every reviewer passes, the panel
-// passes and the process is ready. Once WF_REVIEW_ROUNDS rounds ran with a fix verdict still standing,
-// the panel fails: the process is ready all the same, and the pull request names the failed panel. A
-// reviewer that reports no verdict ends the process failed with the reason.
+// passes and the pr stage (pr.ts) opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
+// verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
+// panel. A reviewer that reports no verdict ends the process failed with the reason.
 import { type Attempt, git, type Verdict, type WorkRecord } from './claim.js'
 import { knob, setting } from './gate.js'
+import { pr } from './pr.js'
 import type { Project } from './project.js'
 import { attempt, begin, event, panel, reviewBrief, reviewFixBrief, type Runtime, type Running, track, update } from './session.js'
 
@@ -65,10 +66,17 @@ export function review(record: WorkRecord, project: Project, rt: Runtime): WorkR
 async function round(record: WorkRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
-  // end ends the process in the state with the note, unless a stop has taken it over.
+  // end ends the review with the note, unless a stop has taken it over: a panel that passed or failed
+  // goes on to the pr stage, a review that failed ends the process failed.
   const end = (state: 'ready' | 'failed', note: string, a?: Attempt, change: Partial<WorkRecord> = {}) => {
     if (!own()) return
-    event(rt.stateDir, id, { event: 'review-end', stage: 'review', state, note })
+    event(rt.stateDir, id, { event: 'review-end', stage: 'review', state: state === 'ready' ? (change.panel ?? 'pass') : state, note })
+    if (state === 'ready') {
+      const full = { ...change, note }
+      const next = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
+      if (next && own()) pr(next as WorkRecord, project, rt)
+      return
+    }
     const full = { ...change, state, note, unseen: true }
     const ended = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
     if (ended) rt.announce(ended)

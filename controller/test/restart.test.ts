@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, record, start, worktree } from './controller.js'
+import { api, canApi, canGreen, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, record, start, worktree } from './controller.js'
 
 afterEach(cleanup)
 
@@ -14,6 +14,7 @@ beforeEach(async () => {
   server = await up()
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   canPulls(m, 'owner/repo', [])
+  canGreen(m, 'owner/repo')
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
@@ -91,8 +92,8 @@ test('a stop marks the running session interrupted with its id, the restart show
   const resumed = cli(m, ['resume', '144', '--project', dir])
   expect(resumed.stderr).toBe('')
   expect(resumed.stdout).toMatch(/^resumed #144 {2}feat\/144-board-lists-every-project {2}running {2}implement session resumed\n/)
-  const done = await until(() => recordOf(r.id), (x) => x.state !== 'running', 'the end of the resumed session')
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1', session_id: sessionId })
+  const done = await until(() => recordOf(r.id), (x) => !['running', 'waiting'].includes(x.state), 'the end of the resumed session')
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', session_id: sessionId })
   // The runtime was started on the session it resumes, in the same worktree.
   expect(read(m.claudeLog).split('\n')).toContain(`--resume=${sessionId}`)
 
@@ -161,7 +162,7 @@ test('a worktree the state does not know is foreign, a claim of its issue names 
   // A process adopted without a session starts a fresh one.
   play(m, 'blocked Which flag?')
   expect((await api(m, 'POST', '/api/processes/resume', { project: dir, issue: 8 })).status).toBe(200)
-  const done = await until(() => recordOf(adopted.id), (x) => x.state !== 'running', 'the end of the session')
+  const done = await until(() => recordOf(adopted.id), (x) => !['running', 'waiting'].includes(x.state), 'the end of the session')
   expect(done).toMatchObject({ state: 'blocked', note: 'Which flag?' })
   expect(read(m.claudeLog)).toContain('Implement issue #8')
   expect(read(m.claudeLog)).not.toContain('--resume=')

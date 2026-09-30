@@ -10,6 +10,12 @@
 #     repos/<owner>/<name>/unassignable    present: gh issue edit --add-assignee fails for it
 #                                          (gh issue edit --remove-assignee @me always holds)
 #     repos/<owner>/<name>/pulls/<n>.json  the pull request gh pr view answers
+#     repos/<owner>/<name>/pulls/<n>.readings/
+#                                          the readings gh pr view answers in their order before that,
+#                                          one file each, in the order of their names, such as 000.json;
+#                                          each call takes the next, and the last one stays
+#     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create where pulls/ exists: the body of the
+#                                          pull request it opened
 #     repos/<owner>/<name>/pulls/<n>.merged.json
 #                                          what gh pr view answers of it once gh pr merge merged it
 #     repos/<owner>/<name>/pulls/<n>.merged
@@ -19,8 +25,8 @@
 #                                          which gh api graphql answers; absent, it has none
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
-#                                          (gh issue close, gh release create and gh api --method PATCH
-#                                          always hold)
+#                                          (gh issue close, gh release create, gh pr edit --add-reviewer
+#                                          and gh api --method PATCH always hold)
 #     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
 #                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
@@ -56,6 +62,19 @@ case "$*" in
     fi
     cat "$file" ;;
   'pr view '*' --repo '*' --json '*)
+    readings="$canned/repos/$5/pulls/$3.readings"
+    if [ -n "$canned" ] && [ -d "$readings" ]; then
+      queue=("$readings"/*.json)
+      if [ -f "${queue[0]}" ]; then
+        # .taken counts the readings answered, as the PATH of a test holds no rm.
+        taken=0
+        if [ -f "$readings/.taken" ]; then taken=$(< "$readings/.taken"); fi
+        if [ "$taken" -ge ${#queue[@]} ]; then taken=$((${#queue[@]} - 1)); fi
+        cat "${queue[$taken]}"
+        printf '%s\n' $((taken + 1)) > "$readings/.taken"
+        exit 0
+      fi
+    fi
     file="$canned/repos/$5/pulls/$3.json"
     if [ -n "$canned" ] && [ -e "$canned/repos/$5/pulls/$3.merged" ] && [ -f "$canned/repos/$5/pulls/$3.merged.json" ]; then
       file="$canned/repos/$5/pulls/$3.merged.json"
@@ -78,6 +97,17 @@ case "$*" in
       exit 1
     fi
     printf 'https://github.com/%s/pull/%s\n' "$4" "$(cat "$file")" ;;
+  'pr create --repo '*' --base '*' --head '*' --title '*' --body-file '*)
+    file="$canned/repos/$4/next-pull"
+    if [ -z "$canned" ] || [ ! -f "$file" ]; then
+      printf 'pull request create failed: no canned next pull request of %s\n' "$4" >&2
+      exit 1
+    fi
+    n=$(cat "$file")
+    if [ -d "$canned/repos/$4/pulls" ]; then cat "${12}" > "$canned/repos/$4/pulls/$n.body"; fi
+    printf 'https://github.com/%s/pull/%s\n' "$4" "$n" ;;
+  'pr edit '*' --repo '*' --add-reviewer '*)
+    printf 'https://github.com/%s/pull/%s\n' "$5" "$3" ;;
   'release create '*' --repo '*)
     printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
   'issue close '*' --repo '*)

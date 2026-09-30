@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, canGreen, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -17,6 +17,7 @@ beforeEach(async () => {
   server = await up()
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   canPulls(m, 'owner/repo', [])
+  canGreen(m, 'owner/repo')
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
@@ -83,7 +84,7 @@ async function until(id: string, done: (r: Record) => boolean): Promise<Record> 
   }
   throw new Error(`the process ${id} did not get there: ${JSON.stringify(recordOf(id))}`)
 }
-const ended = (id: string) => until(id, (r) => r.state !== 'running')
+const ended = (id: string) => until(id, (r) => !['running', 'waiting'].includes(r.state))
 
 const shape = (r: Record) => (r.history ?? []).map((h) => `${h.stage} ${h.kind} ${h.result}`)
 const rounds = (r: Record) => (r.history ?? []).filter((h) => h.kind === 'round')
@@ -103,8 +104,8 @@ test('after the gate passes every reviewer runs in parallel, and a panel that pa
   )
   const r = await claim(['WF_REVIEWERS=code,docs'])
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1', panel: 'pass' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', panel: 'pass' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   const [round] = rounds(done)
   expect(round).toMatchObject({ round: 1, commit: head(done) })
   expect(round?.verdicts).toEqual([
@@ -122,8 +123,8 @@ test('a fix verdict starts one fix session with every finding, the gate runs aga
   playFix(`commit fixed.txt\nrun ${node(`require("fs").rmSync(${JSON.stringify(join(m.claude, 'reviewer-code'))})`)}\nfixed code-1-1 Took the limit down by one\ndeclined code-1-2 The name is the issue's own\ncomplete Fixed the findings`)
   const r = await claim(['WF_REVIEWERS=code,security'])
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 2', panel: 'pass' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', panel: 'pass' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   const [first, second] = rounds(done)
   expect(verdicts(first)).toEqual({ code: 'fix', security: 'pass' })
   expect(first?.verdicts?.[0]?.findings).toEqual([
@@ -152,11 +153,11 @@ test('a review that spends its rounds ends with a failed panel, and the process 
   playFix('complete Nothing to change')
   const r = await claim(['WF_REVIEWERS=code,tests', 'WF_REVIEW_ROUNDS=2'])
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'failed', note: 'the review spent its 2 round(s) with tests at fix; the panel failed, which the pull request names' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round fix'])
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', panel: 'failed', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round fix', 'pr open opened', 'ci wait green'])
   expect(rounds(done).map(verdicts)).toEqual([{ code: 'pass', tests: 'fix' }, { tests: 'fix' }])
   expect(rounds(done)[1]?.verdicts?.[0]?.findings.map((f) => f.id)).toEqual(['tests-2-1'])
-  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'review' }])
+  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'ci' }])
 })
 
 test('a reviewer that reports no verdict ends the process failed with the reason', async () => {
@@ -172,7 +173,7 @@ test('a pass verdict with a finding of S2 is a fix verdict', async () => {
   playFix(`run ${node(`require("fs").rmSync(${JSON.stringify(join(m.claude, 'reviewer-code'))})`)}\nfixed code-1-1 Took the limit down by one\ncomplete Fixed the finding`)
   const r = await claim(['WF_REVIEWERS=code'])
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 2', panel: 'pass' })
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', panel: 'pass' })
   expect(rounds(done).map(verdicts)).toEqual([{ code: 'fix' }, { code: 'pass' }])
 })
 
@@ -206,7 +207,7 @@ test("a reviewer's permission allows that one call, and the process keeps no all
   expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: await card(1), answer: 'process' })).status).toBe(200)
   expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: await card(2), answer: 'once' })).status).toBe(200)
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass' })
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', panel: 'pass' })
   expect((recordOf(r.id) as { allowed?: string[] }).allowed ?? []).toEqual([])
 })
 
@@ -231,9 +232,9 @@ test('a stop while the reviewers run marks the process interrupted, and a resume
   server = await up()
   playReviewer('code', 'verdict pass')
   expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
-  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass'])
+  const done = await until(r.id, (x) => !['running', 'waiting'].includes(x.state) && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', panel: 'pass' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
 })
 
 test('a stop while the fix session of the review runs marks it interrupted, and a resume goes on with that session', async () => {
@@ -251,9 +252,9 @@ test('a stop while the fix session of the review runs marks it interrupted, and 
   writeFileSync(join(m.claude, 'resume'), 'fixed code-1-1 Done\ncomplete Fixed it\n')
   playReviewer('code', 'verdict pass')
   expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
-  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 2' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass'])
+  const done = await until(r.id, (x) => !['running', 'waiting'].includes(x.state) && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   expect(done.history?.[3]).toMatchObject({ session_id: fixing.session_id, fixes: [{ finding: 'code-1-1', outcome: 'fixed' }] })
   expect(existsSync(join(done.worktree, 'board.txt'))).toBe(true)
 })
@@ -278,21 +279,21 @@ test('a stop before the fix session of the review reports its id resumes a fresh
   playFix('fixed code-1-1 Done\ncomplete Fixed it')
   playReviewer('code', 'verdict pass')
   expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
-  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass', note: 'the review passed in round 2' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass'])
+  const done = await until(r.id, (x) => !['running', 'waiting'].includes(x.state) && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', panel: 'pass', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   expect(done.history?.[3]).toMatchObject({ fixes: [{ finding: 'code-1-1', outcome: 'fixed' }] })
 })
 
 test('a message to a ready process goes on as the implement session, and every reviewer reviews its work again', async () => {
   const r = await claim(['WF_REVIEWERS=code,docs'])
-  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass' })
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'ci', panel: 'pass' })
   writeFileSync(join(m.claude, 'resume'), 'commit more.txt\ncomplete Added more\n')
   playReviewer('code', 'verdict pass')
   expect((await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'add more' })).status).toBe(200)
   const done = await until(r.id, (x) => x.state === 'ready' && rounds(x).length === 2)
-  expect(done).toMatchObject({ stage: 'review', panel: 'pass', note: 'the review passed in round 1' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'implement session complete', 'gate run pass', 'review round pass'])
+  expect(done).toMatchObject({ stage: 'ci', panel: 'pass', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green', 'implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   expect(rounds(done)[1]).toMatchObject({ round: 1, commit: head(done) })
   expect(verdicts(rounds(done)[1])).toEqual({ code: 'pass', docs: 'pass' })
 })

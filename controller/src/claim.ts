@@ -112,7 +112,7 @@ export interface CreatedRecord {
 }
 
 // The stages of a work process the controller drives, in their order.
-export const workStages = ['implement', 'gate', 'review'] as const
+export const workStages = ['implement', 'gate', 'review', 'pr', 'ci'] as const
 export type WorkStage = (typeof workStages)[number]
 
 // A finding of a reviewer, with the id the controller gives it: <reviewer>-<round>-<n>, such as code-1-2.
@@ -143,13 +143,29 @@ export interface Fix {
   note: string
 }
 
+// A check of a pull request as the ci stage reads it: its name, where to read it, and pass, fail or
+// pending.
+export interface Check {
+  name: string
+  url?: string
+  state: 'pass' | 'fail' | 'pending'
+}
+
+// The pull request of a work process, once the pr stage has opened it or found it open.
+export interface Pull {
+  number: number
+  url: string
+}
+
 // An attempt of a stage as the process record keeps it: a session of the stage, a merge of the base, a
-// run of the gate command or a round of the review, with its result and the time it ended.
+// run of the gate command, a round of the review, the opening of the pull request or a verdict of the
+// ci stage's wait, with its result and the time it ended.
 export interface Attempt {
   stage: WorkStage
-  kind: 'session' | 'merge' | 'run' | 'round'
+  kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait'
   // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
-  // and pass, fix or failed for a round.
+  // pass, fix or failed for a round, opened or found for the opening of the pull request, and green,
+  // conflicts, checks-failed, review-comments or closed for a wait.
   result: string
   at: string
   session_id?: string
@@ -169,6 +185,13 @@ export interface Attempt {
   verdicts?: Verdict[]
   // fixes are what a fix session of the review did with each finding.
   fixes?: Fix[]
+  // pr is the number of the pull request an opening opened or found, or a wait read, and url where it is.
+  pr?: number
+  url?: string
+  // checks are the checks a wait read, and reviews the requests for changes and unresolved threads it
+  // met, one line each.
+  checks?: Check[]
+  reviews?: string[]
 }
 
 // A work process on an issue, as a claim writes it.
@@ -182,12 +205,17 @@ export interface WorkRecord extends CreatedRecord {
   // held says the implement session reported complete under a hold and waits for the maintainer's next
   // message, with no session running.
   held?: boolean
-  // fixing says the work of the gate or the review is a fix session, not the gate command or the
-  // reviewers, so a resume goes on with it.
+  // fixing says the work of the gate, the review or the ci stage is a fix session, not the gate
+  // command, the reviewers or the wait, so a resume goes on with it.
   fixing?: boolean
   // panel is how the review ended: pass once every reviewer passed, failed once its rounds were spent
   // with a reviewer that still says fix. The pull request names a failed panel.
   panel?: 'pass' | 'failed'
+  // pull is the pull request of the branch, once the pr stage has opened or found it. checks are the
+  // checks the ci stage read last, and wait what it waits for while it waits.
+  pull?: Pull
+  checks?: Check[]
+  wait?: string
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }
@@ -257,6 +285,13 @@ export async function fetch(top: string, branch: string, fake: boolean): Promise
     () => true,
     () => false,
   )
+}
+
+// push pushes the head of a worktree to its branch on origin, never forced. In fake mode it pushes
+// nothing, as there is no origin behind the checkout.
+export async function push(wt: string, branch: string, fake: boolean): Promise<void> {
+  if (fake) return
+  await git(wt, 'push', '-q', '-u', 'origin', `HEAD:refs/heads/${branch}`)
 }
 
 // refOf is the ref of a base branch: origin's where the checkout has it, else the local branch.

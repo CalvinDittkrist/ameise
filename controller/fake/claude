@@ -9,6 +9,8 @@
 #                              names, such as gate for a fix session of the gate; without it play
 #     reviewer-<name>          the session a reviewer of that name plays, such as reviewer-code; without
 #                              it reviewer, and without that it reports verdict pass
+#     author                   the session the author of the pull request plays; without it, it reports
+#                              pull Fake pull request
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
@@ -29,11 +31,13 @@
 #                       a reviewer's finding, such as finding S2 src/a.ts:3 The limit is off by one
 #   fixed <id> <note>   a fix session of the review fixed the finding of that id
 #   declined <id> <note>  it declined the finding of that id
+#   body <line>         a line of the body of the pull request the author reports
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   verdict <pass|fix>  a reviewer reports the verdict with its findings
+#   pull <title>        the author reports the pull request with the title and its body lines
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -73,6 +77,8 @@ case "$stage" in
   reviewer-*)
     if [ "$file" != "$stage" ]; then file=reviewer; fi
     if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then file=''; steps=('verdict pass'); fi ;;
+  author)
+    if [ "$file" != author ]; then file=''; steps=('pull Fake pull request'); fi ;;
 esac
 if [ -n "$file" ] && [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
@@ -82,7 +88,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -107,6 +113,7 @@ tokens=1
 # findings are a reviewer's findings, fixes what a fix session of the review did with each, as JSON.
 findings=''
 fixes=''
+body=''
 
 # assistant writes a message of the session with the content blocks given as JSON.
 assistant() {
@@ -185,6 +192,11 @@ play() {
         where=${rest%% *}
         claim=${rest#* }
         findings="$findings${findings:+,}{\"severity\":$(json "$severity"),\"where\":$(json "$where"),\"claim\":$(json "$claim"),\"fix\":\"Fix it.\"}" ;;
+      body)
+        local line
+        line=$(json "$rest")
+        line=${line#\"}
+        body="$body${body:+\\n}${line%\"}" ;;
       fixed | declined)
         fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}" ;;
       wait)
@@ -226,6 +238,9 @@ while next; do
           exit 0 ;;
         verdict)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"verdict\":$(json "$message"),\"findings\":[$findings]}}"
+          exit 0 ;;
+        pull)
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"
           exit 0 ;;
         silent)
           exit 0 ;;
