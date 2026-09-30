@@ -9,15 +9,10 @@
 // names, of the branch and opened by the login gh is logged in as, is taken over; any other ends the
 // process failed with a note naming it, and nothing is written on the issue (the fixture's takeover).
 //
-// It then reads the checks of the pushed head every poll. A check still running is waited for. The
-// checks passing is the gate's pass, and when the gate reads every check the pass stands only on two
-// readings a poll apart that show the same checks, as GitHub registers a head's checks one workflow at a
-// time. A failed check is a failed gate, whose fix session gets the failed checks with the end of their
-// failed logs, within WF_GATE_ROUNDS; its complete runs the gate again, which pushes and reads the new
-// head. A named check that has not appeared WF_CHECKS_GRACE seconds after the push, or a head without
-// any check by then, ends the process failed naming what is missing. A draft that conflicts with the
-// base gets the base merged in and pushed, and a merge that conflicts in files goes to a fix session
-// within the same budget. WF_GATE_TIMEOUT bounds one run of the gate on CI.
+// It then reads the checks of the pushed head every poll until they pass, fail or go missing. The
+// "Gate on CI" section of controller/README.md states the rules and the knobs of this reading.
+// A draft that conflicts with the base gets the base merged in and pushed. A merge that conflicts in
+// files goes to a fix session, as a failed check does.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type Attempt, type Check, git, type Pull, push, type WorkRecord } from './claim.js'
