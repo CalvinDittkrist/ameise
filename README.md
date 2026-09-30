@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
+  <img alt="ameise" src="docs/assets/banner-light.png">
+</picture>
+
 # ameise
 
 Claude Code plugins for agent-driven development that put security first, then low token use, then throughput. Planning sessions turn ideas into agent-ready issues, each claimed into an isolated worktree session. Each worker implements, passes an independent reviewer panel, opens a pull request from a fresh context and drives CI and review comments to green.
@@ -37,7 +42,7 @@ ameise                             # starts it and opens the dashboard on 127.0.
 ameise projects add ~/src/repo     # then claim, plan, merge and release from the dashboard
 ```
 
-For sessions started by hand, the plugins install from the marketplace `ameise` with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as PR reviewer.
+For sessions started by hand, the plugins install from the marketplace `ameise` with Claude Code 2.1.270+, `gh`, `jq` and git. The orchestrator needs Herdr. Optional: `sbx` for sandboxed workers, `npx gh-axi`, Codex as reviewer.
 
 ```sh
 claude plugin marketplace add CalvinDittkrist/ameise
@@ -53,7 +58,7 @@ Once per repository, bring it to the [standard](docs/repo-standard.md):
 2. `/repo-standards:apply` pushes a protected `pre-standard` tag, opens the catalogue issue and one cleanup pull request, and turns code findings into issues.
 3. After the merge, `/repo-standards:apply` again configures the GitHub workspace and runs the check.
 
-Teammates then only run the install commands. Skills also install outside Claude Code: `npx skills add CalvinDittkrist/ameise --skill <name>`, or `sbx skills add CalvinDittkrist/ameise` for Docker Sandboxes.
+Teammates only run the install commands. Skills also install outside Claude Code: `npx skills add CalvinDittkrist/ameise --skill <name>`, or `sbx skills add CalvinDittkrist/ameise` for Docker Sandboxes.
 
 ## Daily use
 
@@ -73,11 +78,11 @@ cd my-repo && claude --agent orchestrator --effort low   # inside a Herdr pane
 /orchestrator:release v1.2.0     # milestone done: promote dev, tag, release notes, close it
 ```
 
-The worker in each pane reports at decision points only. Answer it in its pane when it asks.
+The worker in each pane reports at decision points only; answer it there.
 
 ## Configuration
 
-Every knob is an environment variable in `.claude/settings.json` under `env`; the template is `plugins/repo-standards/templates/settings.json`. Repositories never override agents or skills locally: the standard check fails on them.
+Every knob is an environment variable in `.claude/settings.json` under `env`; the template is `plugins/repo-standards/templates/settings.json`. Repositories never override agents or skills locally; the standard check fails on them.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -160,6 +165,6 @@ Its configuration is in the [runbook](docs/factory-runbook.md#configuration). Th
 - `"gate"` runs a command in the worktree, none, or hands the gate to CI through a draft pull request ([runbook](docs/factory-runbook.md#a-gate-on-ci)).
 - `"quota_axi"` is the path of a pinned [quota-axi](https://github.com/kunchenguid/quota-axi), version 0.1.49. Below `"quota_minimum"`, default 12 %, nothing starts ([ADR 0037](docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
 
-The factory is released by bumping `factory/VERSION` and running `scripts/release.sh factory --push` on `main`. The `factory/v<version>` tag makes CI attach static linux binaries for amd64 and arm64 with checksums to a GitHub release. Developing the dashboard needs Node; `make check` installs its dependencies and Chromium.
+The factory is released by bumping `factory/VERSION` and running `scripts/release.sh factory --push` on `main`. The `factory/v<version>` tag makes CI attach static linux binaries for amd64 and arm64 with checksums to a GitHub release. The dashboard needs Node; `make check` installs its dependencies and Chromium.
 
 MIT licensed.
