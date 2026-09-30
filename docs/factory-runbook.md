@@ -518,7 +518,8 @@ The logins in `notify` are asked for a review when a run ends `ready`. They are 
   - An open spec pull request stays open for a person.
   - The spec branch stays, with everything on it.
   - Routing the spec again claims it again only once that branch is gone.
-- A spec whose latest spec run ended `done`, `let-go`, `lost` or `failed` is claimed again only when the spec-run label is set after that end, which the spec run records as `endedAt`.
+- A spec whose latest spec run ended is claimed again only when the spec-run label is set after that end.
+  - The spec run records its end as `endedAt`, whether it was `done`, `let-go`, `lost` or `failed`.
 - A ticket whose parent carries the spec-run label never enters the line as a routed issue, whatever labels it carries.
   - A parent that cannot be read keeps its ticket out of that poll, with one warning in the journal.
 - `/api/specs` lists the spec runs, and `/api/specs/{id}` serves one with its events and its tickets.
