@@ -2,7 +2,7 @@
 
 Date: 2026-09-30
 Status: accepted
-Extends: [0065](0065-the-controller-warns-of-the-quota-and-notifies-a-turn.md) (which runtimes the quota reads and which one a claim warns of)
+Amends: [0065](0065-the-controller-warns-of-the-quota-and-notifies-a-turn.md)
 
 ## Context
 - The quota read Claude alone, the one runtime a work process spends. Issue #326, which refines #325, adds Codex beside it.

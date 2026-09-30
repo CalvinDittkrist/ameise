@@ -65,7 +65,9 @@ test("a quota check switched off says off in the sidebar and warns no claim", as
   await expect(sidebar(page).getByText("Off: no quota_axi is configured")).toBeVisible()
   await expect(sidebar(page).getByRole("list", { name: "Quota" })).toHaveCount(0)
   await section(page, "Ready to start").locator('[aria-label="#144"]').getByRole("button", { name: "Claim" }).click()
-  await expect(page.getByRole("dialog", { name: "Claim #144" }).getByRole("status", { name: "Quota" })).toHaveCount(0)
+  const dialog = page.getByRole("dialog", { name: "Claim #144" })
+  await expect(dialog.getByRole("button", { name: "Claim", exact: true })).toBeVisible()
+  await expect(dialog.getByRole("status", { name: "Quota" })).toHaveCount(0)
 })
 
 test("a Codex below the minimum is marked in the sidebar and warns no claim", async ({ page }) => {

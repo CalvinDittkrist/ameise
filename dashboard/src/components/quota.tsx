@@ -1,7 +1,7 @@
 import { type Quota, runtimeName, until } from "@/api"
 import { cn } from "@/lib/utils"
 
-// QuotaBars is the quota of every runtime a process spends: a bar of what is left and when it resets. A
+// QuotaBars is the quota of each runtime the controller reads: a bar of what is left and when it resets. A
 // runtime below the configured minimum is marked, and one quota-axi could not read says unknown with
 // the reason on hover. A quota check switched off says so in place of the bars.
 export function QuotaBars({ quota }: { quota: Quota }) {
