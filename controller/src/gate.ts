@@ -50,8 +50,8 @@ export function gateForm(value: unknown): GateForm {
 // The gate's knobs: how many fix sessions a failing gate may take, and how many seconds one run of the
 // gate command may take before it is ended and counts as a failure. One run of the gate on CI is bounded
 // the same way.
-export const defaultRounds = 3
-export const defaultTimeout = 2700
+const defaultRounds = 3
+const defaultTimeout = 2700
 
 // The end of the gate command's output the record keeps and a fix session is briefed with.
 const tailLines = 20
