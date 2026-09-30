@@ -2,8 +2,8 @@
 // controller registers them in the session as the in-process MCP server github. They create an issue with
 // its parent and milestone, set labels, link blockers, comment, close, attach a milestone and create one.
 // They own the label vocabulary: a vocabulary label the repository lacks is created on first use. They
-// refuse the label sets the factory cannot work, as the planner's issue script did. Every write goes into
-// the process's event log with what it changed, and so does every refusal.
+// refuse the label sets the factory cannot work (ADR 0021 states the rules). Every write goes into the
+// process's event log with what it changed, and so does every refusal.
 //
 // Every call goes through gh api with the endpoint last, so the scripted gh of fake mode answers it by
 // its endpoint.
@@ -66,9 +66,12 @@ interface Milestone {
 
 const has = (labels: string[], name: string) => labels.includes(name)
 
+// unavailable tells a failed call that GitHub lacks the feature here (404 or 422) from any other failure.
+const unavailable = (err: unknown) => /\b(404|422)\b|Not Found|Unprocessable/.test((err as Error).message)
+
 // routable refuses a label set that routes an issue the factory cannot work: the routing label goes
 // only beside ready-for-agent, and never beside ready-for-human. drop says how this call drops it.
-export function routable(subject: string, drop: string, labels: string[]) {
+function routable(subject: string, drop: string, labels: string[]) {
   if (!has(labels, routingLabel)) return
   if (has(labels, 'ready-for-human')) {
     throw new Refused(`${subject} would carry ${routingLabel} and ready-for-human: the factory works unattended, so an issue a person has to implement is never routed to it. Drop one of the two labels; ${drop}.`)
@@ -81,7 +84,7 @@ export function routable(subject: string, drop: string, labels: string[]) {
 // specRun refuses a label set a spec run cannot work. The spec-run label goes never beside the routing
 // label or ready-for-human, and only on a spec or on a ticket whose spec carries it. parent is the
 // ticket's spec, read only when the set carries no spec label; parentLabels reads the spec's labels.
-export async function specRun(subject: string, drop: string, labels: string[], parent: () => Promise<number | undefined>, parentLabels: (n: number) => Promise<string[]>) {
+async function specRun(subject: string, drop: string, labels: string[], parent: () => Promise<number | undefined>, parentLabels: (n: number) => Promise<string[]>) {
   if (!has(labels, specRunLabel)) return
   if (has(labels, routingLabel)) {
     throw new Refused(`${subject} would carry ${routingLabel} and ${specRunLabel}: a spec run routes its tickets itself, so an issue carries one of the two. Drop one of them; ${drop}, or drop ${routingLabel}.`)
@@ -227,7 +230,7 @@ async function createIssue(g: GitHub, a: { title: string; body: string; labels?:
     await g.api(g.path(`issues/${parent}/sub_issues`), ['-F', `sub_issue_id=${made.id}`], 'POST')
     g.log({ write: 'sub-issue', issue: n, parent })
     out.push(`parent: #${parent} (sub-issue)`)
-  } catch {
+  } catch (err) {
     if (has(labels, specRunLabel)) {
       // A spec run finds its tickets through the sub-issues, so a ticket outside them loses the label.
       let removed = true
@@ -241,7 +244,11 @@ async function createIssue(g: GitHub, a: { title: string; body: string; labels?:
         `#${n} could not become a sub-issue of #${parent}, so it cannot join the spec run${removed ? ` and lost ${specRunLabel}` : `, and removing ${specRunLabel} from it failed; remove it on GitHub`}. Attach it to #${parent} on GitHub, then add ${specRunLabel} with set_labels on ${n}.`,
       )
     }
-    out.push(`parent: #${parent} (body only; sub-issues unavailable here)`)
+    out.push(
+      unavailable(err)
+        ? `warning: #${n} is not linked to #${parent} (sub-issues unavailable here); name #${parent} in its body`
+        : `warning: linking #${n} as a sub-issue of #${parent} failed: ${(err as Error).message}; attach it to #${parent} on GitHub`,
+    )
   }
   // The spec hangs on the milestone of its tickets, so the release waits for its acceptance.
   if (milestone && m) out.push(await attachParent(g, parent, milestone, m.number))
@@ -292,8 +299,8 @@ async function setLabels(g: GitHub, a: { issue: number; add?: string[]; remove?:
   return [`labels: #${n} ${resulting.length ? resulting.join(', ') : 'none'}`]
 }
 
-// block links the issue as blocked by each of the others, through GitHub's native dependencies where
-// they are available.
+// block links the issue as blocked by each of the others through GitHub's native dependencies. Where
+// they are unavailable it says the link was not made; any other failure refuses.
 async function block(g: GitHub, a: { issue: number; by: number[] }): Promise<Done> {
   if (a.by.length === 0) throw new Refused('block needs the issues that block it')
   const out: Done = []
@@ -303,8 +310,9 @@ async function block(g: GitHub, a: { issue: number; by: number[] }): Promise<Don
       await g.api(g.path(`issues/${a.issue}/dependencies/blocked_by`), ['-F', `issue_id=${id}`], 'POST')
       g.log({ write: 'blocked', issue: a.issue, by: m })
       out.push(`blocked: #${a.issue} by #${m} (native)`)
-    } catch {
-      out.push(`blocked: #${a.issue} by #${m} (body only; dependencies unavailable here)`)
+    } catch (err) {
+      if (!unavailable(err)) throw new Refused(`linking #${a.issue} as blocked by #${m} failed: ${(err as Error).message}${out.length ? `; already linked: ${out.join('; ')}` : ''}`)
+      out.push(`not linked: #${a.issue} blocked by #${m} (dependencies unavailable here); record the blocker with a comment on #${a.issue}`)
     }
   }
   return out
@@ -395,9 +403,9 @@ const label = z.string().min(1)
 export function githubTools(gh: string, repo: string, log: (e: Record<string, unknown>) => void): McpSdkServerConfigWithInstance {
   const g = new GitHub(gh, repo, (w) => log({ event: 'github', ...w }))
   // answer runs a tool and answers its lines, or its refusal as an error the session reads.
-  const answer = (name: string, f: () => Promise<Done>) => async () => {
+  const answer = <A>(name: string, f: (g: GitHub, a: A) => Promise<Done>) => async (a: A) => {
     try {
-      return { content: [{ type: 'text' as const, text: (await f()).join('\n') }] }
+      return { content: [{ type: 'text' as const, text: (await f(g, a)).join('\n') }] }
     } catch (err) {
       const reason = (err as Error).message
       log({ event: 'github-refused', tool: name, reason })
@@ -412,28 +420,28 @@ export function githubTools(gh: string, repo: string, log: (e: Record<string, un
         'create_issue',
         `Create an issue of ${repo} with its labels, and with its parent (it becomes a sub-issue) and its milestone (vX.Y.Z, open) when given. A ticket with a milestone takes its spec along when the spec has none.`,
         { title: z.string(), body: z.string(), labels: z.array(label).optional(), parent: issueNumber.optional(), milestone: z.string().optional() },
-        (a) => answer('create_issue', () => createIssue(g, a))(),
+        answer('create_issue', createIssue),
       ),
       tool(
         'set_labels',
         `Add and remove labels of an issue of ${repo}. The routing rules hold over the labels the issue ends up with.`,
         { issue: issueNumber, add: z.array(label).optional(), remove: z.array(label).optional() },
-        (a) => answer('set_labels', () => setLabels(g, a))(),
+        answer('set_labels', setLabels),
       ),
-      tool('block', `Link an issue of ${repo} as blocked by each of the others.`, { issue: issueNumber, by: z.array(issueNumber) }, (a) => answer('block', () => block(g, a))()),
-      tool('comment', `Comment on an issue of ${repo}.`, { issue: issueNumber, body: z.string() }, (a) => answer('comment', () => comment(g, a))()),
+      tool('block', `Link an issue of ${repo} as blocked by each of the others.`, { issue: issueNumber, by: z.array(issueNumber) }, answer('block', block)),
+      tool('comment', `Comment on an issue of ${repo}.`, { issue: issueNumber, body: z.string() }, answer('comment', comment)),
       tool(
         'close',
         `Close an issue of ${repo}, after the comment when given. A spec closed as completed needs its closing comment and every ticket closed; tickets adds ticket numbers to its native sub-issues.`,
         { issue: issueNumber, comment: z.string().optional(), reason: z.enum(['completed', 'not planned']).optional(), tickets: z.array(issueNumber).optional() },
-        (a) => answer('close', () => close(g, a))(),
+        answer('close', close),
       ),
-      tool('attach_milestone', `Attach an issue of ${repo} to an open milestone vX.Y.Z.`, { issue: issueNumber, milestone: z.string() }, (a) => answer('attach_milestone', () => attachMilestone(g, a))()),
+      tool('attach_milestone', `Attach an issue of ${repo} to an open milestone vX.Y.Z.`, { issue: issueNumber, milestone: z.string() }, answer('attach_milestone', attachMilestone)),
       tool(
         'create_milestone',
         `Create the milestone vX.Y.Z of ${repo} with its goal as the description, or reuse the open one of that name.`,
         { title: z.string(), description: z.string().optional() },
-        (a) => answer('create_milestone', () => createMilestone(g, a))(),
+        answer('create_milestone', createMilestone),
       ),
     ],
   })
