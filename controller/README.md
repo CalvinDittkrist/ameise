@@ -366,7 +366,8 @@ While the headless session still runs, the terminal is a second runtime on the s
 Stopping and starting the controller loses no process.
 - A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
 - The start reads every record before it answers a request.
-- A work or hunt process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill, and is marked `interrupted` too.
+- A work or hunt process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill.
+  - It is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
@@ -449,12 +450,15 @@ A finish stops the session, then removes the worktree, the plan branch and the p
 A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
 - a hunt process, a `hunt/` worktree or a local `hunt/` branch,
 - a `hunt/` branch on origin; a list of origin's branches that cannot be read is a warning instead,
-- a base without a test file by the hunt's rule: `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*` and `*.spec.*` of JavaScript and TypeScript, and code files in a `tests` or `spec` directory, leaving out fixtures, testdata, `__snapshots__`, `node_modules` and `vendor`.
+- a base without a test file by the hunt's rule:
+  - `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*` and `*.spec.*` of JavaScript and TypeScript,
+  - code files in a `tests` or `spec` directory, leaving out fixtures, testdata, `__snapshots__`, `node_modules` and `vendor`.
 
 Its hunt session starts at once, in the stage `hunt`, as the implement session does, without `WF_ISSUE`. Its brief starts with `/worker:hunt-tests`, so the worker runs its rounds with the `test-hunter` agents and removes and commits only.
 - The record's `hunt` is the hunt record as the worker's `hunt.sh json` prints it: `rounds`, `max_rounds`, `ended`, `removed`, `kept` and `stale`.
   - The controller reads it again after each tool result of the session and once the session reports `complete`.
-- A hunt that removed a test goes on to the [gate](#gate-stage), the [review](#review-stage), the [pr](#pr-stage) and the [ci](#ci-stage) stages of a work process. Each brief names the hunt record, which its session reads with `hunt.sh print`, in place of the issue.
+- A hunt that removed a test goes on to the [gate](#gate-stage), the [review](#review-stage), the [pr](#pr-stage) and the [ci](#ci-stage) stages of a work process.
+  - Each brief names the hunt record, which its session reads with `hunt.sh print`, in place of the issue.
   - The review checks each removal against its reason.
   - The pull request, and the gate's draft on CI, close no issue.
   - A merge removes it as it removes a work process.

@@ -51,7 +51,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
 7. Yolo mode: the process merges itself once CI is green and its panel passed.
 
 ### Test hunt
-1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`. The skill needs the controller and says so without it.
+1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`.
+   - The skill needs the controller and says so without it.
    - It refuses while a hunt branch exists here or on origin, or while the base has no test file.
 2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
