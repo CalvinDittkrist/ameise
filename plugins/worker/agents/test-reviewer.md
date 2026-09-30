@@ -1,7 +1,7 @@
 ---
 name: test-reviewer
 description: Fresh-context review of tests in the branch diff. Checks that each test proves behaviour, is needed, is not flaky, and that risky changes have coverage. Read-only; runs single tests, never the full gate.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high

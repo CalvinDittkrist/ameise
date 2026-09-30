@@ -89,6 +89,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - The controller is TypeScript on npm in `controller/`, apart from the factory and its dashboard.
   - Its tests start the built `dist/main.js --fake`, so `npm test` builds first through `pretest`.
   - Its helper `controller/test/controller.ts` gives each test a machine of its own: a temporary configuration, state, PATH and scripted gh.
+  - An agent it starts with an output schema (the worker, the reviewers) lists `StructuredOutput` in its `tools`. Without it the session ends with no result and fails.
 - The local dashboard is the controller's npm part ([ADR 0064](docs/adr/0064-the-local-dashboard-is-built-into-the-controller.md)): shadcn/ui on Tailwind in `dashboard/`.
   - Its build writes into `controller/dist/dashboard`, and `tsc` of the controller leaves that directory alone.
   - A shadcn component is copied into `dashboard/src/components/ui` and imports `cn` from `@/lib/utils`.

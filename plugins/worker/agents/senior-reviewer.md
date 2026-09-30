@@ -1,7 +1,7 @@
 ---
 name: senior-reviewer
 description: Fresh-context senior review of the branch diff for code smells, design, naming, duplication, and fit with the codebase's conventions and best practices. Read-only.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high
