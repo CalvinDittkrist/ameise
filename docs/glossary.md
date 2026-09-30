@@ -8,7 +8,8 @@ Terms the code, the issues and the docs use, one row each.
 | standard | The written baseline a repository is checked against: [repo-standard.md](repo-standard.md). |
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |
-| gate | The command that must pass before a pull request: the gate command of the change class that applies ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI. |
+| gate | The command that must pass before a pull request: the gate command of the change class that applies ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI. Its form is set in two places: the factory's gate command and the local workflow's `WF_GATE`. |
+| `WF_GATE` | The local workflow's knob for the gate form, the peer of the factory's gate command: unset for `make check`, a command run without a shell, `none`, or `ci` and `ci:<jobs>`, which the controller refuses until the gate on CI is built. |
 | auditor | A read-only subagent that judges one area of a repository during standardisation and returns findings. |
 | facts | The compact `key: value` block `facts.sh` prints about a repository; every auditor gets it instead of exploring. |
 | finding | One proposed action of an auditor, one line: `finding: <category> \| <target> \| <action> \| <reason> \| <confidence>`. Actions are delete, replace, create, issue and configure ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)). |
