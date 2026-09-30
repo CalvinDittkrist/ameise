@@ -41,6 +41,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
    - The controller's `ameise claim` refuses the same and starts a headless session ([implement session](../controller/README.md#implement-session)).
+   - That session implements and commits only. On its `complete` report the controller runs the [gate stage](../controller/README.md#gate-stage) itself: it merges the base, runs `make check` and gives a conflict or a failure fix sessions within `WF_GATE_ROUNDS`, recording each attempt in the process record.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
