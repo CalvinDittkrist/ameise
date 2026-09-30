@@ -61,12 +61,12 @@ const languageMax = 32
 
 // plannerLanguage reads WF_PLANNER_LANGUAGE from the env block of the checkout's settings, the language
 // the planner session talks in, or undefined where it is not set or empty. The value enters the session's
-// system prompt verbatim, so it refuses one with a control character or longer than a language name.
+// system prompt verbatim, so it refuses one with a control, separator or format character, or one longer than a language name.
 export function plannerLanguage(checkout: string): string | undefined {
   const value = settingOf({}, checkout, 'WF_PLANNER_LANGUAGE')
   if (value === undefined || value === '') return undefined
   if (typeof value !== 'string') throw new Refusal(`WF_PLANNER_LANGUAGE=${JSON.stringify(value)} is not text; set a language name or a locale code, such as german or pt-br`)
-  if (/\p{Cc}/u.test(value)) throw new Refusal('WF_PLANNER_LANGUAGE contains a line break or a control character; set a plain language name or a locale code, such as german')
+  if (/[\p{Cc}\p{Zl}\p{Zp}\p{Cf}]/u.test(value)) throw new Refusal('WF_PLANNER_LANGUAGE contains a line break, a control character or a format character; set a plain language name or a locale code, such as german')
   const length = [...value].length
   if (length > languageMax) throw new Refusal(`WF_PLANNER_LANGUAGE is ${length} characters long, which is a sentence, not a language; set a name or a locale code of at most ${languageMax}, such as german or pt-br`)
   return value
