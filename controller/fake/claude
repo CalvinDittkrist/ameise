@@ -44,6 +44,12 @@
 #                       it uncommitted, as a session stopped mid-change does
 # Without an end it runs until its input closes, as a long session does.
 #
+# Claude Code hands the result of an output schema over through its StructuredOutput tool. A session
+# started with --agent whose tools list leaves that tool out ends with text alone and no structured
+# result (tried with Claude Code 2.1.285 on 2026-09-30), so this one does too. It reads the agent from
+# the plugins of --plugin-dir: worker:code-reviewer is agents/code-reviewer.md of the plugin named
+# worker, a name without a plugin is that file of any of them.
+#
 # --version answers as a claude does, whatever the play.
 set -euo pipefail
 
@@ -59,13 +65,49 @@ if [ "$log" != /dev/null ]; then export -p >> "$log.env"; fi
 session=fake-session-$$
 file=play
 previous=''
+agent=''
+plugins=()
 for arg in "$@"; do
   case "$previous $arg" in
     '--resume '*) session=$arg && file=resume ;;
     *' --resume='*) session=${arg#--resume=} && file=resume ;;
+    '--agent '*) agent=$arg ;;
+    '--plugin-dir '*) plugins+=("$arg") ;;
   esac
   previous=$arg
 done
+
+# structured says the session can report a structured result: no agent, or an agent whose tools list
+# names StructuredOutput or is absent.
+structured=1
+if [ -n "$agent" ]; then
+  for dir in "${plugins[@]+"${plugins[@]}"}"; do
+    name=''
+    manifest=''
+    if [ -f "$dir/.claude-plugin/plugin.json" ]; then manifest=$(<"$dir/.claude-plugin/plugin.json"); fi
+    if [[ $manifest =~ \"name\":[[:space:]]*\"([^\"]*)\" ]]; then name=${BASH_REMATCH[1]}; fi
+    case "$agent" in
+      *:*) if [ "$name" != "${agent%%:*}" ]; then continue; fi ;;
+    esac
+    definition="$dir/agents/${agent#*:}.md"
+    if [ ! -f "$definition" ]; then continue; fi
+    # The tools line of the frontmatter, the lines between the first two --- lines.
+    tools='' fence=0
+    while IFS= read -r l; do
+      if [ "$l" = --- ]; then
+        fence=$((fence + 1))
+        if [ $fence -eq 2 ]; then break; fi
+        continue
+      fi
+      case "$l" in tools:*) tools=$l && break ;; esac
+    done < "$definition"
+    case "$tools" in
+      '' | *StructuredOutput*) ;;
+      *) structured='' ;;
+    esac
+    break
+  done
+fi
 
 steps=()
 canned=${AMEISE_FAKE_CLAUDE:-}
@@ -105,6 +147,14 @@ json() {
   s=${s//\"/\\\"}
   s=${s//[[:cntrl:]]/}
   printf '"%s"' "$s"
+}
+
+# result writes the result of the session with the structured result given as JSON, which it leaves
+# out when the session cannot report one.
+result() {
+  local out=''
+  if [ -n "$structured" ]; then out=",\"structured_output\":$1"; fi
+  say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[]$out}"
 }
 
 say() { printf '%s\n' "$1"; }
@@ -228,16 +278,16 @@ while next; do
       fi
       case "$word" in
         complete)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}}"
+          result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}"
           exit 0 ;;
         ready | blocked)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}}"
+          result "{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}"
           # A lingering runtime shrugs off the SDK's TERM as it closes the session.
           trap '' TERM
           while [ -n "$canned" ] && [ -f "$canned/linger" ]; do /bin/sleep 0.05; done
           exit 0 ;;
         verdict)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"verdict\":$(json "$message"),\"findings\":[$findings]}}"
+          result "{\"verdict\":$(json "$message"),\"findings\":[$findings]}"
           exit 0 ;;
         pull)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"

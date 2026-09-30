@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Fresh-context correctness review of the branch diff. Finds bugs, broken contracts, regressions and missing edge cases. Read-only.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high
