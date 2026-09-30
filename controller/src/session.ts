@@ -26,11 +26,11 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { type Attempt, type Check, type CreatedRecord, type Finding, type Fix, type Point, writeAtomic, type WorkRecord } from './claim.js'
 import { ci } from './ci.js'
 import { gate, knob } from './gate.js'
-import { githubServer, githubTools } from './github.js'
+import { directWrite, githubServer, githubTools } from './github.js'
 import type { PlanRecord } from './plan.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
@@ -1281,6 +1281,17 @@ async function session(
   timer?.unref()
   const late = (): Ended => ({ state: 'failed', note: `the ${what} ran past its stage timeout of ${timeout} s` })
 
+  // A session with the tools writes GitHub through them alone: a hook denies every Bash call that writes
+  // GitHub with gh past them, before auto mode's classifier could allow it, in the session and its subagents.
+  const guard: HookCallback = (input) => {
+    const command = input.hook_event_name === 'PreToolUse' ? (input.tool_input as { command?: unknown } | undefined)?.command : undefined
+    const why = typeof command === 'string' ? directWrite(command) : undefined
+    if (why === undefined) return Promise.resolve({})
+    const reason = `${why}; write GitHub only through the github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone)`
+    event(rt.stateDir, id, { event: 'github-refused', tool: 'Bash', reason })
+    return Promise.resolve({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } })
+  }
+
   let stderr = ''
   const q = query({
     prompt: run.input,
@@ -1296,7 +1307,7 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
-      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`] } : {}),
+      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard] }] } } : {}),
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

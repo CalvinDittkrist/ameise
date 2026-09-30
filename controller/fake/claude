@@ -29,6 +29,8 @@
 #   wait                it waits for the next message, then says what it read
 #   commit <file>       it writes the file in its directory and commits it
 #   run <command>       it runs the command in its directory with bash, whatever it exits with
+#   bash <command>      it asks the PreToolUse hook of Bash the SDK registered whether it may run the
+#                       command in Bash, then says whether the hook denied it; it never runs it
 #   tool <name> <json>  it calls the tool of that name of the controller's in-process server github with
 #                       the arguments given as JSON, then says what the tool answered
 #   finding <severity> <where> <claim>
@@ -193,12 +195,15 @@ field() {
   printf '%s' "${rest%%\"*}"
 }
 
+# hook is the callback id of the PreToolUse hook of Bash the SDK registered in its initialize request.
+hook=''
 # next reads one line of input, answers the SDK's initialize request, and fails once the input closes.
 next() {
   IFS= read -r line || return 1
   printf '< %s\n' "$line" >> "$log"
   case "$line" in
     *'"subtype":"initialize"'*)
+      if [[ $line =~ \"PreToolUse\":\[\{\"matcher\":\"Bash\",\"hookCallbackIds\":\[\"([^\"]*)\" ]]; then hook=${BASH_REMATCH[1]}; fi
       say "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$(field request_id "$line")\",\"response\":{}}}" ;;
   esac
 }
@@ -263,6 +268,21 @@ play() {
         git add -- "$rest" && git commit -q -m "fix: write $rest" >/dev/null ;;
       run)
         bash -c "$rest" >/dev/null 2>&1 || true ;;
+      bash)
+        n=$((n + 1))
+        local input
+        input="{\"command\":$(json "$rest")}"
+        assistant "{\"type\":\"tool_use\",\"id\":\"toolu-$n\",\"name\":\"Bash\",\"input\":$input}"
+        if [ -z "$hook" ]; then
+          text "No hook for $rest."
+        else
+          say "{\"type\":\"control_request\",\"request_id\":\"hook-$n\",\"request\":{\"subtype\":\"hook_callback\",\"callback_id\":\"$hook\",\"input\":{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"$session\",\"transcript_path\":\"\",\"cwd\":$(json "$PWD"),\"tool_name\":\"Bash\",\"tool_input\":$input,\"tool_use_id\":\"toolu-$n\"},\"tool_use_id\":\"toolu-$n\"}}"
+          answer "hook-$n" || return 1
+          case "$line" in
+            *'"permissionDecision":"deny"'*) text "The hook denied $rest." ;;
+            *) text "The hook let $rest through." ;;
+          esac
+        fi ;;
       tool)
         local name=${rest%% *} args=${rest#* }
         n=$((n + 1))

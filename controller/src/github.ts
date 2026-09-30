@@ -3,7 +3,8 @@
 // its parent and milestone, set labels, link blockers, comment, close, attach a milestone and create one.
 // They own the label vocabulary: a vocabulary label the repository lacks is created on first use. They
 // refuse the label sets the factory cannot work (ADR 0021 states the rules). Every write goes into the
-// process's event log with what it changed, and so does every refusal.
+// process's event log with what it changed, and so does every refusal. A hook of the session denies a
+// Bash call that writes GitHub with gh past them (directWrite).
 //
 // Every call goes through gh api with the endpoint last, so the scripted gh of fake mode answers it by
 // its endpoint.
@@ -64,7 +65,13 @@ interface Milestone {
   closed_issues: number
 }
 
-const has = (labels: string[], name: string) => labels.includes(name)
+// GitHub names labels case-insensitively: Factory is the label factory. key is the name the rules
+// compare, and canonical spells a label of the vocabulary as the vocabulary does.
+const key = (label: string) => label.toLowerCase()
+const has = (labels: string[], name: string) => labels.some((l) => key(l) === key(name))
+const canonical = (label: string) => vocabulary.find((v) => v.name === key(label))?.name ?? label
+// distinct drops the labels that name one already in the list, whatever their case.
+const distinct = (labels: string[]) => labels.filter((l, i) => labels.findIndex((x) => key(x) === key(l)) === i)
 
 // unavailable tells a failed call that GitHub lacks the feature here (404 or 422) from any other failure.
 const unavailable = (err: unknown) => /\b(404|422)\b|Not Found|Unprocessable/.test((err as Error).message)
@@ -111,6 +118,8 @@ function milestoneName(title: string): string {
 // GitHub is the repository the tools write, through gh.
 class GitHub {
   private known: Promise<Set<string>> | undefined
+  // creating holds the creation of each missing label in flight, so parallel calls create it once.
+  private readonly creating = new Map<string, Promise<void>>()
   constructor(
     private readonly gh: string,
     readonly repo: string,
@@ -186,17 +195,26 @@ class GitHub {
     )
     const known = await this.known
     for (const name of labels) {
-      if (known.has(name.toLowerCase())) continue
-      const v = vocabulary.find((l) => l.name === name)
+      if (known.has(key(name))) continue
+      const v = vocabulary.find((l) => l.name === key(name))
       if (!v) throw new Refused(`${name} is neither a label of the workflow's vocabulary nor one of ${this.repo}; use a label of the vocabulary (${vocabulary.map((l) => l.name).join(', ')}), or create ${name} on GitHub first`)
-      try {
-        await this.api(this.path('labels'), ['-f', `name=${v.name}`, '-f', `color=${v.color}`, '-f', `description=${v.description}`], 'POST')
-      } catch (err) {
-        throw new Refused(`could not create the label ${name} in ${this.repo}: ${(err as Error).message}`)
+      let made = this.creating.get(v.name)
+      if (!made) {
+        made = this.create(v, known).finally(() => this.creating.delete(v.name))
+        this.creating.set(v.name, made)
       }
-      known.add(name.toLowerCase())
-      this.log({ write: 'label-created', label: name })
+      await made
     }
+  }
+
+  private async create(v: Label, known: Set<string>) {
+    try {
+      await this.api(this.path('labels'), ['-f', `name=${v.name}`, '-f', `color=${v.color}`, '-f', `description=${v.description}`], 'POST')
+    } catch (err) {
+      throw new Refused(`could not create the label ${v.name} in ${this.repo}: ${(err as Error).message}`)
+    }
+    known.add(v.name)
+    this.log({ write: 'label-created', label: v.name })
   }
 }
 
@@ -209,9 +227,12 @@ type Done = string[]
 async function createIssue(g: GitHub, a: { title: string; body: string; labels?: string[]; parent?: number; milestone?: string }): Promise<Done> {
   const title = a.title.trim()
   if (title === '' || a.body.trim() === '') throw new Refused('create_issue needs a title and a body')
-  const labels = [...new Set(a.labels ?? [])]
+  const labels = distinct((a.labels ?? []).map(canonical))
   const milestone = a.milestone === undefined ? undefined : milestoneName(a.milestone)
-  await specRun('the new issue', `leave the label ${specRunLabel} off`, labels, () => Promise.resolve(a.parent), (n) => g.labelsOf(n))
+  // The parent is read before the issue exists: a parent that cannot be read refuses the call, so a
+  // failed link below is one of a parent that exists, and no ticket is left pointing at nothing.
+  const spec = a.parent === undefined ? undefined : await g.issue(a.parent)
+  await specRun('the new issue', `leave the label ${specRunLabel} off`, labels, () => Promise.resolve(a.parent), () => Promise.resolve((spec?.labels ?? []).map((l) => l.name)))
   routable('the new issue', `leave the label ${routingLabel} off`, labels)
   const m = milestone === undefined ? undefined : await g.openMilestone(milestone)
   await g.ensure(labels)
@@ -277,27 +298,29 @@ async function attachParent(g: GitHub, parent: number, milestone: string, number
 }
 
 // setLabels adds and removes labels of an issue. The rules hold over the set the issue ends up with, so
-// what it carries now is read first.
+// what it carries now is read first. That set replaces the issue's labels in one call, so the issue never
+// carries a set in between that the rules would refuse.
 async function setLabels(g: GitHub, a: { issue: number; add?: string[]; remove?: string[] }): Promise<Done> {
-  const add = [...new Set(a.add ?? [])]
-  const remove = [...new Set(a.remove ?? [])]
+  const add = distinct((a.add ?? []).map(canonical))
+  const remove = distinct((a.remove ?? []).map(canonical))
   if (add.length + remove.length === 0) throw new Refused('set_labels needs labels to add or to remove')
   const n = a.issue
   const current = await g.labelsOf(n)
-  const resulting = [...new Set([...add, ...current.filter((l) => !remove.includes(l))])]
-  const drop = (label: string, kind: string) => (add.includes(label) ? `leave ${label} out of add` : `take the ${kind} label off with remove ${label}`)
+  const added = add.filter((l) => !has(current, l))
+  const removed = current.filter((l) => has(remove, l) && !has(add, l))
+  const resulting = [...current.filter((l) => !removed.includes(l)), ...added]
+  const drop = (label: string, kind: string) => (has(add, label) ? `leave ${label} out of add` : `take the ${kind} label off with remove ${label}`)
   await specRun(`#${n}`, drop(specRunLabel, 'spec-run'), resulting, () => g.parent(n), (p) => g.labelsOf(p))
   routable(`#${n}`, drop(routingLabel, 'routing'), resulting)
-  await g.ensure(add)
-  const added = add.filter((l) => !current.includes(l))
-  const removed = remove.filter((l) => current.includes(l))
+  await g.ensure(added)
+  const changed = added.length + removed.length > 0
   try {
-    if (added.length > 0) await g.api(g.path(`issues/${n}/labels`), added.flatMap((l) => ['-f', `labels[]=${l}`]), 'POST')
-    for (const l of removed) await g.api(g.path(`issues/${n}/labels/${encodeURIComponent(l)}`), [], 'DELETE')
+    if (changed && resulting.length > 0) await g.api(g.path(`issues/${n}/labels`), resulting.flatMap((l) => ['-f', `labels[]=${l}`]), 'PUT')
+    else if (changed) await g.api(g.path(`issues/${n}/labels`), [], 'DELETE')
   } catch (err) {
     throw new Refused(`setting the labels of #${n} failed: ${(err as Error).message}`)
   }
-  if (added.length + removed.length > 0) g.log({ write: 'labels', issue: n, ...(added.length ? { added } : {}), ...(removed.length ? { removed } : {}) })
+  if (changed) g.log({ write: 'labels', issue: n, ...(added.length ? { added } : {}), ...(removed.length ? { removed } : {}) })
   return [`labels: #${n} ${resulting.length ? resulting.join(', ') : 'none'}`]
 }
 
@@ -340,7 +363,7 @@ async function close(g: GitHub, a: { issue: number; comment?: string; reason?: '
   const out: Done = []
   const issue = await g.issue(n)
   if (issue.state !== 'open') throw new Refused(`#${n} is ${issue.state}, not open`)
-  if (reason === 'completed' && issue.labels.some((l) => l.name === 'spec')) {
+  if (reason === 'completed' && has(issue.labels.map((l) => l.name), 'spec')) {
     if ((a.comment ?? '').trim() === '') throw new Refused(`closing the spec #${n} needs its closing comment; the closing comment records what the acceptance checked`)
     const hint = `pass the ticket numbers in tickets`
     const tickets = new Set(a.tickets ?? [])
@@ -395,6 +418,36 @@ async function createMilestone(g: GitHub, a: { title: string; description?: stri
   }
   g.log({ write: 'milestone-created', milestone: title, ...(a.description ? { description: a.description } : {}) })
   return [`milestone: ${title} (created)`]
+}
+
+// The gh commands a planner session reads with: gh issue view and gh pr list read, gh issue create writes.
+const readVerbs = new Set(['view', 'list', 'status', 'diff', 'checks', 'download', 'clone'])
+const writeGroups = new Set(['issue', 'pr', 'label', 'release', 'repo', 'project', 'gist', 'secret', 'variable', 'workflow', 'run', 'cache', 'ruleset'])
+
+// directWrite says why a Bash command writes GitHub past the tools, or undefined when it does not. It
+// reads every gh in the command: a subcommand of a group that writes and does not only read, and a gh
+// api call that sends a method other than GET or, without one, fields, which gh sends as a POST. A
+// graphql call writes when it carries a mutation.
+export function directWrite(command: string): string | undefined {
+  for (const segment of command.split(/&&|\|\||[;|&\n()`]|\$\(/)) {
+    const words = segment.trim().split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, ''))
+    const at = words.findIndex((w) => w === 'gh' || w.endsWith('/gh'))
+    if (at < 0) continue
+    const args = words.slice(at + 1)
+    // The repository flag takes a value, which is neither a group nor a verb.
+    const [group, verb] = args.filter((w, i) => !w.startsWith('-') && args[i - 1] !== '-R' && args[i - 1] !== '--repo')
+    if (group === undefined) continue
+    if (writeGroups.has(group) && verb !== undefined && !readVerbs.has(verb)) return `gh ${group} ${verb} writes GitHub`
+    if (group !== 'api') continue
+    const method = args.flatMap((w, i) => (w === '-X' || w === '--method' ? [args[i + 1] ?? ''] : /^(-X|--method=)(.+)$/.exec(w)?.slice(2, 3) ?? []))[0]
+    if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${method} writes GitHub`
+    if (args.includes('graphql')) {
+      if (/\bmutation\b/.test(segment)) return 'a graphql mutation writes GitHub'
+      continue
+    }
+    if (method === undefined && args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)|^-[fF]./.test(w))) return 'gh api with fields sends a POST, which writes GitHub'
+  }
+  return undefined
 }
 
 const issueNumber = z.number().int().positive()

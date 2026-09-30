@@ -147,11 +147,52 @@ test('labels are judged on the set the issue ends up with, and a ticket joins th
   canIssue(31, ['ready-for-agent', 'needs-triage'])
   canApi(m, 'repos/owner/repo/issues/31/parent', { number: 30 })
   canApi(m, 'repos/owner/repo/issues/31/labels', [])
-  canApi(m, 'repos/owner/repo/issues/31/labels/needs-triage', {})
   const events = await planner(tool('set_labels', { issue: 31, add: ['factory:spec-run'], remove: ['needs-triage', 'bug'] }))
   expect(refusals(events)).toEqual([])
-  expect(calls()).toEqual(['api --method POST -f labels[]=factory:spec-run repos/owner/repo/issues/31/labels', 'api --method DELETE repos/owner/repo/issues/31/labels/needs-triage'])
+  // The set the rules judged replaces the labels in one call, so no set in between is left on a failure.
+  expect(calls()).toEqual(['api --method PUT -f labels[]=ready-for-agent -f labels[]=factory:spec-run repos/owner/repo/issues/31/labels'])
   expect(writes(events)).toEqual([{ write: 'labels', issue: 31, added: ['factory:spec-run'], removed: ['needs-triage'] }])
+})
+
+test('labels are compared as GitHub names them, whatever their case', async () => {
+  canLabels(vocabulary.map((l) => l.name))
+  canIssue(31, ['ready-for-human'])
+  canIssue(19, ['Spec'])
+  canApi(m, 'repos/owner/repo/issues', { id: 5040, number: 40 })
+  const events = await planner(
+    tool('set_labels', { issue: 31, add: ['Factory', 'Ready-For-Agent'] }),
+    tool('close', { issue: 19 }),
+    tool('create_issue', { title: 'T', body: 'B', labels: ['Ready-For-Agent', 'FACTORY', 'factory'] }),
+  )
+  expect(refusals(events)).toEqual([
+    '#31 would carry factory and ready-for-human: the factory works unattended, so an issue a person has to implement is never routed to it. Drop one of the two labels; leave factory out of add.',
+    'closing the spec #19 needs its closing comment; the closing comment records what the acceptance checked',
+  ])
+  expect(calls()).toEqual(['api --method POST -f title=T -f body=B -f labels[]=ready-for-agent -f labels[]=factory repos/owner/repo/issues'])
+})
+
+test('a parent that cannot be read refuses the ticket before it is created', async () => {
+  canLabels(vocabulary.map((l) => l.name))
+  canApi(m, 'repos/owner/repo/issues', { id: 5040, number: 40 })
+  const events = await planner(tool('create_issue', { title: 'T', body: 'B', labels: ['ready-for-agent'], parent: 99 }))
+  expect(refusals(events)).toEqual([expect.stringMatching(/^could not read #99 of owner\/repo: /) as unknown])
+  expect(calls()).toEqual([])
+  expect(writes(events)).toEqual([])
+})
+
+test('a planner session cannot write GitHub with gh in Bash, and reads it', async () => {
+  const events = await planner(
+    'bash gh issue create --title T --body B',
+    'bash gh issue view 3 --comments && gh api -X PATCH repos/owner/repo/issues/3 -f state=closed',
+    'bash gh api repos/owner/repo/issues/3 -f title=T',
+    'bash gh issue view 3 --comments',
+    "bash gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title'",
+  )
+  expect(events.filter((e) => e.event === 'github-refused').map((e) => [e.tool, (e.reason as string).split(';')[0]])).toEqual([
+    ['Bash', 'gh issue create writes GitHub'],
+    ['Bash', 'gh api --method PATCH writes GitHub'],
+    ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
+  ])
 })
 
 test('a ticket of a spec run that cannot become a sub-issue loses the spec-run label and is refused', async () => {
