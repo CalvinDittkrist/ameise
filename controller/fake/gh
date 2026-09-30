@@ -37,8 +37,12 @@
 #                                          always hold)
 #     repos/<owner>/<name>/unreviewable    present: gh pr edit --add-reviewer fails for it, which holds
 #                                          otherwise
-#     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
-#                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
+#     api/<endpoint>                       the answer of gh api [--paginate] [--method <m>] [<field>]...
+#                                          <endpoint>, such as
+#                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100;
+#                                          an endpoint that is also the directory of longer ones, such as
+#                                          repos/<owner>/<name>/issues/30 beside issues/30/sub_issues, keeps
+#                                          its answer in the file @ of that directory
 #     repos/<owner>/<name>/runs/<id>.log   the failed log gh run view <id> --log-failed answers
 #     login                                the login gh api user answers; fake without it
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
@@ -217,6 +221,7 @@ case "$*" in
     endpoint=${!#}
     file="$canned/api/$endpoint"
     case "$endpoint" in *..*) file='' ;; esac
+    if [ -n "$file" ] && [ -d "$file" ]; then file="$file/@"; fi
     if [ -z "$canned" ] || [ -z "$file" ] || [ ! -f "$file" ]; then
       printf 'gh: Not Found (HTTP 404): %s\n' "$endpoint" >&2
       exit 1
