@@ -59,9 +59,10 @@ export function captureRequest(body: Record<string, unknown>): string {
 // The longest WF_PLANNER_LANGUAGE, in characters: a language name or a locale code, never a sentence.
 const languageMax = 32
 
-// plannerLanguage reads WF_PLANNER_LANGUAGE from the env block of the checkout's settings, the language
-// the planner session talks in, or undefined where it is not set or empty. The value enters the session's
-// system prompt verbatim, so it refuses one with a control, separator or format character, or one longer than a language name.
+// plannerLanguage reads WF_PLANNER_LANGUAGE from the env block of the checkout's settings.
+// It returns the language the planner talks in, or undefined when the setting is unset or empty.
+// The value enters the session's system prompt verbatim.
+// It refuses control, separator and format characters, and values longer than a language name.
 export function plannerLanguage(checkout: string): string | undefined {
   const value = settingOf({}, checkout, 'WF_PLANNER_LANGUAGE')
   if (value === undefined || value === '') return undefined
