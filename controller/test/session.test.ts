@@ -40,7 +40,7 @@ interface Record {
 }
 
 const claim = async (mode: 'manual' | 'yolo' = 'manual'): Promise<Record> => {
-  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode, env: ['WF_REVIEWERS=2'] })
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode, env: ['WF_REVIEWERS=code'] })
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   return (r.body as { record: Record }).record
 }
@@ -72,39 +72,47 @@ function started(): { args: string[]; read: string[] } {
   return { args: lines.filter((l) => !l.startsWith('< ')), read: lines.filter((l) => l.startsWith('< ')).map((l) => l.slice(2)) }
 }
 
-test('a claim starts a session in the worktree with the worker plugin and the session settings, and its complete report starts the gate, whose pass ends the process ready', async () => {
+test('a claim starts a session in the worktree with the worker plugin and the session settings, and its complete report starts the gate, whose pass starts the review', async () => {
   play(m, 'commit board.txt\ncomplete Implemented the board')
   const r = await claim()
   expect(r).toMatchObject({ state: 'running', stage: 'implement' })
   const done = await ended(r.id)
   const head = execFileSync('git', ['-C', r.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: `the gate passed at ${head.slice(0, 7)}` })
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1', panel: 'pass' })
   expect(done.session_id).toMatch(/^fake-session-/)
-  // The record carries each stage's attempt: the implement session with its commits, then the gate's run.
+  // The record carries each stage's attempt: the implement session with its commits, the gate's run, then
+  // the review's round.
   expect(done.history).toMatchObject([
     { stage: 'implement', kind: 'session', result: 'complete', session_id: done.session_id, commits: [expect.stringMatching(/^[0-9a-f]{7,} fix: write board\.txt$/)] },
     { stage: 'gate', kind: 'run', result: 'pass', commit: head, exit: 0 },
+    { stage: 'review', kind: 'round', result: 'pass', round: 1, verdicts: [{ reviewer: 'code', verdict: 'pass', findings: [] }] },
   ])
   expect(done.history?.every((h) => !Number.isNaN(Date.parse(h.at)))).toBe(true)
 
-  // The stream is in the event log, the session's id with it.
+  // The stream is in the event log, the session's id with it; a reviewer's stream is not.
   const log = events(r.id)
-  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end', 'gate-start', 'gate', 'gate-end'])
+  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end', 'gate-start', 'gate', 'gate-end', 'review-start', 'review', 'review-end'])
   expect(log.filter((e) => e.event === 'stream').map((e) => e.message?.type)).toEqual(['system', 'assistant', 'result'])
-  expect(log.at(-1)).toMatchObject({ state: 'ready', note: `the gate passed at ${head.slice(0, 7)}` })
+  expect(log.find((e) => e.event === 'gate-end')).toMatchObject({ state: 'pass', note: `the gate passed at ${head.slice(0, 7)}` })
+  expect(log.at(-1)).toMatchObject({ state: 'ready', note: 'the review passed in round 1' })
 
   const { args } = started()
   const flag = (name: string) => args[args.indexOf(name) + 1]
-  // The bundled copies of the build, the worker's and repo-standards', and no other.
+  // The bundled copies of the build, the worker's and repo-standards', and no other: for the implement
+  // session and for the reviewer, which runs as the worker's reviewer agent without the tools that write.
   const bundled = (name: string) => resolve(fileURLToPath(new URL(`../dist/plugins/${name}`, import.meta.url)))
-  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('worker'), bundled('repo-standards')])
+  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('worker'), bundled('repo-standards'), bundled('worker'), bundled('repo-standards')])
   expect(flag('--agent')).toBe('worker')
+  expect(args[args.lastIndexOf('--agent') + 1]).toBe('worker:code-reviewer')
+  expect(args[args.lastIndexOf('--disallowedTools') + 1]).toMatch(/Edit,Write/)
   expect(flag('--permission-mode')).toBe('auto')
+  // A reviewer runs in the default mode, where no classifier allows a write.
+  expect(args[args.lastIndexOf('--permission-mode') + 1]).toBe('default')
   expect(args).toContain('--setting-sources=user,project,local')
   const settings = JSON.parse(flag('--settings') ?? '{}') as { env: { [k: string]: string }; autoCompactWindow: number; statusLine?: unknown; enabledPlugins: { [k: string]: boolean } }
   // The bundled plugins are the only copies: every marketplace copy of the workflow's plugins is off.
   expect(settings.enabledPlugins).toEqual({ 'worker@ameise': false, 'planner@ameise': false, 'orchestrator@ameise': false, 'repo-standards@ameise': false })
-  expect(settings.env).toMatchObject({ WF_MODE: 'manual', WF_ISSUE: '144', WF_BASE_BRANCH: 'main', WF_REVIEWERS: '2', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' })
+  expect(settings.env).toMatchObject({ WF_MODE: 'manual', WF_ISSUE: '144', WF_BASE_BRANCH: 'main', WF_REVIEWERS: 'code', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' })
   expect(settings.autoCompactWindow).toBe(312500)
   // No status line: the worker's checkpoint answers unavailable and no handoff is attempted.
   expect(settings.statusLine).toBeUndefined()
@@ -115,7 +123,7 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(env.filter((name) => /^(WF_|HERDR_)/.test(name))).toEqual([])
   expect(env).toContain('HOME')
 
-  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'gate', note: `the gate passed at ${head.slice(0, 7)}`, needs: true, action: 'Merge' }])
+  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'review', note: 'the review passed in round 1', needs: true, action: 'Merge' }])
 })
 
 test('a yolo session runs with the mode yolo', async () => {

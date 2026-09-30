@@ -112,15 +112,44 @@ export interface CreatedRecord {
 }
 
 // The stages of a work process the controller drives, in their order.
-export const workStages = ['implement', 'gate'] as const
+export const workStages = ['implement', 'gate', 'review'] as const
 export type WorkStage = (typeof workStages)[number]
 
-// An attempt of a stage as the process record keeps it: a session of the stage, a merge of the base or a
-// run of the gate command, with its result and the time it ended.
+// A finding of a reviewer, with the id the controller gives it: <reviewer>-<round>-<n>, such as code-1-2.
+export interface Finding {
+  id: string
+  // severity is S1 (must fix), S2 (should fix) or S3 (a nit).
+  severity: 'S1' | 'S2' | 'S3'
+  // where is the file and line it is about, such as src/a.ts:12.
+  where: string
+  claim: string
+  fix: string
+}
+
+// The verdict of one reviewer in a round of the review, with its findings. A reviewer whose session did
+// not report has failed, and its note says why.
+export interface Verdict {
+  reviewer: string
+  verdict: 'pass' | 'fix' | 'failed'
+  session_id?: string
+  findings: Finding[]
+  note?: string
+}
+
+// What a fix session of the review did with one finding: fixed it, or declined it with the reason.
+export interface Fix {
+  finding: string
+  outcome: 'fixed' | 'declined'
+  note: string
+}
+
+// An attempt of a stage as the process record keeps it: a session of the stage, a merge of the base, a
+// run of the gate command or a round of the review, with its result and the time it ended.
 export interface Attempt {
   stage: WorkStage
-  kind: 'session' | 'merge' | 'run'
-  // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run.
+  kind: 'session' | 'merge' | 'run' | 'round'
+  // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
+  // and pass, fix or failed for a round.
   result: string
   at: string
   session_id?: string
@@ -135,6 +164,11 @@ export interface Attempt {
   exit?: number | null
   // tail is the end of the gate command's output.
   tail?: string
+  // round is the number of a round of the review, verdicts are its reviewers' verdicts.
+  round?: number
+  verdicts?: Verdict[]
+  // fixes are what a fix session of the review did with each finding.
+  fixes?: Fix[]
 }
 
 // A work process on an issue, as a claim writes it.
@@ -148,8 +182,12 @@ export interface WorkRecord extends CreatedRecord {
   // held says the implement session reported complete under a hold and waits for the maintainer's next
   // message, with no session running.
   held?: boolean
-  // fixing says the gate's work is a fix session, not the gate command, so a resume goes on with it.
+  // fixing says the work of the gate or the review is a fix session, not the gate command or the
+  // reviewers, so a resume goes on with it.
   fixing?: boolean
+  // panel is how the review ended: pass once every reviewer passed, failed once its rounds were spent
+  // with a reviewer that still says fix. The pull request names a failed panel.
+  panel?: 'pass' | 'failed'
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }

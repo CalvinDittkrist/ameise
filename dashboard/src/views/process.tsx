@@ -18,6 +18,7 @@ import {
   type Board,
   broken,
   type Entry,
+  type Fix,
   hold,
   openTerminal,
   type Process,
@@ -31,9 +32,9 @@ import {
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
-// The stages a process of each kind runs in the controller. A work process runs implement and the gate;
-// the later stages join as the controller drives them.
-const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
+// The stages a process of each kind runs in the controller. A work process runs implement, the gate and
+// the review; the later stages join as the controller drives them.
+const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate", "review"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
 // for the permissions and questions that wait for the maintainer, a chat that writes to the session and
@@ -244,7 +245,67 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
           )
         })}
       </ol>
+      <Rounds history={record.history ?? []} />
     </>
+  )
+}
+
+// Rounds are the rounds of the review: each reviewer's verdict with its findings, and what the fix
+// session after the round did with each finding.
+function Rounds({ history }: { history: Attempt[] }) {
+  const rounds = history.flatMap((a, i) => (a.stage === "review" && a.kind === "round" ? [{ a, i }] : []))
+  if (rounds.length === 0) return null
+  // The fixes of a round are those its fix sessions reported before the next round, the last one's first.
+  const fixesOf = (i: number): Map<string, Fix> => {
+    const out = new Map<string, Fix>()
+    for (const b of history.slice(i + 1)) {
+      if (b.stage === "review" && b.kind === "round") break
+      if (b.stage === "review" && b.kind === "session") for (const f of b.fixes ?? []) out.set(f.finding, f)
+    }
+    return out
+  }
+  return (
+    <ol aria-label="Review rounds" className="flex flex-col gap-2 text-sm">
+      {rounds.map(({ a, i }) => {
+        const fixes = fixesOf(i)
+        return (
+          <li key={i} aria-label={`Round ${a.round ?? ""}`} className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              round {a.round} · {a.result} · {age(a.at)}
+            </span>
+            <ul className="flex flex-col gap-1">
+              {(a.verdicts ?? []).map((v) => (
+                <li key={v.reviewer} aria-label={`Verdict of ${v.reviewer}`} className="flex flex-col gap-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <Badge variant={v.verdict === "pass" ? "outline" : "destructive"}>
+                      {v.reviewer} {v.verdict}
+                    </Badge>
+                    {v.note && <span className="text-xs text-destructive">{v.note}</span>}
+                  </span>
+                  {v.findings.length > 0 && (
+                    <ul aria-label={`Findings of ${v.reviewer}`} className="flex flex-col gap-0.5 pl-2 text-xs">
+                      {v.findings.map((f) => {
+                        const fix = fixes.get(f.id)
+                        return (
+                          <li key={f.id} title={f.fix}>
+                            <span className="font-mono">{f.id}</span> {f.severity} <span className="font-mono">{f.where}</span>: {f.claim}
+                            {fix && (
+                              <span className={cn("block pl-2 text-muted-foreground", fix.outcome === "declined" && "italic")}>
+                                {fix.outcome}: {fix.note}
+                              </span>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
@@ -260,6 +321,8 @@ function described(a: Attempt): string {
       return `merge conflict in ${(a.files ?? []).join(", ")}`
     case "run":
       return a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`
+    case "round":
+      return `round ${a.round ?? ""} ${a.result}`
     default:
       return `session ${a.result}${a.commits?.length ? `, ${a.commits.length} commit${a.commits.length === 1 ? "" : "s"}` : ""}`
   }

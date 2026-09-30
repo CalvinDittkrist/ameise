@@ -182,11 +182,20 @@ export type Entry = { seq: number } & (
   | { kind: "end"; state: string; note: string }
 )
 
-// An attempt of a stage as the record keeps it: a session of the stage, a merge of the base or a run of
-// the gate command, with its result and the time it ended.
+// A finding of a reviewer, by the id the controller gives it, such as code-1-2.
+export type Finding = { id: string; severity: "S1" | "S2" | "S3"; where: string; claim: string; fix: string }
+
+// The verdict of one reviewer in a round of the review, with its findings.
+export type Verdict = { reviewer: string; verdict: "pass" | "fix" | "failed"; session_id?: string; findings: Finding[]; note?: string }
+
+// What a fix session of the review did with one finding.
+export type Fix = { finding: string; outcome: "fixed" | "declined"; note: string }
+
+// An attempt of a stage as the record keeps it: a session of the stage, a merge of the base, a run of
+// the gate command or a round of the review, with its result and the time it ended.
 export type Attempt = {
   stage: string
-  kind: "session" | "merge" | "run"
+  kind: "session" | "merge" | "run" | "round"
   result: string
   at: string
   session_id?: string
@@ -197,6 +206,9 @@ export type Attempt = {
   files?: string[]
   exit?: number | null
   tail?: string
+  round?: number
+  verdicts?: Verdict[]
+  fixes?: Fix[]
 }
 
 // A process record as the controller keeps it, with the context size at which its session compacts.
@@ -221,6 +233,8 @@ export type ProcessRecord = {
   // hold and history are a work process's: whether its next complete stays open, and its stages' attempts.
   hold?: boolean
   history?: Attempt[]
+  // panel is how the review ended: pass, or failed with its rounds spent.
+  panel?: "pass" | "failed"
   updated_at: string
 }
 
