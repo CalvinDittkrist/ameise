@@ -162,7 +162,10 @@ A merge that conflicts is aborted, and a gate command that fails or runs past it
 
 Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`.
 
-The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason. A message to a process whose gate command runs is refused with `409`. A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again. A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
+The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason.
+- A message to a process whose gate command runs is refused with `409`.
+- A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again.
+- A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
