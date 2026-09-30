@@ -233,7 +233,8 @@ The record's `wait` says what it waits for, and `checks` holds the checks it rea
   - Its brief names the conflict or the failed checks. It commits and pushes nothing.
   - On `complete` the controller pushes and waits again. On `blocked` the answer resumes it.
 - `WF_CI_REPAIR_ROUNDS` (3) is the repair budget: the fix sessions since the pull request was opened or found. A failure with it spent ends the process `failed`.
-- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state. A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
+- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state.
+  - A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
 - A pull request merged meanwhile turns the process `blocked`, for the maintainer to abandon it. A closed one ends it `failed`.
 
 Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
