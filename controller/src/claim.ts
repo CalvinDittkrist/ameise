@@ -8,6 +8,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { run } from './exec.js'
 import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
+import { gateForm, settingOf } from './gate.js'
 import { type Project, Refusal } from './project.js'
 import { type Announce, event, forget, stop, update } from './session.js'
 
@@ -24,6 +25,7 @@ export const knobs = [
   'WF_HANDOFF_SESSION_MS',
   'WF_HANDOFF_POLL_SECONDS',
   'WF_DOCS_TIMEOUT',
+  'WF_GATE',
   'WF_GATE_ROUNDS',
   'WF_GATE_TIMEOUT',
   'WF_STAGE_TIMEOUT',
@@ -164,10 +166,12 @@ export interface Attempt {
   stage: WorkStage
   kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait'
   // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
-  // pass, fix or failed for a round, opened or found for the opening of the pull request, and green,
-  // conflicts, checks-failed, review-comments or closed for a wait.
+  // skipped for a run of the gate form none, pass, fix or failed for a round, opened or found for the
+  // opening of the pull request, and green, conflicts, checks-failed, review-comments or closed for a wait.
   result: string
   at: string
+  // gate is the gate form a run ran: the command, or none.
+  gate?: string
   session_id?: string
   // commits are those a session reported, each a short hash and a subject.
   commits?: string[]
@@ -383,7 +387,13 @@ export async function held<T>(project: Project, key: string, f: () => Promise<T>
 // already, whatever force says. Force lifts the refusals of an issue that is not agent-ready, routed to
 // the factory, held in a spec run or claimed on origin; each of those it lifts is a warning.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
-export function claim(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
+export async function claim(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
+  // A gate form the gate would refuse is refused here, before anything is created.
+  try {
+    gateForm(settingOf(req.env, project.path, 'WF_GATE'))
+  } catch (err) {
+    throw new Refusal((err as Error).message)
+  }
   return held(project, `#${req.issue}`, () => claimHeld(project, stateDir, gh, fake, req))
 }
 

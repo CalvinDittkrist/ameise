@@ -246,15 +246,17 @@ test("a process page shows the rounds of the review with each reviewer's verdict
     stage: "review", state: "ready", note: "the review passed in round 2", panel: "pass", updated_at: at,
     history: [
       { stage: "implement", kind: "session", result: "complete", at, commits: ["a1b2c3d fix: log the drift"] },
-      { stage: "gate", kind: "run", result: "pass", at, commit: "a1b2c3d4" },
+      { stage: "gate", kind: "run", result: "pass", at, commit: "a1b2c3d4", gate: "make check" },
       { stage: "review", kind: "round", result: "fix", at, round: 1, verdicts: [{ reviewer: "code", verdict: "fix", findings: [finding] }, { reviewer: "docs", verdict: "pass", findings: [] }] },
       { stage: "review", kind: "session", result: "complete", at, commits: ["e5f6a7b fix: clamp the drift first"], fixes: [{ finding: "code-1-1", outcome: "fixed", note: "Clamped before the log." }] },
-      { stage: "gate", kind: "run", result: "pass", at, commit: "e5f6a7b8" },
+      { stage: "gate", kind: "run", result: "skipped", at, commit: "e5f6a7b8", gate: "none" },
       { stage: "review", kind: "round", result: "pass", at, round: 2, verdicts: [{ reviewer: "code", verdict: "pass", findings: [] }] },
     ],
   }))
   try {
     await page.goto(url("/#process=p131"))
+    // Each run of the gate names the gate form that ran.
+    await expect(main(page).getByRole("list", { name: "Records of gate" }).getByRole("listitem")).toContainText(["make check pass at a1b2c3d", "none: no gate ran"])
     await expect(main(page).getByRole("list", { name: "Records of review" }).getByRole("listitem")).toContainText(["round 1 fix", "session complete, 1 commit", "round 2 pass"])
     const rounds = main(page).getByRole("list", { name: "Review rounds" })
     await expect(rounds.getByRole("listitem", { name: /^Round \d$/ })).toHaveCount(2)

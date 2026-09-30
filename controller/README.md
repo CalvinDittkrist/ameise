@@ -105,7 +105,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
@@ -157,8 +157,17 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
 1. It fetches the base, outside fake mode, and merges it into the branch.
-2. It runs the gate command `make check` in the worktree, in a process group of its own, within `WF_GATE_TIMEOUT` seconds (2700).
+2. It runs the gate command in the worktree, in a process group of its own, within `WF_GATE_TIMEOUT` seconds (2700).
 3. A pass starts the [review stage](#review-stage).
+
+`WF_GATE` names the gate form, in one of four forms:
+- unset: the gate command `make check`.
+- a command, such as `make check` or `npm test`: an argument list split on whitespace and run without a shell.
+  - A command with shell syntax, such as a pipe or a quote, is refused.
+- `none`: no gate runs. The process goes from implement, and from every fix session of the review, straight to the review, with no merge of the base.
+- `ci` or `ci:<jobs>`, such as `ci:check,browser`: the gate on CI, which is refused for now because it is not built yet.
+
+Anything else is refused with the forms: at the claim before anything is created, and at the gate, which ends the process `failed`.
 
 A merge that conflicts is aborted, and a gate command that fails or runs past its timeout counts as a failure. Either starts a fix session of the gate:
 - a fresh headless session, not a resume, without the worker's agent, with the conflicted files or the exit and the last 20 lines of the output in its brief,
@@ -168,9 +177,12 @@ A merge that conflicts is aborted, and a gate command that fails or runs past it
 
 `WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the last session of another stage, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
 
-Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", commit, dirty, exit, tail, at}`. The event log carries `gate-start`, a `gate` event per attempt and `gate-end`, whose state is `pass` or `failed`.
+Each merge that conflicts and each run is an attempt in `history`: `{stage: "gate", kind: "merge", result: "conflict", files, commit, at}` or `{stage: "gate", kind: "run", result: "pass"|"fail", gate, commit, dirty, exit, tail, at}`, whose `gate` is the command that ran.
+The form `none` leaves `{stage: "gate", kind: "run", result: "skipped", gate: "none", commit, at}`. The process page names the form of each run.
 
-The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number ends the process `failed` with the reason.
+The event log carries `gate-start`, a `gate` event per attempt and `gate-end`, whose state is `pass`, `skipped` or `failed`.
+
+The knobs are read from the claim's overrides, then the env block of the checkout's `.claude/settings.json`, then the defaults. A value that is no whole number, and a `WF_GATE` that is no gate form, end the process `failed` with the reason.
 - A message to a process whose gate command runs is refused with `409`.
 - A stop while the gate command runs ends it and marks the process `interrupted`, and a resume runs the gate again.
 - A stop while a fix session runs marks it `interrupted` the same way, and a resume goes on with that session.
@@ -320,10 +332,17 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 
 The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
+`WF_PLANNER_LANGUAGE` names the language the planner talks in, such as `german`. The [planner's readme](../plugins/planner/README.md#configuration) documents it.
+- The controller reads it from the env block of the checkout's `.claude/settings.json`, and the plan records the value when it opens.
+- What the planner writes into issues stays English, and work sessions do not read it.
+- A value that is not text, is longer than 32 characters or holds a control or format character is refused with `400`.
+  - The refusal names the reason and comes before the plan branch is created.
+
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
 - session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
   - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+  - and the runtime's `language` setting from `WF_PLANNER_LANGUAGE`, when the repository sets it,
 - a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
   - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
   - It carries no text of the issue.

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { type Attempt, git, type Pull, push, type WorkRecord } from './claim.js'
 import { botsOf, ci } from './ci.js'
 import { run } from './exec.js'
-import { gateCommand } from './gate.js'
+import { defaultGate } from './gate.js'
 import type { Project } from './project.js'
 import { attempt, author, authorBrief, event, type Runtime, type Running, track, update } from './session.js'
 
@@ -150,8 +150,9 @@ export function verification(record: WorkRecord, head: string): string {
   const short = (c: string | undefined) => (c ?? '').slice(0, 7)
   const lines = ['## Verification', '']
   const gated = [...history].reverse().find((h) => h.stage === 'gate' && h.kind === 'run')
-  const command = gateCommand.join(' ')
+  const command = gated?.gate ?? defaultGate
   if (!gated) lines.push(`No gate result was recorded for this branch.`)
+  else if (gated.result === 'skipped') lines.push(`The gate form is none, so no gate ran at ${short(gated.commit)}.`)
   else lines.push(`The gate \`${command}\` ${gated.result === 'pass' ? 'passed' : `failed with exit ${gated.exit ?? 'none'}`} at ${short(gated.commit)}${gated.dirty ? ', with changes not committed' : ''}.`)
 
   const since = history.map((h) => h.stage === 'implement').lastIndexOf(true)

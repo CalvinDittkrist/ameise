@@ -49,7 +49,7 @@ That is surface reduction, not containment:
 - The pinned script keeps the untrusted-text context away from the open web, and gives the pipeline one auditable command instead of a free fetch tool.
 - The lookup agent holds `Bash`, like every reviewer and auditor. Its read-only, one-origin behaviour rests on its prompt plus the permission layer, not on its tool list ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
 
-`WF_PLANNER_LANGUAGE` is copied verbatim into the planner session's system prompt by Claude Code's `language` setting. It is operator configuration, as trusted as the rest of `WF_*`. `plan.sh` still refuses a value with a control character or longer than a language name, so a pasted instruction cannot enter through it.
+`WF_PLANNER_LANGUAGE` is copied verbatim into the planner session's system prompt by Claude Code's `language` setting. It is operator configuration, as trusted as the rest of `WF_*`. The controller still refuses a plan whose value has a control character or is longer than a language name, so a pasted instruction cannot enter through it.
 
 ## The factory
 The factory has no login of its own. It reads GitHub through the host's `gh`, so it sees what that host's token can see. It writes nothing there while it is paused, and a test asserts that every call it makes is a read ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)).

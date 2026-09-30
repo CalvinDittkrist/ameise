@@ -8,7 +8,8 @@ Terms the code, the issues and the docs use, one row each.
 | standard | The written baseline a repository is checked against: [repo-standard.md](repo-standard.md). |
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |
-| gate | The command that must pass before a pull request: the gate command of the change class that applies ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI. |
+| gate | The command that must pass before a pull request: the gate command of the applying change class ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI, as the factory's gate command or `WF_GATE` sets. |
+| `WF_GATE` | The local workflow's gate form, the peer of the factory's gate command: unset for `make check`, a command run without a shell, `none`, or `ci` and `ci:<jobs>`, refused until built. |
 | auditor | A read-only subagent that judges one area of a repository during standardisation and returns findings. |
 | facts | The compact `key: value` block `facts.sh` prints about a repository; every auditor gets it instead of exploring. |
 | finding | One proposed action of an auditor, one line: `finding: <category> \| <target> \| <action> \| <reason> \| <confidence>`. Actions are delete, replace, create, issue and configure ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)). |
@@ -86,7 +87,7 @@ Terms the code, the issues and the docs use, one row each.
 | project | A checkout of a connected repository on this machine, configured in the controller by its path alone. Owner, name, base branch and profile are derived on read ([ADR 0061](adr/0061-projects-are-the-machines-checkouts.md)). |
 | board | The controller's central view: every project, its processes, the frontier and the specs ready for acceptance. |
 | controller tool | A tool the controller registers in a session for one GitHub write, such as create issue or set labels. It owns the label vocabulary ([ADR 0059](adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)). |
-| contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share (the branch contract, the base branch rule, the frontier rule, the label vocabulary), as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |
+| contract fixture | `contract/fixture.json`: the rules the local workflow and the factory share (the branch contract, the base branch rule, the gate's draft, the frontier rule, the label vocabulary), as inputs with expected outputs, which both sides' tests read ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |
 | local dashboard | The page the controller serves, beside the factory's dashboard. |
 | orchestrator | Retired as a plugin ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the agent in a Herdr pane that claimed issues and opened planning sessions. The controller replaces it. |
 | test hunt | One run of `/orchestrator:hunt-tests`: a worker on a branch of its own that removes tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). |
