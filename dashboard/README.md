@@ -23,6 +23,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - A record is a session's end with its commits, a merge that conflicted or a run of the gate. A failed one is red, and hovering shows the output's end.
   - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
   - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
+  - The session's text, the maintainer's messages and the text of a question render as markdown with GitHub's extensions. Raw HTML reads as text.
+  - A link opens in a new tab for http and https alone; any other scheme reads as text. The lines between turns and the note stay plain.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
   - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
   - Open in terminal resumes the session in a terminal window of this machine.
@@ -67,3 +69,5 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   `docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work/dashboard mcr.microsoft.com/playwright:v<version>-noble npx playwright test`.
 - `<version>` is the Playwright version in the lockfile.
 - A shadcn component is copied into `src/components/ui`, with its `cn` import pointed at `@/lib/utils`.
+- shadcn's typeset stylesheet is copied unchanged into `src/typeset.css` and imported after Tailwind in `src/index.css`, which defines the chat's preset `typeset-chat`.
+  - To update it, copy `https://ui.shadcn.com/typeset.css` over the file again and approve the process page's screenshots anew.
