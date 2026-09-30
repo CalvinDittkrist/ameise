@@ -8,9 +8,9 @@ import { type ChildProcess, spawn } from 'node:child_process'
 // them: Claude, which a work process spends, then Codex.
 export const runtimes = ['claude', 'codex']
 
-// claimed is the runtime a claim warns of. Every stage session of a work process runs on Claude Code, so
-// a work process spends Claude alone.
-const claimed = 'claude'
+// claimRuntime is the runtime a claim reads and warns of. Every stage session of a work process runs on
+// Claude Code, so a work process spends Claude alone.
+export const claimRuntime = 'claude'
 
 // schema is the version of quota-axi's JSON report this reading is written against, the factory's own.
 const schema = 5
@@ -126,17 +126,17 @@ function readOne(command: string, runtime: string, minimum: number): Promise<Rea
   })
 }
 
-// readQuota reads every runtime with the configured command, all of them at once. An empty command is
-// the quota check switched off, which reads nothing.
-export async function readQuota(command: string, minimum: number): Promise<Quota> {
+// readQuota reads the runtimes named, every runtime unless told otherwise, with the configured command,
+// all of them at once. An empty command is the quota check switched off, which reads nothing.
+export async function readQuota(command: string, minimum: number, read: string[] = runtimes): Promise<Quota> {
   if (command === '') return { minimum, off: true, runtimes: [] }
-  return { minimum, runtimes: await Promise.all(runtimes.map((r) => readOne(command, r, minimum))) }
+  return { minimum, runtimes: await Promise.all(read.map((r) => readOne(command, r, minimum))) }
 }
 
 // warnings are what a claim says of a quota below the minimum: a line when Claude is below it. A runtime
 // the work process does not spend warns no claim, however low it is.
 export function warnings(q: Quota): string[] {
   return q.runtimes
-    .filter((r): r is Extract<Reading, { known: true }> => r.runtime === claimed && r.known && r.below)
+    .filter((r): r is Extract<Reading, { known: true }> => r.runtime === claimRuntime && r.known && r.below)
     .map((r) => `${r.runtime} has ${Math.round(r.remaining)}% of its quota left, below the minimum of ${q.minimum}%${r.reset ? `; it resets at ${r.reset}` : ''}`)
 }

@@ -62,8 +62,10 @@ test.each([
   [
     'a quota_axi with whitespace',
     '{"quota_axi": "npx quota-axi"}',
-    /quota_axi "npx quota-axi" has whitespace in it; install quota-axi globally with npm \(npm install -g quota-axi\) and name the absolute path that command -v quota-axi prints; npx does not work/,
+    /quota_axi "npx quota-axi" is not the absolute path of one program; install quota-axi globally with npm \(npm install -g quota-axi\) and name the absolute path that command -v quota-axi prints; npx does not work/,
   ],
+  ['a quota_axi by its bare name', '{"quota_axi": "quota-axi"}', /quota_axi "quota-axi" is not the absolute path of one program; .*command -v quota-axi/],
+  ['a quota_axi by a relative path', '{"quota_axi": "./bin/quota-axi"}', /quota_axi "\.\/bin\/quota-axi" is not the absolute path of one program; .*command -v quota-axi/],
   ['a quota minimum that is no percentage', '{"quota_minimum": 120}', /quota_minimum 120 is not a percentage; write it as a whole number/],
   ['a notifier that is no command name', '{"notifier": false}', /notifier is not a string; name the command a notification is sent through/],
   ['a project named twice', '{"projects": ["/src/repo", "/src/repo"]}', /projects names \/src\/repo twice; keep one of them/],

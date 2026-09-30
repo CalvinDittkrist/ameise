@@ -113,14 +113,14 @@ test('a quota_axi with whitespace written while the server runs is refused with 
   const r = await api(m, 'GET', '/api/projects')
   expect(r.status).toBe(500)
   const error = (r.body as { error: string }).error
-  expect(error).toContain('quota_axi "npx quota-axi" has whitespace in it')
+  expect(error).toContain('quota_axi "npx quota-axi" is not the absolute path of one program')
   expect(error).toContain('npm install -g quota-axi')
   expect(error).toContain('the absolute path that command -v quota-axi prints')
   expect(error).toContain('npx does not work')
 
   const q = (await quota()) as { runtimes: { known: boolean; reason: string }[] }
   expect(q.runtimes).toHaveLength(2)
-  for (const r of q.runtimes) expect(r).toMatchObject({ known: false, reason: expect.stringContaining('has whitespace in it') })
+  for (const r of q.runtimes) expect(r).toMatchObject({ known: false, reason: expect.stringContaining('is not the absolute path of one program') })
 })
 
 test('a claim with Claude below the minimum goes through at once and says so, and the CLI prints it as a warning', async () => {
@@ -136,6 +136,20 @@ test('a claim with Claude below the minimum goes through at once and says so, an
   const c = cli(m, ['claim', '145', '--project', dir])
   expect(c.code, c.stderr).toBe(0)
   expect(c.stderr).toBe('warning: claude has 8% of its quota left, below the minimum of 12%; it resets at 2026-09-28T14:30:00.000Z\n')
+})
+
+test('a claim reads Claude alone, so a Codex reading that hangs takes the warning of Claude away from no claim', async () => {
+  const report = quotaAxi(8, 70)
+  script(join(m.root, 'codex-hangs'), `if [ "$2" = codex ]; then exec /bin/sleep 25; fi\nexec '${report}' "$@"`)
+  configure({ quota_axi: join(m.root, 'codex-hangs') })
+  const began = Date.now()
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  expect(Date.now() - began).toBeLessThan(10000)
+  expect((r.body as { quota: string[] }).quota).toEqual([
+    'claude has 8% of its quota left, below the minimum of 12%; it resets at 2026-09-28T14:30:00.000Z',
+  ])
+  expect(read(join(m.root, 'quota.log'))).toBe('--provider claude --json\n')
 })
 
 test('a claim with Codex alone below the minimum warns of nothing, on the API and on the CLI', async () => {

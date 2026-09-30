@@ -78,11 +78,11 @@ function validate(path: string, parsed: unknown): Config {
   }
   if ('quota_axi' in c) {
     if (typeof c.quota_axi !== 'string') throw bad('quota_axi is not a string; name the quota-axi command, or "" to switch the quota check off')
-    // The command is run by its name alone, without a shell, so one with arguments such as "npx
-    // quota-axi" names no program.
-    if (/\s/.test(c.quota_axi)) {
+    // The command is run as one program without a shell, by the path of the pinned install: one with
+    // arguments such as "npx quota-axi" names no program, and a bare or relative name could find another.
+    if (c.quota_axi !== '' && (/\s/.test(c.quota_axi) || !isAbsolute(c.quota_axi))) {
       throw bad(
-        `quota_axi ${JSON.stringify(c.quota_axi)} has whitespace in it; install quota-axi globally with npm (npm install -g quota-axi) and name the absolute path that command -v quota-axi prints; npx does not work`,
+        `quota_axi ${JSON.stringify(c.quota_axi)} is not the absolute path of one program; install quota-axi globally with npm (npm install -g quota-axi) and name the absolute path that command -v quota-axi prints; npx does not work`,
       )
     }
     config.quota_axi = c.quota_axi
