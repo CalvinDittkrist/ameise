@@ -258,6 +258,7 @@ function interruptedNote(record: WorkRecord): string {
   if (record.worktree && !existsSync(record.worktree)) return `the controller stopped while ${what} ran, and its worktree ${record.worktree} is gone; abandon it`
   if (record.stage !== 'implement' && record.fixing && record.session_id) return `the controller stopped while the fix session of ${what} ran; resume it to go on`
   if (record.stage === 'gate') return 'the controller stopped while its gate ran; resume it to run the gate again'
+  if (record.stage === 'review' && record.fixing) return 'the controller stopped before the fix session of its review started; resume it to start the session'
   if (record.stage === 'review') return 'the controller stopped while its reviewers ran; resume it to run the round again'
   if (!record.session_id) return 'the controller stopped before its implement session started; resume it to start the session'
   return 'the controller stopped while its implement session ran; resume it to go on'
@@ -727,7 +728,10 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   if (!now) throw new Refusal(`${id} is not a process of this machine`, 404)
   if (!now.session_id) throw new Refusal('the process has no session to write to yet; wait until its session has started', 409)
   event(rt.stateDir, id, { event: 'message', text })
-  begin(now, p, rt, text)
+  // A follow-up to a ready work process is new work on it: its session goes on as the implement session,
+  // whose complete runs the gate and a review with every reviewer again.
+  const next = now.kind === 'work' && now.state === 'ready' && now.stage !== 'implement' ? (update(rt.stateDir, id, { stage: 'implement', fixing: false, panel: undefined } as Partial<CreatedRecord>) ?? now) : now
+  begin(next, p, rt, text)
   return 'resumed'
 }
 
@@ -862,7 +866,10 @@ export async function panel(record: WorkRecord, rt: Runtime, s: Running, own: ()
     reviewers.map(async (r) => {
       const abort = new AbortController()
       const all = () => abort.abort()
-      s.abort.signal.addEventListener('abort', all, { once: true })
+      // A parent stopped already ends the reviewer at once; the forwarding stays until its runtime exits.
+      if (s.abort.signal.aborted) abort.abort()
+      else s.abort.signal.addEventListener('abort', all, { once: true })
+      let exited: Promise<void> = Promise.resolve()
       const input = new Input()
       input.push(r.brief)
       const run: Run = {
@@ -878,12 +885,18 @@ export async function panel(record: WorkRecord, rt: Runtime, s: Running, own: ()
         read: (out, sessionId) => verdictOf(out, sessionId, r.name),
       }
       try {
-        return { reviewer: r.name, ended: await session(record, rt, s, own, (p) => exits.push(p), run) }
+        return {
+          reviewer: r.name,
+          ended: await session(record, rt, s, own, (p) => {
+            exited = p
+            exits.push(p)
+          }, run),
+        }
       } catch (err) {
         return { reviewer: r.name, ended: { state: 'failed' as const, note: `the reviewer ${r.name} failed: ${(err as Error).message}` } }
       } finally {
         input.close()
-        s.abort.signal.removeEventListener('abort', all)
+        void exited.finally(() => s.abort.signal.removeEventListener('abort', all))
       }
     }),
   )

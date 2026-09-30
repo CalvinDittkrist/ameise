@@ -32,7 +32,7 @@ export function reviewersOf(record: WorkRecord): string[] {
   if (value === undefined || value === '') return defaultReviewers
   if (typeof value !== 'string') throw new Error(`WF_REVIEWERS=${String(value)} is not a list of reviewers; set it as such, such as code,security, or leave it out for ${defaultReviewers.join(',')}`)
   const names = [...new Set(value.split(',').map((n) => n.trim()).filter((n) => n !== ''))]
-  const unknown = names.find((n) => !(n in reviewerAgents))
+  const unknown = names.find((n) => !Object.hasOwn(reviewerAgents, n))
   if (unknown !== undefined) throw new Error(`WF_REVIEWERS names ${unknown}, which is no reviewer; the reviewers are ${Object.keys(reviewerAgents).join(', ')}`)
   return names.length > 0 ? names : defaultReviewers
 }
@@ -96,6 +96,8 @@ async function round(record: WorkRecord, project: Project, rt: Runtime, s: Runni
   event(rt.stateDir, id, { event: 'review-start', stage: 'review', round: n, reviewers: due })
   const gated = [...history].reverse().find((h) => h.stage === 'gate' && h.kind === 'run')
   const commit = await git(record.worktree, 'rev-parse', 'HEAD')
+  // A stop while git ran has taken the process over; no reviewer starts after it.
+  if (!own() || s.abort.signal.aborted) return
   const brief = reviewBrief(record, repo, gated)
   const ends = await panel(record, rt, s, own, due.map((name) => ({ name, agent: reviewerAgents[name] as string, brief })))
   if (!own()) return
@@ -122,4 +124,13 @@ async function round(record: WorkRecord, project: Project, rt: Runtime, s: Runni
   const next = attempt(rt.stateDir, id, a, { session_id: undefined, fixing: true, note: `review round ${n}: ${who} at fix; a fix session takes ${findings.length} finding(s)` })
   if (!next || !own()) return
   begin(next, project, rt, reviewFixBrief(next, repo, n, findings))
+}
+
+// resumeFix starts the fix session of the review afresh for a process the controller stopped before that
+// session reported its id: with every finding of the last round, as the round had started it.
+export function resumeFix(record: WorkRecord, project: Project, rt: Runtime): WorkRecord {
+  const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
+  if (!last || last.result !== 'fix') return review(record, project, rt)
+  const findings = (last.verdicts ?? []).flatMap((v) => v.findings)
+  return begin(record, project, rt, reviewFixBrief(record, `${project.owner}/${project.name}`, last.round ?? 1, findings)) as WorkRecord
 }

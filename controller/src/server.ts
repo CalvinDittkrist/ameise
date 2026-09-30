@@ -15,7 +15,7 @@ import { type Announce, answer, begin, hold, compactAt, eventsFile, processId, r
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { open } from './terminal.js'
 import { gate } from './gate.js'
-import { review } from './review.js'
+import { resumeFix, review } from './review.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -152,7 +152,8 @@ export function serve(o: Options): Server {
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
   // gate again, one interrupted while its reviewers ran runs the round again, and one interrupted in a
-  // fix session of its gate or its review goes on with that session.
+  // fix session of its gate or its review goes on with that session. A fix session of the review that
+  // had no id yet starts afresh with the findings of its round.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue } = abandonRequest(body)
@@ -160,8 +161,15 @@ export function serve(o: Options): Server {
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = await resumable(project, o.stateDir, issue)
     const fix = interrupted.fixing === true && interrupted.session_id !== undefined
+    // A fix session of the review that never reported its id starts afresh with the round's findings.
     const record =
-      interrupted.stage === 'gate' && !fix ? gate(interrupted, project, rt) : interrupted.stage === 'review' && !fix ? review(interrupted, project, rt) : begin(interrupted, project, rt)
+      interrupted.stage === 'gate' && !fix
+        ? gate(interrupted, project, rt)
+        : interrupted.stage === 'review' && interrupted.fixing === true && !fix
+          ? resumeFix(interrupted, project, rt)
+          : interrupted.stage === 'review' && !fix
+            ? review(interrupted, project, rt)
+            : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

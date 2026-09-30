@@ -257,3 +257,42 @@ test('a stop while the fix session of the review runs marks it interrupted, and 
   expect(done.history?.[3]).toMatchObject({ session_id: fixing.session_id, fixes: [{ finding: 'code-1-1', outcome: 'fixed' }] })
   expect(existsSync(join(done.worktree, 'board.txt'))).toBe(true)
 })
+
+test('a stop before the fix session of the review reports its id resumes a fresh fix session with the findings of its round', async () => {
+  playReviewer('code', 'finding S2 src/a.ts:1 Off by one\nverdict fix')
+  playFix('say Looking into it')
+  const r = await claim(['WF_REVIEWERS=code'])
+  await until(r.id, (x) => x.stage === 'review' && x.state === 'running' && (x.history ?? []).length === 3 && !!x.session_id)
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  // The stop came before the fix session reported its id, as the record then holds none.
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  const stopped = recordOf(r.id) as Record & { fixing?: boolean }
+  delete stopped.session_id
+  expect(stopped.fixing).toBe(true)
+  writeFileSync(file, JSON.stringify(stopped))
+
+  server = await up()
+  expect(recordOf(r.id)).toMatchObject({ state: 'interrupted', stage: 'review' })
+  playFix('fixed code-1-1 Done\ncomplete Fixed it')
+  playReviewer('code', 'verdict pass')
+  expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
+  const done = await until(r.id, (x) => x.state !== 'running' && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass', note: 'the review passed in round 2' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round fix', 'review session complete', 'gate run pass', 'review round pass'])
+  expect(done.history?.[3]).toMatchObject({ fixes: [{ finding: 'code-1-1', outcome: 'fixed' }] })
+})
+
+test('a message to a ready process goes on as the implement session, and every reviewer reviews its work again', async () => {
+  const r = await claim(['WF_REVIEWERS=code,docs'])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'review', panel: 'pass' })
+  writeFileSync(join(m.claude, 'resume'), 'commit more.txt\ncomplete Added more\n')
+  playReviewer('code', 'verdict pass')
+  expect((await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'add more' })).status).toBe(200)
+  const done = await until(r.id, (x) => x.state === 'ready' && rounds(x).length === 2)
+  expect(done).toMatchObject({ stage: 'review', panel: 'pass', note: 'the review passed in round 1' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'implement session complete', 'gate run pass', 'review round pass'])
+  expect(rounds(done)[1]).toMatchObject({ round: 1, commit: head(done) })
+  expect(verdicts(rounds(done)[1])).toEqual({ code: 'pass', docs: 'pass' })
+})
