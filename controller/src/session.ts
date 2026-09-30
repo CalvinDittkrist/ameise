@@ -840,9 +840,13 @@ export function begin(record: SessionRecord, project: Project, rt: Runtime, mess
         // session of the ci stage goes back to its wait, which pushes what it committed, and so does an
         // address-reviews session, whose replies and answer the wait posts once it has pushed.
         // Until then a stop of the next stage also stops this runtime, whose forced kill still applies.
-        const done = attempt(rt.stateDir, id, a, { fixing: false } as Partial<WorkRecord>)
+        // What an address-reviews session reported is written with its end, so a restart before the ci
+        // stage posted it resumes the stage with it.
+        const addressing = stage === 'address-reviews' ? (now?.addressing ?? record.addressing) : undefined
+        const reported = { replies: addressed?.replies ?? [], answer: addressed?.answer ?? '' }
+        const done = attempt(rt.stateDir, id, a, { fixing: false, ...(addressing ? { addressing: { ...addressing, reported } } : {}) } as Partial<WorkRecord>)
         if (done && stage === 'ci') ci(done, project, rt, exited, abort)
-        else if (done && stage === 'address-reviews') ci(done, project, rt, exited, abort, addressed ?? { replies: [], answer: '', fixed: [], declined: [] })
+        else if (done && stage === 'address-reviews') ci(done, project, rt, exited, abort)
         else if (done) gate(done, project, rt, exited, abort)
         return
       }

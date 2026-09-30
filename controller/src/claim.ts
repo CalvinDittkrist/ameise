@@ -223,6 +223,9 @@ export interface Attempt {
   // answered are the keys of the requests an answer commented on, replied the threads it replied to.
   answered?: string[]
   replied?: string[]
+  // asked are the keys of the points a wait gave an address-reviews session to answer. A writer's request
+  // starts the repair count afresh the first time it is asked, and never again.
+  asked?: string[]
 }
 
 // A work process on an issue, as a claim writes it.
@@ -255,8 +258,10 @@ export interface WorkRecord extends CreatedRecord {
   // repairs are the repair rounds the ci stage spent on the pull request and its budget, as it read them last.
   repairs?: { spent: number; of: number }
   // addressing is what the address-reviews session of the stage answers: its mandate and the points its
-  // brief listed, the only ones a reply of its result is posted to.
-  addressing?: { mandate: 'writer' | 'bot'; points: Point[] }
+  // brief listed, the only ones a reply of its result is posted to. reported is the replies and the answer
+  // the session reported complete with, kept until the ci stage has posted them, so a restart between the
+  // two posts them still.
+  addressing?: { mandate: 'writer' | 'bot'; points: Point[]; reported?: { replies: { thread: string; body: string }[]; answer: string } }
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }

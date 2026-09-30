@@ -310,16 +310,19 @@ A message while the stage waits is refused with `409`. A stop while it waits mar
 
 ## Address-reviews stage
 The stage `address-reviews` answers what reviewers ask for on the pull request, as the factory's does ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)).
-- A writer is an author GitHub associates with the repository as `OWNER`, `MEMBER` or `COLLABORATOR`.
+- A writer is an author who may push to the repository, as `repos/<owner>/<name>/collaborators/<login>/permission` answers.
+  - Only an author GitHub associates as `OWNER`, `MEMBER` or `COLLABORATOR` is asked, once per review or comment.
   - Nobody else's review reaches a session, since it becomes the brief of a session that pushes.
 - Its points are the latest request for changes of each writer and every unresolved thread whose first comment is a writer's or a bot's, which no answer in `history` covers.
-- Its mandate is a writer's request when a request is among them, and a bot's review otherwise.
+- Its mandate is a writer's request when a request no session was asked yet is among them, and a bot's review otherwise.
   - A writer's request starts the repair count afresh, once: its session counts no round.
+  - A request asked again, as when its answer could not be posted, is a repair round. The wait's `asked` holds the keys it gave the session.
   - A bot's review is a repair round, refused once the budget is spent.
 
 It runs one fresh session with the stage timeout. Its brief lists the requests and the threads by id, as reviewer text. It fixes or declines each point, commits, and pushes, replies and resolves nothing.
 - It reports `complete` or `blocked` with its commits, a reply per thread in `replies`, one `answer` to the requests, and the points `fixed` and `declined`.
-- On `complete` the ci stage pushes, then posts:
+- On `complete` the record's `addressing.reported` keeps the replies and the answer until they are posted, so a resume after a stop posts them.
+- The ci stage pushes, then posts:
   - a reply to each thread the brief listed, the first one to each, and resolves that thread,
   - the answer as one comment on the pull request, when the brief listed a request.
 - A reply to a thread the brief did not list is posted nowhere.
@@ -332,6 +335,7 @@ The session's end is `{stage: "address-reviews", kind: "session", result, mandat
 ### Follow-up
 The controller reads the pull request of each process the ci stage left `ready`, or `blocked` on a review, every four polls (two minutes, less in fake mode).
 - It starts the ci stage again when a review asks for an answer no round gave, such as a new request for changes of a writer on a ready process.
+- It starts it again for a ready one when any review stands, even one no session may answer.
 - It starts it again for a blocked one when the reviews say something other than what it was blocked on, such as an approval of the writer it answered.
 - A pull request that cannot be read is read again next time, and told once on stderr.
 

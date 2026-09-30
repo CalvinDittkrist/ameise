@@ -12,7 +12,9 @@
 // a writer or a bot opened, that no round has answered yet starts an address-reviews session, which
 // fixes or declines each point and reports its replies; its complete comes back here too, which pushes,
 // posts the replies, resolves their threads and answers the requests with one comment, then waits again.
-// A writer's request starts the repair count afresh, once; a bot's review is a repair round of its own.
+// A writer's request starts the repair count afresh, once; a bot's review is a repair round of its own,
+// and so is a request asked again, as when its answer could not be posted, so no request is answered
+// by sessions without end.
 //
 // Green ends the process ready, where the board offers the merge; a yolo process whose panel passed is
 // merged at once, by the merge action's rules. A request that stands once it is answered, a request or a
@@ -22,8 +24,8 @@
 // is closed. Every verdict other than a wait is an attempt in the record's history.
 //
 // followUps reads the pull request of each process the stage left ready or blocked on a review, and waits
-// on it again once a new request for changes or thread asks for an answer, or a review it was blocked on
-// has changed: the follow-up.
+// on it again once a new request for changes or thread asks for an answer, a review stands on one ready,
+// or a review it was blocked on has changed: the follow-up.
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { merge } from './actions.js'
@@ -31,7 +33,7 @@ import { type Attempt, type Check, fetch, git, type Point, push, recordsDir, typ
 import { run } from './exec.js'
 import { defaultGrace, knob, setting } from './gate.js'
 import type { Project } from './project.js'
-import { addressBrief, type Addressed, attempt, begin, busy, ciFixBrief, event, readRecord, type Runtime, track, update } from './session.js'
+import { addressBrief, attempt, begin, busy, ciFixBrief, event, readRecord, type Runtime, track, update } from './session.js'
 
 // The ci stage's knobs, the worker's own defaults: the repair rounds of one pull request, the bots whose
 // review is waited for, and how many seconds after the checks' end a bot's review is waited for.
@@ -73,10 +75,12 @@ export interface Thread {
   comments?: { nodes?: { author?: { __typename?: string; login?: string } | null; authorAssociation?: string; body?: string; url?: string }[] }
 }
 
-// The associations of an account that may write to the repository: a writer, whose request for changes
-// is a mandate. Anybody may review a public repository, and what a review says becomes the brief of a
-// session that pushes, so nobody else's review is answered by a session.
-const writers = ['OWNER', 'MEMBER', 'COLLABORATOR']
+// The associations of an account that may be a writer: GitHub puts them on a review or a comment of a
+// member of the organisation, of somebody invited to the repository and of its owner. None of them is
+// write access, so each author of these is asked for their push permission, and only one who may push is
+// a writer, whose request for changes is a mandate. Anybody may review a public repository, and what a
+// review says becomes the brief of a session that pushes, so nobody else's review is answered by a session.
+const members = ['OWNER', 'MEMBER', 'COLLABORATOR']
 // How much of one review's or thread's words the brief of an address-reviews session carries.
 const maxWords = 4000
 const cut = (text: string, n: number) => (text.length > n ? `${text.slice(0, n - 1)}…` : text)
@@ -93,7 +97,8 @@ export interface Points {
 
 // pointsOf reads the points of a reading and of its unresolved threads. What one writer says is their
 // latest review that states anything; a request for changes stands until they approve or it is dismissed.
-export function pointsOf(r: Reading, threads: Thread[]): Points {
+// pushers are the keys of the reviews and comments whose author may push, as pushersOf reads them.
+export function pointsOf(r: Reading, threads: Thread[], pushers: Set<string>): Points {
   const latest = new Map<string, NonNullable<Reading['reviews']>[number]>()
   for (const v of r.reviews ?? []) {
     if (v.state === 'COMMENTED' || v.state === 'PENDING') continue
@@ -106,20 +111,21 @@ export function pointsOf(r: Reading, threads: Thread[]): Points {
   for (const [login, v] of latest) {
     if (v.state !== 'CHANGES_REQUESTED') continue
     lines.push(`${login} requested changes`)
-    if (!writers.includes(v.authorAssociation ?? '')) {
+    const key = reviewKey(v)
+    if (!pushers.has(key)) {
       others.push(`${login} requested changes and is no writer of the repository`)
       continue
     }
-    asks.push({ kind: 'request', key: v.id ?? `${login}@${v.submittedAt ?? ''}`, login, body: cut((v.body ?? '').trim(), maxWords), ...(v.url ? { url: v.url } : {}) })
+    asks.push({ kind: 'request', key, login, body: cut((v.body ?? '').trim(), maxWords), ...(v.url ? { url: v.url } : {}) })
   }
   const open = threads.filter((t) => !t.isResolved)
   if (open.length > 0) lines.push(`${open.length} review thread(s) not resolved`)
   for (const t of open) {
     const comments = t.comments?.nodes ?? []
     const first = comments[0]
-    const counts = (c: (typeof comments)[number]) => c.author?.__typename === 'Bot' || writers.includes(c.authorAssociation ?? '')
+    const counts = (c: (typeof comments)[number], i: number) => c.author?.__typename === 'Bot' || pushers.has(commentKey(t, c, i))
     const where = `${t.path ?? 'the pull request'}${t.line ? `:${t.line}` : ''}`
-    if (!t.id || !first || !counts(first)) {
+    if (!t.id || !first || !counts(first, 0)) {
       others.push(`the thread on ${where} was opened by ${first?.author?.login ?? 'somebody'}, who is no writer and no bot`)
       continue
     }
@@ -138,9 +144,58 @@ export function pointsOf(r: Reading, threads: Thread[]): Points {
   return { asks, others, lines }
 }
 
+type Review = NonNullable<Reading['reviews']>[number]
+type Comment = NonNullable<NonNullable<Thread['comments']>['nodes']>[number]
+// The key of a review and of a comment of a thread, by which whether its author may push is asked once.
+const reviewKey = (v: Review) => v.id ?? `${v.author?.login ?? 'someone'}@${v.submittedAt ?? ''}`
+const commentKey = (t: Thread, c: Comment, i: number) => c.url ?? `${t.id ?? '?'}#${i}`
+
+// pushed is whether the author of a review or comment may push, by its repository and key. A review or
+// a comment is written once, and the access its author had then is what it stands on, as in the factory.
+const pushed = new Map<string, boolean>()
+
+// mayPush asks GitHub whether login may push to the repository.
+async function mayPush(gh: string, repo: string, login: string): Promise<boolean> {
+  const out = JSON.parse(await run(gh, ['api', `repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`])) as { user?: { permissions?: { push?: boolean } } }
+  return out.user?.permissions?.push === true
+}
+
+// pushersOf are the keys of the requests for changes and the comments of unresolved threads of a reading
+// whose author may push to the repository. Only an author GitHub names a member, a collaborator or the
+// owner is asked; a bot is none, and counts by being a bot. A question GitHub does not answer throws.
+export async function pushersOf(gh: string, repo: string, r: Reading, threads: Thread[]): Promise<Set<string>> {
+  const asked: { key: string; login: string }[] = []
+  for (const v of r.reviews ?? []) {
+    if (v.state === 'CHANGES_REQUESTED' && v.author?.login && members.includes(v.authorAssociation ?? '')) asked.push({ key: reviewKey(v), login: v.author.login })
+  }
+  for (const t of threads.filter((t) => !t.isResolved)) {
+    ;(t.comments?.nodes ?? []).forEach((c, i) => {
+      if (c.author?.__typename !== 'Bot' && c.author?.login && members.includes(c.authorAssociation ?? '')) asked.push({ key: commentKey(t, c, i), login: c.author.login })
+    })
+  }
+  const pushers = new Set<string>()
+  for (const { key, login } of asked) {
+    const known = `${repo}:${key}`
+    let may = pushed.get(known)
+    if (may === undefined) {
+      try {
+        may = await mayPush(gh, repo, login)
+      } catch (err) {
+        throw new Error(`whether ${login} may push to ${repo} could not be read: ${(err as Error).message.split('\n')[0]}`, { cause: err })
+      }
+      pushed.set(known, may)
+    }
+    if (may) pushers.add(key)
+  }
+  return pushers
+}
+
 // answeredOf are the keys of the requests an answer of the history commented on and of the threads it
 // replied to: what no later round answers again.
 export const answeredOf = (history: Attempt[]): Set<string> => new Set(history.flatMap((h) => (h.kind === 'answer' ? [...(h.answered ?? []), ...(h.replied ?? [])] : [])))
+
+// askedOf are the keys of the points an address-reviews session of the history was given to answer.
+export const askedOf = (history: Attempt[]): Set<string> => new Set(history.flatMap((h) => (h.stage === 'ci' && h.kind === 'wait' ? (h.asked ?? []) : [])))
 
 // repairsSpent are the repair rounds of the pull request: the fix sessions of the ci stage and the
 // address-reviews sessions of a bot's review since the pull request was opened or found, or since the
@@ -189,8 +244,8 @@ interface Knobs {
 
 // judge makes the verdict of one reading, in the order of the waits. doneAt is when the checks were first
 // seen done without GitHub saying when, which the review wait counts from; it is the caller's, across
-// readings. threads reads the review threads, which is asked only once every wait before it has passed.
-async function judge(r: Reading, threads: () => Promise<Thread[]>, k: Knobs, now: number, doneAt: { at?: number }): Promise<Verdict> {
+// readings. points reads the points of the reading, which are asked only once every wait before it has passed.
+async function judge(r: Reading, points: () => Promise<Points>, k: Knobs, now: number, doneAt: { at?: number }): Promise<Verdict> {
   if (r.state === 'MERGED') return { kind: 'merged' }
   if (r.state !== 'OPEN') return { kind: 'closed' }
   if (r.mergeable === 'CONFLICTING') return { kind: 'conflicts' }
@@ -212,8 +267,8 @@ async function judge(r: Reading, threads: () => Promise<Thread[]>, k: Knobs, now
   if (k.bots.length > 0 && reviewed === 0 && now - doneAt.at < k.reviewWait * 1000) {
     return { kind: 'waiting', wait: `a review of ${k.bots.join(', ')}, until ${new Date(doneAt.at + k.reviewWait * 1000).toISOString()}` }
   }
-  const points = pointsOf(r, await threads())
-  if (points.lines.length > 0) return { kind: 'review-comments', reviews: points.lines, points }
+  const read = await points()
+  if (read.lines.length > 0) return { kind: 'review-comments', reviews: read.lines, points: read }
   // The merge takes only a clean pull request: one behind its base or blocked by a rule of it is not green.
   const status = r.mergeStateStatus ?? 'UNKNOWN'
   if (status === 'UNKNOWN') return { kind: 'waiting', wait: 'GitHub to say whether the base lets the branch merge' }
@@ -232,6 +287,13 @@ export async function threadsOf(gh: string, owner: string, name: string, n: numb
   const nodes = out.data?.repository?.pullRequest?.reviewThreads?.nodes
   if (!nodes) throw new Error(`GitHub named no review threads of PR #${n}`)
   return nodes
+}
+
+// readPoints reads the review threads of a reading of pull request n, and whose authors may push, into
+// its points.
+export async function readPoints(gh: string, owner: string, name: string, n: number, r: Reading): Promise<Points> {
+  const threads = await threadsOf(gh, owner, name, n)
+  return pointsOf(r, threads, await pushersOf(gh, `${owner}/${name}`, r, threads))
 }
 
 // workflowsIn says whether the worktree has workflows of GitHub Actions, so an empty rollup is checks
@@ -274,9 +336,9 @@ export function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 // ci starts the ci stage of a process once after has settled, as the runtime of a fix session before it
 // has exited, and answers the record as it runs. A stop ends its wait; before is the abort of that
-// session, which a stop of the stage aborts too while its runtime exits. addressed is the result of an
-// address-reviews session, whose replies and answer the stage posts once it has pushed.
-export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController, addressed?: Addressed): WorkRecord {
+// session, which a stop of the stage aborts too while its runtime exits. The replies and the answer an
+// address-reviews session reported are in the record's addressing, which the stage posts once it has pushed.
+export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
   const id = record.id
   const n = record.pull?.number
   const started = (update(rt.stateDir, id, { stage: 'ci', state: 'waiting', note: `waiting on PR #${n ?? '?'}`, fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
@@ -285,7 +347,7 @@ export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Pro
   if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
   let own = () => true
   const done = after
-    .then(() => (own() ? wait(started, project, rt, abort.signal, () => own(), addressed) : undefined))
+    .then(() => (own() ? wait(started, project, rt, abort.signal, () => own()) : undefined))
     .catch((err: unknown) => {
       if (!own()) return
       const note = `the ci stage failed: ${(err as Error).message}`
@@ -300,6 +362,8 @@ export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Pro
   return started
 }
 
+type Reported = NonNullable<NonNullable<WorkRecord['addressing']>['reported']>
+
 // The mutations that reply to a review thread and resolve it.
 const replyMutation = 'mutation($threadId:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){comment{url}}}'
 const resolveMutation = 'mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{isResolved}}}'
@@ -311,7 +375,7 @@ const maxReply = 60000
 // A reply to a thread the brief did not list is posted nowhere, since the session's writing may have
 // been steered by what it read. What cannot be posted is a note; a thread whose reply failed is asked
 // again by the next round. It answers the attempt that records what it posted.
-async function post(record: WorkRecord, project: Project, rt: Runtime, n: number, url: string, got: Addressed): Promise<Attempt> {
+async function post(record: WorkRecord, project: Project, rt: Runtime, n: number, url: string, got: Reported): Promise<Attempt> {
   const repo = `${project.owner}/${project.name}`
   const shown = record.addressing?.points ?? []
   const threads = new Map(shown.filter((p) => p.kind === 'thread').map((p) => [p.key, p]))
@@ -390,7 +454,7 @@ async function mention(record: WorkRecord, project: Project, rt: Runtime, n: num
   }
 }
 
-async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean, addressed?: Addressed): Promise<void> {
+async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const wt = record.worktree
@@ -431,8 +495,9 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
   }
   if (!own()) return
   // The replies and the answer of an address-reviews session go to GitHub once what it fixed is pushed.
-  if (addressed) {
-    const posted = await post(record, project, rt, n, pull.url, addressed)
+  const reported = record.addressing?.reported
+  if (reported) {
+    const posted = await post(record, project, rt, n, pull.url, reported)
     if (!own()) return
     attempt(rt.stateDir, id, posted, { addressing: undefined } as Partial<WorkRecord>)
   }
@@ -452,7 +517,7 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
       checks = checksOf(r).map((c) => ({ name: c.name, ...(c.url ? { url: c.url } : {}), state: c.state }))
       // A reading of another head is GitHub's before the push has reached it.
       if (r.headRefOid && r.headRefOid !== head && r.state === 'OPEN') verdict = { kind: 'waiting', wait: `GitHub to show the push of ${head.slice(0, 7)}` }
-      else verdict = await judge(r, () => threadsOf(rt.gh, project.owner, project.name, n), k, Date.now(), doneAt)
+      else verdict = await judge(r, () => readPoints(rt.gh, project.owner, project.name, n, r), k, Date.now(), doneAt)
     } catch (err) {
       verdict = { kind: 'waiting', wait: `GitHub to answer: ${(err as Error).message.split('\n')[0]}` }
     }
@@ -487,19 +552,26 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
         a.result = again.length > 0 && verdict.points.others.length === 0 ? 'answered' : 'review-comments'
         return end('blocked', `PR #${n} is not green: ${what}; answer the review, or write here to have the session take it on`, a)
       }
-      // A writer's request is a new mandate, which starts the repair count afresh; a bot's review, or a
-      // thread without a request, is a repair round of its own.
-      const mandate = asks.some((p) => p.kind === 'request') ? 'writer' : 'bot'
+      // A writer's request no session was asked yet is a new mandate, which starts the repair count
+      // afresh; a bot's review, a thread without a request, or a request asked again is a repair round of
+      // its own.
+      const asked = askedOf(history())
+      const fresh = asks.filter((p) => p.kind === 'request' && !asked.has(p.key))
+      const again = asks.filter((p) => p.kind === 'request' && asked.has(p.key))
+      const mandate = fresh.length > 0 ? 'writer' : 'bot'
       event(rt.stateDir, id, { event: 'ci', ...a })
       if (mandate === 'bot' && spent >= repairs) {
         await mention(record, project, rt, n, repairs, asks)
         return end('failed', `the ci stage spent its ${repairs} repair round(s): ${asks.length} review point(s) on PR #${n} are left to a person`, a)
       }
       if (!own()) return
+      a.asked = asks.map((p) => p.key)
       const note =
         mandate === 'writer'
-          ? `answering the request for changes of ${[...new Set(asks.filter((p) => p.kind === 'request').map((p) => p.login))].join(', ')}; the repair count starts afresh`
-          : `answering ${asks.length} review thread(s); repair round ${spent + 1} of ${repairs}`
+          ? `answering the request for changes of ${[...new Set(fresh.map((p) => p.login))].join(', ')}; the repair count starts afresh`
+          : again.length > 0
+            ? `answering the request for changes of ${[...new Set(again.map((p) => p.login))].join(', ')} again, and ${asks.length - again.length} review thread(s); repair round ${spent + 1} of ${repairs}`
+            : `answering ${asks.length} review thread(s); repair round ${spent + 1} of ${repairs}`
       const addressing = attempt(rt.stateDir, id, a, {
         stage: 'address-reviews',
         session_id: undefined,
@@ -567,8 +639,9 @@ const following = (r: WorkRecord) =>
 const warned = new Map<string, string>()
 
 // followUps reads the pull request of every process the ci stage left ready or blocked on a review once,
-// and starts the stage again for each whose reviews ask for an answer no round gave, or, for one
-// blocked, whose reviews say something other than what it was blocked on. A pull request that cannot
+// and starts the stage again for each whose reviews ask for an answer no round gave, for one ready,
+// whose reviews stand at all, or, for one blocked, whose reviews say something other than what it was
+// blocked on. A pull request that cannot
 // be read is read again next time. projectOf derives the project of a checkout.
 export async function followUps(rt: Runtime, projectOf: (path: string) => Promise<Project>): Promise<void> {
   let names: string[]
@@ -586,16 +659,18 @@ export async function followUps(rt: Runtime, projectOf: (path: string) => Promis
       const n = r.pull!.number
       const reading = JSON.parse(await run(rt.gh, ['pr', 'view', String(n), '--repo', `${project.owner}/${project.name}`, '--json', readingFields])) as Reading
       if (reading.state !== 'OPEN') continue
-      const points = pointsOf(reading, await threadsOf(rt.gh, project.owner, project.name, n))
+      const points = await readPoints(rt.gh, project.owner, project.name, n, reading)
       warned.delete(id)
       const answered = answeredOf(r.history ?? [])
       const fresh = points.asks.some((p) => !answered.has(p.key))
-      const changed = r.state === 'blocked' && JSON.stringify(points.lines) !== JSON.stringify(r.history?.at(-1)?.reviews ?? [])
+      // A ready process was green with no review standing, so any that stands now, even one no session
+      // may answer, is a change; a blocked one has changed once its reviews say something else.
+      const changed = r.state === 'ready' ? points.lines.length > 0 : JSON.stringify(points.lines) !== JSON.stringify(r.history?.at(-1)?.reviews ?? [])
       if (!fresh && !changed) continue
       // The record is read again, as a click may have changed it while GitHub answered.
       const now = readRecord(rt.stateDir, id) as WorkRecord | undefined
       if (!now || !following(now) || busy(id)) continue
-      event(rt.stateDir, id, { event: 'ci-note', note: fresh ? `a review of PR #${n} asks for an answer: the follow-up waits on it again` : `the review PR #${n} was blocked on has changed: the follow-up waits on it again` })
+      event(rt.stateDir, id, { event: 'ci-note', note: fresh ? `a review of PR #${n} asks for an answer: the follow-up waits on it again` : now.state === 'ready' ? `a review of PR #${n} stands since it was green: the follow-up waits on it again` : `the review PR #${n} was blocked on has changed: the follow-up waits on it again` })
       ci(now, project, rt)
     } catch (err) {
       const why = (err as Error).message.split('\n')[0] ?? ''
