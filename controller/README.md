@@ -144,12 +144,15 @@ The brief names the issue, the branch, its base and the `gh` and `git` reads the
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
 
-A session that ends `blocked` or `failed`, a gate that ends `failed` and a review that ends `ready` or `failed` mark the record `unseen` and send one [notification](#notifications).
+A session that ends `blocked` or `failed`, a gate, review or pr stage that ends `failed`, and a ci stage that ends `ready`, `blocked` or `failed` mark the record `unseen` and send one [notification](#notifications).
 
 In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory of plays (see the script):
 - `play` says what the implement session does, `resume` what a resumed session does.
-- `gate` and `review` say what a fix session of the gate and of the review does.
+- `gate`, `review` and `ci` say what a fix session of the gate, of the review and of the ci stage does.
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
+- `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
+
+In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the ci stage reads of that pull request, in their order, the last one for good.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -196,12 +199,12 @@ Their streams stay out of the event log and their ids out of the record's `sessi
 
 `WF_REVIEWERS` names the reviewers, comma-separated among `code`, `security`, `docs`, `tests` and `senior`; unset, it is all five. Round 1 runs every one, a later round those whose last verdict is `fix`.
 
-- Every reviewer at `pass` ends the review with the panel `pass` and the process `ready`.
+- Every reviewer at `pass` ends the review with the panel `pass`, and the [pr stage](#pr-stage) follows.
 - A `fix` verdict starts one fix session of the review, a fresh session with the stage timeout. Its brief carries every finding of the round by its id, `<reviewer>-<round>-<n>`.
   - It reports as the implement session does, and names in `fixes` what it did with each finding: `fixed` or `declined`, with a note.
   - On `complete` the [gate](#gate-stage) runs again, and its pass starts the next round. On `blocked` the answer resumes it.
 - `WF_REVIEW_ROUNDS` (3) is the review's budget: the rounds since the implement session last ended. A round at that number with a `fix` verdict ends the review with the panel `failed`.
-  - The process is not stopped: it is `ready`, and the pull request names the failed panel.
+  - The process is not stopped: the pr stage follows, and the pull request names the failed panel.
 - A reviewer that reports no verdict, and a knob that is wrong, end the process `failed` with the reason.
 
 Each round is an attempt in `history`: `{stage: "review", kind: "round", result: "pass"|"fix"|"failed", round, commit, verdicts, at}`.
@@ -211,6 +214,44 @@ Each round is an attempt in `history`: `{stage: "review", kind: "round", result:
 - The event log carries `review-start` per round, a `review` event per round and `review-end`.
 
 A message while the reviewers run is refused with `409`. A stop while they run marks the process `interrupted`, and a resume runs the round again. A stop while its fix session runs is resumed as the gate's is.
+
+## Pr stage
+After the review the controller opens the pull request, in the stage `pr`:
+1. It pushes the branch to origin, never forced. Fake mode pushes nothing.
+2. A read-only author session writes the title and the body from the diff, the commits and the issue.
+   - It runs beside the process's session as a reviewer does, without the worker's agent, and reports `{title, body}` through a schema.
+3. The controller adds `Closes #<issue>` where the body does not close the issue, and appends a `## Verification` section.
+   - The section names the last gate run and each reviewer's last verdict.
+   - A failed panel names the reviewers that did not pass and the findings of its last round.
+4. It runs `gh pr create` against the base, never as a draft.
+5. It asks each bot of `WF_PR_BOT_REVIEWERS` for a review with `gh pr edit --add-reviewer`. A refusal is a `pr-note` event and stops nothing.
+
+An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
+
+The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session or a `gh pr create` that fails ends the process `failed` with the reason. A resume runs the stage again.
+
+## Ci stage
+The controller waits on the pull request itself, in the stage `ci`, with the state `waiting`. No session polls. It reads the pull request every 30 seconds, one wait at a time:
+1. GitHub's answer whether the branch merges into its base. A conflict comes first, because GitHub runs no check on such a branch.
+2. The checks. An empty rollup in a repository with workflows waits up to 600 seconds for GitHub to register them.
+3. A review of a bot of `WF_PR_BOT_REVIEWERS` (`chatgpt-codex-connector`; empty for none), within `WF_PR_REVIEW_WAIT` seconds (1200) of the checks' end.
+4. Any standing request for changes, and any review thread not resolved. The threads are read only once the waits before have passed.
+5. GitHub's merge state, which must be `CLEAN`, as the merge requires.
+
+The record's `wait` says what it waits for, and `checks` holds the checks it read last, each `{name, url, state}`.
+
+- Green ends the process `ready`, and the board offers the merge.
+- A conflict or failed checks start a fix session of the ci stage, a fresh session with the stage timeout.
+  - Its brief names the conflict or the failed checks. It commits and pushes nothing.
+  - On `complete` the controller pushes and waits again. On `blocked` the answer resumes it.
+- `WF_CI_REPAIR_ROUNDS` (3) is the repair budget: the fix sessions since the pull request was opened or found. A failure with it spent ends the process `failed`.
+- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state.
+  - A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
+- A pull request merged meanwhile turns the process `blocked`, for the maintainer to abandon it. A closed one ends it `failed`.
+
+Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
+
+A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -237,12 +278,12 @@ While the headless session still runs, the terminal is a second runtime on the s
 Stopping and starting the controller loses no process.
 - A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
 - The start reads every record before it answers a request.
-- A work process still `running`, `created`, `approval` or `input` lost its session with the last run, as after a kill, and is marked `interrupted` too.
+- A work process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill, and is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: its implement session in the worktree, its gate, or the round its reviewers ran.
+- A resume goes on with an interrupted process: its implement session, its gate, the round its reviewers ran, its pr stage or its wait on the pull request.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.

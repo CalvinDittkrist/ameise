@@ -33,9 +33,9 @@ import {
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
-// The stages a process of each kind runs in the controller. A work process runs implement, the gate and
-// the review; the later stages join as the controller drives them.
-const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate", "review"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
+// The stages a process of each kind runs in the controller. A work process runs implement, the gate, the
+// review, pr and ci; the later stages join as the controller drives them.
+const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate", "review", "pr", "ci"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
 // for the permissions and questions that wait for the maintainer, a chat that writes to the session and
@@ -191,7 +191,8 @@ const reported: Process["state"][] = ["blocked", "ready", "failed"]
 // tokens is a size in tokens as the fact row shows it: in thousands from a thousand on.
 const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`)
 
-// Facts is the row of facts under the title: the project, the branch, the pull request with its checks,
+// Facts is the row of facts under the title: the project, the branch, the pull request with its checks
+// (the board's, else the one the record names),
 // the mode, the time since the process last changed and the size of the session's context against the
 // size at which a work session compacts. Below it are the stages, the current one filled, the ones done struck through.
 function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
@@ -199,6 +200,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
   const stages = stagesOf[kind].includes(record.stage) ? stagesOf[kind] : [...stagesOf[kind], record.stage]
   const at = stages.indexOf(record.stage)
   const pinned = record.compact_at
+  const pr = process?.pr ?? record.pull
   const share = record.context === undefined || pinned === undefined ? 0 : Math.min(100, (record.context / pinned) * 100)
   return (
     <>
@@ -211,12 +213,12 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
           <span>{record.project.split("/").filter(Boolean).pop()}</span>
         )}
         <span className="font-mono text-xs">{record.branch}</span>
-        {process?.pr && (
+        {pr && (
           <span aria-label="Pull request">
-            <a href={process.pr.url} className="hover:text-foreground hover:underline">
-              #{process.pr.number}
+            <a href={pr.url} className="hover:text-foreground hover:underline">
+              #{pr.number}
             </a>
-            {process.checks && process.checks !== "none" && ` checks ${process.checks}`}
+            {process?.checks && process.checks !== "none" && ` checks ${process.checks}`}
           </span>
         )}
         <Badge variant="outline">{record.mode ?? record.kind}</Badge>
@@ -270,6 +272,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
         })}
       </ol>
       <Rounds history={record.history ?? []} />
+      {record.stage === "ci" && <Wait record={record} />}
     </>
   )
 }
@@ -333,9 +336,39 @@ function Rounds({ history }: { history: Attempt[] }) {
   )
 }
 
+// Wait is what the ci stage waits for while it waits, and the checks of the pull request it read last,
+// each with its state and a link to where it ran.
+function Wait({ record }: { record: ProcessRecord }) {
+  const checks = record.checks ?? []
+  if (!record.wait && checks.length === 0) return null
+  return (
+    <div aria-label="CI" className="flex flex-col gap-1 text-sm">
+      {record.wait && <span aria-label="Wait" className="text-muted-foreground">waiting for {record.wait}</span>}
+      {checks.length > 0 && (
+        <ul aria-label="Checks" className="flex flex-wrap gap-1.5">
+          {checks.map((c, i) => (
+            <li key={i}>
+              <Badge variant={c.state === "fail" ? "destructive" : "outline"} className={cn(c.state === "pending" && "text-muted-foreground")}>
+                {c.url ? (
+                  <a href={c.url} className="hover:underline">
+                    {c.name}
+                  </a>
+                ) : (
+                  c.name
+                )}{" "}
+                {c.state}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // failed tells an attempt that did not get its stage through: a failed or blocked session, a conflict, a
-// failing run.
-const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail"].includes(a.result)
+// failing run, a pull request that is not green.
+const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail", "conflicts", "checks-failed", "review-comments", "closed"].includes(a.result)
 
 // described is an attempt as the stage rail lists it: what ran and how it ended.
 function described(a: Attempt): string {
@@ -348,6 +381,10 @@ function described(a: Attempt): string {
       return `${a.gate ? `${a.gate} ` : ""}${a.result === "pass" ? `pass${at}` : `fail${at}, exit ${a.exit ?? "none"}`}`
     case "round":
       return `round ${a.round ?? ""} ${a.result}`
+    case "open":
+      return `PR #${a.pr ?? ""} ${a.result}`
+    case "wait":
+      return a.result === "review-comments" ? `changes asked: ${(a.reviews ?? []).join("; ")}` : a.result
     default:
       return `session ${a.result}${a.commits?.length ? `, ${a.commits.length} commit${a.commits.length === 1 ? "" : "s"}` : ""}`
   }

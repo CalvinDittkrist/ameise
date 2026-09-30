@@ -191,11 +191,15 @@ export type Verdict = { reviewer: string; verdict: "pass" | "fix" | "failed"; se
 // What a fix session of the review did with one finding.
 export type Fix = { finding: string; outcome: "fixed" | "declined"; note: string }
 
+// A check of a pull request as the ci stage read it.
+export type Check = { name: string; url?: string; state: "pass" | "fail" | "pending" }
+
 // An attempt of a stage as the record keeps it: a session of the stage, a merge of the base, a run of
-// the gate command or a round of the review, with its result and the time it ended.
+// the gate command, a round of the review, the opening of the pull request or a verdict of the ci
+// stage's wait, with its result and the time it ended.
 export type Attempt = {
   stage: string
-  kind: "session" | "merge" | "run" | "round"
+  kind: "session" | "merge" | "run" | "round" | "open" | "wait"
   result: string
   at: string
   // gate is the gate form a run ran: the command, or none.
@@ -211,6 +215,12 @@ export type Attempt = {
   round?: number
   verdicts?: Verdict[]
   fixes?: Fix[]
+  // pr and url are the pull request an opening opened or found, or a wait read; checks and reviews what
+  // a wait read of it.
+  pr?: number
+  url?: string
+  checks?: Check[]
+  reviews?: string[]
 }
 
 // A process record as the controller keeps it, with the context size at which its session compacts.
@@ -237,6 +247,11 @@ export type ProcessRecord = {
   history?: Attempt[]
   // panel is how the review ended: pass, or failed with its rounds spent.
   panel?: "pass" | "failed"
+  // pull is the pull request the pr stage opened or found; checks are those the ci stage read last, and
+  // wait what it waits for while it waits.
+  pull?: { number: number; url: string }
+  checks?: Check[]
+  wait?: string
   updated_at: string
 }
 

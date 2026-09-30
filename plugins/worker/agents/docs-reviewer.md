@@ -1,7 +1,7 @@
 ---
 name: docs-reviewer
 description: Fresh-context review of documentation, comments, commit messages and PR text in the branch diff for AI slop, inaccuracy and drift from the repository docs standard. Read-only.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high
