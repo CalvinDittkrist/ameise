@@ -12,6 +12,7 @@ const build = {
   'assets/index-a1.js': 'document.title = "ameise"\n',
   'assets/index-a1.css': 'body { margin: 0 }\n',
   'assets/geist-a1.woff2': 'wOF2',
+  'favicon.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>',
   'assets/notes.txt': 'not a kind of file the build holds',
 }
 
@@ -64,6 +65,12 @@ test('the root serves the built dashboard and its files, each as its kind, and n
     expect(res.headers.get('cache-control'), path).toBe('public, max-age=31536000, immutable')
     expect(await res.text(), path).toBe(build[path])
   }
+
+  // An icon keeps its name across builds, so a browser must ask for it again.
+  const icon = await fetch(m.url + '/favicon.svg')
+  expect(icon.status).toBe(200)
+  expect(icon.headers.get('content-type')).toBe('image/svg+xml')
+  expect(icon.headers.get('cache-control')).toBe('no-cache')
 
   for (const path of ['/assets/notes.txt', '/assets/missing.js', '/assets', '/index.js']) {
     expect(await api(m, 'GET', path), path).toEqual({ status: 404, body: { error: `no route GET ${path}` } })

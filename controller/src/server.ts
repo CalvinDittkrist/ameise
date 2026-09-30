@@ -500,9 +500,10 @@ async function page(res: ServerResponse, dir: string, pathname: string) {
   }
   res.writeHead(200, {
     'content-type': type,
-    // index.html names the build, so it is asked for again each time, at / and at its own name; the
-    // rest never changes under its name.
-    'cache-control': type === types['.html'] ? 'no-cache' : 'public, max-age=31536000, immutable',
+    // index.html names the build, so it is asked for again each time, at / and at its own name; a file
+    // under assets carries its content's hash and never changes under its name. The icons beside the
+    // index keep their names across builds, so they are asked for again too.
+    'cache-control': pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
     'content-security-policy': policy,
     'x-content-type-options': 'nosniff',
     [identity]: '1',
