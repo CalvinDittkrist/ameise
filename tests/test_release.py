@@ -460,6 +460,42 @@ class WorkflowTriggerTests(unittest.TestCase):
                 self.assertEqual(events, ["push"])
 
 
+
+class WorkflowPinTests(unittest.TestCase):
+    """What the workflows run is fixed: each action by its commit and the Go of every job by go.mod."""
+
+    def setUp(self):
+        self.workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+        self.assertTrue(self.workflows, "no workflows to read")
+
+    def test_every_action_is_pinned_to_a_commit_with_its_version_beside_it(self):
+        # A tag can be moved to other code; a commit cannot. The version beside it is what Dependabot
+        # updates along with the commit, and what a reader checks it against.
+        for workflow in self.workflows:
+            for line in workflow.read_text().splitlines():
+                if re.match(r"\s*(- )?uses:", line):
+                    with self.subTest(workflow=workflow.name, line=line.strip()):
+                        self.assertRegex(line, r"uses: [\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$")
+
+    def test_every_job_takes_its_go_from_the_factory_module(self):
+        # One version for the gate, the release and the weekly check, written where a maintainer's go
+        # reads it too, so none of them checks with a compiler the others do not build with.
+        for workflow in self.workflows:
+            text = workflow.read_text()
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("go-version:", text)
+                self.assertEqual(text.count("go-version-file: factory/go.mod"), text.count("uses: actions/setup-go@"))
+
+    def test_the_release_checks_for_vulnerabilities_before_it_builds(self):
+        steps = [line.strip() for line in WORKFLOW.read_text().splitlines() if line.strip().startswith("run: make ")]
+        self.assertEqual(steps, ["run: make vuln", "run: make binaries"])
+
+    def test_the_weekly_check_runs_the_same_target_on_main(self):
+        vuln = ROOT / ".github" / "workflows" / "vuln.yml"
+        self.assertIn("run: make vuln\n", vuln.read_text())
+        events = [line.strip().rstrip(":") for line in on_block(vuln) if re.fullmatch(r"  \w+:", line)]
+        self.assertEqual(events, ["schedule", "workflow_dispatch"])
+
 def on_block(workflow):
     """The lines of a workflow's `on:` block: everything indented under it."""
     said = workflow.read_text().split("\non:\n", 1)

@@ -16,15 +16,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the whole history, so the tagged commit can be held against main
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26' # the version the gate runs on, so the binaries are built by the compiler CI checked with
+          go-version-file: factory/go.mod # as the gate reads it, so the binaries are built by the compiler CI checked with
           cache: false # the factory has no dependencies, so there is no go.sum to cache by
       - name: The tag and factory/VERSION have to name the same version
         run: |
@@ -45,11 +45,15 @@ jobs:
             echo "error: $GITHUB_SHA is not on main; a factory release is tagged on main (docs/repo-standard.md)" >&2
             exit 1
           }
+      - name: No known vulnerability in what the binaries hold
+        # Checked with the compiler that builds them: a vulnerability in its standard library ships
+        # inside every binary. The gate leaves this out because it asks an online database.
+        run: make vuln
       - name: The binaries, the dashboard inside them and their checksums
         # What they are built with is in scripts/factory-binaries.sh, which a maintainer runs too.
         # The gate ran before the tag; these binaries are not gated again.
         run: make binaries
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: factory-binaries
           path: dist/
@@ -66,7 +70,7 @@ jobs:
       id-token: write # the Sigstore certificate that signs the attestation
       attestations: write # the attestation, stored with the repository
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: factory-binaries
           path: dist
@@ -74,7 +78,7 @@ jobs:
         id: attest
         # The subjects are the binaries this job holds, digested here. A list of digests written by
         # the build job would let that job choose what gets signed.
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/factory-linux-*
       - name: The bundle, named after the version

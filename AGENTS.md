@@ -13,6 +13,9 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Factory: the dashboard's lint and build, gofmt, vet, staticcheck, the Go tests, the dashboard's browser test.
   - Controller: eslint, the TypeScript type check, the vitest suite.
   - Dashboard: eslint, the TypeScript type check, the build, the browser test against the controller.
+- `make vuln` checks the factory against the Go vulnerability database ([ADR 0070](docs/adr/0070-ci-pins-what-it-runs.md)).
+  - It asks that database online, so the gate leaves it out.
+  - The factory release runs it before it builds, and the workflow `vuln` every week.
 - Factory without tokens, git or GitHub: `make ui && go -C factory run . -fake -config <file>` works a canned queue with scripted workers.
   - Against real GitHub it claims the head of its line by creating the issue's branch. It runs a worker session in a worktree of its own clone.
   - The config file is your own. `factory/factory.example.json` is a host's configuration, paused and rooted at `/var/lib/factory`.
@@ -80,7 +83,9 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - The factory is the one Go part: a module in `factory/` with no dependencies.
   - Its tests start the real binary through one helper, `factoryCommand` in `factory/process_test.go`, and watch it over HTTP and its data directory.
   - On Linux that helper has the kernel kill the binary with the test process, so a `go test` that times out or is killed leaves no factory behind.
-  - `staticcheck` is pinned in the `factory` target's error line.
+  - `staticcheck` is pinned in the `factory` target's error line, govulncheck in the `vuln` target.
+  - Its Go version is written once, in `factory/go.mod`. Every workflow's `setup-go` reads it with `go-version-file` (tested).
+- Every workflow pins each action to a commit, with its version in a comment beside it (tested). Dependabot updates both.
 - The dashboard is the factory's npm part ([ADR 0033](docs/adr/0033-the-dashboard-is-built-into-the-factory-binary.md)): npm in `factory/ui`.
   - The binary embeds its build in `factory/ui/dist/app`, so the Go tests need `make ui` first.
   - `factory/ui/dist` stays in git with a placeholder, because Go refuses an embed pattern that matches nothing.

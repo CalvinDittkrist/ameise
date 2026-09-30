@@ -223,6 +223,13 @@ class FactoryGateTests(unittest.TestCase):
         self.assertEqual(re.findall(r"key: staticcheck-([0-9.]+)-", ci), [named.group(1)])
 
 
+    def test_the_vulnerability_check_names_a_missing_go_with_the_fix(self):
+        with tempfile.TemporaryDirectory() as path:
+            r = subprocess.run([shutil.which("make"), "vuln"], cwd=ROOT, env={"PATH": path, "HOME": path},
+                               text=True, capture_output=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("error: go not installed; brew install go", r.stderr)
+
 class BrowserImageTests(unittest.TestCase):
     """CI runs each browser test in Playwright's image, which carries one browser build."""
 

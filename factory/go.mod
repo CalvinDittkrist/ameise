@@ -1,6 +1,6 @@
 module github.com/CalvinDittkrist/ameise/factory
 
-go 1.25
+go 1.27
 
 // The dashboard is an npm package inside this one, and npm packages ship Go files of their own:
 // without this the go command would build and test what node_modules happens to contain.
