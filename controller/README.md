@@ -243,7 +243,7 @@ A finish stops the session, then removes the worktree, the plan branch and the p
 ## Quota
 The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since a work process spends Claude alone.
 
-A reading is unknown, with the reason, when quota-axi is not installed, fails, answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
+A reading is unknown, with the reason, when quota-axi is not installed or fails. So is one that answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
 
 Install quota-axi the way the [factory runbook](../docs/factory-runbook.md) does:
 
