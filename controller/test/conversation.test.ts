@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, record, script, start } from './controller.js'
+import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, record, script, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -12,6 +12,7 @@ beforeEach(async () => {
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
+  gated(dir)
   canPulls(m, 'owner/repo', [])
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
@@ -28,6 +29,7 @@ interface Record {
   session_id?: string
   context?: number
   allowed?: string[]
+  history?: { stage: string; note?: string; session_id?: string }[]
   compact_at?: number
 }
 
@@ -116,7 +118,7 @@ const card = (page: Page, kind: string) => until(`a ${kind} card`, () => page.en
 const said = (page: Page, text: string) => until(`the session to say ${text}`, () => page.entries().filter((e) => e.kind === 'text').map((e) => e.text), (t) => t.includes(text))
 
 test('a permission request is a card of the page that waits for its answer, and allow once lets the call run', async () => {
-  play(m, 'permit git push origin HEAD\nready Pushed')
+  play(m, 'permit git push origin HEAD\nblocked Pushed')
   const r = await claim()
   const page = await follow(r.id)
   const permission = await card(page, 'permission')
@@ -133,9 +135,9 @@ test('a permission request is a card of the page that waits for its answer, and 
   const a = await api(m, 'POST', '/api/processes/answer', { id: r.id, request: permission.request, answer: 'once' })
   expect(a.status, JSON.stringify(a.body)).toBe(200)
   await said(page, 'Ran git push origin HEAD.')
-  expect(await inState(r.id, 'ready')).toMatchObject({ note: 'Pushed' })
+  expect(await inState(r.id, 'blocked')).toMatchObject({ note: 'Pushed' })
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: permission.request, answer: 'once' }))
-  expect(page.entries().at(-1)).toMatchObject({ kind: 'end', state: 'ready', note: 'Pushed' })
+  expect(page.entries().at(-1)).toMatchObject({ kind: 'end', state: 'blocked', note: 'Pushed' })
   // The answer is in the log, and the session was told to run the call as it asked.
   expect(read(join(m.state, 'processes', `${r.id}.events.jsonl`))).toContain(`"event":"answer","request":"${permission.request}","answer":"once"`)
   const response = read(m.claudeLog).split('\n').find((l) => l.includes('"type":"control_response"')) ?? ''
@@ -145,13 +147,13 @@ test('a permission request is a card of the page that waits for its answer, and 
 })
 
 test('deny tells the session the call may not run', async () => {
-  play(m, 'permit rm -rf build\nready done')
+  play(m, 'permit rm -rf build\nblocked done')
   const r = await claim()
   const page = await follow(r.id)
   const permission = await card(page, 'permission')
   expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: permission.request, answer: 'deny' })).status).toBe(200)
   await said(page, 'Did not run rm -rf build.')
-  await inState(r.id, 'ready')
+  await inState(r.id, 'blocked')
   // A request that was answered takes no second answer.
   const again = await api(m, 'POST', '/api/processes/answer', { id: r.id, request: permission.request, answer: 'once' })
   expect(again.status).toBe(409)
@@ -159,12 +161,12 @@ test('deny tells the session the call may not run', async () => {
 })
 
 test('allow for this process lets the same call run again without a card, and never reaches a settings file', async () => {
-  play(m, 'permit npm test\npermit npm test\nready done')
+  play(m, 'permit npm test\npermit npm test\nblocked done')
   const r = await claim()
   const page = await follow(r.id)
   const permission = await card(page, 'permission')
   expect((await api(m, 'POST', '/api/processes/answer', { id: r.id, request: permission.request, answer: 'process' })).status).toBe(200)
-  await inState(r.id, 'ready')
+  await inState(r.id, 'blocked')
   expect(page.entries().filter((e) => e.kind === 'permission')).toHaveLength(1)
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'allowed', tool: 'Bash', detail: 'npm test' }))
   expect(page.entries().filter((e) => e.text === 'Ran npm test.')).toHaveLength(2)
@@ -177,7 +179,7 @@ test('allow for this process lets the same call run again without a card, and ne
 })
 
 test('a question is a card, and the chat answer lets the session go on', async () => {
-  play(m, 'ask Keep the old flag, or drop it?\nready done')
+  play(m, 'ask Keep the old flag, or drop it?\nblocked done')
   const r = await claim()
   const page = await follow(r.id)
   const question = await card(page, 'question')
@@ -189,32 +191,35 @@ test('a question is a card, and the chat answer lets the session go on', async (
   const s = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Drop' })
   expect(s.body).toMatchObject({ delivered: 'answered' })
   await said(page, 'You answered: Drop.')
-  await inState(r.id, 'ready')
+  await inState(r.id, 'blocked')
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: question.request, text: 'Drop' }))
   page.close()
 })
 
 test('a message written while the session works arrives as its next turn', async () => {
-  play(m, 'wait\nready done')
+  play(m, 'wait\nblocked done')
   const r = await claim()
   const page = await follow(r.id)
   await said(page, 'Working on it.')
   const s = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Name it --keep' })
   expect(s.body).toMatchObject({ delivered: 'sent' })
   await said(page, 'You wrote: Name it --keep.')
-  await inState(r.id, 'ready')
+  await inState(r.id, 'blocked')
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'you', text: 'Name it --keep' }))
   page.close()
 })
 
 test('a message to a blocked process resumes its session by its id', async () => {
   play(m, 'blocked Keep the old flag, or drop it?')
-  writeFileSync(join(m.claude, 'resume'), 'say Dropping it.\nready Dropped the flag\n')
+  writeFileSync(join(m.claude, 'resume'), 'say Dropping it.\ncomplete Dropped the flag\n')
   const r = await claim()
   const blocked = await inState(r.id, 'blocked')
   const s = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Drop it' })
   expect(s.body).toMatchObject({ delivered: 'resumed' })
-  expect(await inState(r.id, 'ready')).toMatchObject({ note: 'Dropped the flag', session_id: blocked.session_id })
+  // Its complete report starts the gate, which passes.
+  const done = await inState(r.id, 'ready')
+  expect(done.session_id).toBe(blocked.session_id)
+  expect(done.history?.find((h) => h.stage === 'implement' && h.note === 'Dropped the flag')).toMatchObject({ session_id: blocked.session_id })
   expect(read(m.claudeLog).split('\n')).toContain(`--resume=${blocked.session_id}`)
   const page = await follow(r.id)
   expect(page.entries().map((e) => e.kind)).toEqual(['start', 'text', 'end', 'you', 'start', 'text', 'text', 'end'])
@@ -224,7 +229,7 @@ test('a message to a blocked process resumes its session by its id', async () =>
 
 test('a message to a blocked process whose runtime has not exited yet resumes it only once it has', async () => {
   play(m, 'blocked Keep the old flag, or drop it?')
-  writeFileSync(join(m.claude, 'resume'), 'ready Dropped the flag\n')
+  writeFileSync(join(m.claude, 'resume'), 'complete Dropped the flag\n')
   const linger = join(m.claude, 'linger')
   writeFileSync(linger, '')
   const r = await claim()
@@ -234,18 +239,18 @@ test('a message to a blocked process whose runtime has not exited yet resumes it
   expect(read(m.claudeLog)).not.toContain('--resume')
   rmSync(linger)
   expect((await sent).body).toMatchObject({ delivered: 'resumed' })
-  expect(await inState(r.id, 'ready')).toMatchObject({ note: 'Dropped the flag' })
+  expect((await inState(r.id, 'ready')).history?.some((h) => h.note === 'Dropped the flag')).toBe(true)
 })
 
 test('the context size follows the usage of the session', async () => {
-  play(m, 'usage 84000\nsay Read the files.\nwait\nusage 120000\nsay Wrote the reader.\nready done')
+  play(m, 'usage 84000\nsay Read the files.\nwait\nusage 120000\nsay Wrote the reader.\nblocked done')
   const r = await claim()
   const page = await follow(r.id)
   await until('the context of the first reading', () => page.record().context, (c) => c === 84001)
   expect(page.record().compact_at).toBe(250000)
   await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'go on' })
   await until('the context of the second reading', () => page.record().context, (c) => c === 120001)
-  expect((await inState(r.id, 'ready')).context).toBe(120001)
+  expect((await inState(r.id, 'blocked')).context).toBe(120001)
   page.close()
 })
 
@@ -350,7 +355,7 @@ test('the conversation routes refuse what names no process, no text and no answe
   expect(await api(m, 'POST', '/api/processes/message', { id: '../config', text: 'hi' })).toMatchObject({ status: 400 })
   expect(await api(m, 'POST', '/api/processes/message', { id: 'work-1-none', text: 'hi' })).toMatchObject({ status: 404 })
   expect((await fetch(`${m.url}/api/processes/events?id=work-1-none`)).status).toBe(404)
-  play(m, 'permit ls\nready done')
+  play(m, 'permit ls\nblocked done')
   const r = await claim()
   expect(await api(m, 'POST', '/api/processes/message', { id: r.id, text: '  ' })).toMatchObject({ status: 400, body: { error: 'text is empty; write the message to send' } })
   expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: 'x', answer: 'always' })).toMatchObject({ status: 400 })

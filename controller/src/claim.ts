@@ -24,6 +24,9 @@ export const knobs = [
   'WF_HANDOFF_SESSION_MS',
   'WF_HANDOFF_POLL_SECONDS',
   'WF_DOCS_TIMEOUT',
+  'WF_GATE_ROUNDS',
+  'WF_GATE_TIMEOUT',
+  'WF_STAGE_TIMEOUT',
 ]
 
 export const modes = ['manual', 'yolo'] as const
@@ -108,12 +111,42 @@ export interface CreatedRecord {
   updated_at: string
 }
 
+// The stages of a work process the controller drives, in their order.
+export const workStages = ['implement', 'gate'] as const
+export type WorkStage = (typeof workStages)[number]
+
+// An attempt of a stage as the process record keeps it: a session of the stage, a merge of the base or a
+// run of the gate command, with its result and the time it ended.
+export interface Attempt {
+  stage: WorkStage
+  kind: 'session' | 'merge' | 'run'
+  // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run.
+  result: string
+  at: string
+  session_id?: string
+  // commits are those a session reported, each a short hash and a subject.
+  commits?: string[]
+  note?: string
+  // commit is the head a merge or a run of the gate was at, and dirty whether the worktree had changes.
+  commit?: string
+  dirty?: boolean
+  // files are the files a merge of the base left in conflict.
+  files?: string[]
+  exit?: number | null
+  // tail is the end of the gate command's output.
+  tail?: string
+}
+
 // A work process on an issue, as a claim writes it.
 export interface WorkRecord extends CreatedRecord {
   kind: 'work'
   issue: number
   mode: Mode
   env: Record<string, string>
+  // hold says the next complete report of the implement session keeps it open instead of starting the gate.
+  hold?: boolean
+  // history is every attempt of a stage, in the order they ended.
+  history?: Attempt[]
 }
 
 export interface ClaimRequest {

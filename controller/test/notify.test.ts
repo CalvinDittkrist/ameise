@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, type Machine, machine, play, read, script, start } from './controller.js'
+import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, script, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -20,6 +20,7 @@ beforeEach(async () => {
   stderr = ''
   s.process.stderr?.on('data', (d: Buffer) => (stderr += d))
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
+  gated(dir)
   canPulls(m, 'owner/repo', [])
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
@@ -57,8 +58,8 @@ async function settled(want: number): Promise<Row> {
 }
 
 test.each([
-  ['blocked', 'blocked Keep the project in the file, or drop it?', 'Keep the project in the file, or drop it?'],
-  ['ready', 'ready Pull request #7 is green', 'Pull request #7 is green'],
+  ['blocked', 'blocked Keep the project in the file, or drop it?', 'Keep the project in the file, or drop it\\?'],
+  ['ready', 'complete Implemented the board', 'the gate passed at [0-9a-f]{7}'],
   ['failed', 'silent', 'the implement session exited without a result'],
 ])('a process that turns %s sends one notification and carries a badge until its page is opened', async (state, session, note) => {
   play(m, session)
@@ -66,7 +67,7 @@ test.each([
   expect(claimed.status, JSON.stringify(claimed.body)).toBe(201)
   const r = await settled(1)
   expect(r).toMatchObject({ state, unseen: true })
-  expect(notifications()).toEqual([`repo #144 ${state} | ${note}`])
+  expect(notifications()).toEqual([expect.stringMatching(new RegExp(`^repo #144 ${state} \\| ${note}$`))])
 
   expect(await api(m, 'POST', '/api/processes/seen', { id: r.id })).toEqual({ status: 200, body: { id: r.id } })
   expect(await row()).toMatchObject({ state, unseen: false })
@@ -93,18 +94,6 @@ test('a session stopped by an abandon that is then refused ends failed and sends
   expect(notifications()).toHaveLength(1)
 })
 
-test('a yolo process that ends ready sends one notification though its record is gone', async () => {
-  play(m, 'ready Merged pull request #7')
-  const claimed = await api(m, 'POST', '/api/processes', { project: dir, issue: 144, mode: 'yolo' })
-  expect(claimed.status, JSON.stringify(claimed.body)).toBe(201)
-  const file = join(m.state, 'processes', `${(claimed.body as { record: { id: string } }).record.id}.json`)
-  for (let i = 0; i < 200 && (existsSync(file) || notifications().length < 1); i++) await new Promise((done) => setTimeout(done, 50))
-  expect(existsSync(file)).toBe(false)
-  expect(notifications()).toEqual(['repo #144 ready | Merged pull request #7'])
-  await new Promise((done) => setTimeout(done, 200))
-  expect(notifications()).toHaveLength(1)
-})
-
 test('with notifications off a process sends none and still carries its badge', async () => {
   writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), notifications: false }, null, 2) + '\n')
   play(m, 'blocked Which base?')
@@ -118,7 +107,7 @@ test('with notifications off a process sends none and still carries its badge', 
 
 test('a notifier that fails leaves the process as it ended and says so on stderr', async () => {
   script(join(m.root, 'notifier'), 'echo "no display" >&2; exit 1')
-  play(m, 'ready Done')
+  play(m, 'complete Done')
   expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
   for (let i = 0; i < 200 && (await row())?.state === 'running'; i++) await new Promise((done) => setTimeout(done, 50))
   expect(await row()).toMatchObject({ state: 'ready', unseen: true })
@@ -129,7 +118,7 @@ test('a notifier that fails leaves the process as it ended and says so on stderr
 test('a notifier that cannot be started leaves the controller running and says so on stderr', async () => {
   // A NUL in the command name makes the spawn throw before any notifier runs.
   writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), notifier: 'notifier\u0000x' }, null, 2) + '\n')
-  play(m, 'ready Done')
+  play(m, 'complete Done')
   expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
   for (let i = 0; i < 100 && !stderr.includes('was not sent'); i++) await new Promise((done) => setTimeout(done, 50))
   expect(stderr).toMatch(/^warning: the notification "repo #144 ready" was not sent: /m)
