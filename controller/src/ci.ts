@@ -37,7 +37,7 @@ export function botsOf(record: WorkRecord): string[] {
 }
 
 // A reading of the pull request as gh pr view answers it: the fields the verdict is made of.
-interface Reading {
+export interface Reading {
   number: number
   url: string
   state: string
@@ -54,7 +54,7 @@ const failures = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED
 const pendings = ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED']
 
 // checksOf are the checks of a reading, each pass, fail or pending, with when it completed.
-function checksOf(r: Reading): (Check & { completed?: number })[] {
+export function checksOf(r: Reading): (Check & { completed?: number })[] {
   return (r.statusCheckRollup ?? []).map((c) => {
     const s = c.conclusion || c.state || 'PENDING'
     const pending = pendings.includes(s) || (c.status != null && c.status !== 'COMPLETED')
@@ -142,7 +142,7 @@ function workflowsIn(wt: string): boolean {
 }
 
 // pause lets ms pass, or less once the signal aborts.
-function pause(ms: number, signal: AbortSignal): Promise<void> {
+export function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve()
     const done = () => {

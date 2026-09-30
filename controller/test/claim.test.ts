@@ -262,8 +262,7 @@ test('a claim refuses a WF_GATE that is no gate form, as an override or in the s
   can(144, 'Board lists every project', ['ready-for-agent'])
   const forms = /the forms are a command such as make check, .* none, .* ci or ci:<jobs> such as ci:check,browser, .* or unset, for make check/
   const cases: [string[], RegExp][] = [
-    [['WF_GATE=ci'], /WF_GATE=ci is the gate on CI, which the controller does not run yet/],
-    [['WF_GATE=ci:check,browser'], /WF_GATE=ci:check,browser is the gate on CI, which the controller does not run yet/],
+    [['WF_GATE=ci:check,,browser'], /WF_GATE=ci:check,,browser is no gate form: ci:<jobs> names jobs separated by commas; /],
     [['WF_GATE=ci:'], forms],
     [['WF_GATE=make check | tee out'], /holds shell syntax, but the gate runs its command without a shell; /],
     [['WF_GATE= '], forms],

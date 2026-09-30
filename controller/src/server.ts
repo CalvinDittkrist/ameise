@@ -155,7 +155,8 @@ export function serve(o: Options): Server {
 
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
-  // gate again, one interrupted while its reviewers ran runs the round again, one interrupted in its pr
+  // gate again, and one interrupted while its gate on CI waited takes its draft over and reads the head
+  // again. One interrupted while its reviewers ran runs the round again, one interrupted in its pr
   // stage runs that stage again, one interrupted while its ci stage waited waits again, and one
   // interrupted in a fix session of its gate, its review or its ci stage goes on with that session. A fix
   // session of the review that had no id yet starts afresh with the findings of its round.

@@ -20,6 +20,6 @@ A connected repository may carry an ordered list of change classes. Each has a n
 ## Consequences
 - Cheap changes stay cheap, under a rule the maintainer writes per repository.
 - A too-wide class lets a failure through to the ci stage, costing a repair round.
-- The local pipeline still gates with `make check`.
+- Amended by #339: the local pipeline gates by `WF_GATE`.
 - A class without a name, a bad pattern or a gate command that is not a list is refused with the fix.
 - Rejected: the full gate and panel for every change, which pays twice for what CI checks.
