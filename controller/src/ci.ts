@@ -4,10 +4,8 @@
 // checks, then for a review of each bot of WF_PR_BOT_REVIEWERS within WF_PR_REVIEW_WAIT seconds of the
 // checks' end, then it reads the standing requests for changes and the unresolved threads.
 //
-// A gate's draft the pr stage marked ready carries the checks of the draft. In a repository whose
-// workflows name the ready_for_review event, marking it ready starts checks of their own, so the draft's
-// green is the pull request's only once a check has finished since the ready, or WF_CHECKS_GRACE has
-// passed. Bot reviewers skip drafts, so their review is waited for from the ready on at the earliest.
+// A gate's draft the pr stage marked ready waits for the checks its ready starts, as the README's ci
+// stage says. Bot reviewers skip drafts, so their review is waited for from the ready on.
 //
 // A conflict or failed checks start a fix session of the ci stage within WF_CI_REPAIR_ROUNDS; its complete
 // comes back here, which pushes and waits again. Green ends the process ready, where the board offers
@@ -18,9 +16,8 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type Attempt, type Check, fetch, git, push, type WorkRecord } from './claim.js'
-import { defaultGrace } from './cigate.js'
 import { run } from './exec.js'
-import { knob, setting } from './gate.js'
+import { defaultGrace, knob, setting } from './gate.js'
 import type { Project } from './project.js'
 import { attempt, begin, ciFixBrief, event, type Runtime, track, update } from './session.js'
 
