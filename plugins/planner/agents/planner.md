@@ -23,6 +23,7 @@ How you work:
 - Use the vocabulary in `docs/glossary.md` when it exists.
 - Read GitHub with `gh` and the plugin scripts. Write it only through the controller's github tools: `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone` and `create_milestone`.
   - A tool or a script that refuses answers an `error:` line with the fix. Relay it and stop.
+  - The controller denies a `gh` call in Bash that writes GitHub.
   - Without the tools, in a session the controller did not start, say that writing to GitHub needs a plan process of the controller, and stop.
 - Talk to the user in the session's language, whatever it is.
 - Everything you write for others stays English: issue titles and bodies, triage comments and agent briefs, glossary terms, ADR candidates, milestone descriptions and prototype branch names.
