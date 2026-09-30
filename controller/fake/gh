@@ -13,7 +13,8 @@
 #     repos/<owner>/<name>/pulls/<n>.readings/
 #                                          the readings gh pr view answers in their order before that,
 #                                          one file each, in the order of their names, such as 000.json;
-#                                          each call takes the next, and the last one stays
+#                                          each call takes the next, and the last one stays; once gh pr
+#                                          merge merged it, merged.json goes before them
 #     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create and gh pr edit --body-file where pulls/
 #                                          exists: the body of the pull request it opened or edited
 #     repos/<owner>/<name>/draft-<n>.json  written by gh pr create --draft: the draft it opened, by the
@@ -25,7 +26,11 @@
 #                                          written by gh pr merge, which holds for a canned pull request
 #     repos/<owner>/<name>/pulls/<n>.threads.json
 #                                          the review threads of it, such as [{"isResolved": false}],
-#                                          which gh api graphql answers; absent, it has none
+#                                          which gh api graphql answers; absent, it has none. A thread
+#                                          written with its id first, as {"id":"T1","isResolved":false,
+#                                          ...}, is resolved by the resolveReviewThread mutation
+#     repos/<owner>/<name>/pulls/<n>.comments
+#                                          written by gh pr comment --body-file: every comment on it
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
 #                                          (gh issue close, gh release create and gh api --method PATCH
@@ -70,7 +75,8 @@ case "$*" in
     cat "$file" ;;
   'pr view '*' --repo '*' --json '*)
     readings="$canned/repos/$5/pulls/$3.readings"
-    if [ -n "$canned" ] && [ -d "$readings" ]; then
+    merged="$canned/repos/$5/pulls/$3.merged"
+    if [ -n "$canned" ] && [ -d "$readings" ] && ! { [ -e "$merged" ] && [ -f "$merged.json" ]; }; then
       queue=("$readings"/*.json)
       if [ -f "${queue[0]}" ]; then
         # .taken counts the readings answered, as the PATH of a test holds no rm.
@@ -180,6 +186,28 @@ case "$*" in
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
   'issue edit '*' --repo '*' --remove-assignee @me')
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
+  'pr comment '*' --repo '*' --body-file '*)
+    if [ -z "$canned" ] || [ ! -d "$canned/repos/$5/pulls" ]; then
+      printf 'GraphQL: Could not resolve to a PullRequest with the number of %s. (repository.pullRequest)\n' "$3" >&2
+      exit 1
+    fi
+    cat "$7" >> "$canned/repos/$5/pulls/$3.comments"
+    printf '\n' >> "$canned/repos/$5/pulls/$3.comments"
+    printf 'https://github.com/%s/pull/%s#issuecomment-1\n' "$5" "$3" ;;
+  'api graphql -f threadId='*' -f body='*' -f query='*)
+    printf '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/fake/reply/%s"}}}}\n' "${4#threadId=}" ;;
+  'api graphql -f threadId='*' -f query='*)
+    id=${4#threadId=}
+    if [ -n "$canned" ]; then
+      for file in "$canned"/repos/*/*/pulls/*.threads.json; do
+        if [ ! -f "$file" ]; then continue; fi
+        threads=$(cat "$file")
+        open="\"id\":\"$id\",\"isResolved\":false"
+        resolved="\"id\":\"$id\",\"isResolved\":true"
+        printf '%s\n' "${threads//"$open"/$resolved}" > "$file"
+      done
+    fi
+    printf '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}\n' ;;
   'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
     file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
     threads='[]'

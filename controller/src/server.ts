@@ -17,7 +17,7 @@ import { open } from './terminal.js'
 import { gate } from './gate.js'
 import { resumeFix, review } from './review.js'
 import { pr } from './pr.js'
-import { ci } from './ci.js'
+import { ci, followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -157,8 +157,9 @@ export function serve(o: Options): Server {
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
   // gate again, and one interrupted while its gate on CI waited takes its draft over and reads the head
   // again. One interrupted while its reviewers ran runs the round again, one interrupted in its pr
-  // stage runs that stage again, one interrupted while its ci stage waited waits again, and one
-  // interrupted in a fix session of its gate, its review or its ci stage goes on with that session. A fix
+  // stage runs that stage again, one interrupted while its ci stage waited, or before its address-reviews
+  // session started, waits again, and one interrupted in a fix session of its gate, its review or its
+  // ci stage, or in its address-reviews session, goes on with that session. A fix
   // session of the review that had no id yet starts afresh with the findings of its round.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
@@ -177,7 +178,7 @@ export function serve(o: Options): Server {
             ? review(interrupted, project, rt)
             : interrupted.stage === 'pr'
               ? pr(interrupted, project, rt)
-              : interrupted.stage === 'ci' && !fix
+              : (interrupted.stage === 'ci' || interrupted.stage === 'address-reviews') && !fix
                 ? ci(interrupted, project, rt)
                 : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
@@ -462,13 +463,29 @@ export function serve(o: Options): Server {
   // The address the server listens on stays until it stops, whatever the file says meanwhile, so
   // the CLI reads it from the state directory rather than from the configuration.
   const record = join(o.stateDir, 'listen')
+  // The follow-up reads the pull requests of the processes the ci stage left ready or blocked on a
+  // review, four polls apart, one reading after the other (ci.ts).
+  let followUp: NodeJS.Timeout | undefined
+  const next = () => {
+    followUp = setTimeout(() => {
+      void followUps(rt, (path) => derive(path, o.gh)).finally(() => {
+        if (followUp !== undefined) next()
+      })
+    }, rt.poll * 4)
+    followUp.unref()
+  }
   server.on('listening', () => {
     // The processes are read before the first request: a session the last run left running is gone.
     recover(o.stateDir)
     writeFileSync(record, o.listen + '\n')
     log({ event: 'started', fake: o.fake })
+    next()
   })
-  server.on('close', () => rmSync(record, { force: true }))
+  server.on('close', () => {
+    clearTimeout(followUp)
+    followUp = undefined
+    rmSync(record, { force: true })
+  })
   return server
 }
 

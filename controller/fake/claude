@@ -7,6 +7,8 @@
 #     play                     the session to play, one step a line; the first word of a line is the step
 #     <stage>                  the session to play in that stage of a work process, which AMEISE_STAGE
 #                              names, such as gate for a fix session of the gate; without it play
+#                              (address-reviews for the session that answers a review, which
+#                              reports its replies, its answer and the points it fixed and declined)
 #     reviewer-<name>          the session a reviewer of that name plays, such as reviewer-code; without
 #                              it reviewer, and without that it reports verdict pass
 #     author                   the session the author of the pull request plays; without it, it reports
@@ -29,8 +31,11 @@
 #   run <command>       it runs the command in its directory with bash, whatever it exits with
 #   finding <severity> <where> <claim>
 #                       a reviewer's finding, such as finding S2 src/a.ts:3 The limit is off by one
-#   fixed <id> <note>   a fix session of the review fixed the finding of that id
-#   declined <id> <note>  it declined the finding of that id
+#   fixed <id> <note>   a fix session of the review fixed the finding of that id; an address-reviews
+#                       session reports the whole line as a point it fixed
+#   declined <id> <note>  it declined the finding of that id, or the point
+#   reply <thread> <body>  an address-reviews session replies to the thread of that id
+#   answer <text>       an address-reviews session answers the requests for changes with the text
 #   body <line>         a line of the body of the pull request the author reports
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
@@ -166,6 +171,11 @@ tokens=1
 findings=''
 fixes=''
 body=''
+# replies, answer, fixedl and declinedl are what an address-reviews session reports.
+replies=''
+answer=''
+fixedl=''
+declinedl=''
 
 # assistant writes a message of the session with the content blocks given as JSON.
 assistant() {
@@ -250,7 +260,12 @@ play() {
         line=${line#\"}
         body="$body${body:+\\n}${line%\"}" ;;
       fixed | declined)
-        fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}" ;;
+        fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}"
+        if [ "${step%% *}" = fixed ]; then fixedl="$fixedl${fixedl:+,}$(json "$rest")"; else declinedl="$declinedl${declinedl:+,}$(json "$rest")"; fi ;;
+      reply)
+        replies="$replies${replies:+,}{\"thread\":$(json "${rest%% *}"),\"body\":$(json "${rest#* }")}" ;;
+      answer)
+        answer=$rest ;;
       wait)
         if [ -z "$kept" ]; then
           while next; do
@@ -280,7 +295,11 @@ while next; do
       fi
       case "$word" in
         complete)
-          result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}"
+          if [ "$stage" = address-reviews ]; then
+            result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message"),\"replies\":[$replies],\"answer\":$(json "$answer"),\"fixed\":[$fixedl],\"declined\":[$declinedl]}"
+          else
+            result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}"
+          fi
           exit 0 ;;
         ready | blocked)
           result "{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}"

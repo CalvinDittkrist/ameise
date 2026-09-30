@@ -195,11 +195,11 @@ export type Fix = { finding: string; outcome: "fixed" | "declined"; note: string
 export type Check = { name: string; url?: string; state: "pass" | "fail" | "pending" }
 
 // An attempt of a stage as the record keeps it: a session of the stage, a merge of the base, a run of
-// the gate command, a round of the review, the opening of the pull request or a verdict of the ci
-// stage's wait, with its result and the time it ended.
+// the gate command, a round of the review, the opening of the pull request, a verdict of the ci
+// stage's wait or the answer the address-reviews stage posted, with its result and the time it ended.
 export type Attempt = {
   stage: string
-  kind: "session" | "merge" | "run" | "round" | "open" | "wait"
+  kind: "session" | "merge" | "run" | "round" | "open" | "wait" | "answer"
   result: string
   at: string
   // gate is the gate form a run ran: the command, or none.
@@ -221,6 +221,13 @@ export type Attempt = {
   url?: string
   checks?: Check[]
   reviews?: string[]
+  // mandate is what an address-reviews session answered, a writer's request or a bot's review, and
+  // fixed and declined the points it reported; answered and replied are what its answer posted.
+  mandate?: "writer" | "bot"
+  fixed?: string[]
+  declined?: string[]
+  answered?: string[]
+  replied?: string[]
 }
 
 // A process record as the controller keeps it, with the context size at which its session compacts.
@@ -254,6 +261,8 @@ export type ProcessRecord = {
   draft?: boolean
   checks?: Check[]
   wait?: string
+  // repairs are the repair rounds the ci stage spent on the pull request, of its budget.
+  repairs?: { spent: number; of: number }
   updated_at: string
 }
 

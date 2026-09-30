@@ -300,6 +300,39 @@ test("a process page in ci shows its pull request, what it waits for, the checks
   }
 })
 
+test("a process page that answered a review shows the repair rounds, the address-reviews stage and the follow-up", async ({ page }) => {
+  // The ready process of the fixture answered a review for this test, and is as it was after it.
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  const at = new Date().toISOString()
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "ci", state: "waiting", note: "PR #250: waiting for the checks: 1 of 1 pending", updated_at: at,
+    pull: { number: 250, url: "https://github.com/acme/pull/250" },
+    wait: "the checks: 1 of 1 pending",
+    repairs: { spent: 1, of: 3 },
+    history: [
+      { stage: "pr", kind: "open", result: "opened", at, pr: 250, url: "https://github.com/acme/pull/250" },
+      { stage: "ci", kind: "wait", result: "review-comments", at, pr: 250, reviews: ["1 review thread(s) not resolved"] },
+      { stage: "address-reviews", kind: "session", result: "complete", at, mandate: "bot", fixed: ["T1 Moved the bound"], declined: ["T2 The limit is the spec's"] },
+      { stage: "address-reviews", kind: "answer", result: "posted", at, pr: 250, answered: [], replied: ["T1", "T2"] },
+    ],
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(main(page).getByLabel("Repair rounds")).toHaveText("repair rounds 1 of 3")
+    await expect(main(page).getByRole("list", { name: "Records of address-reviews" }).getByRole("listitem")).toContainText([
+      "session complete on a bot's review, fixed 1, declined 1",
+      "replied to 2 threads",
+    ])
+    const followUp = main(page).getByRole("listitem", { name: "Follow-up 1" })
+    await expect(followUp).toContainText("a bot's review · complete")
+    await expect(followUp.getByRole("listitem")).toHaveText(["fixed: T1 Moved the bound", "declined: T2 The limit is the spec's"])
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
 test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
   await page.goto(url())
   await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()

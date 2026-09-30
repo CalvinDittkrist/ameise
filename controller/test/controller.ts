@@ -288,10 +288,19 @@ export function canPull(m: Machine, repository: string, number: number, readings
 }
 
 // reading is a reading of an open pull request as gh pr view answers it: mergeable, with checks of the
-// given conclusions, and with the reviews given; its merge state is clean unless it conflicts or is given. A green one has a check that passed and a bot's review.
+// given conclusions, and with the reviews given, each with the association of its author when given; its
+// merge state is clean unless it conflicts or is given, and more adds fields. A green one has a check that
+// passed and a bot's review.
 export function reading(
   number: number,
-  o: { mergeable?: string; mergeState?: string; checks?: Record<string, string>; reviews?: { login: string; state: string }[]; state?: string } = {},
+  o: {
+    mergeable?: string
+    mergeState?: string
+    checks?: Record<string, string>
+    reviews?: { login: string; state: string; association?: string; body?: string; at?: string }[]
+    state?: string
+    more?: Record<string, unknown>
+  } = {},
 ) {
   const checks = o.checks ?? { gate: 'SUCCESS' }
   const mergeable = o.mergeable ?? 'MERGEABLE'
@@ -304,7 +313,15 @@ export function reading(
     statusCheckRollup: Object.entries(checks).map(([name, conclusion]) =>
       conclusion === 'PENDING' ? { name, status: 'IN_PROGRESS', conclusion: null } : { name, status: 'COMPLETED', conclusion, detailsUrl: `https://github.com/owner/repo/actions/runs/7/job/${name}` },
     ),
-    reviews: (o.reviews ?? [{ login: 'chatgpt-codex-connector', state: 'COMMENTED' }]).map((r, i) => ({ author: { login: r.login }, state: r.state, body: 'Looked.', submittedAt: `2026-09-30T10:0${i}:00Z` })),
+    reviews: (o.reviews ?? [{ login: 'chatgpt-codex-connector', state: 'COMMENTED' }]).map((r, i) => ({
+      id: `R-${r.login}-${r.at ?? i}`,
+      author: { login: r.login },
+      ...(r.association ? { authorAssociation: r.association } : {}),
+      state: r.state,
+      body: r.body ?? 'Looked.',
+      submittedAt: r.at ?? `2026-09-30T10:0${i}:00Z`,
+    })),
+    ...o.more,
   }
 }
 
