@@ -69,7 +69,7 @@ Run the following as root unless it says otherwise.
    - So the host needs the tools that gate runs, at the versions the repository's CI pins.
    - Read them from its CI workflow (for this repository `.github/workflows/ci.yml`) and from the error lines of its `Makefile`, not from the distribution.
    - A distribution's version finds other things than CI's. The gate then fails on the host on files the change never touched, which no worker can fix.
-   - For this repository that is shellcheck 0.11.0, Go 1.26, Node 24 and staticcheck 2026.2.1.
+   - For this repository that is shellcheck 0.11.0, the Go that `factory/go.mod` names (1.27), Node 24 and staticcheck 2026.2.1.
    - Python is the distribution's `python3`, which CI does not pin.
    - One host has one version of each tool.
    - When two connected repositories pin different versions of one, the host runs the newest pin. The repository that is behind moves its CI to it.
@@ -88,11 +88,11 @@ Run the following as root unless it says otherwise.
    shellcheck --version           # version: 0.11.0
 
    goarch=arm64   # or amd64: dpkg --print-architecture
-   go=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '[.[].version | select(startswith("go1.26."))][0]')
+   go=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '[.[].version | select(startswith("go1.27."))][0]')
    curl -fsSLO "https://go.dev/dl/$go.linux-$goarch.tar.gz"
    curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r --arg f "$go.linux-$goarch.tar.gz" '.[].files[] | select(.filename == $f) | "\(.sha256)  \(.filename)"' | sha256sum --check &&
      rm -rf /usr/local/go && tar -xzf "$go.linux-$goarch.tar.gz" -C /usr/local
-   /usr/local/go/bin/go version   # go version go1.26.<patch> linux/<arch>
+   /usr/local/go/bin/go version   # go version go1.27.<patch> linux/<arch>
 
    key=/etc/apt/keyrings/nodesource.asc
    curl -fsSLO https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key

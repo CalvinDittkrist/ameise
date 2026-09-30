@@ -1,7 +1,7 @@
 # The gate: `make check` runs everything CI gates on, locally and in the CI job named `check`.
 SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
 
-.PHONY: check lint validate standard test ui factory factory-go browser binaries controller dashboard
+.PHONY: check lint validate standard test ui factory factory-go vuln browser binaries controller dashboard
 # The gate parallelises inside its targets (the Python runner's process pool, go test) and never across
 # them: the targets run one after the other so their output does not interleave, because the make that
 # ships with macOS is 3.81 and has no --output-sync to keep a parallel target's lines together.
@@ -61,6 +61,14 @@ $(UI)/node_modules: $(UI)/package-lock.json
 browser: $(UI_BUILD)
 	npm --prefix $(UI) exec -- playwright install chromium
 	npm --prefix $(UI) test
+
+# The known vulnerabilities the factory's code reaches, in the standard library of this Go among them,
+# from the Go vulnerability database. Not part of check: it asks that database online, and an entry
+# published there would fail every pull request, whatever it changed. The factory release runs it before
+# it builds, and the workflow vuln runs it on main every week.
+vuln:
+	@command -v go >/dev/null || { echo 'error: go not installed; brew install go (or https://go.dev/dl), the factory is written in Go' >&2; exit 1; }
+	go -C factory run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
 # The factory is a Go service; its tests start the real binary and watch it from outside. They read
 # the dashboard out of the binary, so the build it embeds has to be there before they run. The Go part

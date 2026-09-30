@@ -1,0 +1,21 @@
+name: vuln
+# The Go vulnerability database learns of new vulnerabilities after the gate has passed, in the
+# standard library above all, and hosts run the factory binaries released before that. Once a week
+# this checks main against it, so a finding is read before the next release refuses to build.
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Monday morning, away from the full hour most schedules pick
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  factory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: factory/go.mod # the Go the gate and the release build with
+          cache: false
+      - name: No known vulnerability in what the factory's code reaches
+        run: make vuln
