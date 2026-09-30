@@ -303,6 +303,109 @@
       }
     ]
   },
+  "draft": {
+    "about": "A gate on CI opens a draft at a run's first gate, when the run has no pull request of its own yet. The draft comes from the claimed branch against its base. Its title is the first line of the issue's title. Its body is Closes #N alone. The rule for a pull request already open on the branch is under takeover.",
+    "cases": [
+      {
+        "case": "a plain title",
+        "number": 104,
+        "title": "Retry the upload when the broker drops",
+        "draft_title": "Retry the upload when the broker drops",
+        "body": "Closes #104"
+      },
+      {
+        "case": "a title of two lines",
+        "number": 105,
+        "title": "Serve the preview\nand cache it",
+        "draft_title": "Serve the preview",
+        "body": "Closes #105"
+      },
+      {
+        "case": "a title in spaces",
+        "number": 106,
+        "title": "  Bump the pins  ",
+        "draft_title": "Bump the pins",
+        "body": "Closes #106"
+      }
+    ],
+    "takeover": {
+      "about": "Each case lists the pull requests open on the claimed branch and the number the peer recorded (0 for none). The peer takes over the one it recorded and its own login opened. Any other ends the run, and none opens the draft.",
+      "login": "factory-bot",
+      "cases": [
+        {
+          "case": "the peer's own draft",
+          "recorded": 104,
+          "open": [
+            {
+              "number": 104,
+              "author": "factory-bot"
+            }
+          ],
+          "outcome": "take over"
+        },
+        {
+          "case": "none open",
+          "recorded": 0,
+          "open": [],
+          "outcome": "open"
+        },
+        {
+          "case": "the recorded one closed",
+          "recorded": 104,
+          "open": [],
+          "outcome": "open"
+        },
+        {
+          "case": "one of somebody else",
+          "recorded": 0,
+          "open": [
+            {
+              "number": 104,
+              "author": "someone"
+            }
+          ],
+          "outcome": "end"
+        },
+        {
+          "case": "the recorded number opened by somebody else",
+          "recorded": 104,
+          "open": [
+            {
+              "number": 104,
+              "author": "someone"
+            }
+          ],
+          "outcome": "end"
+        },
+        {
+          "case": "one of the peer's login it did not record",
+          "recorded": 0,
+          "open": [
+            {
+              "number": 104,
+              "author": "factory-bot"
+            }
+          ],
+          "outcome": "end"
+        },
+        {
+          "case": "the peer's own beside another",
+          "recorded": 104,
+          "open": [
+            {
+              "number": 104,
+              "author": "factory-bot"
+            },
+            {
+              "number": 107,
+              "author": "someone"
+            }
+          ],
+          "outcome": "end"
+        }
+      ]
+    }
+  },
   "frontier": {
     "about": "The agent-ready issues nobody works on. With the routing label on every issue the factory takes the free ones and the local board offers none. Without it, the board offers them and the factory takes none. Both ask GitHub for the list with the query below, the factory with the routing label added after ready-for-agent.",
     "query": "issues?labels=ready-for-agent&state=open&per_page=100",
