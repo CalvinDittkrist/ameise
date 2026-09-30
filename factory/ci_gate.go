@@ -207,12 +207,7 @@ func (f *Factory) draft(parent, ctx context.Context, r *Run, entry Entry, claim 
 	if r.PullRequest != "" {
 		return r.PullRequest, true
 	}
-	title := strings.TrimSpace(firstLine(entry.Title))
-	if title == "" {
-		title = "Issue #" + strconv.Itoa(entry.Number)
-	}
-	pull, err := f.source.createPull(ctx, entry.Repository, newPull{Title: cut(title, maxTitle), Head: claim.branch, Base: claim.base,
-		Body: fmt.Sprintf("Closes #%d", entry.Number), Draft: true, issue: entry.Number})
+	pull, err := f.source.createPull(ctx, entry.Repository, draftOf(entry.Issue, claim))
 	if err != nil {
 		if !f.halted(parent, ctx, r, "opened the draft pull request") {
 			f.finish(r, outcomeFailed, "the draft pull request the gate on CI runs on could not be opened: "+err.Error()+"; the branch "+claim.branch+" is pushed", nil)
@@ -223,6 +218,18 @@ func (f *Factory) draft(parent, ctx context.Context, r *Run, entry Entry, claim 
 	f.runs.event(r, Event{Kind: "factory", Title: "opened the draft " + pull,
 		Body: "the gate runs on CI, which runs on pull requests; the pr stage writes the title and the body and marks it ready for review"})
 	return pull, true
+}
+
+// draftOf is the gate's draft of an issue, as the contract fixture states it: titled with the first
+// line of the issue's title, its body Closes #N and nothing else, from the claimed branch against the
+// base it was cut from.
+func draftOf(issue Issue, claim claimed) newPull {
+	title := strings.TrimSpace(firstLine(issue.Title))
+	if title == "" {
+		title = "Issue #" + strconv.Itoa(issue.Number)
+	}
+	return newPull{Title: cut(title, maxTitle), Head: claim.branch, Base: claim.base,
+		Body: fmt.Sprintf("Closes #%d", issue.Number), Draft: true, issue: issue.Number}
 }
 
 // settlePull settles once per run which pull request open on the claimed branch is the run's, by the
@@ -247,15 +254,7 @@ func (f *Factory) settlePull(parent, ctx context.Context, r *Run, entry Entry, c
 		f.warn(r, "pull requests not read", "which pull requests "+claim.branch+" has open could not be read: "+err.Error())
 		return false, true
 	}
-	ours := ""
-	foreign := []string{}
-	for _, p := range pulls {
-		if entry.pull != "" && pullOf(p.URL) == pullOf(entry.pull) && strings.EqualFold(p.Author, login) {
-			ours = p.URL
-			continue
-		}
-		foreign = append(foreign, fmt.Sprintf("%s, opened by %s", p.URL, p.Author))
-	}
+	ours, foreign := whosePulls(pulls, entry.pull, login)
 	if len(foreign) > 0 {
 		f.foreignPull(ctx, r, entry, claim, foreign)
 		return true, false
@@ -272,6 +271,21 @@ func (f *Factory) settlePull(parent, ctx context.Context, r *Run, entry Entry, c
 			Body: "the runs of this issue recorded " + entry.pull + ", which is not open on " + claim.branch + " any more"})
 	}
 	return true, true
+}
+
+// whosePulls splits the pull requests open on a run's branch by the key the contract fixture states:
+// the run's own is the one whose number the issue's runs recorded and that login opened, and every
+// other is foreign, named with who opened it.
+func whosePulls(pulls []branchPull, recorded, login string) (ours string, foreign []string) {
+	foreign = []string{}
+	for _, p := range pulls {
+		if recorded != "" && pullOf(p.URL) == pullOf(recorded) && strings.EqualFold(p.Author, login) {
+			ours = p.URL
+			continue
+		}
+		foreign = append(foreign, fmt.Sprintf("%s, opened by %s", p.URL, p.Author))
+	}
+	return ours, foreign
 }
 
 // foreignPull ends the run blocked on the pull requests of its branch that are not its own, because an

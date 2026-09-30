@@ -59,6 +59,27 @@ type contract struct {
 			Base          string `json:"base"`
 		} `json:"cases"`
 	} `json:"base_branch"`
+	Draft struct {
+		Cases []struct {
+			Case       string `json:"case"`
+			Number     int    `json:"number"`
+			Title      string `json:"title"`
+			DraftTitle string `json:"draft_title"`
+			Body       string `json:"body"`
+		} `json:"cases"`
+		Takeover struct {
+			Login string `json:"login"`
+			Cases []struct {
+				Case     string `json:"case"`
+				Recorded int    `json:"recorded"`
+				Open     []struct {
+					Number int    `json:"number"`
+					Author string `json:"author"`
+				} `json:"open"`
+				Outcome string `json:"outcome"`
+			} `json:"cases"`
+		} `json:"takeover"`
+	} `json:"draft"`
 	Frontier struct {
 		Query        string `json:"query"`
 		RoutingLabel string `json:"routing_label"`
@@ -207,6 +228,51 @@ func TestTheBaseBranchRuleFollowsTheContractFixture(t *testing.T) {
 					t.Errorf("base branch case %q: the factory branches off %q; the contract fixture says %q", name, got, c.Base)
 				}
 			})
+		}
+	}
+}
+
+// The gate's draft: a draft pull request from the claimed branch against its base, titled with the
+// first line of the issue's title and with the body Closes #N alone. A pull request open on the branch
+// is taken over when it is the one the factory recorded and its login opened; any other ends the run,
+// and none opens the draft.
+func TestTheGatesDraftFollowsTheContractFixture(t *testing.T) {
+	t.Parallel()
+	draft := readContract(t).Draft
+	if len(draft.Cases) == 0 || len(draft.Takeover.Cases) == 0 {
+		t.Fatal("the contract fixture has no draft case or no takeover case")
+	}
+	claim := claimed{branch: "feat/104-a-branch", base: "dev"}
+	for _, c := range draft.Cases {
+		got := draftOf(Issue{Number: c.Number, Title: c.Title}, claim)
+		if got.Title != c.DraftTitle || got.Body != c.Body || !got.Draft || got.Head != claim.branch || got.Base != claim.base {
+			t.Errorf("draft case %q: the factory opens %+v for %q; the contract fixture says a draft of %s against %s titled %q with the body %q",
+				c.Case, got, c.Title, claim.branch, claim.base, c.DraftTitle, c.Body)
+		}
+	}
+	link := func(number int) string {
+		return "https://github.com/acme/edge-sensors/pull/" + strconv.Itoa(number)
+	}
+	for _, c := range draft.Takeover.Cases {
+		pulls := []branchPull{}
+		for _, p := range c.Open {
+			pulls = append(pulls, branchPull{URL: link(p.Number), Author: p.Author})
+		}
+		recorded := ""
+		if c.Recorded > 0 {
+			recorded = link(c.Recorded)
+		}
+		ours, foreign := whosePulls(pulls, recorded, draft.Takeover.Login)
+		got := "open"
+		switch {
+		case len(foreign) > 0:
+			got = "end"
+		case ours != "":
+			got = "take over"
+		}
+		if got != c.Outcome {
+			t.Errorf("takeover case %q: the factory's answer is %q (its own %q, foreign %v); the contract fixture says %q",
+				c.Case, got, ours, foreign, c.Outcome)
 		}
 	}
 }
