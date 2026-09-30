@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { run } from './exec.js'
 import { issueFromBranch, recordFiles, worktrees } from './board.js'
 import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
+import { settingOf } from './gate.js'
 import { type Project, Refusal } from './project.js'
 import { event, forget, readRecord, stop, update } from './session.js'
 import { resumed } from './terminal.js'
@@ -19,11 +20,13 @@ export const routes = ['idea', 'issue', 'open', 'accept'] as const
 export type Route = (typeof routes)[number]
 
 // A plan process, as the state directory holds it in processes/<id>.json. Its route names the planner's
-// route its session takes, and its topic is the idea or the issue's title it plans.
+// route its session takes, and its topic is the idea or the issue's title it plans. Its language is the
+// repository's WF_PLANNER_LANGUAGE when the plan opened, the language the planner talks in.
 export interface PlanRecord extends CreatedRecord {
   kind: 'plan'
   route: Route
   topic?: string
+  language?: string
 }
 
 export type PlanRequest = { route: 'idea'; idea: string } | { route: 'issue'; issue: number } | { route: 'open' }
@@ -53,6 +56,22 @@ export function captureRequest(body: Record<string, unknown>): string {
   return slug(name)
 }
 
+// The longest WF_PLANNER_LANGUAGE, in characters: a language name or a locale code, never a sentence.
+const languageMax = 32
+
+// plannerLanguage reads WF_PLANNER_LANGUAGE from the env block of the checkout's settings, the language
+// the planner session talks in, or undefined where it is not set or empty. The value enters the session's
+// system prompt verbatim, so it refuses one with a control character or longer than a language name.
+export function plannerLanguage(checkout: string): string | undefined {
+  const value = settingOf({}, checkout, 'WF_PLANNER_LANGUAGE')
+  if (value === undefined || value === '') return undefined
+  if (typeof value !== 'string') throw new Refusal(`WF_PLANNER_LANGUAGE=${JSON.stringify(value)} is not text; set a language name or a locale code, such as german or pt-br`)
+  if (/\p{Cc}/u.test(value)) throw new Refusal('WF_PLANNER_LANGUAGE contains a line break or a control character; set a plain language name or a locale code, such as german')
+  const length = [...value].length
+  if (length > languageMax) throw new Refusal(`WF_PLANNER_LANGUAGE is ${length} characters long, which is a sentence, not a language; set a name or a locale code of at most ${languageMax}, such as german or pt-br`)
+  return value
+}
+
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
 
 // stamp is the local time to the second, which names the branch of an open session.
@@ -64,14 +83,17 @@ function stamp(d = new Date()): string {
 // plan opens a plan process: the branch plan/<slug> from the base, its worktree and a record in the
 // state created. The slug is the idea's, the issue's title's, or open-<time> for an open session. The
 // branch's description carries the topic, as the planner's scripts read it. It refuses an issue that is
-// not open, an issue with a process already, and a plan branch that exists.
+// not open, an issue with a process already, a plan branch that exists, and a WF_PLANNER_LANGUAGE that
+// is no language.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
 export function plan(project: Project, stateDir: string, gh: string, fake: boolean, req: PlanRequest): Promise<PlanRecord> {
+  // A language the session would refuse is refused here, before anything is created.
+  const language = plannerLanguage(project.path)
   const key = req.route === 'issue' ? `#${req.issue}` : `plan ${req.route === 'idea' ? slug(req.idea) : 'open'}`
-  return held(project, key, () => planHeld(project, stateDir, gh, fake, req))
+  return held(project, key, () => planHeld(project, stateDir, gh, fake, req, language))
 }
 
-async function planHeld(project: Project, stateDir: string, gh: string, fake: boolean, req: PlanRequest): Promise<PlanRecord> {
+async function planHeld(project: Project, stateDir: string, gh: string, fake: boolean, req: PlanRequest, language: string | undefined): Promise<PlanRecord> {
   const top = project.path
   const repo = `${project.owner}/${project.name}`
   let topic: string | undefined
@@ -132,6 +154,7 @@ async function planHeld(project: Project, stateDir: string, gh: string, fake: bo
     kind: 'plan',
     route: req.route,
     ...(topic !== undefined ? { topic } : {}),
+    ...(language !== undefined ? { language } : {}),
     branch,
     issue,
     worktree: path,
