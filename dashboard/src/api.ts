@@ -44,7 +44,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 export type Process = {
   id: string | null
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "failed" | "running" | "waiting" | "created"
+  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "done" | "failed" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
@@ -230,6 +230,17 @@ export type Attempt = {
   replied?: string[]
 }
 
+// The hunt record of a hunt process as the controller read it last: its rounds of at most max_rounds, why
+// it ended or null while it runs, the tests it removed and the candidates it checked and kept.
+export type Hunt = {
+  rounds: number
+  max_rounds: number
+  ended: string | null
+  removed: { round: number; commit: string; path: string; test: string; category: string; reason: string; why: string; still_proven: string }[]
+  kept: { round: number; path: string; test: string; category: string; reason: string; confidence: string }[]
+  stale: number
+}
+
 // A process record as the controller keeps it, with the context size at which its session compacts.
 export type ProcessRecord = {
   id: string
@@ -263,6 +274,8 @@ export type ProcessRecord = {
   wait?: string
   // repairs are the repair rounds the ci stage spent on the pull request, of its budget.
   repairs?: { spent: number; of: number }
+  // hunt is a hunt process's hunt record.
+  hunt?: Hunt
   updated_at: string
 }
 
@@ -326,6 +339,9 @@ export const openTerminal = (id: string) => call<{ script: string }>("POST", "/a
 // resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
 export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
 
+// resumeHunt goes on with an interrupted hunt process, which has no issue and is named by its id.
+export const resumeHunt = (id: string) => call<{ record: unknown }>("POST", "/api/processes/resume", { id })
+
 // adopt takes the issue's worktree on the branch, one the controller did not start, into a process, or
 // throws its reason.
 export const adopt = (path: string, issue: number, branch: string) =>
@@ -352,7 +368,12 @@ export const plan = (path: string, from: { idea: string } | { issue: number } | 
 // capture moves the prototype in a plan's worktree to a pushed prototype branch of its own.
 export const capture = (id: string, name: string) => call<{ branch: string; url: string }>("POST", "/api/processes/capture", { id, name })
 
-// finish removes a plan's worktree, branch and process; force drops what was not captured.
+// hunt opens a hunt process of the project at path and starts its test hunt. It answers the record as it
+// runs and what the hunt could not check, or throws the controller's reason.
+export const hunt = (path: string) => call<{ record: { id: string; branch: string }; warnings: string[] }>("POST", "/api/hunts", { project: path })
+
+// finish removes a plan's or a hunt's worktree, branch and process; force drops what was not captured or
+// pushed.
 export const finish = (id: string, force: boolean) => call<{ branch: string }>("POST", "/api/processes/finish", { id, force })
 
 // accept opens a plan process with the acceptance route on a spec of the project at path.

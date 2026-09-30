@@ -1,5 +1,5 @@
 import { TriangleAlertIcon } from "lucide-react"
-import { Plan, Release } from "@/components/actions"
+import { Hunt, Plan, Release } from "@/components/actions"
 import { IssueRow, Notes, ProcessRow } from "@/components/rows"
 import { Section } from "@/components/section"
 import { Button } from "@/components/ui/button"
@@ -74,7 +74,7 @@ export function ProjectView({
         <div className="ml-auto flex flex-wrap gap-2">
           <Plan path={project.path} />
           <Button size="sm" variant="outline" disabled>Standardize</Button>
-          <Button size="sm" variant="outline" disabled>Hunt tests</Button>
+          <Hunt path={project.path} />
           <Release path={project.path} reload={reload} />
         </div>
       </div>

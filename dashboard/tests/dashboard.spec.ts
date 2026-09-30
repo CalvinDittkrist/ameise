@@ -564,10 +564,8 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(actions(page, "Processes")).toHaveText(["Open", "Open"])
   await expect(rows(page, "Processes").first()).not.toContainText("backtest")
   await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
-  for (const action of ["Standardize", "Hunt tests"]) {
-    await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeDisabled()
-  }
-  for (const action of ["Plan", "Release"]) await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Standardize", exact: true }).first()).toBeDisabled()
+  for (const action of ["Plan", "Hunt tests", "Release"]) await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeEnabled()
   await expect(projects(page).getByRole("link", { name: "backtest" })).toHaveAttribute("data-active", "true")
 
   await page.reload()
@@ -849,6 +847,54 @@ test("plan opens a plan process from an idea, nothing or an issue, and a plan's 
   await dialog.getByRole("button", { name: "Finish" }).click()
   await expect(page).toHaveURL(new RegExp(`#${new URLSearchParams({ project })}$`))
   expect(sent()).toEqual({ id, force: true })
+})
+
+test("hunt tests opens a hunt process, whose page shows the hunt record, and a hunt that removed nothing finishes", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "hunt-0123456789ab"
+  const record = {
+    id, project, kind: "hunt", branch: "hunt/tests-2026-09-30", issue: null, mode: "manual",
+    stage: "hunt", state: "done", note: "the hunt removed nothing in 1 round, so no pull request opens; 1 candidate were checked and kept. Finish it to remove its worktree and branch",
+    session_id: "s-1", compact_at: 250000, updated_at: new Date().toISOString(),
+    hunt: {
+      rounds: 1, max_rounds: 3, ended: "round 1 found no new candidate", stale: 0,
+      removed: [],
+      kept: [{ round: 1, path: "tests/test_drift.py", test: "test_drift", category: "mocks-subject", reason: "the clock may be stubbed", confidence: "medium" }],
+    },
+  }
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url())
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+
+  // Hunt tests on the project page: the controller's refusal shows in the dialog; a hunt opens its page.
+  await main(page).getByRole("button", { name: "Hunt tests", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Hunt tests" })
+  const refusal = "the hunt branch hunt/tests-2026-09-29 exists on origin; merge its pull request or delete it before the next hunt"
+  await answer(page, "/api/hunts", 409, { error: refusal })
+  await dialog.getByRole("button", { name: "Start the hunt" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText(refusal)
+  await page.unroute("**/api/hunts")
+  let sent = await answer(page, "/api/hunts", 201, { record: { id, branch: "hunt/tests-2026-09-30" }, warnings: [] })
+  await dialog.getByRole("button", { name: "Start the hunt" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project })
+
+  // The page shows the hunt's stages, why it ended with no pull request, and the candidates it kept.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("hunt/tests-2026-09-30")
+  await expect(page.getByRole("list", { name: "Stages" }).locator("[data-slot=badge]")).toHaveText(["hunt", "gate", "review", "pr", "ci"])
+  await expect(page.getByLabel("Note")).toContainText("so no pull request opens")
+  const hunt = page.getByRole("region", { name: "Hunt record" })
+  await expect(hunt).toContainText("round 1 of at most 3 · ended: round 1 found no new candidate")
+  await expect(hunt.getByRole("list", { name: "Kept candidates" })).toHaveText("kept test_drift in tests/test_drift.py · mocks-subject, medium: the clock may be stubbed")
+
+  // Finish removes it and opens the project's page.
+  await main(page).getByRole("button", { name: "Finish" }).click()
+  sent = await answer(page, "/api/processes/finish", 200, { id, branch: "hunt/tests-2026-09-30", worktree: null })
+  await page.getByRole("dialog", { name: "Finish" }).getByRole("button", { name: "Finish" }).click()
+  await expect(page).toHaveURL(new RegExp(`#${new URLSearchParams({ project })}$`))
+  expect(sent()).toEqual({ id, force: false })
 })
 
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {

@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, adopt, claim, claimed, type Issue, type Process, QuotaContext, type Reading, resume, runtimeName, until } from "@/api"
+import { abandon, adopt, claim, claimed, type Issue, type Process, QuotaContext, type Reading, resume, resumeHunt, runtimeName, until } from "@/api"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -252,28 +252,32 @@ export function Abandon({ issue, branch, path, reload }: { issue: number; branch
   )
 }
 
-// ProcessAction is the one action that moves a process on. Resume goes on with an interrupted session and
+// ProcessAction is the one action that moves a process on. Resume goes on with an interrupted session, a
+// hunt's by its id, and
 // Adopt takes a foreign worktree into a process; the controller does not serve the others yet, so they
 // are shown disabled. The controller's reason for refusing one is shown beside it.
 export function ProcessAction({ p, path, reload }: { p: Process; path: string; reload: () => Promise<void> }) {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   // Adopt names the row's branch, so it takes this worktree when another names the same issue.
+  const { id, issue } = p
   const act =
-    p.issue === null
-      ? undefined
-      : p.action === "Resume"
-        ? resume
-        : p.action === "Adopt"
-          ? (path: string, issue: number) => adopt(path, issue, p.branch)
-          : undefined
+    p.kind === "hunt" && p.action === "Resume" && id !== null
+      ? () => resumeHunt(id)
+      : issue === null
+        ? undefined
+        : p.action === "Resume"
+          ? () => resume(path, issue)
+          : p.action === "Adopt"
+            ? () => adopt(path, issue, p.branch)
+            : undefined
 
   async function run() {
-    if (!act || p.issue === null) return
+    if (!act) return
     setBusy(true)
     setError("")
     try {
-      await act(path, p.issue)
+      await act()
       await reload()
     } catch (err) {
       setError((err as Error).message)
