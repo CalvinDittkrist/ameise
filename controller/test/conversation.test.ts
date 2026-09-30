@@ -137,6 +137,8 @@ test('a permission request is a card of the page that waits for its answer, and 
   await said(page, 'Ran git push origin HEAD.')
   expect(await inState(r.id, 'blocked')).toMatchObject({ note: 'Pushed' })
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: permission.request, answer: 'once' }))
+  // The page's stream may trail the record, so wait for its end card.
+  expect(await card(page, 'end')).toMatchObject({ kind: 'end', state: 'blocked', note: 'Pushed' })
   expect(page.entries().at(-1)).toMatchObject({ kind: 'end', state: 'blocked', note: 'Pushed' })
   // The answer is in the log, and the session was told to run the call as it asked.
   expect(read(join(m.state, 'processes', `${r.id}.events.jsonl`))).toContain(`"event":"answer","request":"${permission.request}","answer":"once"`)
