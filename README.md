@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
-  <img alt="ameise" src="docs/assets/banner-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark-animated.svg">
+  <img alt="ameise" src="docs/assets/banner-light-animated.svg">
 </picture>
 
 # ameise
