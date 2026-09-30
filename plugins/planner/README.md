@@ -52,11 +52,8 @@ Model: the agent file names `fable`; the root README explains why. `spec-checker
 ## Configuration
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `WF_PLANNER_PERMISSION_MODE` | `auto` | permission mode of the session |
 | `WF_PLANNER_LANGUAGE` | empty | conversation language, such as `german`; issues stay English. The [controller's readme](../../controller/README.md) says how it is read and checked |
-| `WF_CLAUDE_ARGS` | empty | extra flags for every worker and planner, such as `--model` |
-| `WF_PLANNER_CLAUDE_ARGS` | empty | extra flags for planner sessions; `--model opus` moves the session and its research subagent, not `spec-checker` |
-| `WF_PLAN`, `WF_PLAN_ISSUE` | set by `/plan` | slug and issue of the planner session |
+| `WF_PLAN`, `WF_PLAN_ISSUE` | set by the controller | slug and issue of the planner session |
 | `WF_PLAN_CONTROLLER` | set by the controller | `1` under the controller: silent start hook; `finish.sh` leaves the removal to it |
 
 ## Develop

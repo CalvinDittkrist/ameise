@@ -105,7 +105,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT` and `WF_DOCS_TIMEOUT`, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
@@ -382,7 +382,7 @@ Stopping and starting the controller loses no process.
 In fake mode the scripted claude plays a resumed session under the id it resumes.
 
 ## Merge
-A merge takes a ready pull request of a project into its base, by the rules of the orchestrator's merge. It refuses, with the reason and `409`, a pull request that is:
+A merge takes a ready pull request of a project into its base. It refuses, with the reason and `409`, a pull request that is:
 - not open, a draft, or in conflict, or whose conflicts GitHub has not computed yet,
 - not green: a check failed or pending, or a merge state other than `CLEAN`,
 - asked for changes.

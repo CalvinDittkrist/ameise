@@ -8,7 +8,7 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0002](0002-scripts-do-agents-decide.md) | Scripts do, agents decide | superseded by [0057](0057-the-controller-does-agents-decide.md) |
 | [0003](0003-herdr-worktree-per-issue.md) | One Herdr worktree workspace per issue, branch name as contract | superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0004](0004-reviewers-as-fresh-read-only-subagents.md) | Reviewers are fresh-context, read-only subagents | amended by [0019](0019-the-gate-runs-once-per-review-round.md) |
-| [0005](0005-sandboxing-strategy.md) | Sandboxing strategy: layered, Docker Sandboxes opt-in | accepted |
+| [0005](0005-sandboxing-strategy.md) | Sandboxing strategy: layered, Docker Sandboxes opt-in | accepted; the Docker sandbox flag superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0006](0006-planner-session-writes-issues-not-code.md) | Planning is its own session that writes issues, not code | accepted |
 | [0007](0007-agents-md-is-the-instruction-source.md) | AGENTS.md is the instruction source and CLAUDE.md imports it | accepted |
 | [0008](0008-make-check-is-the-single-gate.md) | make check is the single gate and check the single required status check | amended by [0041](0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md) |
