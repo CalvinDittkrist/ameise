@@ -72,3 +72,4 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0066](0066-the-product-is-named-ameise-and-its-parts-keep-their-names.md) | The product is named ameise and its parts keep their names | accepted |
 | [0067](0067-the-rename-is-a-hard-cut.md) | The rename is a hard cut | accepted |
 | [0068](0068-the-host-crosses-the-rename-through-a-bridge-release.md) | The host crosses the rename through a bridge release | accepted |
+| [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) | The controller reads Claude and Codex and warns a claim of Claude | accepted |

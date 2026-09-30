@@ -4,8 +4,9 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
-- Its footer holds the quota of `GET /api/quota`: per runtime the percentage left as a bar and the time to its reset.
+- Its footer holds the quota of `GET /api/quota`: for Claude, then Codex, the percentage left as a bar and the time to its reset.
   - A runtime below the configured minimum is red and says so. One the controller could not read says unknown, with the reason on hover.
+  - With no `quota_axi` configured it says the check is off.
   - It is read when the page opens, on focus and every minute.
 - The sidebar collapses to its icons, which hides the footer.
 - A process that turned blocked, ready or failed carries a badge, `new`, on its row until its page is opened. The Orchestrator entry counts them.
@@ -28,7 +29,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - Claim on a ready-to-start row opens a dialog for the mode, manual or yolo, and the worker knobs to override, one `NAME=VALUE` per line.
   - Force claims an issue the controller refuses as not agent-ready, routed, held in a spec run or claimed on origin.
   - The controller's reason for a refusal shows in the dialog.
-  - A runtime whose quota is below the minimum is a warning in the dialog, whose button then reads Claim anyway. Nothing waits for the reset.
+  - Claude below the minimum is a warning in the dialog, whose button then reads Claim anyway. Nothing waits for the reset. A Codex below it warns no claim.
 - The cross on the row of a work process abandons it after a dialog: the worktree and the process go, the branch and the issue stay.
   - Force abandons work not on origin.
 - Resume on the row of an interrupted process goes on with its session.
@@ -49,7 +50,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - `npm --prefix dashboard run dev` serves it with hot reload. It sends `/api` to a controller on the default address.
 - `make dashboard` runs eslint, the type check, the build and the browser test.
 - The browser test starts the built controller in fake mode with two checkouts and a directory that is no checkout.
-  - A scripted quota-axi answers that Claude is below the minimum.
+  - A scripted quota-axi answers that Claude is below the minimum and Codex above it.
   - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.

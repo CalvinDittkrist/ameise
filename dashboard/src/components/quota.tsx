@@ -3,10 +3,11 @@ import { cn } from "@/lib/utils"
 
 // QuotaBars is the quota of every runtime a process spends: a bar of what is left and when it resets. A
 // runtime below the configured minimum is marked, and one quota-axi could not read says unknown with
-// the reason on hover.
+// the reason on hover. A quota check switched off says so in place of the bars.
 export function QuotaBars({ quota }: { quota: Quota }) {
   if (quota.state === "loading") return <p className="text-muted-foreground">Reading</p>
   if (quota.state === "failed") return <p className="text-destructive">{quota.error}</p>
+  if (quota.off) return <p className="text-muted-foreground">Off: no quota_axi is configured</p>
   return (
     <ul aria-label="Quota" className="flex flex-col gap-3">
       {quota.runtimes.map((r) => (

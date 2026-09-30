@@ -31,9 +31,10 @@ export default async function start() {
   const claude = join(root, "claude")
   mkdirSync(claude)
   process.env.AMEISE_FAKE_CLAUDE = claude
-  const quota = join(root, "quota.json")
-  writeFileSync(quota, JSON.stringify(report(8, new Date(Date.now() + 2.5 * 3_600_000).toISOString())))
-  script(join(bin, "quota-axi"), `cat '${quota}'`)
+  // Claude is below the minimum and Codex above it; each answers the report of the provider asked for.
+  writeFileSync(join(root, "quota-claude.json"), JSON.stringify(report("claude", 8, new Date(Date.now() + 2.5 * 3_600_000).toISOString())))
+  writeFileSync(join(root, "quota-codex.json"), JSON.stringify(report("codex", 64, new Date(Date.now() + 3.5 * 86_400_000).toISOString())))
+  script(join(bin, "quota-axi"), `cat '${root}/quota-'"$2"'.json'`)
 
   const github = join(root, "github")
   const sources = join(root, "src")
@@ -108,13 +109,14 @@ export default async function start() {
 // listens.
 let runningRecords = () => {}
 
-// report is quota-axi's JSON report of Claude with the percentage left and the reset of its session window.
-function report(remaining: number, reset: string) {
+// report is quota-axi's JSON report of one provider with the percentage left and the reset of its
+// session window.
+function report(provider: string, remaining: number, reset: string) {
   return {
     schemaVersion: 5,
     providers: [
       {
-        provider: "claude",
+        provider,
         state: { stale: false, error: "" },
         windows: [{ id: "five_hour", resetsAt: reset }],
         quotaSemantics: { effectiveAvailability: [{ scope: "all_models", status: "known", effectivePercentRemaining: remaining, limitingWindowIds: ["five_hour"] }] },

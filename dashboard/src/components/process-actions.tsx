@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, adopt, claim, type Issue, type Process, QuotaContext, type Reading, resume, runtimeName, until } from "@/api"
+import { abandon, adopt, claim, claimed, type Issue, type Process, QuotaContext, type Reading, resume, runtimeName, until } from "@/api"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -82,11 +82,11 @@ export function Warnings() {
 // Claim takes an issue of the frontier into a work process of the project at path. The dialog asks
 // for the mode and the worker knobs the process overrides, one NAME=VALUE per line. The controller
 // refuses what it will not claim, and its reason is shown in the dialog. The warnings of a claim that
-// went through show in Warnings until they are closed. A runtime whose quota is below the minimum is
-// a warning in the dialog: the claim goes on when it is confirmed, and nothing waits for the reset.
+// went through show in Warnings until they are closed. Claude below the minimum is a warning in the
+// dialog: the claim goes on when it is confirmed, and nothing waits for the reset.
 export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   const quota = useContext(QuotaContext)
-  const low = quota.state === "loaded" ? quota.runtimes.filter((r): r is Extract<Reading, { known: true }> => r.known && r.below) : []
+  const low = quota.state === "loaded" ? quota.runtimes.filter((r): r is Extract<Reading, { known: true }> => r.runtime === claimed && r.known && r.below) : []
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"manual" | "yolo">("manual")
   const [knobs, setKnobs] = useState("")

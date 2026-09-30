@@ -51,8 +51,37 @@ test("the sidebar shows the quota of each runtime with its reset, and marks one 
   const claude = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Claude" })
   await expect(claude).toHaveText("Claude8%below 12% · resets in 2h")
   await expect(claude).toHaveAttribute("data-below", "true")
+  const codex = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Codex" })
+  await expect(codex).toHaveText("Codex64%resets in 3d")
+  await expect(codex).toHaveAttribute("data-below", "false")
+  await expect(sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem")).toHaveText([/^Claude/, /^Codex/])
   const quota = await (await fetch(url("/api/quota"))).json()
-  expect(quota).toMatchObject({ minimum: 12, runtimes: [{ runtime: "claude", known: true, remaining: 8, below: true }] })
+  expect(quota).toMatchObject({ minimum: 12, runtimes: [{ runtime: "claude", known: true, remaining: 8, below: true }, { runtime: "codex", known: true, remaining: 64, below: false }] })
+})
+
+test("a quota check switched off says off in the sidebar and warns no claim", async ({ page }) => {
+  await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, off: true, runtimes: [] } }))
+  await page.goto(url())
+  await expect(sidebar(page).getByText("Off: no quota_axi is configured")).toBeVisible()
+  await expect(sidebar(page).getByRole("list", { name: "Quota" })).toHaveCount(0)
+  await section(page, "Ready to start").locator('[aria-label="#144"]').getByRole("button", { name: "Claim" }).click()
+  await expect(page.getByRole("dialog", { name: "Claim #144" }).getByRole("status", { name: "Quota" })).toHaveCount(0)
+})
+
+test("a Codex below the minimum is marked in the sidebar and warns no claim", async ({ page }) => {
+  const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
+  await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
+    { runtime: "claude", known: true, remaining: 40, reset, below: false },
+    { runtime: "codex", known: true, remaining: 5, reset, below: true },
+  ] } }))
+  await page.goto(url())
+  const codex = sidebar(page).getByRole("listitem", { name: "Codex" })
+  await expect(codex).toHaveText("Codex5%below 12% · resets in 3h")
+  await expect(codex).toHaveAttribute("data-below", "true")
+  await section(page, "Ready to start").locator('[aria-label="#144"]').getByRole("button", { name: "Claim" }).click()
+  const dialog = page.getByRole("dialog", { name: "Claim #144" })
+  await expect(dialog.getByRole("status", { name: "Quota" })).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Claim", exact: true })).toBeVisible()
 })
 
 test("a quota the controller cannot read shows as unknown with the reason", async ({ page }) => {

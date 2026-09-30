@@ -59,6 +59,11 @@ test.each([
   ['an unknown field', '{"repositories": []}', /unknown field "repositories"; the fields are listen, /],
   ['a listen address off this machine', '{"listen": "0.0.0.0:7420"}', /listen "0\.0\.0\.0:7420" is not a loopback address; write it as "127\.0\.0\.1:<port>"/],
   ['a listen address that is no IPv4 address', '{"listen": "127.999.999.999:7420"}', /listen "127\.999\.999\.999:7420" is not a loopback address; write it as "127\.0\.0\.1:<port>"/],
+  [
+    'a quota_axi with whitespace',
+    '{"quota_axi": "npx quota-axi"}',
+    /quota_axi "npx quota-axi" has whitespace in it; install quota-axi globally with npm \(npm install -g quota-axi\) and name the absolute path that command -v quota-axi prints; npx does not work/,
+  ],
   ['a quota minimum that is no percentage', '{"quota_minimum": 120}', /quota_minimum 120 is not a percentage; write it as a whole number/],
   ['a notifier that is no command name', '{"notifier": false}', /notifier is not a string; name the command a notification is sent through/],
   ['a project named twice', '{"projects": ["/src/repo", "/src/repo"]}', /projects names \/src\/repo twice; keep one of them/],
