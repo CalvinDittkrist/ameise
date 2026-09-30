@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, cli, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -16,6 +16,7 @@ beforeEach(async () => {
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
+  gated(dir)
   canPulls(m, 'owner/repo', [])
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
@@ -35,6 +36,7 @@ interface Record {
   branch: string
   worktree: string
   session_id?: string
+  history?: { stage: string; kind: string; result: string; at: string; session_id?: string; commits?: string[]; commit?: string; exit?: number }[]
 }
 
 const claim = async (mode: 'manual' | 'yolo' = 'manual'): Promise<Record> => {
@@ -70,19 +72,26 @@ function started(): { args: string[]; read: string[] } {
   return { args: lines.filter((l) => !l.startsWith('< ')), read: lines.filter((l) => l.startsWith('< ')).map((l) => l.slice(2)) }
 }
 
-test('a claim starts a session in the worktree with the worker plugin and the session settings, and a ready report ends the process ready', async () => {
-  play(m, 'ready Pull request #7 is green and waits for your merge')
+test('a claim starts a session in the worktree with the worker plugin and the session settings, and its complete report starts the gate, whose pass ends the process ready', async () => {
+  play(m, 'commit board.txt\ncomplete Implemented the board')
   const r = await claim()
   expect(r).toMatchObject({ state: 'running', stage: 'implement' })
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'implement', note: 'Pull request #7 is green and waits for your merge' })
+  const head = execFileSync('git', ['-C', r.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  expect(done).toMatchObject({ state: 'ready', stage: 'gate', note: `the gate passed at ${head.slice(0, 7)}` })
   expect(done.session_id).toMatch(/^fake-session-/)
+  // The record carries each stage's attempt: the implement session with its commits, then the gate's run.
+  expect(done.history).toMatchObject([
+    { stage: 'implement', kind: 'session', result: 'complete', session_id: done.session_id, commits: [expect.stringMatching(/^[0-9a-f]{7,} fix: write board\.txt$/)] },
+    { stage: 'gate', kind: 'run', result: 'pass', commit: head, exit: 0 },
+  ])
+  expect(done.history?.every((h) => !Number.isNaN(Date.parse(h.at)))).toBe(true)
 
   // The stream is in the event log, the session's id with it.
   const log = events(r.id)
-  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end'])
+  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end', 'gate-start', 'gate', 'gate-end'])
   expect(log.filter((e) => e.event === 'stream').map((e) => e.message?.type)).toEqual(['system', 'assistant', 'result'])
-  expect(log.at(-1)).toMatchObject({ state: 'ready', note: 'Pull request #7 is green and waits for your merge' })
+  expect(log.at(-1)).toMatchObject({ state: 'ready', note: `the gate passed at ${head.slice(0, 7)}` })
 
   const { args } = started()
   const flag = (name: string) => args[args.indexOf(name) + 1]
@@ -106,22 +115,19 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(env.filter((name) => /^(WF_|HERDR_)/.test(name))).toEqual([])
   expect(env).toContain('HOME')
 
-  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'implement', note: 'Pull request #7 is green and waits for your merge', needs: true, action: 'Merge' }])
+  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'gate', note: `the gate passed at ${head.slice(0, 7)}`, needs: true, action: 'Merge' }])
 })
 
-test('a yolo session that reports ready has merged, so its process is done and its record goes', async () => {
-  play(m, 'ready Merged pull request #7')
+test('a yolo session runs with the mode yolo', async () => {
+  play(m, 'blocked Which way?')
   const r = await claim('yolo')
-  const file = join(m.state, 'processes', `${r.id}.json`)
-  for (let i = 0; i < 200 && existsSync(file); i++) await new Promise((done) => setTimeout(done, 50))
-  expect(existsSync(file)).toBe(false)
-  expect(existsSync(join(m.state, 'processes', `${r.id}.events.jsonl`))).toBe(false)
+  await ended(r.id)
   const { args } = started()
   expect((JSON.parse(args[args.indexOf('--settings') + 1] ?? '{}') as { env: { [k: string]: string } }).env.WF_MODE).toBe('yolo')
 })
 
 test('the brief names the issue, the branch, the base and the read of the issue, and carries no text of it', async () => {
-  play(m, 'ready done')
+  play(m, 'complete done')
   const r = await claim()
   await ended(r.id)
   const prompt = started().read.find((l) => l.includes('"type":"user"')) ?? ''
@@ -133,7 +139,7 @@ test('the brief names the issue, the branch, the base and the read of the issue,
 })
 
 test('an adopted branch with a shell character in its name ends the process failed before any session starts', async () => {
-  play(m, 'ready done')
+  play(m, 'complete done')
   const branch = 'fix/144-board$(touch${IFS}pwned)'
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[{ name: 'main' }, { name: branch }]])
   const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
