@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -596,6 +597,48 @@ func TestAMergedSpecPullRequestIsHeldUntilTheAssigneeComesOff(t *testing.T) {
 	done := f.specRunIn(t, specDone)
 	if done.DoneAt == nil || !strings.Contains(done.Reason, specPullURL) {
 		t.Errorf("the spec run is done at %v for %q, want the time and the merge of %s", done.DoneAt, done.Reason, specPullURL)
+	}
+}
+
+// A spec run that ended done leaves its spec open and routed. It stays the answer to every routing set
+// before its end. The polls after it claim nothing, with the spec branch on the remote or gone, and
+// neither does a factory started again on its record. A routing set after the end claims the spec again.
+func TestASpecRunThatEndedDoneIsClaimedAgainOnlyOnARoutingAfterItsEnd(t *testing.T) {
+	t.Parallel()
+	gh, data := ticketClaim(t)
+	gh.subIssues(t, closedIssue(gh.ticketOf(t, ticketIssue, ticketTitle)))
+	gh.specPullIs(t, false)
+	gh.unassigns(t, "acme/edge-sensors", specNumber, "factory-bot")
+	c := ticketConfig(data, nil, nil)
+	f := gh.work(t, c)
+	if run := f.ended(t, 1); run.Outcome != outcomeReady || run.PullRequest != specPullURL {
+		t.Fatalf("run 1 ended %q with %q (%s), want the spec pull request ready; the factory's log:\n%s", run.Outcome, run.PullRequest, run.Reason, f.output(t))
+	}
+	gh.specPullIs(t, true)
+	done := f.specRunIn(t, specDone)
+	if done.EndedAt == nil || !done.EndedAt.Equal(*done.DoneAt) {
+		t.Errorf("the spec run done at %v ended at %v, want its end at the merge it read", done.DoneAt, done.EndedAt)
+	}
+
+	// The label was taken off and set again after the routing the spec run answered and before its end,
+	// as a reading that lagged behind the claim leaves it.
+	now := time.Now().UTC()
+	gh.routeSpecAgain(t, now, now.Add(-40*time.Minute), now.Add(-30*time.Minute))
+	f.claimsNoSpec(t, gh, specDone)
+	gh.git(t, gh.remotePath("acme/edge-sensors"), "branch", "-D", specBranch)
+	f.claimsNoSpec(t, gh, specDone)
+	f.stop(t, syscall.SIGTERM)
+
+	again := gh.work(t, c)
+	again.claimsNoSpec(t, gh, specDone)
+	later := time.Now().UTC().Add(2 * time.Second)
+	gh.routeSpecAgain(t, later, later.Add(-time.Second), later)
+	again.eventually(t, 20*time.Second, "a second spec run that claimed the spec", func() bool {
+		specs := again.specRuns(t)
+		return len(specs) == 2 && specs[1].ClaimedAt != nil
+	})
+	if head := gh.head(t, "acme/edge-sensors", specBranch); head == "" {
+		t.Errorf("the second spec run claimed the spec, but %s is not on the remote", specBranch)
 	}
 }
 

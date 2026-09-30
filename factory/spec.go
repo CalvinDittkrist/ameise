@@ -68,11 +68,15 @@ type SpecRun struct {
 	// Idle says no ticket run of the spec run is working. A spec run holds its spec between tickets.
 	Idle bool `json:"idle"`
 	// SignalAt is when the spec-run label was last set on the spec, the routing this spec run answers.
-	// A spec whose latest spec run did not hold it is claimed again only on a routing newer than that.
 	SignalAt  time.Time  `json:"signalAt"`
 	StartedAt time.Time  `json:"startedAt"`
 	ClaimedAt *time.Time `json:"claimedAt"`
 	LetGoAt   *time.Time `json:"letGoAt"`
+	// EndedAt is when the spec run stopped holding its spec or trying to: read done, let go, lost or
+	// failed. A spec whose latest spec run ended is claimed again only when the spec-run label was set
+	// after that end. SignalAt is no bound for it: the routing a claim reads can lag behind the label.
+	// The end is this host's clock and the routing GitHub's, so a skewed clock moves the bound by the skew.
+	EndedAt *time.Time `json:"endedAt,omitempty"`
 	// Reason is why a spec run is lost, failed or let go.
 	Reason   string   `json:"reason"`
 	Warnings []string `json:"warnings"`
@@ -144,8 +148,20 @@ func OpenSpecStore(dir string) (*SpecStore, error) {
 	for _, r := range s.specs {
 		if r.State == specClaiming && r.Branch == "" {
 			reason := "the factory stopped while this spec was being claimed" + specLeftBehind("")
+			now := time.Now()
 			s.event(r, Event{Kind: "error", Title: specFailed, Body: reason})
-			s.update(r, func() { r.State, r.Reason = specFailed, reason })
+			s.update(r, func() { r.State, r.Reason, r.EndedAt = specFailed, reason, &now })
+		}
+		// A record written before EndedAt existed has its end in DoneAt or LetGoAt, and a lost or failed
+		// claim ended moments after it started.
+		if ended := r.State != specClaiming && r.State != specHolding; ended && r.EndedAt == nil {
+			end := r.StartedAt
+			for _, at := range []*time.Time{r.DoneAt, r.LetGoAt} {
+				if at != nil {
+					end = *at
+				}
+			}
+			s.update(r, func() { r.EndedAt = &end })
 		}
 		// No ticket run works before the factory starts one: a run the stop cut short is recorded
 		// interrupted by OpenStore and never ends through ticketEnded, so its spec run is idle again here.
@@ -285,10 +301,9 @@ func (f *Factory) heldSpecs() []Held {
 }
 
 // claimSpecs takes the routed specs from the line, in the order they were routed. A spec is claimed
-// when no spec run of it holds it and the routing is newer than the one its latest spec run answered:
-// the label that stood when a claim was lost or a spec was let go is the one that was acted on, and
-// setting it again is the gesture that asks for another claim. The claim runs in the working loop
-// while no run is going, so it is the only thing that writes to the clone.
+// when no spec run of it holds it and the spec-run label was set after its latest spec run ended. The
+// label that stood at that end was acted on, and setting it again asks for another claim. The claim
+// runs in the working loop while no run is going, so it is the only thing that writes to the clone.
 //
 // One pass claims one spec at most, and a claim the factory stopped in comes first. A claim fetches
 // the clone, which may wait as long as a clone does, and the line of issues behind it waits for it
@@ -319,10 +334,8 @@ func (f *Factory) claimSpecs(ctx context.Context) bool {
 		if _, ok := f.connected(spec.Repository); !ok {
 			continue
 		}
-		if last, ok := latest[spec.key()]; ok {
-			if last.State == specHolding || last.State == specClaiming || !spec.RoutedAt.After(last.SignalAt) {
-				continue
-			}
+		if last, ok := latest[spec.key()]; ok && (last.EndedAt == nil || !spec.RoutedAt.After(*last.EndedAt)) {
+			continue
 		}
 		if !f.claimable(spec.Repository) {
 			continue
@@ -362,8 +375,9 @@ func (f *Factory) takeSpec(ctx context.Context, r *SpecRun, resumed bool) {
 		if state == specLost {
 			kind = "factory"
 		}
+		now := time.Now()
 		f.specs.event(r, Event{Kind: kind, Title: state, Body: reason})
-		f.specs.update(r, func() { r.State, r.Reason = state, reason })
+		f.specs.update(r, func() { r.State, r.Reason, r.EndedAt = state, reason, &now })
 		log.Printf("spec run %d (%s#%d) ended: %s", r.ID, r.Repository, r.Spec, state)
 	}
 	failed := func(err error, created bool) {
@@ -499,7 +513,7 @@ func (f *Factory) letSpecGo(ctx context.Context, r *SpecRun, decision string) {
 		reason += ", and the spec pull request " + held.PullRequest + " stays open for a person"
 	}
 	f.specs.event(r, Event{Kind: "factory", Title: "let go", Body: reason})
-	f.specs.update(r, func() { r.State, r.Idle, r.LetGoAt, r.Reason = specLetGo, true, &now, reason })
+	f.specs.update(r, func() { r.State, r.Idle, r.LetGoAt, r.EndedAt, r.Reason = specLetGo, true, &now, &now, reason })
 	log.Printf("spec run %d (%s#%d) let go: %s", r.ID, r.Repository, r.Spec, decision)
 }
 
