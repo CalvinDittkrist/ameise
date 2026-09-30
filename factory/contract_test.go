@@ -232,10 +232,7 @@ func TestTheBaseBranchRuleFollowsTheContractFixture(t *testing.T) {
 	}
 }
 
-// The gate's draft: a draft pull request from the claimed branch against its base, titled with the
-// first line of the issue's title and with the body Closes #N alone. A pull request open on the branch
-// is taken over when it is the one the factory recorded and its login opened; any other ends the run,
-// and none opens the draft.
+// The gate's draft and its takeover, as the contract fixture's draft rule states them.
 func TestTheGatesDraftFollowsTheContractFixture(t *testing.T) {
 	t.Parallel()
 	draft := readContract(t).Draft
@@ -263,14 +260,7 @@ func TestTheGatesDraftFollowsTheContractFixture(t *testing.T) {
 			recorded = link(c.Recorded)
 		}
 		ours, foreign := whosePulls(pulls, recorded, draft.Takeover.Login)
-		got := "open"
-		switch {
-		case len(foreign) > 0:
-			got = "end"
-		case ours != "":
-			got = "take over"
-		}
-		if got != c.Outcome {
+		if got := takeoverOf(ours, foreign); got != c.Outcome {
 			t.Errorf("takeover case %q: the factory's answer is %q (its own %q, foreign %v); the contract fixture says %q",
 				c.Case, got, ours, foreign, c.Outcome)
 		}

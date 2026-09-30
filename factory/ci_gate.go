@@ -220,9 +220,7 @@ func (f *Factory) draft(parent, ctx context.Context, r *Run, entry Entry, claim 
 	return pull, true
 }
 
-// draftOf is the gate's draft of an issue, as the contract fixture states it: titled with the first
-// line of the issue's title, its body Closes #N and nothing else, from the claimed branch against the
-// base it was cut from.
+// draftOf is the gate's draft of an issue, as the contract fixture's draft rule states it.
 func draftOf(issue Issue, claim claimed) newPull {
 	title := strings.TrimSpace(firstLine(issue.Title))
 	if title == "" {
@@ -255,27 +253,27 @@ func (f *Factory) settlePull(parent, ctx context.Context, r *Run, entry Entry, c
 		return false, true
 	}
 	ours, foreign := whosePulls(pulls, entry.pull, login)
-	if len(foreign) > 0 {
+	switch takeoverOf(ours, foreign) {
+	case takeoverEnd:
 		f.foreignPull(ctx, r, entry, claim, foreign)
 		return true, false
-	}
-	switch {
-	case ours != "":
+	case takeoverOwn:
 		f.runs.update(r, func() { r.PullRequest, r.Draft = ours, entry.drafted })
 		if entry.drafted {
 			f.runs.event(r, Event{Kind: "factory", Title: "going on with the draft " + ours,
 				Body: "the gate on CI of a run before opened it, and the pr stage has not finished it yet; the stage the run goes on at is read from the record and the branch"})
 		}
-	case entry.pull != "":
-		f.runs.event(r, Event{Kind: "factory", Title: "the recorded pull request is not open",
-			Body: "the runs of this issue recorded " + entry.pull + ", which is not open on " + claim.branch + " any more"})
+	case takeoverOpen:
+		if entry.pull != "" {
+			f.runs.event(r, Event{Kind: "factory", Title: "the recorded pull request is not open",
+				Body: "the runs of this issue recorded " + entry.pull + ", which is not open on " + claim.branch + " any more"})
+		}
 	}
 	return true, true
 }
 
-// whosePulls splits the pull requests open on a run's branch by the key the contract fixture states:
-// the run's own is the one whose number the issue's runs recorded and that login opened, and every
-// other is foreign, named with who opened it.
+// whosePulls splits the pull requests open on a run's branch by the contract fixture's takeover key.
+// Every pull request that is not the run's own is foreign, named with who opened it.
 func whosePulls(pulls []branchPull, recorded, login string) (ours string, foreign []string) {
 	foreign = []string{}
 	for _, p := range pulls {
@@ -286,6 +284,25 @@ func whosePulls(pulls []branchPull, recorded, login string) (ours string, foreig
 		foreign = append(foreign, fmt.Sprintf("%s, opened by %s", p.URL, p.Author))
 	}
 	return ours, foreign
+}
+
+// The outcomes of the contract fixture's takeover rule.
+const (
+	takeoverOwn  = "take over"
+	takeoverEnd  = "end"
+	takeoverOpen = "open"
+)
+
+// takeoverOf is what a run does with the pull requests whosePulls split: a foreign one ends it, its
+// own is taken over, and none opens the draft.
+func takeoverOf(ours string, foreign []string) string {
+	switch {
+	case len(foreign) > 0:
+		return takeoverEnd
+	case ours != "":
+		return takeoverOwn
+	}
+	return takeoverOpen
 }
 
 // foreignPull ends the run blocked on the pull requests of its branch that are not its own, because an
