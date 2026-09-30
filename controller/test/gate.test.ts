@@ -6,10 +6,13 @@ import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, gated, ty
 
 afterEach(cleanup)
 
+const identity = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
 let m: Machine
 let dir: string
 beforeEach(async () => {
   m = await machine()
+  // The sessions and the gate commit and merge in a home without a git identity.
+  m.env = { ...m.env, ...identity }
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
@@ -119,7 +122,7 @@ test('a merge of the base that conflicts starts a fix session, and the gate pass
   await until(r.id, (x) => !!x.session_id)
   // The base moves on while the session works, with a file of the same name.
   writeFileSync(join(dir, 'a.txt'), 'the base\n')
-  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' })
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: { ...process.env, ...identity } })
   git('add', 'a.txt')
   git('commit', '-q', '-m', 'base')
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
