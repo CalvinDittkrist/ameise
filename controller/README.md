@@ -152,7 +152,11 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 
-In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good. A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json` and `gh pr ready` marks not a draft. `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
+In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script):
+- `next-pull` is the number `gh pr create` gives.
+- The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good.
+- A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json` and `gh pr ready` marks not a draft.
+- `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
