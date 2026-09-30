@@ -144,7 +144,7 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   process.env.AMEISE_BACKTEST = backtest
   process.env.AMEISE_SENSORS = sensors
   const record = (id: string, r: Record<string, unknown>) => writeFileSync(join(records, `${id}.json`), JSON.stringify(r))
-  // The records whose session runs, or waits for an answer, are written once the controller listens,
+  // The records whose session runs, waits for an answer or waits on CI, are written once the controller listens,
   // since the controller marks the sessions it finds so as it starts interrupted (see start).
   runningRecords = () => {
     record("p118", {
@@ -157,14 +157,14 @@ function board(root: string, github: string, sensors: string, backtest: string) 
       project: sensors, kind: "work", branch: "feat/142-read-the-configuration", issue: 142, worktree: running,
       stage: "implement", state: "running", note: "Writing the config reader, tests green", updated_at: ago(1),
     })
+    record("p88", {
+      project: backtest, kind: "work", branch: "feat/88-reconnect-the-broker-stream", issue: 88, worktree: pending,
+      stage: "ci", state: "waiting", note: "PR #251, checks pending", updated_at: ago(1),
+    })
   }
   record("p131", {
     project: sensors, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, worktree: green,
     stage: "ci", state: "ready", note: "PR #250, checks pass", updated_at: ago(5),
-  })
-  record("p88", {
-    project: backtest, kind: "work", branch: "feat/88-reconnect-the-broker-stream", issue: 88, worktree: pending,
-    stage: "ci", state: "waiting", note: "PR #251, checks pending", updated_at: ago(1),
   })
   record("plan1", {
     project: sensors, kind: "plan", branch: "plan/open-20260928-0011", stage: "plan", state: "input", note: "Waiting for you", updated_at: ago(3),

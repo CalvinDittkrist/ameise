@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, start } from './controller.js'
+import { api, canApi, canGreen, canIssue, canPages, canPulls, checkout, cleanup, cli, gated, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -18,6 +18,7 @@ beforeEach(async () => {
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   gated(dir)
   canPulls(m, 'owner/repo', [])
+  canGreen(m, 'owner/repo')
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
@@ -56,7 +57,7 @@ const events = (id: string) =>
 async function ended(id: string): Promise<Record> {
   for (let i = 0; i < 200; i++) {
     const r = recordOf(id)
-    if (r.state !== 'running') return r
+    if (!['running', 'waiting'].includes(r.state)) return r
     await new Promise((done) => setTimeout(done, 50))
   }
   throw new Error(`the session of ${id} did not end: ${JSON.stringify(recordOf(id))}`)
@@ -78,30 +79,33 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(r).toMatchObject({ state: 'running', stage: 'implement' })
   const done = await ended(r.id)
   const head = execFileSync('git', ['-C', r.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-  expect(done).toMatchObject({ state: 'ready', stage: 'review', note: 'the review passed in round 1', panel: 'pass' })
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', panel: 'pass' })
   expect(done.session_id).toMatch(/^fake-session-/)
-  // The record carries each stage's attempt: the implement session with its commits, the gate's run, then
-  // the review's round.
+  // The record carries each stage's attempt: the implement session with its commits, the gate's run, the
+  // review's round, the opening of the pull request and the ci stage's green.
   expect(done.history).toMatchObject([
     { stage: 'implement', kind: 'session', result: 'complete', session_id: done.session_id, commits: [expect.stringMatching(/^[0-9a-f]{7,} fix: write board\.txt$/)] },
     { stage: 'gate', kind: 'run', result: 'pass', commit: head, exit: 0 },
     { stage: 'review', kind: 'round', result: 'pass', round: 1, verdicts: [{ reviewer: 'code', verdict: 'pass', findings: [] }] },
+    { stage: 'pr', kind: 'open', result: 'opened', commit: head, pr: 1, url: 'https://github.com/owner/repo/pull/1' },
+    { stage: 'ci', kind: 'wait', result: 'green', commit: head, pr: 1, checks: [{ name: 'gate', state: 'pass' }] },
   ])
   expect(done.history?.every((h) => !Number.isNaN(Date.parse(h.at)))).toBe(true)
 
   // The stream is in the event log, the session's id with it; a reviewer's stream is not.
   const log = events(r.id)
-  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end', 'gate-start', 'gate', 'gate-end', 'review-start', 'review', 'review-end'])
+  expect(log.map((e) => e.event)).toEqual(['claimed', 'session-start', 'stream', 'stream', 'stream', 'session-end', 'gate-start', 'gate', 'gate-end', 'review-start', 'review', 'review-end', 'pr-start', 'pr-end', 'ci-start', 'ci-end'])
   expect(log.filter((e) => e.event === 'stream').map((e) => e.message?.type)).toEqual(['system', 'assistant', 'result'])
   expect(log.find((e) => e.event === 'gate-end')).toMatchObject({ state: 'pass', note: `the gate passed at ${head.slice(0, 7)}` })
-  expect(log.at(-1)).toMatchObject({ state: 'ready', note: 'the review passed in round 1' })
+  expect(log.at(-1)).toMatchObject({ state: 'ready', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes' })
 
   const { args } = started()
   const flag = (name: string) => args[args.indexOf(name) + 1]
   // The bundled copies of the build, the worker's and repo-standards', and no other: for the implement
-  // session and for the reviewer, which runs as the worker's reviewer agent without the tools that write.
+  // session, for the reviewer, which runs as the worker's reviewer agent without the tools that write, and
+  // for the author session of the pull request, which runs without them too.
   const bundled = (name: string) => resolve(fileURLToPath(new URL(`../dist/plugins/${name}`, import.meta.url)))
-  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('worker'), bundled('repo-standards'), bundled('worker'), bundled('repo-standards')])
+  expect(args.flatMap((a, i) => (a === '--plugin-dir' ? [args[i + 1]] : []))).toEqual([bundled('worker'), bundled('repo-standards'), bundled('worker'), bundled('repo-standards'), bundled('worker'), bundled('repo-standards')])
   expect(flag('--agent')).toBe('worker')
   expect(args[args.lastIndexOf('--agent') + 1]).toBe('worker:code-reviewer')
   expect(args[args.lastIndexOf('--disallowedTools') + 1]).toMatch(/Edit,Write/)
@@ -123,7 +127,7 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(env.filter((name) => /^(WF_|HERDR_)/.test(name))).toEqual([])
   expect(env).toContain('HOME')
 
-  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'review', note: 'the review passed in round 1', needs: true, action: 'Merge' }])
+  expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'ci', note: 'PR #1 is green: it merges, its checks pass and no review asks for changes', needs: true, action: 'Merge' }])
 })
 
 test('a yolo session runs with the mode yolo', async () => {

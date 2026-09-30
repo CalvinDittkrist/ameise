@@ -16,6 +16,8 @@ import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { open } from './terminal.js'
 import { gate } from './gate.js'
 import { resumeFix, review } from './review.js'
+import { pr } from './pr.js'
+import { ci } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -69,7 +71,8 @@ export function serve(o: Options): Server {
     }
   }
 
-  const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, fake: o.fake, announce }
+  // The ci stage reads the pull request every 30 s, and the fake GitHub of fake mode at once.
+  const rt: Runtime = { ...o.runtime, stateDir: o.stateDir, fake: o.fake, gh: o.gh, poll: o.fake ? 200 : 30000, announce }
 
   // The quota is read with the configured quota-axi on each request, so a change to the file shows at once.
   // Like readQuota it never rejects: a file that cannot be read makes every runtime read unknown.
@@ -152,9 +155,10 @@ export function serve(o: Options): Server {
 
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
-  // gate again, one interrupted while its reviewers ran runs the round again, and one interrupted in a
-  // fix session of its gate or its review goes on with that session. A fix session of the review that
-  // had no id yet starts afresh with the findings of its round.
+  // gate again, one interrupted while its reviewers ran runs the round again, one interrupted in its pr
+  // stage runs that stage again, one interrupted while its ci stage waited waits again, and one
+  // interrupted in a fix session of its gate, its review or its ci stage goes on with that session. A fix
+  // session of the review that had no id yet starts afresh with the findings of its round.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue } = abandonRequest(body)
@@ -170,7 +174,11 @@ export function serve(o: Options): Server {
           ? resumeFix(interrupted, project, rt)
           : interrupted.stage === 'review' && !fix
             ? review(interrupted, project, rt)
-            : begin(interrupted, project, rt)
+            : interrupted.stage === 'pr'
+              ? pr(interrupted, project, rt)
+              : interrupted.stage === 'ci' && !fix
+                ? ci(interrupted, project, rt)
+                : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

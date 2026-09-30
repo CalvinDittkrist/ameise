@@ -269,13 +269,44 @@ test("a process page shows the rounds of the review with each reviewer's verdict
   }
 })
 
+test("a process page in ci shows its pull request, what it waits for, the checks and the records of pr and ci", async ({ page }) => {
+  // The ready process of the fixture waits on its pull request for this test, and is as it was after it.
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  const at = new Date().toISOString()
+  const failing = { name: "gate", url: "https://github.com/acme/edge-sensors/actions/runs/7", state: "fail" }
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "ci", state: "waiting", note: "PR #250: waiting for the checks: 1 of 2 pending", updated_at: at,
+    pull: { number: 250, url: "https://github.com/acme/pull/250" },
+    wait: "the checks: 1 of 2 pending",
+    checks: [{ name: "gate", url: failing.url, state: "pending" }, { name: "lint", state: "pass" }],
+    history: [
+      { stage: "pr", kind: "open", result: "opened", at, pr: 250, url: "https://github.com/acme/pull/250" },
+      { stage: "ci", kind: "wait", result: "checks-failed", at, pr: 250, checks: [failing] },
+      { stage: "ci", kind: "session", result: "complete", at, commits: ["e5f6a7b fix: clamp the drift"] },
+    ],
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(main(page).getByLabel("Pull request").getByRole("link", { name: "#250" })).toHaveAttribute("href", "https://github.com/acme/pull/250")
+    await expect(main(page).getByLabel("Wait")).toHaveText("waiting for the checks: 1 of 2 pending")
+    await expect(main(page).getByRole("list", { name: "Checks" }).getByRole("listitem")).toHaveText(["gate pending", "lint pass"])
+    await expect(main(page).getByRole("link", { name: "gate" })).toHaveAttribute("href", failing.url)
+    await expect(main(page).getByRole("list", { name: "Records of pr" }).getByRole("listitem")).toContainText(["PR #250 opened"])
+    await expect(main(page).getByRole("list", { name: "Records of ci" }).getByRole("listitem")).toContainText(["checks-failed", "session complete, 1 commit"])
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
 test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
   await page.goto(url())
   await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
   await expect(main(page).getByLabel("Facts")).toHaveText("acme/edge-sensorsfeat/118-refuse-a-project-without-originmanual2hcontext84k")
   await expect(main(page).getByLabel("Context", { exact: true })).toHaveAttribute("title", "84,213 of 250,000 tokens before it compacts")
-  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate", "review"])
+  await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate", "review", "pr", "ci"])
 
   const turns = main(page).getByLabel("Conversation").getByRole("article")
   expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question", "Session", "You", "Session", "Permission"])

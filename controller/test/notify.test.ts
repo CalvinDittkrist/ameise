@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, script, start } from './controller.js'
+import { api, canApi, canGreen, canIssue, canPages, canPulls, checkout, cleanup, gated, type Machine, machine, play, read, script, start } from './controller.js'
 
 afterEach(cleanup)
 
@@ -22,6 +22,7 @@ beforeEach(async () => {
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   gated(dir)
   canPulls(m, 'owner/repo', [])
+  canGreen(m, 'owner/repo')
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
@@ -51,7 +52,7 @@ const notifications = () => {
 async function settled(want: number): Promise<Row> {
   for (let i = 0; i < 200; i++) {
     const r = await row()
-    if (r && r.state !== 'running' && notifications().length >= want) return r
+    if (r && !['running', 'waiting'].includes(r.state) && notifications().length >= want) return r
     await new Promise((done) => setTimeout(done, 50))
   }
   throw new Error(`the process did not settle: ${JSON.stringify(await row())}, notified ${JSON.stringify(notifications())}`)
@@ -59,7 +60,7 @@ async function settled(want: number): Promise<Row> {
 
 test.each([
   ['blocked', 'blocked Keep the project in the file, or drop it?', 'Keep the project in the file, or drop it\\?'],
-  ['ready', 'complete Implemented the board', 'the review passed in round 1'],
+  ['ready', 'complete Implemented the board', 'PR #1 is green: it merges, its checks pass and no review asks for changes'],
   ['failed', 'silent', 'the implement session exited without a result'],
 ])('a process that turns %s sends one notification and carries a badge until its page is opened', async (state, session, note) => {
   play(m, session)
@@ -98,7 +99,7 @@ test('with notifications off a process sends none and still carries its badge', 
   writeFileSync(m.config, JSON.stringify({ ...JSON.parse(read(m.config)), notifications: false }, null, 2) + '\n')
   play(m, 'blocked Which base?')
   expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
-  for (let i = 0; i < 200 && (await row())?.state === 'running'; i++) await new Promise((done) => setTimeout(done, 50))
+  for (let i = 0; i < 200 && ['running', 'waiting'].includes((await row())?.state ?? ''); i++) await new Promise((done) => setTimeout(done, 50))
   expect(await row()).toMatchObject({ state: 'blocked', unseen: true })
   await new Promise((done) => setTimeout(done, 200))
   expect(notifications()).toEqual([])
@@ -109,7 +110,7 @@ test('a notifier that fails leaves the process as it ended and says so on stderr
   script(join(m.root, 'notifier'), 'echo "no display" >&2; exit 1')
   play(m, 'complete Done')
   expect((await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })).status).toBe(201)
-  for (let i = 0; i < 200 && (await row())?.state === 'running'; i++) await new Promise((done) => setTimeout(done, 50))
+  for (let i = 0; i < 200 && ['running', 'waiting'].includes((await row())?.state ?? ''); i++) await new Promise((done) => setTimeout(done, 50))
   expect(await row()).toMatchObject({ state: 'ready', unseen: true })
   for (let i = 0; i < 100 && !stderr.includes('no display'); i++) await new Promise((done) => setTimeout(done, 50))
   expect(stderr).toMatch(/^warning: the notification "repo #144 ready" was not sent: .*notifier: no display$/m)
