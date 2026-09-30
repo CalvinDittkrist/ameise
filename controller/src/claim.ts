@@ -168,7 +168,7 @@ export interface Attempt {
   kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait'
   // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
   // skipped for a run of the gate form none, missing for a run of the gate on CI that did not find the
-  // checks it reads, pass, fix or failed for a round, opened or found for the
+  // checks it reads, pass, fix or failed for a round, opened, found or finished for the
   // opening of the pull request, and green, conflicts, checks-failed, review-comments or closed for a wait.
   result: string
   at: string

@@ -3,10 +3,11 @@
 // and body from the diff, the commits and the issue. It appends the verification section: the gate
 // result, the review panel, and the reviewers that did not pass when the panel failed. It opens the pull
 // request against the base, never as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a
-// review. A pull request of the branch into the base that is open already, as for a follow-up, and the
-// gate's draft the gate on CI opened are pushed to, asked of the bots and kept.
+// review. A pull request of the branch into the base that is open already, as for a follow-up, is pushed
+// to, asked of the bots and kept. The gate's draft the gate on CI opened, while it is open, gets the
+// author's title and body with the verification section and is marked ready for review.
 // The opening is an attempt in the record's history, and the ci stage (ci.ts) follows. A push, an author
-// session or a gh pr create that fails ends the process failed with the reason.
+// session, or a gh pr create or edit that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type Attempt, git, type Pull, push, type WorkRecord } from './claim.js'
@@ -67,17 +68,18 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const now = () => new Date().toISOString()
 
   const base = record.base.replace(/^origin\//, '')
+  // The gate's draft the gate on CI opened is the process's pull request while it is open: the stage
+  // finishes it rather than opening a second one. A draft closed or merged meanwhile is left.
+  const draft = record.draft && record.pull ? await openDraft(rt, id, repo, record.pull) : undefined
+  if (!own()) return
   // A pull request of the branch into its base that is open already takes the push, and a new one is not
   // opened. The bot reviewers are asked of it as of a new one.
-  // The gate's draft the gate on CI opened is the process's pull request, which is kept rather than a
-  // second one opened.
-  const found =
-    record.draft && record.pull
-      ? record.pull
-      : await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
-          event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
-          return undefined
-        })
+  const found = draft
+    ? undefined
+    : await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
+        event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
+        return undefined
+      })
   if (!own()) return
   if (found) {
     await askBots(rt, id, repo, found.number, bots)
@@ -95,26 +97,48 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   const title = ended.pull.title
   const body = [closing(ended.pull.body, record.issue), '', verification(record, commit)].join('\n')
   const file = join(rt.stateDir, 'processes', `${id}.pr.md`)
-  let url: string
+  let pull: Pull
   try {
     writeFileSync(file, body)
-    url = await run(rt.gh, ['pr', 'create', '--repo', repo, '--base', base, '--head', record.branch, '--title', title, '--body-file', file])
+    if (draft) {
+      // The draft gets the author's title and body, and is lifted out of GitHub's draft state.
+      const n = String(draft.number)
+      await run(rt.gh, ['pr', 'edit', n, '--repo', repo, '--title', title, '--body-file', file])
+      await run(rt.gh, ['pr', 'ready', n, '--repo', repo])
+      pull = draft
+    } else {
+      const url = await run(rt.gh, ['pr', 'create', '--repo', repo, '--base', base, '--head', record.branch, '--title', title, '--body-file', file])
+      const number = Number(/\/pull\/([0-9]+)\s*$/.exec(url)?.[1] ?? NaN)
+      if (!Number.isInteger(number)) throw new Error(`gh pr create answered ${JSON.stringify(url)}, which names no pull request`)
+      pull = { number, url: url.trim() }
+    }
   } catch (err) {
-    return fail(`could not open the pull request of ${record.branch}: ${(err as Error).message}`)
+    return fail(`could not ${draft ? `finish the gate's draft PR #${draft.number}` : 'open the pull request'} of ${record.branch}: ${(err as Error).message}`)
   } finally {
     rmSync(file, { force: true })
   }
-  const number = Number(/\/pull\/([0-9]+)\s*$/.exec(url)?.[1] ?? NaN)
-  if (!Number.isInteger(number)) return fail(`gh pr create answered ${JSON.stringify(url)}, which names no pull request`)
-  const pull: Pull = { number, url: url.trim() }
   if (!own()) return
 
-  await askBots(rt, id, repo, number, bots)
+  await askBots(rt, id, repo, pull.number, bots)
   if (!own()) return
-  const a: Attempt = { stage: 'pr', kind: 'open', result: 'opened', at: now(), commit, pr: number, url: pull.url, note: title }
-  event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'opened', pr: number, url: pull.url })
+  const result = draft ? 'finished' : 'opened'
+  const a: Attempt = { stage: 'pr', kind: 'open', result, at: now(), commit, pr: pull.number, url: pull.url, note: title }
+  event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: result, pr: pull.number, url: pull.url })
   const next = attempt(rt.stateDir, id, a, { pull })
   if (next && own()) ci(next, project, rt)
+}
+
+// openDraft is the gate's draft the record names while GitHub reads it open, or undefined, with a note,
+// once it is closed or merged or cannot be read.
+async function openDraft(rt: Runtime, id: string, repo: string, pull: Pull): Promise<Pull | undefined> {
+  try {
+    const { state } = JSON.parse(await run(rt.gh, ['pr', 'view', String(pull.number), '--repo', repo, '--json', 'state'])) as { state?: string }
+    if (state === 'OPEN') return pull
+    event(rt.stateDir, id, { event: 'pr-note', note: `the gate's draft PR #${pull.number} is ${(state ?? 'unknown').toLowerCase()}; looking for an open pull request of the branch` })
+  } catch (err) {
+    event(rt.stateDir, id, { event: 'pr-note', note: `could not read the gate's draft PR #${pull.number}: ${(err as Error).message}; looking for an open pull request of the branch` })
+  }
+  return undefined
 }
 
 // askBots asks each bot reviewer for a review of the pull request on its own, so one GitHub will not

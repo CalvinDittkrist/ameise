@@ -120,11 +120,18 @@ test('a gate on CI pushes, opens the draft and passes on two readings a poll apa
   const r = await claim()
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 1, url: 'https://github.com/owner/repo/pull/1' }, draft: true })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   expect(gateRun(done)).toMatchObject({ gate: 'ci', pr: 1, commit: head(done), checks: [{ name: 'gate', state: 'pass' }, { name: 'browser', state: 'pass' }] })
 
   expect(creates()).toEqual([expect.stringMatching(new RegExp(`^pr create --repo owner/repo --base main --head ${branch} --title Board lists every project --body-file \\S+ --draft$`))])
-  expect(read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '1.body'))).toBe('Closes #144')
+  // The pr stage finishes the draft: the author's title, the body with its verification, out of draft.
+  expect(ghCalls()).toContain('pr view 1 --repo owner/repo --json state')
+  expect(ghCalls()).toContainEqual(expect.stringMatching(/^pr edit 1 --repo owner\/repo --title Fake pull request --body-file \S+$/))
+  expect(ghCalls()).toContain('pr ready 1 --repo owner/repo')
+  const body = read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '1.body'))
+  expect(body).toMatch(/^Closes #144\n/)
+  expect(body).toContain('## Verification')
+  expect(body).toContain('The gate on CI `ci` passed at')
   // The reviewers get the checks read as the gate result.
   expect(read(m.claudeLog)).toContain('The gate on CI ci passed at')
 })
@@ -137,7 +144,7 @@ test('a failed check starts a fix session with the end of its failed log, and th
   const r = await claim()
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   const failed = gateRun(done, 'fail')
   expect(failed?.tail).toContain('Error: expected 2 lists, got 3')
   expect(ghCalls()).toContain('run view 7 --repo owner/repo --log-failed')
@@ -185,9 +192,64 @@ test('a draft that conflicts with the base gets the base merged in, and the gate
   expect((await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'go on' })).status).toBe(200)
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci' })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   expect(read(join(done.worktree, 'base.txt'))).toBe('the base\n')
   expect(gateRun(done)?.commit).toBe(head(done))
+})
+
+test('a merge of the base that conflicts in files starts a fix session, and the gate reads the draft again', async () => {
+  play(m, 'wait\ncommit board.txt\ncomplete Implemented the board')
+  playGate('run git merge -X ours --no-edit origin/main\ncomplete Merged the base')
+  canPull(m, 'owner/repo', 1, [reading(1, { mergeable: 'CONFLICTING' }), reading(1)])
+  const r = await claim()
+  await until(r.id, (x) => x.stage === 'implement' && x.state === 'running')
+  // The base moves on while the session works, with a file of the same name.
+  writeFileSync(join(dir, 'board.txt'), 'the base\n')
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe', env: { ...process.env, ...identity } })
+  git('add', 'board.txt')
+  git('commit', '-q', '-m', 'base')
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  expect((await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'go on' })).status).toBe(200)
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate merge conflict', 'gate session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
+  expect(done.history?.[1]).toMatchObject({ pr: 1, files: ['board.txt'] })
+  expect(gateRun(done)?.commit).toBe(head(done))
+  expect(creates()).toHaveLength(1)
+})
+
+test('a gate on CI past WF_GATE_TIMEOUT ends the process failed naming the wait', async () => {
+  canPull(m, 'owner/repo', 1, [reading(1, { checks: { gate: 'PENDING' } })])
+  const r = await claim(['WF_GATE_TIMEOUT=1'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: expect.stringMatching(/^the gate on CI ran past the gate timeout of 1 s \(WF_GATE_TIMEOUT\) on PR #1 at [0-9a-f]{7}, waiting for the checks: 1 of 1 pending$/) })
+  expect(shape(done)).toEqual(['implement session complete'])
+})
+
+test('a draft closed while the gate reads it ends the process failed naming it', async () => {
+  canPull(m, 'owner/repo', 1, [reading(1, { state: 'CLOSED' })])
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'gate', note: expect.stringMatching(/^the gate's draft PR #1 is closed, so its checks cannot gate the branch/) })
+})
+
+test('the pr stage opens a pull request when the gate\'s draft was closed after the gate passed', async () => {
+  // The gate reads the draft open twice; the pr stage reads it closed, so it opens another.
+  canPull(m, 'owner/repo', 1, [reading(1), reading(1), reading(1, { state: 'CLOSED' })])
+  // Without an end the reviewer runs until it is stopped, and the draft is closed meanwhile.
+  playReviewer('say Reading the diff')
+  const r = await claim()
+  await until(r.id, (x) => x.stage === 'review' && x.state === 'running')
+  await restart()
+  rmSync(join(m.github, 'repos', 'owner', 'repo', 'draft-1.json'))
+  canPull(m, 'owner/repo', 2, [reading(2)])
+  playReviewer('verdict pass')
+  expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 2 } })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
+  expect(creates()).toHaveLength(2)
+  expect(ghCalls()).not.toContain('pr ready 1 --repo owner/repo')
 })
 
 test('a pull request of somebody else on the branch ends the process failed naming it, with no draft and no comment', async () => {
@@ -214,7 +276,7 @@ test('a stop while the gate waits interrupts it, and a resume takes the draft ov
   readings(1, [reading(1), reading(1)])
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 1 } })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   expect(creates()).toHaveLength(1)
 })
 
@@ -230,7 +292,7 @@ test('a resume after the gate on CI passed goes on with the review and opens no 
   expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', pull: { number: 1 } })
-  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open found', 'ci wait green'])
+  expect(shape(done)).toEqual(['implement session complete', 'gate run pass', 'review round pass', 'pr open finished', 'ci wait green'])
   expect(creates()).toHaveLength(1)
 })
 

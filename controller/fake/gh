@@ -14,10 +14,11 @@
 #                                          the readings gh pr view answers in their order before that,
 #                                          one file each, in the order of their names, such as 000.json;
 #                                          each call takes the next, and the last one stays
-#     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create where pulls/ exists: the body of the
-#                                          pull request it opened
+#     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create and gh pr edit --body-file where pulls/
+#                                          exists: the body of the pull request it opened or edited
 #     repos/<owner>/<name>/draft-<n>.json  written by gh pr create --draft: the draft it opened, by the
-#                                          login below, which gh pr list answers after pulls.json
+#                                          login below, which gh pr list answers after pulls.json, and
+#                                          gh pr ready marks not a draft
 #     repos/<owner>/<name>/pulls/<n>.merged.json
 #                                          what gh pr view answers of it once gh pr merge merged it
 #     repos/<owner>/<name>/pulls/<n>.merged
@@ -124,6 +125,15 @@ case "$*" in
       exit 1
     fi
     printf 'https://github.com/%s/pull/%s\n' "$5" "$3" ;;
+  'pr edit '*' --repo '*' --title '*' --body-file '*)
+    if [ -n "$canned" ] && [ -d "$canned/repos/$5/pulls" ]; then cat "$9" > "$canned/repos/$5/pulls/$3.body"; fi
+    printf 'https://github.com/%s/pull/%s\n' "$5" "$3" ;;
+  'pr ready '*' --repo '*)
+    if [ -n "$canned" ] && [ -f "$canned/repos/$5/draft-$3.json" ]; then
+      draft=$(cat "$canned/repos/$5/draft-$3.json")
+      printf '%s\n' "${draft/\"isDraft\":true/\"isDraft\":false}" > "$canned/repos/$5/draft-$3.json"
+    fi
+    printf 'Pull request %s#%s is marked as "ready for review"\n' "$5" "$3" ;;
   'release create '*' --repo '*)
     printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
   'issue close '*' --repo '*)

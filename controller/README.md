@@ -152,7 +152,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 
-In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good. A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json`. `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
+In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script). `next-pull` is the number `gh pr create` gives. The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good. A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json` and `gh pr ready` marks not a draft. `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -208,7 +208,7 @@ A named check that has not appeared `WF_CHECKS_GRACE` seconds (600) after the pu
 
 A run is `{stage: "gate", kind: "run", result: "pass"|"fail"|"missing", gate, commit, pr, url, checks, tail, at}`. The event log carries `gate-wait` per change of the wait and `gate-note` for the draft. The process page shows the draft, the checks read and the wait in the gate stage. The board reads the stage from the record, so it says `gate` while the draft exists.
 
-A stop while the gate waits marks the process `interrupted`. A resume takes the draft over and reads the head again, and a resume after the pass goes on with the review. The pr stage keeps the gate's draft rather than open a second pull request.
+A stop while the gate waits marks the process `interrupted`. A resume takes the draft over and reads the head again, and a resume after the pass goes on with the review. The pr stage finishes the gate's draft rather than open a second pull request.
 
 The draft's workflows run with the repository's Actions secrets on commits no reviewer has read yet, as a pull request's do. Gate a repository on CI only where its workflows may run those secrets on unread code.
 
@@ -251,9 +251,11 @@ After the review the controller opens the pull request, in the stage `pr`:
 4. It runs `gh pr create` against the base, never as a draft.
 5. It asks each bot of `WF_PR_BOT_REVIEWERS` for a review with `gh pr edit --add-reviewer`. A refusal is a `pr-note` event and stops nothing.
 
-An open pull request of the branch into the base, as after a follow-up message, and the gate's draft of a [gate on CI](#gate-on-ci) take the push and are asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
+An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
-The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session or a `gh pr create` that fails ends the process `failed` with the reason. A resume runs the stage again.
+The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open. It gets the author's title and the body with its verification section through `gh pr edit`, and `gh pr ready` lifts its draft state. A draft closed or merged meanwhile is left, and the stage opens a pull request as above.
+
+The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found"|"finished", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session, or a `gh pr create` or `gh pr edit` that fails ends the process `failed` with the reason. A resume runs the stage again.
 
 ## Ci stage
 The controller waits on the pull request itself, in the stage `ci`, with the state `waiting`. No session polls. It reads the pull request every 30 seconds, one wait at a time:
