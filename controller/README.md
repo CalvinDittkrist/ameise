@@ -149,6 +149,7 @@ A session that ends `blocked` or `failed`, a gate, review or pr stage that ends 
 In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory of plays (see the script):
 - `play` says what the implement session does, `resume` what a resumed session does.
 - `gate`, `review` and `ci` say what a fix session of the gate, of the review and of the ci stage does.
+- `address-reviews` says what the address-reviews session does: `reply <thread> <body>` and `answer <text>` are what it reports for the controller to post, `fixed` and `declined` the points.
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 
@@ -157,6 +158,8 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 - The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good.
 - A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json` and `gh pr ready` marks not a draft.
 - `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
+- `pulls/<n>.threads.json` are the review threads of a pull request. The resolve mutation resolves a thread written with its id first, and `gh pr comment` appends to `pulls/<n>.comments`.
+- Once `gh pr merge` merged a canned pull request, `pulls/<n>.merged.json` answers before its readings.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -282,18 +285,51 @@ A gate's draft the pr stage marked ready carries the draft's checks.
   - The workflows are read as text: one that only mentions the event costs the wait of the grace.
 - In every repository the bot review's wait counts from the ready at the earliest.
 
-- Green ends the process `ready`, and the board offers the merge.
+- Green ends a `manual` process `ready`, and the board offers the merge.
+  - A `yolo` process whose panel passed is merged at once, by the rules of the [merge](#merge), which remove its worktree, branch and record.
+  - The notification tells of it as merged. A merge refused, or taken by a merge queue, leaves it `ready` with the reason.
+  - A `yolo` process whose panel failed waits for the merge as a `manual` one does.
 - A conflict or failed checks start a fix session of the ci stage, a fresh session with the stage timeout.
   - Its brief names the conflict or the failed checks. It commits and pushes nothing.
   - On `complete` the controller pushes and waits again. On `blocked` the answer resumes it.
-- `WF_CI_REPAIR_ROUNDS` (3) is the repair budget: the fix sessions since the pull request was opened or found. A failure with it spent ends the process `failed`.
-- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state.
+- A writer's request for changes, or an unresolved thread a writer or a bot opened, that no round has answered starts the [address-reviews stage](#address-reviews-stage).
+- `WF_CI_REPAIR_ROUNDS` (3) is the repair budget of the pull request. It counts the fix sessions and the address-reviews sessions of a bot's review since the pull request was opened or found, or since the last address-reviews session of a writer's request.
+  - A failure with it spent ends the process `failed`.
+  - A bot's review with it spent also ends it `failed`, and the controller comments on the pull request that the points are left to a person. The comment mentions the writers whose points stand, never a bot.
+  - The record's `repairs` holds `{spent, of}` as the stage read it last.
+- A request for changes that is answered and stands, a request or a thread of somebody who is no writer, and a merge state such as `BEHIND` or `BLOCKED` are never green.
+  - The process turns `blocked` with who asked or the state.
   - A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
 - A pull request merged meanwhile turns the process `blocked`, for the maintainer to abandon it. A closed one ends it `failed`.
 
-Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
+Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `answered` (only answered requests stand), `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
 
 A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
+
+## Address-reviews stage
+The stage `address-reviews` answers what reviewers ask for on the pull request, as the factory's does ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)).
+- A writer is an author GitHub associates with the repository as `OWNER`, `MEMBER` or `COLLABORATOR`. Nobody else's review reaches a session, since it becomes the brief of a session that pushes.
+- Its points are the latest request for changes of each writer and every unresolved thread whose first comment is a writer's or a bot's, which no answer in `history` covers.
+- Its mandate is a writer's request when a request is among them, and a bot's review otherwise.
+  - A writer's request starts the repair count afresh, once: its session counts no round.
+  - A bot's review is a repair round, refused once the budget is spent.
+
+It runs one fresh session with the stage timeout. Its brief lists the requests and the threads by id, as reviewer text. It fixes or declines each point, commits, and pushes, replies and resolves nothing.
+- It reports `complete` or `blocked` with its commits, a reply per thread in `replies`, one `answer` to the requests, and the points `fixed` and `declined`.
+- On `complete` the ci stage pushes, then posts:
+  - a reply to each thread the brief listed, the first one to each, and resolves that thread,
+  - the answer as one comment on the pull request, when the brief listed a request.
+- A reply to a thread the brief did not list is posted nowhere. What cannot be posted is a `ci-note`, and a thread whose reply failed is asked again by the next round.
+- Then the ci stage waits again. A request stands until its writer reviews again, so the stage then ends `blocked` with the result `answered`.
+- On `blocked` the answer resumes the session.
+
+The session's end is `{stage: "address-reviews", kind: "session", result, mandate, commits, fixed, declined, at}` in `history`. What was posted is `{stage: "address-reviews", kind: "answer", result: "posted"|"partial", answered, replied, pr, url, at}`: the keys of the requests it commented on and the ids of the threads it replied to.
+
+### Follow-up
+The controller reads the pull request of each process the ci stage left `ready`, or `blocked` on a review, every four polls (two minutes, less in fake mode).
+- It starts the ci stage again when a review asks for an answer no round gave, such as a new request for changes of a writer on a ready process.
+- It starts it again for a blocked one when the reviews say something other than what it was blocked on, such as an approval of the writer it answered.
+- A pull request that cannot be read is read again next time, and told once on stderr.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -325,7 +361,8 @@ Stopping and starting the controller loses no process.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: its implement session, its gate, the round its reviewers ran, its pr stage or its wait on the pull request.
+- A resume goes on with an interrupted process: its implement session, its gate, the round its reviewers ran, its pr stage, its wait on the pull request or its address-reviews session.
+  - One interrupted before its address-reviews session started waits on the pull request again.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.

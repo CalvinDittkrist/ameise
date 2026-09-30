@@ -40,7 +40,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - `ameise claim` refuses the same and runs headless [implement session](../controller/README.md#implement-session), [gate](../controller/README.md#gate-stage), [review](../controller/README.md#review-stage), [pr](../controller/README.md#pr-stage) and [ci](../controller/README.md#ci-stage).
+   - `ameise claim` refuses the same and runs headless [implement session](../controller/README.md#implement-session), [gate](../controller/README.md#gate-stage), [review](../controller/README.md#review-stage), [pr](../controller/README.md#pr-stage), [ci](../controller/README.md#ci-stage) and [address-reviews](../controller/README.md#address-reviews-stage).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -61,6 +61,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
     - A merge outside the default branch also closes the issue.
     - `ameise merge` does the same ([merge](../controller/README.md#merge)).
 18. Yolo mode: `finish.sh` merges only when the recorded panel says ready, and a detached `cleanup-self.sh` removes the worktree.
+    - A yolo process of `ameise` merges itself by the merge's rules once CI is green and its panel passed ([ci stage](../controller/README.md#ci-stage)).
 
 ### Test hunt
 1. `/orchestrator:hunt-tests [--sandbox] [--base b]`: `hunt.sh` refuses while a `hunt/` branch exists here or on origin, or while the base has no test file.
