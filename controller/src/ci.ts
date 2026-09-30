@@ -482,7 +482,8 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
       if (asks.length === 0) {
         // Every point a session may answer has its answer: what stands waits for the reviewer or a person.
         const again = verdict.points.asks.filter((p) => p.kind === 'request').map((p) => p.login)
-        const what = again.length > 0 ? [`the request for changes of ${again.join(', ')} is answered and waits for their review again`, ...verdict.points.others].join('; ') : verdict.reviews.join('; ')
+        const stands = [...(again.length > 0 ? [`the request for changes of ${again.join(', ')} is answered and waits for their review again`] : []), ...verdict.points.others]
+        const what = (stands.length > 0 ? stands : verdict.reviews).join('; ')
         a.result = again.length > 0 && verdict.points.others.length === 0 ? 'answered' : 'review-comments'
         return end('blocked', `PR #${n} is not green: ${what}; answer the review, or write here to have the session take it on`, a)
       }
@@ -561,13 +562,14 @@ const following = (r: WorkRecord) =>
   r.pull !== undefined &&
   (r.state === 'ready' || (r.state === 'blocked' && ['review-comments', 'answered'].includes(r.history?.at(-1)?.result ?? '') && r.history?.at(-1)?.kind === 'wait'))
 
+// warned is the last warning of each process's follow-up, so one that keeps failing is told once. A
+// follow-up that reads its pull request again forgets it.
+const warned = new Map<string, string>()
+
 // followUps reads the pull request of every process the ci stage left ready or blocked on a review once,
 // and starts the stage again for each whose reviews ask for an answer no round gave, or, for one
 // blocked, whose reviews say something other than what it was blocked on. A pull request that cannot
 // be read is read again next time. projectOf derives the project of a checkout.
-// warned is the last warning of each process's follow-up, so one that keeps failing is told once.
-const warned = new Map<string, string>()
-
 export async function followUps(rt: Runtime, projectOf: (path: string) => Promise<Project>): Promise<void> {
   let names: string[]
   try {
@@ -585,6 +587,7 @@ export async function followUps(rt: Runtime, projectOf: (path: string) => Promis
       const reading = JSON.parse(await run(rt.gh, ['pr', 'view', String(n), '--repo', `${project.owner}/${project.name}`, '--json', readingFields])) as Reading
       if (reading.state !== 'OPEN') continue
       const points = pointsOf(reading, await threadsOf(rt.gh, project.owner, project.name, n))
+      warned.delete(id)
       const answered = answeredOf(r.history ?? [])
       const fresh = points.asks.some((p) => !answered.has(p.key))
       const changed = r.state === 'blocked' && JSON.stringify(points.lines) !== JSON.stringify(r.history?.at(-1)?.reviews ?? [])
