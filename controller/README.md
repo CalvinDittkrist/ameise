@@ -136,7 +136,8 @@ The brief names the issue, the branch, its base and the `gh` and `git` reads the
 - The session reports through a structured result: `complete` with its commits, or `blocked` with the question, each with a message.
   - `complete` starts the [gate stage](#gate-stage) once its runtime has exited, unless the process is held.
   - `blocked` ends the process `blocked` with the question as the note.
-- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent, the process turns `input`, and the next message resumes the session, whose next `complete` starts the gate.
+- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process turns `input`.
+  - The next message resumes the session, whose next `complete` starts the gate.
 - Every session's end is an attempt in the record's `history`: `{stage, kind: "session", result, session_id, commits, note, at}`.
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
@@ -154,7 +155,8 @@ The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr
 A merge that conflicts is aborted, and a gate command that fails or runs past its timeout counts as a failure. Either starts a fix session of the gate:
 - a fresh headless session, not a resume, without the worker's agent, with the conflicted files or the exit and the last 20 lines of the output in its brief,
 - with the stage timeout `WF_STAGE_TIMEOUT` seconds (1800), past which it ends the process `failed`,
-- reporting `complete` or `blocked` as the implement session does. On `complete` the gate runs again from its merge. On `blocked` the process is `blocked` in `gate`, and the answer resumes the fix session.
+- reporting `complete` or `blocked` as the implement session does. On `complete` the gate runs again from its merge.
+  - On `blocked` the process is `blocked` in `gate`, and the answer resumes the fix session.
 
 `WF_GATE_ROUNDS` (3) is the gate's budget: the fix sessions it may start since the implement session last completed, a resumed one counted once. A failure with the budget spent ends the process `failed`, with the failure and the end of the output as the note.
 
