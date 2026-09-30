@@ -257,7 +257,11 @@ After the review the controller opens the pull request, in the stage `pr`:
 
 An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
-The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open. It gets the author's title and the body with its verification section through `gh pr edit`, `gh pr ready` lifts its draft state, and the bots are asked for a review after that, as they skip drafts. The record drops `draft` and notes the time in `readied`. A draft closed or merged meanwhile is left, and the stage opens a pull request as above.
+The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open.
+- It gets the author's title and the body with its verification section through `gh pr edit`.
+- `gh pr ready` lifts its draft state, and the bots are asked for a review after that, as they skip drafts.
+- The record drops `draft` and notes the time in `readied`.
+- A draft closed or merged meanwhile is left, and the stage opens a pull request as above.
 
 The opening is an attempt in `history`: `{stage: "pr", kind: "open", result: "opened"|"found"|"finished", pr, url, commit, at}`. The event log carries `pr-start` and `pr-end`. A push, an author session, or a `gh pr create` or `gh pr edit` that fails ends the process `failed` with the reason. A resume runs the stage again.
 
