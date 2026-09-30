@@ -10,7 +10,7 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, fetch, git, type WorkRecord } from './claim.js'
+import { type Attempt, fetch, git, type StageRecord } from './claim.js'
 import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
 import { review } from './review.js'
@@ -64,7 +64,7 @@ const tailChars = 4000
 
 // setting reads a knob of the process: the claim's override, else the env block of the repository's
 // .claude/settings.json, else undefined.
-export const setting = (record: WorkRecord, name: string): unknown => settingOf(record.env, record.project, name)
+export const setting = (record: StageRecord, name: string): unknown => settingOf(record.env, record.project, name)
 
 // settingOf reads a knob from the overrides, else from the env block of the checkout's settings.
 export function settingOf(env: Record<string, string>, checkout: string, name: string): unknown {
@@ -80,7 +80,7 @@ export function settingOf(env: Record<string, string>, checkout: string, name: s
 
 // knob reads a whole-number knob of the process, or the default where it is not set. A value that is no
 // whole number of at least min is refused with the reason.
-export function knob(record: WorkRecord, name: string, fallback: number, min = 0): number {
+export function knob(record: StageRecord, name: string, fallback: number, min = 0): number {
   const value = setting(record, name)
   if (value === undefined || value === '') return fallback
   const n = Number(value)
@@ -92,9 +92,9 @@ export function knob(record: WorkRecord, name: string, fallback: number, min = 0
 // it has exited, and answers the record as it runs. A stop ends it and its gate command; the process's
 // history counts the fix sessions it spent since the session before it that was no fix of the gate.
 // before is the abort of that session, which a stop of the gate aborts too while its runtime exits.
-export function gate(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
+export function gate(record: StageRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): StageRecord {
   const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: 'the gate starts', fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
+  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: 'the gate starts', fixing: false } as Partial<StageRecord>) as StageRecord | undefined) ?? record
   event(rt.stateDir, id, { event: 'gate-start', stage: 'gate' })
   const abort = new AbortController()
   if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
@@ -117,7 +117,7 @@ export function gate(record: WorkRecord, project: Project, rt: Runtime, after: P
 
 export const short = (commit: string | undefined) => (commit ?? '').slice(0, 7)
 
-async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
+async function stage(record: StageRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
   const id = record.id
   const wt = record.worktree
   const now = () => new Date().toISOString()
@@ -204,7 +204,7 @@ async function stage(record: WorkRecord, project: Project, rt: Runtime, signal: 
 // none when it merged, after aborting a merge that conflicts. The base is fetched first, so the merge
 // takes what origin has now; offline, it takes what the checkout has. A merge that fails otherwise
 // throws with the reason.
-export async function mergeBase(record: WorkRecord, rt: Runtime): Promise<string[]> {
+export async function mergeBase(record: StageRecord, rt: Runtime): Promise<string[]> {
   const wt = record.worktree
   if (record.base.startsWith('origin/') && !(await fetch(record.project, record.base.slice('origin/'.length), rt.fake))) {
     event(rt.stateDir, record.id, { event: 'gate-note', note: `could not fetch ${record.base}; merging what this checkout has of it` })
@@ -224,7 +224,7 @@ export async function mergeBase(record: WorkRecord, rt: Runtime): Promise<string
 // that failed, or ends the process failed once the gate has spent its rounds. The fix sessions this gate
 // has spent are those since the last session of another stage, the implement session or a fix session
 // of the review, whose work this gate checks.
-export function repair(record: WorkRecord, project: Project, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): void {
+export function repair(record: StageRecord, project: Project, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): void {
   const id = record.id
   const history = record.history ?? []
   const since = history.map((h) => h.stage !== 'gate' && h.kind === 'session').lastIndexOf(true)
@@ -242,12 +242,12 @@ export function repair(record: WorkRecord, project: Project, rt: Runtime, own: (
     const tail = failure.kind === 'run' && failure.tail ? `; the end of its output:\n${failure.tail}` : ''
     const note = `the gate spent its ${rounds} fix session(s): ${what}${tail}`
     event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'failed', note })
-    const ended = attempt(rt.stateDir, id, failure, { state: 'failed', note, wait: undefined, unseen: true } as Partial<WorkRecord>)
+    const ended = attempt(rt.stateDir, id, failure, { state: 'failed', note, wait: undefined, unseen: true } as Partial<StageRecord>)
     if (ended) rt.announce(ended)
     return
   }
   // A fix session is a fresh session: the one before it is in the history, not in its resume.
-  const fixing = attempt(rt.stateDir, id, failure, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; fix session ${fixes + 1} of ${rounds}` } as Partial<WorkRecord>)
+  const fixing = attempt(rt.stateDir, id, failure, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; fix session ${fixes + 1} of ${rounds}` } as Partial<StageRecord>)
   if (!fixing || !own()) return
   begin(fixing, project, rt, fixBrief(fixing, `${project.owner}/${project.name}`, failure, command))
 }

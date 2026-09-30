@@ -110,8 +110,9 @@ export interface CreatedRecord {
   updated_at: string
 }
 
-// The stages of a work process the controller drives, in their order.
-export const workStages = ['implement', 'gate', 'review', 'pr', 'ci', 'address-reviews'] as const
+// The stages of a work process the controller drives, in their order. A hunt process runs hunt in place
+// of implement, and the same stages after it.
+export const workStages = ['implement', 'hunt', 'gate', 'review', 'pr', 'ci', 'address-reviews'] as const
 export type WorkStage = (typeof workStages)[number]
 
 // A finding of a reviewer, with the id the controller gives it: <reviewer>-<round>-<n>, such as code-1-2.
@@ -261,6 +262,53 @@ export interface WorkRecord extends CreatedRecord {
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }
+
+// A test removed by a test hunt, as the hunt record holds it: the round and the commit that removed it,
+// the hunter's candidate and the worker's reason.
+export interface Removal {
+  round: number
+  commit: string
+  path: string
+  test: string
+  category: string
+  reason: string
+  why: string
+  still_proven: string
+}
+
+// A candidate a test hunt checked and kept, as the hunt record holds it.
+export interface Kept {
+  round: number
+  path: string
+  test: string
+  category: string
+  reason: string
+  confidence: string
+}
+
+// The hunt record of a test hunt as the worker's hunt.sh json prints it: the rounds it ran of at most
+// max_rounds, why it ended, or null while it runs, the tests it removed and the candidates it kept.
+// stale counts the removals recorded whose commit left the branch or whose test is back.
+export interface HuntLog {
+  rounds: number
+  max_rounds: number
+  ended: string | null
+  removed: Removal[]
+  kept: Kept[]
+  stale: number
+}
+
+// A hunt process: a test hunt on a hunt branch, which works no issue (ADR 0045). The hunt record stands
+// where the issue stands, and after the hunt session it runs the stages of a work process.
+export interface HuntRecord extends Omit<WorkRecord, 'kind' | 'issue'> {
+  kind: 'hunt'
+  issue: null
+  // hunt is the hunt record, as the controller last read it from the worktree.
+  hunt?: HuntLog
+}
+
+// A process that runs the stages after implement: a work process or a hunt process.
+export type StageRecord = WorkRecord | HuntRecord
 
 export interface ClaimRequest {
   issue: number

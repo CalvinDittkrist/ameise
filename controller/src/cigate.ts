@@ -15,7 +15,7 @@
 // files goes to a fix session, as a failed check does.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, type Check, git, type Pull, push, type WorkRecord } from './claim.js'
+import { type Attempt, type Check, git, type Pull, push, type StageRecord } from './claim.js'
 import { checksOf, pause, type Reading } from './ci.js'
 import { run } from './exec.js'
 import { defaultGrace, type GateForm, knob, mergeBase, repair, short, tailOf } from './gate.js'
@@ -104,7 +104,7 @@ async function failedLogs(gh: string, repo: string, failing: Check[]): Promise<s
 
 // ciGate runs the gate on CI of a process until its pass, its failure or its end, unless a stop takes
 // it over.
-export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean, form: CiForm, rounds: number, limit: number): Promise<void> {
+export async function ciGate(record: StageRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean, form: CiForm, rounds: number, limit: number): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const wt = record.worktree
@@ -113,7 +113,7 @@ export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, 
   const end = (note: string, a?: Attempt) => {
     if (!own()) return
     event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'failed', note })
-    const change = { state: 'failed', note, wait: undefined, unseen: true } as Partial<WorkRecord>
+    const change = { state: 'failed', note, wait: undefined, unseen: true } as Partial<StageRecord>
     const ended = a ? attempt(rt.stateDir, id, a, change) : update(rt.stateDir, id, change)
     if (ended) rt.announce(ended)
   }
@@ -222,7 +222,7 @@ export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, 
         const tail = `The checks that failed:\n${listed(failing)}\n\nThe end of their failed logs:\n${await failedLogs(rt.gh, repo, failing)}`
         if (!own()) return
         const failure: Attempt = { ...base, result: 'fail', tail }
-        update(rt.stateDir, id, { checks } as Partial<WorkRecord>)
+        update(rt.stateDir, id, { checks } as Partial<StageRecord>)
         event(rt.stateDir, id, { event: 'gate', ...failure })
         return repair(record, project, rt, own, failure, form.name, rounds)
       }
@@ -233,7 +233,7 @@ export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, 
           const a: Attempt = { ...base, tail: listed(checks) }
           event(rt.stateDir, id, { event: 'gate', ...a })
           event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: `the gate on CI passed at ${short(head)} on PR #${n}: ${checks.map((c) => c.name).join(', ')}` })
-          const next = attempt(rt.stateDir, id, a, { state: 'running', wait: undefined, checks } as Partial<WorkRecord>)
+          const next = attempt(rt.stateDir, id, a, { state: 'running', wait: undefined, checks } as Partial<StageRecord>)
           if (next && own()) review(next, project, rt)
           return
         }
@@ -249,7 +249,7 @@ export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, 
       shown = wait
       said = saw
       event(rt.stateDir, id, { event: 'gate-wait', stage: 'gate', pr: n, wait })
-      update(rt.stateDir, id, { state: 'waiting', note: `the gate on CI, PR #${n}: waiting for ${wait}`, wait, checks } as Partial<WorkRecord>)
+      update(rt.stateDir, id, { state: 'waiting', note: `the gate on CI, PR #${n}: waiting for ${wait}`, wait, checks } as Partial<StageRecord>)
     }
     await pause(rt.poll, signal)
   }
@@ -258,7 +258,7 @@ export async function ciGate(record: WorkRecord, project: Project, rt: Runtime, 
 // draft settles the pull request the gate on CI reads: the draft the record names, taken over, or a new
 // draft it opens when the branch has none open. It answers the pull requests of somebody else that end
 // the process, or undefined once a stop has taken the process over.
-async function draft(record: WorkRecord, repo: string, rt: Runtime, own: () => boolean): Promise<Pull | { foreign: BranchPull[] } | undefined> {
+async function draft(record: StageRecord, repo: string, rt: Runtime, own: () => boolean): Promise<Pull | { foreign: BranchPull[] } | undefined> {
   const id = record.id
   const open = await openPulls(rt.gh, repo, record.branch)
   // The login is asked only of a branch that has a pull request open.
@@ -272,9 +272,15 @@ async function draft(record: WorkRecord, repo: string, rt: Runtime, own: () => b
     return { number: t.pull.number, url: t.pull.url }
   }
   if (recorded > 0) event(rt.stateDir, id, { event: 'gate-note', note: `PR #${recorded}, which the process recorded, is not open on ${record.branch} any more; opening a new draft` })
-  const issue = JSON.parse(await run(rt.gh, ['issue', 'view', String(record.issue), '--repo', repo, '--json', 'number,title,state,labels'])) as { title?: string }
+  // A hunt has no issue to read: its draft names the date of its branch and closes nothing.
+  let d: { title: string; body: string }
+  if (record.issue === null) {
+    d = { title: `Test hunt ${record.branch.replace(/^hunt\/tests-/, '')}`, body: 'A test hunt: it removes tests that prove nothing and closes no issue.' }
+  } else {
+    const issue = JSON.parse(await run(rt.gh, ['issue', 'view', String(record.issue), '--repo', repo, '--json', 'number,title,state,labels'])) as { title?: string }
+    d = draftOf(record.issue, issue.title ?? '')
+  }
   if (!own()) return undefined
-  const d = draftOf(record.issue, issue.title ?? '')
   const file = join(rt.stateDir, 'processes', `${id}.draft.md`)
   let url: string
   try {
@@ -287,6 +293,6 @@ async function draft(record: WorkRecord, repo: string, rt: Runtime, own: () => b
   if (!Number.isInteger(number)) throw new Error(`gh pr create answered ${JSON.stringify(url)}, which names no pull request`)
   const pull: Pull = { number, url: url.trim() }
   event(rt.stateDir, id, { event: 'gate-note', note: `opened the gate's draft PR #${number}; the pr stage finishes it` })
-  update(rt.stateDir, id, { pull, draft: true } as Partial<WorkRecord>)
+  update(rt.stateDir, id, { pull, draft: true } as Partial<StageRecord>)
   return pull
 }

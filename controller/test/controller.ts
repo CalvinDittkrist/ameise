@@ -219,6 +219,12 @@ export function gated(dir: string, recipe = '@:', base = 'main') {
   git('update-ref', `refs/remotes/origin/${base}`, 'HEAD')
 }
 
+// tools links more of this machine's commands into the machine's PATH, such as the ones a plugin's script
+// calls that the controller does not.
+export function tools(m: Machine, names: string[]) {
+  for (const tool of names) symlinkSync(which(tool), join(m.bin, tool))
+}
+
 // canRepo cans a repository on the fake GitHub with the default branch it names.
 export function canRepo(m: Machine, repository: string, defaultBranch: string) {
   const dir = join(m.github, 'repos', repository)

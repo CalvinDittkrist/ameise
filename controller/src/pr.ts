@@ -11,7 +11,7 @@
 // session, or a gh pr create or edit that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, git, type Pull, push, type WorkRecord } from './claim.js'
+import { type Attempt, git, type Pull, push, type StageRecord } from './claim.js'
 import { botsOf, ci } from './ci.js'
 import { run } from './exec.js'
 import { defaultGate } from './gate.js'
@@ -20,9 +20,9 @@ import { attempt, author, authorBrief, event, type Runtime, type Running, track,
 
 // pr starts the pr stage of a process and answers the record as it runs. A stop ends its author session;
 // a resume runs the stage again.
-export function pr(record: WorkRecord, project: Project, rt: Runtime): WorkRecord {
+export function pr(record: StageRecord, project: Project, rt: Runtime): StageRecord {
   const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'pr', state: 'running', note: 'the author session writes the pull request', fixing: false, wait: undefined } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
+  const started = (update(rt.stateDir, id, { stage: 'pr', state: 'running', note: 'the author session writes the pull request', fixing: false, wait: undefined } as Partial<StageRecord>) as StageRecord | undefined) ?? record
   event(rt.stateDir, id, { event: 'pr-start', stage: 'pr' })
   const abort = new AbortController()
   // The stage starts on the next turn, once it is tracked, so a stop meanwhile ends it.
@@ -44,7 +44,7 @@ export function pr(record: WorkRecord, project: Project, rt: Runtime): WorkRecor
   return started
 }
 
-async function open(record: WorkRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
+async function open(record: StageRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const fail = (note: string) => {
@@ -96,7 +96,8 @@ async function open(record: WorkRecord, project: Project, rt: Runtime, s: Runnin
   if (!own()) return
   if (ended.state !== 'complete' || !ended.pull) return fail(`the author session wrote no pull request: ${ended.note}`)
   const title = ended.pull.title
-  const body = [closing(ended.pull.body, record.issue), '', verification(record, commit)].join('\n')
+  // A hunt closes no issue, so its body is the author's as it is.
+  const body = [record.issue === null ? ended.pull.body : closing(ended.pull.body, record.issue), '', verification(record, commit)].join('\n')
   const file = join(rt.stateDir, 'processes', `${id}.pr.md`)
   let pull: Pull
   try {
@@ -175,7 +176,7 @@ function closing(body: string, issue: number): string {
 // verification is the section the controller appends to the author's body: the last gate run, and the
 // review panel with each reviewer's last verdict. A failed panel names the reviewers that did not pass and
 // their findings of the last round. Commits since the last round are named, as no reviewer read them.
-export function verification(record: WorkRecord, head: string): string {
+export function verification(record: StageRecord, head: string): string {
   const history = record.history ?? []
   const short = (c: string | undefined) => (c ?? '').slice(0, 7)
   const lines = ['## Verification', '']
@@ -186,7 +187,7 @@ export function verification(record: WorkRecord, head: string): string {
   else if (gated.checks) lines.push(`The gate on CI \`${command}\` ${gated.result === 'pass' ? 'passed' : 'failed'} at ${short(gated.commit)}: ${gated.checks.map((c) => `${c.name} ${c.state}`).join(', ')}.`)
   else lines.push(`The gate \`${command}\` ${gated.result === 'pass' ? 'passed' : `failed with exit ${gated.exit ?? 'none'}`} at ${short(gated.commit)}${gated.dirty ? ', with changes not committed' : ''}.`)
 
-  const since = history.map((h) => h.stage === 'implement').lastIndexOf(true)
+  const since = history.map((h) => h.stage === 'implement' || h.stage === 'hunt').lastIndexOf(true)
   const rounds = history.slice(since + 1).filter((h) => h.stage === 'review' && h.kind === 'round')
   const last = new Map<string, string>()
   for (const r of rounds) for (const v of r.verdicts ?? []) last.set(v.reviewer, v.verdict)

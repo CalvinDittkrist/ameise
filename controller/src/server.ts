@@ -12,6 +12,7 @@ import { notify } from './notify.js'
 import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { type Announce, answer, begin, hold, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
+import { finishHunt, hunt, resumableHunt } from './hunt.js'
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { open } from './terminal.js'
 import { gate } from './gate.js'
@@ -161,12 +162,14 @@ export function serve(o: Options): Server {
   // session started, waits again, and one interrupted in a fix session of its gate, its review or its
   // ci stage, or in its address-reviews session, goes on with that session. A fix
   // session of the review that had no id yet starts afresh with the findings of its round.
+  // A hunt, which has no issue, is named by its id.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
-    const { issue } = abandonRequest(body)
-    const project = await known(body)
+    const byId = typeof body.id === 'string'
+    const issue = byId ? null : abandonRequest(body).issue
+    const project = await known(byId ? { project: recorded(body.id).project } : body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const interrupted = await resumable(project, o.stateDir, issue)
+    const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
     const fix = interrupted.fixing === true && interrupted.session_id !== undefined
     // A fix session of the review that never reported its id starts afresh with the round's findings.
     const record =
@@ -236,6 +239,17 @@ export function serve(o: Options): Server {
     send(res, 201, { record })
   }
 
+  // A hunt opens a hunt process on a hunt branch and starts its hunt session at once; the answer is its
+  // record as it runs, and what the hunt could not check.
+  async function hunts(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const project = await known(body)
+    const done = await hunt(project, o.stateDir, o.gh, o.fake)
+    log({ event: 'hunted', project: project.path, branch: done.record.branch })
+    const record = begin(done.record, project, rt)
+    send(res, 201, { record, warnings: done.warnings })
+  }
+
   // A capture moves the prototype in a plan's worktree to a pushed prototype branch; a finish removes
   // the plan's worktree, branch and process.
   async function captured(req: IncomingMessage, res: ServerResponse) {
@@ -248,12 +262,13 @@ export function serve(o: Options): Server {
     send(res, 201, { id: record.id, ...done })
   }
 
+  // A finish of a hunt removes its worktree, branch and process the same way.
   async function finished(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const record = recorded(body.id)
     if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
     const project = await known({ project: record.project })
-    const done = await finish(project, o.stateDir, record.id, body.force === true)
+    const done = record.kind === 'hunt' ? await finishHunt(project, o.stateDir, record.id, body.force === true) : await finish(project, o.stateDir, record.id, body.force === true)
     log({ event: 'finished', process: record.id, branch: done.branch, force: body.force === true })
     send(res, 200, { id: record.id, ...done })
   }
@@ -431,6 +446,8 @@ export function serve(o: Options): Server {
           return accepted(req, res)
         case 'POST /api/plans':
           return planned(req, res)
+        case 'POST /api/hunts':
+          return hunts(req, res)
         case 'POST /api/processes/capture':
           return captured(req, res)
         case 'POST /api/processes/finish':
