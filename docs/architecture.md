@@ -40,7 +40,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Local delivery
 1. `/orchestrator:claim N`: `claim.sh` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin. `--force` overrides.
-   - `ameise claim` refuses the same, starting a headless [implement session](../controller/README.md#implement-session), then [gate](../controller/README.md#gate-stage), [review](../controller/README.md#review-stage), [pr](../controller/README.md#pr-stage) and [ci](../controller/README.md#ci-stage).
+   - `ameise claim` refuses the same and runs headless [implement session](../controller/README.md#implement-session), [gate](../controller/README.md#gate-stage), [review](../controller/README.md#review-stage), [pr](../controller/README.md#pr-stage) and [ci](../controller/README.md#ci-stage).
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>` through Herdr and starts `claude --agent worker` with `/worker:work`, `WF_MODE` and `WF_ISSUE`.
    - A spec-run ticket branches from and targets its spec branch; `--base` wins.
 3. The settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md), [ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
@@ -103,7 +103,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### The contract fixture
 1. `contract/fixture.json` states shared rules as cases: branch contract, base branch, gate's draft, frontier, labels.
-2. The Go tests, the Python suite and the controller's tests read it, never each other's code. Rules change there first.
+2. The Go tests, Python suite and controller's tests read it, never each other's code. Rules change there first.
 
 The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 
