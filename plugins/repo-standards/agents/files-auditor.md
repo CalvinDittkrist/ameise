@@ -1,7 +1,7 @@
 ---
 name: files-auditor
-description: Standardisation auditor for leftover files and AI slop. Read-only; started by /repo-standards:standardize.
-tools: Read, Grep, Glob, Bash
+description: Standardisation auditor for leftover files and AI slop. Read-only; started by /repo-standards:standardize or the standardize process of the controller.
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high

@@ -1,7 +1,7 @@
 ---
 name: agent-config-auditor
-description: Standardisation auditor for agent configuration (CLAUDE.md, AGENTS.md, .claude, other agent tools). Read-only; started by /repo-standards:standardize.
-tools: Read, Grep, Glob, Bash
+description: Standardisation auditor for agent configuration (CLAUDE.md, AGENTS.md, .claude, other agent tools). Read-only; started by /repo-standards:standardize or the standardize process of the controller.
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: sonnet
 effort: high
