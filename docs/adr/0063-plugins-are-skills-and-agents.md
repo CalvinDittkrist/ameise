@@ -1,7 +1,7 @@
 # 0063. Plugins are skills and agents
 
 Date: 2026-09-27
-Status: accepted
+Status: accepted; amended 2026-10-01 (the Python suite is gone, and the tests of the scripts that stay shell run in the controller's vitest suite)
 
 ## Context
 - The worker, planner and repo-standards plugins carry hooks, state scripts, steering scripts and Herdr calls beside their skills and agents.
@@ -17,3 +17,4 @@ Status: accepted
 - A plugin change touches prompts, not steering.
 - A repository without the controller is never left with a silent failure.
 - The Python suite shrinks with the scripts it tests.
+  - Amended 2026-10-01: the suite is gone. The tests of the scripts that stay shell are vitest tests under `controller/test/scripts/`.

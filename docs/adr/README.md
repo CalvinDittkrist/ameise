@@ -15,8 +15,8 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0009](0009-profile-derived-from-github-with-two-branch-models.md) | The profile is derived from GitHub, with exactly two branch models | accepted |
 | [0010](0010-standardisation-audits-read-only-and-backs-up-before-deleting.md) | Standardisation audits read-only, deletes through a pull request and backs up with a protected tag | accepted |
 | [0011](0011-github-workspace-configured-by-an-idempotent-script.md) | The GitHub workspace is configured by an idempotent script with rulesets and no bypass | accepted |
-| [0012](0012-releases-are-manual-and-close-a-milestone.md) | Releases are manual and close a milestone | accepted |
-| [0013](0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md) | Promotions merge with a merge commit, and the release tags it | accepted |
+| [0012](0012-releases-are-manual-and-close-a-milestone.md) | Releases are manual and close a milestone | accepted; the orchestrator command superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
+| [0013](0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md) | Promotions merge with a merge commit, and the release tags it | accepted; `merge.sh` and `/orchestrator:release` superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0014](0014-claims-require-ready-for-agent.md) | Claiming requires ready-for-agent, with --force as the only exception | amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md) |
 | [0015](0015-a-spec-with-tickets-is-closed-by-an-acceptance.md) | A spec with tickets is closed by an acceptance | accepted |
 | [0016](0016-approval-is-per-category-and-scripts-own-what-they-apply.md) | Approval is per category, and scripts own what they apply | amended by [0035](0035-every-category-the-apply-phase-scaffolds-is-answerable.md) |
@@ -48,7 +48,7 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0042](0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md) | The factory carries its own prompts and updates no plugin | amended by [0050](0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md), [0052](0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md) |
 | [0043](0043-the-migration-runs-from-the-last-stage-to-the-first.md) | The migration runs from the last stage to the first, through a temporary stop-after knob | accepted |
 | [0044](0044-the-quota-check-reads-the-scope-of-every-model-a-run-spends.md) | The quota check reads the scope of every model a run spends | amended by [0053](0053-the-quota-check-reads-every-runtime-a-run-spends.md) |
-| [0045](0045-a-test-hunt-runs-on-a-branch-without-an-issue.md) | A test hunt runs on a branch without an issue | accepted |
+| [0045](0045-a-test-hunt-runs-on-a-branch-without-an-issue.md) | A test hunt runs on a branch without an issue | accepted; the orchestrator command, the worker hook and the status line superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0046](0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md) | A test is removed at high confidence without a person's approval before the pull request | amended by [0047](0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md) |
 | [0047](0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md) | A test hunt reads its shares whole and hunts while it finds something new | accepted |
 | [0048](0048-writing-rules-are-part-of-the-standard-and-the-gate-checks-the-mechanical-ones.md) | Writing rules are part of the standard, and the gate checks the mechanical ones | accepted |

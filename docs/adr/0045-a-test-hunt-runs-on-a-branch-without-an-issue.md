@@ -1,11 +1,11 @@
 # 0045. A test hunt runs on a branch without an issue
 
 Date: 2026-09-24
-Status: accepted
+Status: accepted; partly superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - Repositories collect tests that prove nothing; no reviewer reads a whole suite. Spec #170.
-- What a hunt removes is known only at its end.
+- A hunt's removals are known only at its end.
 - Every worker session was bound to an issue through its branch `<type>/<n>-<slug>`.
 
 ## Decision
@@ -23,6 +23,6 @@ Status: accepted
 
 ## Consequences
 - From the review stage on, a hunt runs a ticket's pipeline.
-- A hunt that removes nothing opens no pull request; its worktree stays until the maintainer abandons it.
+- A hunt that removes nothing opens no pull request, and its worktree stays until abandoned.
 - A drift test binds the two plugins' copies of the test-file rule.
-- Rejected: an issue per hunt, which cannot describe the work beforehand.
+- Rejected: an issue per hunt, which cannot describe the work first.

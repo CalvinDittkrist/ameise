@@ -1,7 +1,7 @@
 # 0012. Releases are manual and close a milestone
 
 Date: 2026-09-18
-Status: accepted
+Status: accepted; the orchestrator command is superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md), and the release is an action of the controller
 
 ## Context
 - Work is cut into tickets, but nothing groups them into something shippable, and releases were tagged ad hoc.
