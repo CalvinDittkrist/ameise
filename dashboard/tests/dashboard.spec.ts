@@ -1121,6 +1121,13 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto(url(`/#process=${id}`))
       await expect(page.getByRole("list", { name: "Categories" }).locator("[aria-label]")).toHaveCount(6)
       await page.evaluate(() => document.fonts.ready)
+      // The scroller follows the end within a tolerance, so on a slow runner it can rest a pixel short
+      // of it; the screenshot is of the page scrolled to its very end.
+      const pane = main(page).getByLabel("Process", { exact: true })
+      await expect.poll(() => pane.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+        return el.scrollHeight - el.clientHeight - el.scrollTop
+      })).toBeLessThan(1)
       await expect(page).toHaveScreenshot(`standardize-${scheme}.png`, {
         animations: "disabled",
         caret: "hide",
