@@ -1,7 +1,7 @@
 # 0062. The peers share a contract fixture, not code
 
 Date: 2026-09-27
-Status: accepted
+Status: accepted; amended 2026-10-01 (the gate's draft and its takeover are in the fixture too)
 Extends: [0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md), [0038](0038-the-local-workflow-and-the-factory-are-peers.md)
 
 ## Context
@@ -13,6 +13,7 @@ Extends: [0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)
   - The branch contract and the base branch rule.
   - The frontier rule, split by the routing label.
   - The label vocabulary with colour, description and order.
+  - Amended 2026-10-01: the gate's draft and its takeover of a pull request already open on the branch.
 - The compact pin is not in the fixture: it concerns only the sessions a peer starts itself, not a shared state.
 - Each side's tests read the fixture. No test of one side runs the other side's code.
 - A rule changes in the fixture first. The side that disagrees fails and names the case.
