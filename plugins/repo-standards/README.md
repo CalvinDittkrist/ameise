@@ -1,6 +1,6 @@
 # repo-standards
 
-Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. Standardisation is two user-invoked halves: an audit that changes nothing, and an apply phase that is safe to run again. An empty repository gets a report of create actions only.
+Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. Standardisation is two user-invoked halves: an audit that changes nothing, and an apply phase that is safe to run again. The controller's standardize process runs both from its dashboard. An empty repository gets a report of create actions only.
 
 ## Skills
 | Skill | Script | Effect |

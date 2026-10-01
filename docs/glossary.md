@@ -17,6 +17,7 @@ Terms the code, the issues and the docs use, one row each.
 | finding | One proposed action of an auditor, one line: `finding: <category> \| <target> \| <action> \| <reason> \| <confidence>`. Actions are delete, replace, create, issue and configure ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)). |
 | cleanup pull request | The one pull request from `chore/standardize` that carries a standardisation run's deletions and new baseline files; its description lists how to restore each removed path. |
 | catalogue issue | The issue, labelled `skill-candidate`, that lists the skills standardisation removed and how to restore each from the `pre-standard` tag. |
+| standardize process | A process of the controller on `chore/standardize` that runs the audit, the apply of the approved categories and the finalize of a standardisation, with the approval per category in its process view. |
 | drift | A difference between a repository's GitHub workspace and the standard; `workspace.sh` prints one `diff:` line per difference. |
 | snapshot | The JSON file `workspace.sh --apply` writes before its first change: the previous value of everything it changes. |
 | open session | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): a planner session without a topic on a `plan/open-<yyyymmdd-hhmm>` branch. It became a planning session when a topic emerged. Now an open `plan` process. |
