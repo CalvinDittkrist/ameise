@@ -112,7 +112,7 @@ while IFS=$'\t' read -r _ target _ reason _; do
   done < <(git ls-tree -r --name-only "$WF_TAG" -- ":(literal)$target")
 done < <(approved_findings "$answers" delete)
 {
-  printf 'The standardisation run (`/repo-standards:apply`) removes these skills from `%s`; they may move into a plugin marketplace later. The tag `%s` keeps the state before the run: fetch it with `git fetch origin tag %s`, then run a restore command in a checkout.\n\n' "$default" "$WF_TAG" "$WF_TAG"
+  printf 'The standardisation run (the standardize process of the controller) removes these skills from `%s`; they may move into a plugin marketplace later. The tag `%s` keeps the state before the run: fetch it with `git fetch origin tag %s`, then run a restore command in a checkout.\n\n' "$default" "$WF_TAG" "$WF_TAG"
   if [ "$count" = 0 ]; then printf 'No skills are removed.\n'
   else printf '| Skill | Description | Origin | Files | Restore |\n| --- | --- | --- | --- | --- |\n%s' "$rows"; fi
   printf '\nWhen the run configures the GitHub workspace, it adds the previous settings as a comment here.\n'

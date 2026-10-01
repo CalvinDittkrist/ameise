@@ -1,6 +1,6 @@
 // What a published package has to carry beside the controller's build: the dashboard it serves, the
-// plugins its sessions load and the licence. npm pack runs this after the build, so it never writes a
-// package that would answer 404 under /, fail every session or ship without its terms.
+// plugins its sessions load, its standardize scripts and the licence. npm pack runs this after the build,
+// so it never writes a package that would answer 404 under /, fail every session or ship without its terms.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -11,6 +11,7 @@ const needed = [
   ['plugins/worker/.claude-plugin/plugin.json', 'npm --prefix controller run build'],
   ['plugins/planner/.claude-plugin/plugin.json', 'npm --prefix controller run build'],
   ['plugins/repo-standards/.claude-plugin/plugin.json', 'npm --prefix controller run build'],
+  ['standardize/facts.sh', 'npm --prefix controller run build'],
 ]
 const missing = needed.filter(([file]) => !existsSync(dist + file))
 for (const [file, fix] of missing) process.stderr.write(`error: the package would lack dist/${file}; run ${fix} in the checkout first\n`)

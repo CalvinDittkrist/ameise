@@ -1,5 +1,5 @@
 # The gate: `make check` runs everything CI gates on, locally and in the CI job named `check`.
-SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
+SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh controller/standardize/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
 
 .PHONY: check lint validate standard test ui factory factory-go browser binaries controller dashboard
 # The gate parallelises inside its targets (the Python runner's process pool, go test) and never across

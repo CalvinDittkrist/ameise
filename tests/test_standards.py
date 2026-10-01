@@ -2,7 +2,7 @@ import json
 import subprocess
 import unittest
 
-from helpers import STANDARDS, ShimTest
+from helpers import STANDARDIZE, STANDARDS, ShimTest
 
 
 class StandardsTests(ShimTest):
@@ -79,12 +79,14 @@ class StandardsTests(ShimTest):
                                                       "repo-standards@ameise": True, "worker@ameise": True})
 
     def test_the_scaffolded_categories_are_the_ones_the_report_names(self):
-        """WF_SCAFFOLD_CATEGORIES (lib.sh) is what report.sh promises; scaffold.sh is what really writes files.
-        One run per category, everything else skipped, so a put call added or moved shows up here."""
-        def var(name):
-            return subprocess.run(["bash", "-c", f'. "{STANDARDS / "lib.sh"}"; printf "%s" "${name}"'],
+        """WF_SCAFFOLD_CATEGORIES (the controller's lib.sh) is what report.sh promises; scaffold.sh of the plugin is
+        what really writes files. One run per category, everything else skipped, so a put call added or moved shows
+        up here."""
+        def var(lib, name):
+            return subprocess.run(["bash", "-c", f'. "{lib / "lib.sh"}"; printf "%s" "${name}"'],
                                   capture_output=True, text=True, check=True).stdout.split()
-        every, scaffolded = var("WF_CATEGORIES"), var("WF_SCAFFOLD_CATEGORIES")
+        every, scaffolded = var(STANDARDS, "WF_CATEGORIES"), var(STANDARDIZE, "WF_SCAFFOLD_CATEGORIES")
+        self.assertEqual(every, var(STANDARDIZE, "WF_CATEGORIES"), "the plugin and the controller name other categories")
         self.assertTrue(set(scaffolded) <= set(every), scaffolded)
         for c in every:
             root = self.base / f"scaffold-{c}"

@@ -7,7 +7,7 @@
 set -euo pipefail
 export LC_ALL=C # byte order for sort, so the output is the same on every machine
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
-# The plugin's own scripts, resolved before the cd so a relative invocation never runs the audited repository's.
+# The controller's own scripts, resolved before the cd so a relative invocation never runs the audited repository's.
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
 . "$here/lib.sh"
@@ -234,7 +234,7 @@ kv baseline-missing "$(printf '%s' "$missing" | join)"
 
 # The writing rules, counted by writing.sh as check.sh counts them, so the docs auditor proposes the rewrite
 # from the findings instead of counting words itself. The first 20 are listed; a rewrite issue needs no more.
-writing=$(printf '%s\n' "$all" | bash "$here/writing.sh" . | cut -f2-) || die "cannot count the writing rules; fix the error above"
+writing=$(printf '%s\n' "$all" | bash "$standards/scripts/writing.sh" . | cut -f2-) || die "cannot count the writing rules; fix the error above"
 if [ -z "$writing" ]; then kv writing-findings none
 else
   printf 'writing-findings:\n'

@@ -1,12 +1,12 @@
 // The standardize process: the standardisation of a project on the branch chore/standardize, which works
 // no issue. A standardize opens the branch from the base and its worktree, which is the cleanup worktree
-// of the repo-standards scripts, and the server then starts its audit. The audit gathers the facts
+// of the standardize scripts, and the server then starts its audit. The audit gathers the facts
 // (facts.sh and the dry run of workspace.sh), runs the six auditors as read-only sessions in parallel
 // (session.ts), and merges their finding lines per category with report.sh. The process then waits for
 // one answer per category, approve or reject.
 //
-// The apply records the answers with approve.sh and applies the approved categories in the order the
-// plugin's apply does: backup.sh (the tag pre-standard and the catalogue issue) before anything is
+// The apply records the answers with approve.sh and applies the approved categories in this
+// order: backup.sh (the tag pre-standard and the catalogue issue) before anything is
 // deleted, cleanup.sh prepare, a session for the todo lines that need judgement, cleanup.sh open for the
 // cleanup pull request, and issues.sh. After the merge, the finalize runs finalize.sh: the workspace and
 // the standard check. Every script is safe to run again, so a failed step is applied again from the start.
@@ -15,15 +15,16 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { addWorktree, type CreatedRecord, exists, fetch, git, held, type Mode, writeProcess } from './claim.js'
 import { run } from './exec.js'
 import { settingOf } from './gate.js'
 import { removal } from './hunt.js'
 import { type Project, Refusal } from './project.js'
-import { applier, auditors, bundledPlugins, type Ended, event, readRecord, type Running, type Runtime, track, update } from './session.js'
+import { applier, auditors, type Ended, event, readRecord, type Running, type Runtime, track, update } from './session.js'
 
-// The branch of a standardize process, the cleanup branch of the repo-standards scripts (WF_BRANCH).
+// The branch of a standardize process, the cleanup branch of the standardize scripts (WF_BRANCH).
 export const standardizeBranch = 'chore/standardize'
 
 // The six finding categories, one per auditor, in the order of the report (WF_CATEGORIES in lib.sh).
@@ -83,7 +84,9 @@ export interface StandardizeRecord extends CreatedRecord {
   standardize?: Standardization
 }
 
-const scripts = join(bundledPlugins, 'repo-standards', 'scripts')
+// The standardize scripts the controller owns, which the build copies from controller/standardize into
+// dist/standardize, beside the bundled plugins whose templates and check they use.
+const scripts = fileURLToPath(new URL('./standardize', import.meta.url))
 
 // standardize opens a standardize process: the branch chore/standardize from the base, its worktree and a
 // record in the state created. It refuses while a standardize process runs, or the branch exists here or
@@ -109,9 +112,9 @@ async function standardizeHeld(project: Project, stateDir: string, gh: string, f
   }
   if (remote) throw new Refusal(`the branch ${branch} exists on origin; merge its pull request and finalize, or delete it with git push origin --delete ${branch}`, 409)
 
-  // The repo-standards scripts derive the cleanup worktree from the main checkout, beside its git directory.
+  // The standardize scripts derive the cleanup worktree from the main checkout, beside its git directory.
   const main = dirname(resolve(top, await git(top, 'rev-parse', '--git-common-dir')))
-  if (realpathSync(main) !== realpathSync(top)) throw new Refusal(`${top} is a linked worktree of ${main}, whose cleanup worktree the repo-standards scripts work in; add ${main} as the project and standardize there`, 409)
+  if (realpathSync(main) !== realpathSync(top)) throw new Refusal(`${top} is a linked worktree of ${main}, whose cleanup worktree the standardize scripts work in; add ${main} as the project and standardize there`, 409)
   // The scripts back up, clean up, open the pull request on and check the default branch GitHub names, so
   // the standardisation works that branch alone.
   const base = project.base
@@ -192,7 +195,7 @@ async function scriptEnv(project: Project, rt: Runtime): Promise<NodeJS.ProcessE
   return env
 }
 
-// script runs a script of repo-standards in the checkout and answers how it ended. A stop kills it.
+// script runs a standardize script in the checkout and answers how it ended. A stop kills it.
 async function script(project: Project, rt: Runtime, signal: AbortSignal, name: string, args: string[] = []): Promise<Ran> {
   const env = await scriptEnv(project, rt)
   return new Promise((done) => {

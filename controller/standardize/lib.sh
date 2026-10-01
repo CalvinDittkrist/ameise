@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Helpers shared by the controller's standardize scripts. Sourced, never run.
+
+# standards: the repo-standards plugin, whose templates, scaffold.sh, writing.sh and check.sh the apply phase uses.
+# The build puts these scripts in dist/standardize beside the bundled plugins in dist/plugins; in a checkout
+# they sit in controller/standardize, two levels below plugins/.
+for standards in "$(dirname "${BASH_SOURCE[0]}")/../plugins/repo-standards" "$(dirname "${BASH_SOURCE[0]}")/../../plugins/repo-standards"; do
+  [ -f "$standards/scripts/check.sh" ] && break
+done
+[ -f "$standards/scripts/check.sh" ] || { printf 'error: no repo-standards plugin beside %s; build the controller from a checkout of ameise (npm --prefix controller run build)\n' "$(dirname "${BASH_SOURCE[0]}")" >&2; exit 1; }
+standards=$(cd "$standards" && pwd)
+
+# has <dir> <name>: a file or directory of exactly this name is in dir. macOS file systems ignore case,
+# so [ -e ] would accept claude.md for CLAUDE.md.
+has() { local e; for e in "$1"/*; do [ "${e##*/}" = "$2" ] && return 0; done; return 1; }
+# The standardisation run: the six finding categories, one per auditor, in report order, and the state
+# directory inside the git directory, so the audit never changes the working tree.
+# shellcheck disable=SC2034 # used by the scripts that source this file
+WF_CATEGORIES="files agent-config docs tests-ci workspace security"
+# The categories scaffold.sh of the plugin has templates for. Approving one of them creates every baseline file
+# of it that is missing, whether a finding lists it or not, so the report says so and asks about every one of
+# them (ADR 0035). Keep it in step with the `put` calls in scaffold.sh; a test scaffolds each category on its own,
+# with every other one skipped, and expects files from exactly these.
+# shellcheck disable=SC2034
+WF_SCAFFOLD_CATEGORIES="agent-config docs tests-ci workspace"
+state_dir() {
+  local d
+  d=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { printf 'error: not inside a git repository; run git init first\n' >&2; return 1; }
+  printf '%s/standardize' "$d"
+}
+# in_list <value> <space separated list>: the list holds exactly this value. Compared word by word, so a value
+# that is several words, or that carries a glob character, is not a member of anything.
+in_list() { local x; for x in $2; do if [ "$x" = "$1" ]; then return 0; fi; done; return 1; }
+# scaffolded <category>: scaffold.sh has templates for it.
+scaffolded() { in_list "$1" "$WF_SCAFFOLD_CATEGORIES"; }
+# has_findings <category> [<action>]: the last report has a finding for it, of that action when one is named.
+# One process, because a pipeline into `grep -q` reports the SIGPIPE of its first half under `set -o pipefail`.
+has_findings() {
+  awk -F'\t' -v c="$1" -v a="${2-}" '$1 == c && (a == "" || $3 == a) { found = 1; exit }
+    END { exit !found }' "$(state_dir)/findings" 2>/dev/null
+}
+# answerable: the categories the report asks about and approve.sh answers, in report order: every category with
+# a finding, plus every scaffolded one, because the apply phase creates its missing baseline files whether a
+# finding lists them or not (ADR 0035). One source for the report and the answer, so the two cannot drift.
+answerable() {
+  local c out=""
+  for c in $WF_CATEGORIES; do
+    if has_findings "$c" || scaffolded "$c"; then out="$out${out:+ }$c"; fi
+  done
+  printf '%s' "$out"
+}
+
+# workspace_settings: reads workspace.sh output on stdin and prints the setting of each `diff:` line, one per
+# line: everything before the last `: `, which is the rule the workspace auditor follows when it writes the
+# target of a `configure` finding (agents/workspace-auditor.md). The two sides are compared in finalize.sh.
+workspace_settings() { sed -n 's/^diff: //p' | sed 's/: [^:]*$//'; }
+
+# workflow_jobs <file>: the jobs of a GitHub Actions workflow as `id` or `id ("name")`, comma separated,
+# name only when it differs from the id (GitHub shows the name as the check).
+workflow_jobs() {
+  awk '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; ind = 0; next }
+    in_jobs && /^[^[:space:]#]/ { in_jobs = 0 }
+    !in_jobs || /^[[:space:]]*(#|$)/ { next }
+    { match($0, /^ */); d = RLENGTH }
+    ind == 0 { ind = d }
+    d == ind && /^ *[A-Za-z0-9_-]+:/ { id = $0; sub(/^ */, "", id); sub(/:.*/, "", id); ids[++n] = id; next }
+    n && d > ind && sd[n] == "" { sd[n] = d }
+    n && d == sd[n] && /^ *name:/ { v = $0; sub(/^ *name:[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v); gsub(/^["\047]|["\047]$/, "", v); nm[n] = v }
+    END { for (i = 1; i <= n; i++) printf "%s%s%s", (i > 1 ? ", " : ""), ids[i], (nm[i] != "" && nm[i] != ids[i] ? " (\"" nm[i] "\")" : "") }
+  ' "$1"
+}
+# is_check_job: the workflow_jobs output on stdin has a job GitHub reports as the check `check`.
+is_check_job() { local jobs; jobs=$(tr ',' '\n' | sed -E 's/^ +//'); grep -Eq '^check$|\("check"\)$' <<<"$jobs"; }
+# The names the README and the licence may have, the standard's name first. facts.sh here and check.sh and
+# scaffold.sh of the plugin accept exactly these, so the audit, the check and the scaffold agree on what exists.
+# The other baseline files have one or two names each, listed where they are used (the Makefile in make's
+# order of precedence).
+# shellcheck disable=SC2034
+WF_README_NAMES="README.md README.rst README.txt README readme.md" WF_LICENSE_NAMES="LICENSE LICENSE.md LICENSE.txt COPYING"
+
+# The apply phase. Everything it creates on GitHub is found again by these names, so a second run updates
+# instead of duplicating: the tag, its ruleset, the catalogue issue, the cleanup branch.
+# shellcheck disable=SC2034
+WF_TAG=pre-standard WF_BRANCH=chore/standardize WF_CATALOGUE="Standardisation: removed skills and how to restore them"
+# The ruleset that protects the tag from deletion and moving; workspace.sh wants the same one.
+tag_ruleset() {
+  jq -cn --arg t "$WF_TAG" '{name: ("standard: " + $t), target: "tag", enforcement: "active", bypass_actors: [],
+    conditions: {ref_name: {include: ["refs/tags/" + $t], exclude: []}}, rules: [{type: "deletion"}, {type: "update"}]}'
+}
+# The workflow's label vocabulary (the controller's github tools in controller/src/github.ts) plus skill-candidate: name|color|description.
+WF_LABELS='ready-for-agent|0E8A16|Fully specified; an agent can take it
+needs-triage|FBCA04|A maintainer has to evaluate this
+needs-info|D876E3|Waiting on the reporter
+ready-for-human|1D76DB|Needs a human to implement
+wontfix|FFFFFF|Will not be actioned; the closing comment says why
+spec|5319E7|Spec issue; its tickets carry the work
+factory|FFC799|Routed to the factory host; local claims leave it alone
+factory:spec-run|F29D4B|Routes a spec and its tickets to a spec run on the factory host
+bug|D73A4A|Something is broken
+enhancement|A2EEEF|New feature or improvement
+skill-candidate|C5DEF5|A removed skill that could move into the marketplace'
+# label_json <name>: the create body of one vocabulary label.
+label_json() {
+  printf '%s\n' "$WF_LABELS" | awk -F'|' -v n="$1" '$1 == n' | { IFS='|' read -r name color desc
+    jq -cn --arg n "$name" --arg c "$color" --arg d "$desc" '{name: $n, color: $c, description: $d}'; }
+}
+
+# decisions: the recorded answer per answerable category of the last report, `<category>\t<approve|reject>`.
+# Fails while the audit has not run or a category with findings is still pending, so no finding is applied that
+# was not answered. A scaffolded category without findings is left out while it is unanswered: the apply phase
+# then scaffolds it as it always has, and only a rejection takes it out (ADR 0035).
+decisions() {
+  local dir c v out=""
+  dir=$(state_dir) || return 1
+  [ -f "$dir/findings" ] || { printf 'error: no findings recorded; run the audit of the standardize process first\n' >&2; return 1; }
+  for c in $(answerable); do
+    v=$(awk -F'\t' -v c="$c" '$1 == c { v = $2 } END { print v }' "$dir/approvals" 2>/dev/null)
+    if [ -z "$v" ]; then
+      has_findings "$c" || continue
+      printf 'error: %s is still pending; record it with approve.sh %s=approve|reject\n' "$c" "$c" >&2; return 1
+    fi
+    out="$out$c"$'\t'"$v"$'\n'
+  done
+  printf '%s' "$out"
+}
+# approved_findings <decisions> <action>: the findings of approved categories with this action, as stored.
+approved_findings() {
+  awk -F'\t' -v ok="$(categories "$1" approve)" -v a="$2" 'BEGIN { n = split(ok, c, " "); for (i = 1; i <= n; i++) O[c[i]] = 1 }
+    ($1 in O) && $3 == a' "$(state_dir)/findings"
+}
+# categories <decisions> <approve|reject>: the categories with this answer, space separated.
+categories() { printf '%s' "$1" | awk -F'\t' -v v="$2" '$2 == v { printf "%s%s", (n++ ? " " : ""), $1 }'; }
+
+# The GitHub side of the apply phase. Each prints an `error:` line and returns 1 when GitHub cannot be read.
+gh_fail() { printf 'error: %s: %s\n' "$1" "$(tail -n1 "$2")" >&2; rm -f "$2"; return 1; }
+# github_repo: sets nwo (owner/name) and default (the default branch).
+github_repo() {
+  local e; e=$(mktemp)
+  nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$e") || { gh_fail "cannot read the GitHub repository (run gh auth status)" "$e"; return 1; }
+  default=$(gh api "repos/$nwo" 2>"$e" | jq -r '.default_branch // empty') || { gh_fail "cannot read repos/$nwo" "$e"; return 1; }
+  rm -f "$e"
+  [ -n "$default" ] || { printf 'error: cannot read the default branch of %s\n' "$nwo" >&2; return 1; }
+}
+# catalogue_issue: the number of the catalogue issue, the oldest when several issues carry its title; empty when none.
+catalogue_issue() {
+  local e out; e=$(mktemp)
+  out=$(gh api --paginate "repos/$nwo/issues?labels=skill-candidate&state=all&per_page=100" 2>"$e") || { gh_fail "cannot list the skill-candidate issues" "$e"; return 1; }
+  rm -f "$e"
+  printf '%s' "$out" | jq -s -r --arg t "$WF_CATALOGUE" '[add // [] | .[] | select(.title == $t and .pull_request == null)] | sort_by(.number) | first // empty | .number'
+}
+# branch_pulls: the pull requests from the cleanup branch, newest first, as {number, url, body, state, sha}; state
+# is open, closed (without a merge) or merged, sha the head commit.
+branch_pulls() {
+  local e out; e=$(mktemp)
+  out=$(gh api --paginate "repos/$nwo/pulls?head=${nwo%%/*}:$WF_BRANCH&state=all&per_page=100" 2>"$e") || { gh_fail "cannot list the pull requests from $WF_BRANCH" "$e"; return 1; }
+  rm -f "$e"
+  printf '%s' "$out" | jq -s -c '[add // [] | .[] | {number, url: .html_url, body: (.body // ""), sha: .head.sha,
+    state: (if .merged_at then "merged" else .state end)}] | sort_by(-.number)'
+}
+# cleanup_worktree: the path of the cleanup worktree, inside the main checkout like every workflow worktree.
+cleanup_worktree() {
+  printf '%s/.claude/worktrees/%s' "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" "$(printf '%s' "$WF_BRANCH" | tr '/' '-')"
+}
+# remote_ref <ref>: the commit a ref has on origin; empty when origin has no such ref, an error when origin cannot be reached.
+remote_ref() {
+  local e out; e=$(mktemp)
+  out=$(git ls-remote origin "$1" 2>"$e") || { gh_fail "cannot reach origin" "$e"; return 1; }
+  rm -f "$e"; printf '%s' "$out" | head -n1 | cut -f1
+}
+# ensure_label <name>: create a label of the vocabulary unless the repository has it (in any case).
+ensure_label() {
+  local e out; e=$(mktemp)
+  out=$(gh api --paginate "repos/$nwo/labels?per_page=100" 2>"$e") || { gh_fail "cannot read the labels of $nwo" "$e"; return 1; }
+  if ! printf '%s' "$out" | jq -s -e --arg n "$1" 'add // [] | any(.[]; (.name | ascii_downcase) == $n)' >/dev/null; then
+    label_json "$1" | gh api --method POST "repos/$nwo/labels" --input - >/dev/null 2>"$e" || { gh_fail "cannot create the label $1" "$e"; return 1; }
+  fi
+  rm -f "$e"
+}

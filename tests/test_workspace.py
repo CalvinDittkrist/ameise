@@ -2,9 +2,9 @@ import json
 import unittest
 from pathlib import Path
 
-from helpers import STANDARDS, ShimTest
+from helpers import STANDARDIZE, STANDARDS, ShimTest
 
-WORKSPACE = STANDARDS / "workspace.sh"
+WORKSPACE = STANDARDIZE / "workspace.sh"
 AUTOADD = "turn on Workflows > Auto-add to project with the filter is:issue,pr is:open for o/r (the API cannot create or turn on project workflows)"
 
 
@@ -352,6 +352,20 @@ class WorkspaceTests(ShimTest):
         r = self.ws_run("--apply")
         self.assertEqual(r.returncode, 1)
         self.assertIn("error: refusing to apply: the default branch is master", r.stderr)
+        self.assertEqual(self.writes(), [])
+
+    def test_the_plugin_copy_prints_the_controllers_dry_run_and_never_applies(self):
+        """The plugin keeps the dry run for check.sh; applying is the controller's standardize process."""
+        self.public_main()
+        plugin = STANDARDS / "workspace.sh"
+        want = self.ws_run(WF_PROJECT_TEMPLATE="tpl-owner/1").stdout
+        r = self.run_script(plugin, SHIM_WS=str(self.ws), TMPDIR=str(self.base), WF_PROJECT_TEMPLATE="tpl-owner/1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, want.replace("next: run workspace.sh --apply to make these changes",
+                                                "next: the standardize process of the controller makes these changes"))
+        r = self.run_script(plugin, "--apply", SHIM_WS=str(self.ws), TMPDIR=str(self.base))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("error: unknown argument --apply", r.stderr)
         self.assertEqual(self.writes(), [])
 
     def test_snapshot_without_apply_is_refused(self):
