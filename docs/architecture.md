@@ -33,7 +33,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
    - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
    - In a planning session `/planner:accept [spec]` runs the same steps through `accept-facts.sh`, one `spec-checker` and `accept-report.sh`.
-7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. The controller writes them through its github tools and closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
+7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing.
+   - The controller writes them through its github tools and closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
 1. A claim on the dashboard or `ameise claim N` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin.

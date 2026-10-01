@@ -416,13 +416,15 @@ The spec then leaves `acceptance`, and the acceptance runs at once:
 1. It gathers the facts: the spec, its tickets, the merged pull requests of this repository that referenced each ticket, the files those changed, and the deviations accepted earlier.
    - An accepted deviation is a comment on the spec whose first line is `> Accepted deviation (spec acceptance).`, by someone with write access.
    - What it cannot read becomes a note on the record.
-2. It runs the spec checker: a read-only session in the default mode beside the process, briefed with the facts and the spec's body, without Edit, Write or Agent. It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
+2. It runs the spec checker: a read-only session in the default mode beside the process, briefed with the facts and the spec's body, without Edit, Write or Agent.
+   - It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
 3. It keeps the items on the record, in the state `input`. An item whose `<section>: <statement>` an earlier deviation names is left out and counted in `repeated`.
 
 A checker that reports no item fails the process; a check runs it again. A controller stopped while the acceptance runs leaves it failed.
 
 Each item not met takes one answer in the process view:
-- A gap ticket: an issue with `ready-for-agent`, and `factory:spec-run` when the spec carries it, created as a sub-issue of the spec on its `vX.Y.Z` milestone through the github tools of the [plan process](#plan-process), under their rules.
+- A gap ticket: an issue with `ready-for-agent`, and `factory:spec-run` when the spec carries it.
+  - It is created as a sub-issue of the spec on its `vX.Y.Z` milestone through the github tools of the [plan process](#plan-process), under their rules.
 - An accepted deviation: the comment above, with the item's `<section>: <statement>` on its second line and the reason below.
 - No finding: nothing is written; the closing comment names the item as overruled.
 
