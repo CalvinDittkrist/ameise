@@ -110,16 +110,29 @@ export default async function start() {
 let runningRecords = () => {}
 
 // report is quota-axi's JSON report of one provider with the percentage left and the reset of its
-// session window.
+// session window, which limits it, and its weekly window at 60% that resets in five and a half days. Claude
+// names that window seven_day and carries the scope of the Fable model at 30%, limited by a window of its
+// own that resets in four and a half days.
 function report(provider: string, remaining: number, reset: string) {
+  const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString()
+  const claude = provider === "claude"
   return {
     schemaVersion: 5,
     providers: [
       {
         provider,
         state: { stale: false, error: "" },
-        windows: [{ id: "five_hour", resetsAt: reset }],
-        quotaSemantics: { effectiveAvailability: [{ scope: "all_models", status: "known", effectivePercentRemaining: remaining, limitingWindowIds: ["five_hour"] }] },
+        windows: [
+          { id: "five_hour", percentRemaining: remaining, resetsAt: reset },
+          { id: claude ? "seven_day" : "weekly", percentRemaining: 60, resetsAt: inDays(5.5) },
+          ...(claude ? [{ id: "model:fable", percentRemaining: 30, resetsAt: inDays(4.5) }] : []),
+        ],
+        quotaSemantics: {
+          effectiveAvailability: [
+            { scope: "all_models", status: "known", effectivePercentRemaining: remaining, limitingWindowIds: ["five_hour"] },
+            ...(claude ? [{ scope: "model:fable", status: "known", effectivePercentRemaining: 30, limitingWindowIds: ["model:fable"] }] : []),
+          ],
+        },
       },
     ],
   }

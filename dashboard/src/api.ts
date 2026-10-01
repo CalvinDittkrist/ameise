@@ -91,11 +91,19 @@ export function useBoard(): [Board, () => Promise<void>] {
   return [board, reload]
 }
 
+// A window of a runtime's quota: its percentage left where quota-axi reports one, and its reset.
+export type QuotaWindow = { id: string; remaining: number | null; reset: string | null }
+
+// A scope of one model, as Claude's Fable: known with its percentage left and reset, or unknown with the
+// reason.
+export type QuotaScope = { known: true; remaining: number; reset: string | null } | { known: false; reason: string }
+
 // A reading of a runtime's quota as GET /api/quota answers it: the percentage left and when the windows
-// that limit it reset, marked below when it is under the configured minimum, or unknown with the reason.
-// A quota whose check is switched off says off and holds no reading.
+// that limit it reset, marked below when it is under the configured minimum, with its session and weekly
+// windows and, for Claude, the Fable scope where quota-axi reports one; or unknown with the reason. A
+// quota whose check is switched off says off and holds no reading.
 export type Reading =
-  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
+  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean; windows: QuotaWindow[]; fable?: QuotaScope }
   | { runtime: string; known: false; reason: string; below: false }
 export type Quota = { state: "loading" } | { state: "failed"; error: string } | { state: "loaded"; minimum: number; off?: true; runtimes: Reading[] }
 

@@ -30,13 +30,14 @@ interface Report {
   providers: {
     provider: string
     state: { stale: boolean; error: string }
-    windows: { id: string; resetsAt: string }[]
+    windows: { id: string; percentRemaining?: number; resetsAt: string }[]
     quotaSemantics: { effectiveAvailability: { scope: string; status: string; effectivePercentRemaining: number | null; limitingWindowIds: string[] }[] }
   }[]
 }
 
 // quotaAxi installs a scripted quota-axi that answers, per provider it is asked for, quota-axi's report
-// of that provider with the percentage left and the reset of its session window, and writes down what
+// of that provider with the percentage left and the reset of its session window, its weekly window at
+// 75% with a later reset, and writes down what
 // it was called with. A codex of null is a quota-axi that knows no codex provider: it answers a report
 // without one. change alters the report of a provider before it is written, so a case can break one
 // part of it.
@@ -50,8 +51,8 @@ function quotaAxi(claude: number, codex: number | null, change: (report: Report,
         provider,
         state: { stale: false, error: '' },
         windows: [
-          { id: 'five_hour', resetsAt: resets[provider]! },
-          { id: 'seven_day', resetsAt: '2026-09-30T08:00:00Z' },
+          { id: 'five_hour', percentRemaining: remaining, resetsAt: resets[provider]! },
+          { id: 'seven_day', percentRemaining: 75, resetsAt: '2026-09-30T08:00:00Z' },
         ],
         quotaSemantics: {
           effectiveAvailability: [
@@ -69,6 +70,20 @@ function quotaAxi(claude: number, codex: number | null, change: (report: Report,
   return path
 }
 
+// windows are the windows a reading answers for the scripted report of a provider.
+const windows = (remaining: number, reset: string) => [
+  { id: 'five_hour', remaining, reset },
+  { id: 'seven_day', remaining: 75, reset: '2026-09-30T08:00:00.000Z' },
+]
+
+// fable adds Claude's scope of the Fable model to the report of Claude, limited by a window of its own.
+const fable = (status: string, remaining: number | null) => (r: Report, provider: string) => {
+  if (provider !== 'claude') return
+  const p = r.providers[0]!
+  p.windows.push({ id: 'model:fable', percentRemaining: 30, resetsAt: '2026-10-02T10:00:00Z' })
+  p.quotaSemantics.effectiveAvailability.push({ scope: 'model:fable', status, effectivePercentRemaining: remaining, limitingWindowIds: ['model:fable'] })
+}
+
 const quota = async () => (await api(m, 'GET', '/api/quota')).body
 
 test('the quota reads Claude then Codex, each with its reset, and marks a runtime below the minimum', async () => {
@@ -76,8 +91,8 @@ test('the quota reads Claude then Codex, each with its reset, and marks a runtim
   expect(await quota()).toEqual({
     minimum: 12,
     runtimes: [
-      { runtime: 'claude', known: true, remaining: 40, reset: '2026-09-28T14:30:00.000Z', below: false },
-      { runtime: 'codex', known: true, remaining: 70, reset: '2026-09-29T09:00:00.000Z', below: false },
+      { runtime: 'claude', known: true, remaining: 40, reset: '2026-09-28T14:30:00.000Z', below: false, windows: windows(40, '2026-09-28T14:30:00.000Z') },
+      { runtime: 'codex', known: true, remaining: 70, reset: '2026-09-29T09:00:00.000Z', below: false, windows: windows(70, '2026-09-29T09:00:00.000Z') },
     ],
   })
   expect(read(join(m.root, 'quota.log')).split('\n').filter(Boolean).sort()).toEqual(['--provider claude --json', '--provider codex --json'])
@@ -93,10 +108,60 @@ test('a quota-axi that knows no codex provider reads Codex unknown with the reas
   expect(await quota()).toEqual({
     minimum: 12,
     runtimes: [
-      { runtime: 'claude', known: true, remaining: 40, reset: '2026-09-28T14:30:00.000Z', below: false },
+      { runtime: 'claude', known: true, remaining: 40, reset: '2026-09-28T14:30:00.000Z', below: false, windows: windows(40, '2026-09-28T14:30:00.000Z') },
       { runtime: 'codex', known: false, reason: 'quota-axi reports no provider codex', below: false },
     ],
   })
+})
+
+test('the quota gives Claude the Fable scope quota-axi reports, and Codex its weekly window and no Fable', async () => {
+  // Both reports carry a Fable scope; Codex names its weekly window weekly.
+  configure({ quota_axi: quotaAxi(40, 70, (r, p) => {
+    fable('known', 30)(r, 'claude')
+    if (p === 'codex') r.providers[0]!.windows[1]!.id = 'weekly'
+  }) })
+  expect(await quota()).toEqual({
+    minimum: 12,
+    runtimes: [
+      {
+        runtime: 'claude',
+        known: true,
+        remaining: 40,
+        reset: '2026-09-28T14:30:00.000Z',
+        below: false,
+        windows: windows(40, '2026-09-28T14:30:00.000Z'),
+        fable: { known: true, remaining: 30, reset: '2026-10-02T10:00:00.000Z' },
+      },
+      {
+        runtime: 'codex',
+        known: true,
+        remaining: 70,
+        reset: '2026-09-29T09:00:00.000Z',
+        below: false,
+        windows: [
+          { id: 'five_hour', remaining: 70, reset: '2026-09-29T09:00:00.000Z' },
+          { id: 'weekly', remaining: 75, reset: '2026-09-30T08:00:00.000Z' },
+        ],
+      },
+    ],
+  })
+})
+
+test('a Fable scope of unknown status reads Fable unknown with the reason and leaves the headline and its warning to all_models', async () => {
+  configure({ quota_axi: quotaAxi(8, 70, fable('unknown', null)) })
+  expect(await quota()).toMatchObject({
+    runtimes: [
+      { runtime: 'claude', known: true, remaining: 8, below: true, fable: { known: false, reason: 'quota-axi does not know how much of Fable is left (status unknown)' } },
+      { runtime: 'codex', known: true },
+    ],
+  })
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue: 144 })
+  expect((r.body as { quota: string[] }).quota).toEqual(['claude has 8% of its quota left, below the minimum of 12%; it resets at 2026-09-28T14:30:00.000Z'])
+})
+
+test('a window without a percentage of its own gives its reset alone', async () => {
+  configure({ quota_axi: quotaAxi(40, 70, (r) => delete r.providers[0]!.windows[1]!.percentRemaining) })
+  expect(await quota()).toMatchObject({ runtimes: [{ windows: [{ id: 'five_hour', remaining: 40 }, { id: 'seven_day', remaining: null, reset: '2026-09-30T08:00:00.000Z' }] }, {}] })
 })
 
 test('with no quota_axi the quota says it is off and reads no runtime, and with one it does not say off', async () => {
