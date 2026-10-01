@@ -14,8 +14,8 @@ import (
 // ---- the contract fixture: the rules the local workflow and the factory share ----
 
 // contract is the contract fixture, ../contract/fixture.json: the rules the factory shares with the
-// local workflow, as inputs with expected outputs. The Python suite holds the local workflow to the
-// same file, so a rule changes in the fixture first and the side that disagrees fails on the case it
+// local workflow, as inputs with expected outputs. The controller's tests hold the local workflow to
+// the same file, so a rule changes in the fixture first and the side that disagrees fails on the case it
 // names ([ADR 0062]). No test here runs the local workflow's shell.
 //
 // [ADR 0062]: ../docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md

@@ -18,7 +18,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
-| Python suite | Runs the real plugin scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
+| script tests | Vitest cases of the controller that run the real shell scripts with `bash` and the scripted gh. | `controller/test/scripts/`, `make controller` |
 
 ## Data flow
 
@@ -99,7 +99,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### The contract fixture
 1. `contract/fixture.json` states shared rules as cases: branch contract, base branch, gate's draft, frontier, labels.
-2. The Go tests, Python suite and controller's tests read it, never each other's code. Rules change there first.
+2. The Go tests and the controller's tests read it, never each other's code. Rules change there first.
 
 The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
 

@@ -7,11 +7,10 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 `controller/` is the local program `ameise`, which holds this machine's projects and serves a local API. `dashboard/` is its browser interface, which the controller serves.
 
 ## Commands
-- Gate: `make check` runs everything CI runs. `make lint`, `make validate`, `make standard`, `make test`, `make ui`, `make factory`, `make browser`, `make controller`, `make dashboard` run one part.
+- Gate: `make check` runs everything CI runs. `make lint`, `make validate`, `make standard`, `make ui`, `make factory`, `make browser`, `make controller`, `make dashboard` run one part.
   - Shell and plugins: shellcheck, `claude plugin validate --strict`, the standard check.
-  - Python: the suite through `tests/run.py`, which runs its test classes on a pool of processes.
   - Factory: the dashboard's lint and build, gofmt, vet, staticcheck, the Go tests, the dashboard's browser test.
-  - Controller: eslint, the TypeScript type check, the vitest suite.
+  - Controller: eslint, the TypeScript type check, the vitest suite, which runs the shell scripts' tests too.
   - Dashboard: eslint, the TypeScript type check, the build, the browser test against the controller.
 - Factory without tokens, git or GitHub: `make ui && go -C factory run . -fake -config <file>` works a canned queue with scripted workers.
   - Against real GitHub it claims the head of its line by creating the issue's branch. It runs a worker session in a worktree of its own clone.
@@ -64,10 +63,10 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Never pipe text with more than one line into `grep -q` when the match decides an action.
   - Read a here-string instead (`grep -qxF -e "$x" <<<"$list"`), or test a command substitution (`[ -z "$(...)" ]`).
   - Under `pipefail` the early exit of `grep -q` can kill the writer with SIGPIPE and turn a match false.
-- Every user-facing behaviour of a plugin or controller script has a test in `tests/` that runs the real script with the `gh` shim in `tests/shims/`.
+- Every user-facing behaviour of a script has a vitest test under `controller/test/scripts/` that runs the real script with the scripted gh.
 - The factory's behaviour has a Go test in `factory/` that starts the real binary. Tests assert observable behaviour, never grep prompt text.
 - Plugins are self-contained (no shared code across plugin directories); duplicated helpers in `lib.sh` are intentional.
-- The label vocabulary is duplicated the same way, and a test in `tests/test_plugins.py` fails when either copy differs from the contract fixture.
+- The label vocabulary is duplicated the same way, and a test in `controller/test/scripts/plugins.test.ts` fails when the shell copy differs from the contract fixture.
 - Docs: `docs/architecture.md` is the map, `docs/vision.md` is the why, decisions are ADRs in `docs/adr/`, terms are in `docs/glossary.md`.
   - The standard every repository follows is `docs/repo-standard.md`. Update the docs with the change that makes them stale.
 - Prose in documents, prompts and comments follows the [writing rules](docs/repo-standard.md#writing-rules).
