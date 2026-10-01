@@ -13,6 +13,8 @@
 #                              it reviewer, and without that it reports verdict pass
 #     author                   the session the author of the pull request plays; without it, it reports
 #                              pull Fake pull request
+#     checker                  the session the spec checker of an acceptance plays; without it, it
+#                              reports one item met, one missing, one deviating and one untested
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
@@ -41,12 +43,16 @@
 #   reply <thread> <body>  an address-reviews session replies to the thread of that id
 #   answer <text>       an address-reviews session answers the requests for changes with the text
 #   body <line>         a line of the body of the pull request the author reports
+#   item <section> | <statement> | <verdict> | <evidence> | <confidence>
+#                       an item the spec checker reports, such as
+#                       item Testing | The board is tested | met | test/board.test.ts:1 | high
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   verdict <pass|fix>  a reviewer reports the verdict with its findings
 #   pull <title>        the author reports the pull request with the title and its body lines
+#   items               the spec checker reports its items
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -132,6 +138,17 @@ case "$stage" in
     if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then file=''; steps=('verdict pass'); fi ;;
   author)
     if [ "$file" != author ]; then file=''; steps=('pull Fake pull request'); fi ;;
+  checker)
+    if [ "$file" != checker ]; then
+      file=''
+      steps=(
+        'item User stories | The board lists the specs ready for acceptance | met | controller/src/board.ts:1 | high'
+        'item User stories | An acceptance starts from the board with one action | missing | searched controller/src for an acceptance start and found none | medium'
+        'item Decisions | The checker runs read-only | deviates | controller/src/session.ts:1 lets it run Bash | low'
+        'item Testing | Fake mode scripts the checker | untested | controller/fake/claude:1 | high'
+        'items'
+      )
+    fi ;;
 esac
 if [ -n "$file" ] && [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
@@ -141,7 +158,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull | items) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -175,6 +192,8 @@ tokens=1
 findings=''
 fixes=''
 body=''
+# items are the items the spec checker reports, as JSON.
+items=''
 # replies, answer, fixedl and declinedl are what an address-reviews session reports.
 replies=''
 answer=''
@@ -299,6 +318,19 @@ play() {
         where=${rest%% *}
         claim=${rest#* }
         findings="$findings${findings:+,}{\"severity\":$(json "$severity"),\"where\":$(json "$where"),\"claim\":$(json "$claim"),\"fix\":\"Fix it.\"}" ;;
+      item)
+        local f=() part
+        IFS='|' read -r -a f <<<"$rest"
+        local fields=''
+        local names=(section statement verdict evidence confidence)
+        local i
+        for i in 0 1 2 3 4; do
+          part=${f[$i]:-}
+          part=${part#"${part%%[![:space:]]*}"}
+          part=${part%"${part##*[![:space:]]}"}
+          fields="$fields${fields:+,}\"${names[$i]}\":$(json "$part")"
+        done
+        items="$items${items:+,}{$fields}" ;;
       body)
         local line
         line=$(json "$rest")
@@ -354,6 +386,9 @@ while next; do
           exit 0 ;;
         verdict)
           result "{\"verdict\":$(json "$message"),\"findings\":[$findings]}"
+          exit 0 ;;
+        items)
+          result "{\"items\":[$items]}"
           exit 0 ;;
         pull)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"

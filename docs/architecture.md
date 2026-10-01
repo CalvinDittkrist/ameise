@@ -29,9 +29,12 @@ This repository holds the local workflow, a controller with plugins, and the fac
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. `/planner:finish` removes the worktree; the plan branch never carries commits.
 5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
-6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
-   - `ameise accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
-7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. The controller's `close` tool closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
+6. Accept on the board or `ameise accept` starts the acceptance in a plan process ([acceptance](../controller/README.md#acceptance)).
+   - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
+   - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
+   - In a planning session `/planner:accept [spec]` runs the same steps through `accept-facts.sh`, one `spec-checker` and `accept-report.sh`.
+7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing.
+   - The controller writes them through its github tools and closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
 1. A claim on the dashboard or `ameise claim N` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin.

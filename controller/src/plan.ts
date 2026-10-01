@@ -8,6 +8,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { run } from './exec.js'
 import { issueFromBranch, recordFiles, worktrees } from './board.js'
+import type { Acceptance } from './acceptance.js'
 import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
 import { settingOf } from './gate.js'
 import { type Project, Refusal } from './project.js'
@@ -21,12 +22,14 @@ export type Route = (typeof routes)[number]
 
 // A plan process, as the state directory holds it in processes/<id>.json. Its route names the planner's
 // route its session takes, and its topic is the idea or the issue's title it plans. Its language is the
-// repository's WF_PLANNER_LANGUAGE when the plan opened, the language the planner talks in.
+// repository's WF_PLANNER_LANGUAGE when the plan opened, the language the planner talks in. An
+// acceptance keeps its facts, its items and what their answers wrote (acceptance.ts).
 export interface PlanRecord extends CreatedRecord {
   kind: 'plan'
   route: Route
   topic?: string
   language?: string
+  acceptance?: Acceptance
 }
 
 export type PlanRequest = { route: 'idea'; idea: string } | { route: 'issue'; issue: number } | { route: 'open' }

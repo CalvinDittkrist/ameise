@@ -294,7 +294,7 @@ function canSpec(n: number, states: string[], labels = ['spec']) {
   canPages(m, `repos/owner/repo/issues/${n}/sub_issues?per_page=100`, [states.map((state, i) => ({ number: n + 1 + i, title: `t${i}`, state }))])
 }
 
-test('an acceptance start opens a plan process on the spec with the acceptance route, and the spec leaves ready for acceptance', async () => {
+test('an acceptance start opens a plan process on the spec with the acceptance route, starts its acceptance, and the spec leaves ready for acceptance', async () => {
   canSpec(100, ['closed', 'closed'])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [{ number: 100, title: 'Offline mode', state: 'open', labels: [{ name: 'spec' }] }])
   const before = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { acceptance: unknown[] }
@@ -304,12 +304,12 @@ test('an acceptance start opens a plan process on the spec with the acceptance r
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   const path = join(dir, '.claude', 'worktrees', 'plan-offline-mode')
   const rec = (r.body as { record: Record<string, unknown> & { id: string } }).record
-  expect(rec).toMatchObject({ kind: 'plan', route: 'accept', branch: 'plan/offline-mode', issue: 100, worktree: path, base: 'origin/main', state: 'created' })
+  expect(rec).toMatchObject({ kind: 'plan', route: 'accept', branch: 'plan/offline-mode', issue: 100, worktree: path, base: 'origin/main', state: 'running', note: 'the acceptance gathers the facts' })
   expect(git(path, 'rev-parse', 'HEAD')).toBe(git(dir, 'rev-parse', 'origin/main'))
-  expect(JSON.parse(read(join(m.state, 'processes', `${rec.id}.json`)))).toEqual(rec)
+  expect(JSON.parse(read(join(m.state, 'processes', `${rec.id}.json`)))).toMatchObject({ id: rec.id, route: 'accept', issue: 100 })
 
   const board = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: unknown[]; acceptance: unknown[] }
-  expect(board.processes).toMatchObject([{ kind: 'plan', issue: 100, branch: 'plan/offline-mode', state: 'created', stage: 'accept' }])
+  expect(board.processes).toMatchObject([{ kind: 'plan', issue: 100, branch: 'plan/offline-mode', stage: 'accept' }])
   expect(board.acceptance).toEqual([])
 
   const again = await accept(100)
@@ -377,7 +377,7 @@ test('the CLI merges, releases and starts an acceptance, and prints the refusal 
   canSpec(100, ['closed'])
   const accepted = cli(m, ['accept', '#100'], dir)
   expect(accepted.code, accepted.stderr).toBe(0)
-  expect(accepted.stdout).toBe(`accept #100  plan/offline-mode  from origin/main  created\n  ${join(dir, '.claude', 'worktrees', 'plan-offline-mode')}\n`)
+  expect(accepted.stdout).toBe(`accept #100  plan/offline-mode  from origin/main  running\n  ${join(dir, '.claude', 'worktrees', 'plan-offline-mode')}\n`)
 
   canPull(15, 'dev', 'main', { isDraft: true })
   const refused = cli(m, ['merge', '15'], dir)

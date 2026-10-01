@@ -501,3 +501,15 @@ export function githubTools(gh: string, repo: string, log: (e: Record<string, un
     ],
   })
 }
+
+// writer is the writes of the tools for the controller's own use: an acceptance creates its gap tickets,
+// posts its deviations and closes its spec with them, under the same rules and into the same event log.
+// A write it refuses throws a Refused with the reason.
+export function writer(gh: string, repo: string, log: (e: Record<string, unknown>) => void) {
+  const g = new GitHub(gh, repo, (w) => log({ event: 'github', ...w }))
+  return {
+    createIssue: (a: Parameters<typeof createIssue>[1]) => createIssue(g, a),
+    comment: (a: Parameters<typeof comment>[1]) => comment(g, a),
+    close: (a: Parameters<typeof close>[1]) => close(g, a),
+  }
+}
