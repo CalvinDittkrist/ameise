@@ -10,7 +10,7 @@
 // running server.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 export const knownVersion = '2.1.278'
 
@@ -314,7 +314,7 @@ interface Row {
 
 // stem is the file name without its last suffix.
 function stem(path: string): string {
-  const name = path.slice(path.lastIndexOf('/') + 1)
+  const name = basename(path)
   const dot = name.lastIndexOf('.')
   return dot > 0 && dot < name.length - 1 ? name.slice(0, dot) : name
 }
