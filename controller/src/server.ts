@@ -421,6 +421,8 @@ export function serve(o: Options): Server {
   // Open in terminal resumes the process's session by its id in a terminal window.
   async function terminal(req: IncomingMessage, res: ServerResponse) {
     const record = recorded(((await readJSON(req)) ?? {}).id)
+    // The apply session of a standardize process runs once, within the steps of its apply.
+    if (record.kind === 'standardize') throw new Refusal('the apply session of a standardize process runs once and resumes nowhere; apply again to start it afresh', 409)
     const script = await open(record, o.stateDir, readConfig(o.configPath).terminal, o.runtime)
     log({ event: 'terminal', process: record.id, session: record.session_id })
     send(res, 200, { id: record.id, script })

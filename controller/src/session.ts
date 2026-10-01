@@ -412,7 +412,9 @@ export function recover(stateDir: string) {
       const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
       if ((r.kind === 'plan' && ['running', 'approval'].includes(r.state)) || asking) interrupt(stateDir, id)
       // A standardize process waits for its answers or its finalize with nothing running, and lost its stage otherwise.
-      if (r.kind === 'standardize' && ['running', 'created', 'approval'].includes(r.state)) interrupt(stateDir, id)
+      // It waits in input for its answers once its audit reported; in input before, a session of it asked a question.
+      const answering = r.kind === 'standardize' && r.state === 'input' && r.stage === 'audit' && (r as StandardizeRecord).standardize !== undefined
+      if (r.kind === 'standardize' && ['running', 'created', 'approval', 'input'].includes(r.state) && !answering) interrupt(stateDir, id)
     } catch (err) {
       warn(id, 'could not read its record as the controller started', err)
     }
