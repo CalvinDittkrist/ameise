@@ -59,7 +59,8 @@ export function standards(): string {
   throw new Stop(`no repo-standards plugin beside ${here}; build the controller from a checkout of ameise (npm --prefix controller run build)`)
 }
 
-// How long a plugin script may run: the check of the finalize runs the repository's gate.
+// How long any command of a step may run: the check of the finalize runs the repository's gate, a commit runs
+// the repository's hooks, and a fetch, push or paginated gh call can be slow. The signal stops a step sooner.
 export const scriptTimeout = 30 * 60 * 1000
 
 // Ctx is where a step runs: the checkout, the gh it calls, what it adds to the environment of every command
@@ -102,12 +103,12 @@ export const last = (s: string) =>
 export const lines = (s: string) => s.split('\n').filter((l) => l !== '')
 
 // git runs git in the checkout or in dir and answers its output; it fails with what git wrote on stderr.
-export const git = (c: Ctx, args: string[], dir = c.root, input?: string) => run('git', args, c.env, dir, { signal: c.signal, input })
+export const git = (c: Ctx, args: string[], dir = c.root, input?: string) => run('git', args, c.env, dir, { signal: c.signal, timeout: scriptTimeout, input })
 // tryGit runs git and answers how it ended.
-export const tryGit = (c: Ctx, args: string[], dir = c.root) => attempt('git', args, c.env, dir, { signal: c.signal })
+export const tryGit = (c: Ctx, args: string[], dir = c.root) => attempt('git', args, c.env, dir, { signal: c.signal, timeout: scriptTimeout })
 // gh runs gh in the checkout, with input on its stdin, and answers how it ended.
 export const gh = (c: Ctx, args: string[], input?: unknown): Promise<Ran> =>
-  attempt(c.gh, args, c.env, c.root, { signal: c.signal, input: input === undefined ? undefined : typeof input === 'string' ? input : JSON.stringify(input) })
+  attempt(c.gh, args, c.env, c.root, { signal: c.signal, timeout: scriptTimeout, input: input === undefined ? undefined : typeof input === 'string' ? input : JSON.stringify(input) })
 // plugin runs a script of the repo-standards plugin, executable on its own, and answers how it ended.
 export const plugin = (c: Ctx, name: string, args: string[], dir = c.root, opts: { input?: string; env?: Record<string, string> } = {}) =>
   attempt(join(standards(), 'scripts', name), args, { ...c.env, ...opts.env }, dir, { signal: c.signal, timeout: scriptTimeout, input: opts.input })

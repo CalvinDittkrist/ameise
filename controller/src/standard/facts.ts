@@ -5,7 +5,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { attempt } from '../exec.js'
-import { byteOrder, type Ctx, gh, git, isDir, last, licenseNames, lines, plugin, readmeNames, say, Stop, tryGit, unique } from './lib.js'
+import { byteOrder, type Ctx, gh, git, isDir, last, licenseNames, lines, plugin, readmeNames, say, scriptTimeout, Stop, tryGit, unique } from './lib.js'
 
 // join is the items joined with ", ", or the fallback when there are none.
 const joined = (items: string[], none = 'none') => (items.length > 0 ? items.join(', ') : none)
@@ -494,4 +494,4 @@ export async function facts(c: Ctx, root?: string) {
 }
 
 // tryGitInput runs git with input on its stdin and answers how it ended.
-const tryGitInput = (c: Ctx, dir: string, args: string[], input: string) => attempt('git', ['-c', 'core.quotePath=false', ...args], c.env, dir, { signal: c.signal, input })
+const tryGitInput = (c: Ctx, dir: string, args: string[], input: string) => attempt('git', ['-c', 'core.quotePath=false', ...args], c.env, dir, { signal: c.signal, timeout: scriptTimeout, input })
