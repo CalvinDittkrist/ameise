@@ -32,7 +32,8 @@ The build copies the plugins of the checkout into `dist/plugins`, and every sess
 - `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
 - `ameise hunt [--project <path>]` opens a hunt process and starts its test hunt; see [Hunt process](#hunt-process).
   - Without `--project` each acts on the project of the current directory.
-- Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
+- `ameise context-report [<transcript.jsonl> | <directory>]...` prints the peak context and tool mix of finished worker sessions; see [Measuring it](../docs/token-budget.md#measuring-it).
+- Every command but the first and `context-report` talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
 The start stops with one `error:` line that names the fix when:

@@ -27,7 +27,7 @@ File access:
 - Without it a worker reads and writes through the shell, and file contents read with `cat`, `sed -n` or `head` fill the context.
 - The worker prompt states how to work with files: read with a range, search with the search tools, change with edits, write only new files.
 - It also rules out whole-file shell reads and heredoc rewrites, and asks for independent reads in parallel.
-- `scripts/context-report.py` measures whether that holds. The planner and reviewer prompts do not carry the guidance yet, and the report does not measure subagent turns.
+- `ameise context-report` measures whether that holds. The planner and reviewer prompts do not carry the guidance yet, and the report does not measure subagent turns.
 
 The gate:
 
@@ -62,7 +62,7 @@ Tools, plugins and instructions:
 - The worker's context gets the answer and the page URLs, under 300 words ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
 
 ## Measuring it
-`scripts/context-report.py` prints one line per finished worker session:
+`ameise context-report` prints one line per finished worker session:
 
 - Claude Code version and turns
 - the peak context; the stages after implement run as sessions of their own, so a worker session holds none of them
@@ -71,4 +71,6 @@ Tools, plugins and instructions:
 
 With no argument it reads the worktree sessions under `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR`). A path argument reads one transcript or one directory.
 
-It reads Claude Code's session transcripts, a format that is internal and changes without notice. So it fails with an `error:` line naming the version when it meets a format it does not understand. It is a diagnostic for the maintainer and never an input to the pipeline, so it lives in `scripts/` and not in a plugin. It looks at finished sessions; the process view is the live reading of the one that is running.
+It reads Claude Code's session transcripts, a format that is internal and changes without notice. So it fails with an `error:` line naming the version when it meets a format it does not understand.
+
+It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.
