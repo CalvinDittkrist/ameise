@@ -71,4 +71,6 @@ Tools, plugins and instructions:
 
 With no argument it reads the worktree sessions under `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR`). A path argument reads one transcript or one directory.
 
-It reads Claude Code's session transcripts, a format that is internal and changes without notice. So it fails with an `error:` line naming the version when it meets a format it does not understand. It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.
+It reads Claude Code's session transcripts, a format that is internal and changes without notice. So it fails with an `error:` line naming the version when it meets a format it does not understand.
+
+It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.
