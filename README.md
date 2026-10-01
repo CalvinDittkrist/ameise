@@ -31,7 +31,7 @@ flowchart LR
 | --- | --- | --- |
 | [planner](plugins/planner/README.md) | `/grill`, `/spec`, `/tickets`, `/triage`, `/accept`, `/research`, `/prototype`, `/finish`; writes issues through the controller's tools, never code | each planning worktree |
 | [worker](plugins/worker/README.md) | the `worker` agent, the reviewer panel, `/hunt-tests`, `/docs` | each issue worktree |
-| [repo-standards](plugins/repo-standards/README.md) | `/standardize`, `/apply`, `/adr`, `/docs-check`; the templates of the standard | any repository |
+| [repo-standards](plugins/repo-standards/README.md) | the six standardisation auditors, `/adr`, `/docs-check`; the templates and the check of the standard | any repository |
 
 ## Install
 
@@ -52,11 +52,11 @@ claude plugin install planner@ameise
 claude plugin install repo-standards@ameise
 ```
 
-Once per repository, bring it to the [standard](docs/repo-standard.md):
+Once per repository, bring it to the [standard](docs/repo-standard.md) with standardize on its project page in the dashboard:
 
-1. `/repo-standards:standardize` runs six read-only auditors and records your approval per category.
-2. `/repo-standards:apply` pushes a protected `pre-standard` tag, opens the catalogue issue and one cleanup pull request, and turns code findings into issues.
-3. After the merge, `/repo-standards:apply` again configures the GitHub workspace and runs the check.
+1. The audit runs six read-only auditors, and you approve or reject each category.
+2. The apply pushes a protected `pre-standard` tag, opens the catalogue issue and one cleanup pull request, and turns code findings into issues.
+3. After the merge, the finalize configures the GitHub workspace and runs the check.
 
 Teammates only run the install commands. Skills also install outside Claude Code: `npx skills add CalvinDittkrist/ameise --skill <name>`.
 
@@ -84,7 +84,7 @@ Every knob is an environment variable in `.claude/settings.json` under `env`; th
 | `WF_PLANNER_LANGUAGE` | empty | conversation language of planner sessions, such as `german`; what the planner writes stays English |
 | `WF_MODE`, `WF_ISSUE` | set by the controller's claim | per-session mode (`manual` or `yolo`) and issue |
 | `WF_CONTROLLER` | set by the controller | marks a session the controller started; a skill that needs the controller reads it |
-| `WF_PROJECT_TEMPLATE` | empty | `<owner>/<number>` of the project `workspace.sh --apply` copies into a repository without one |
+| `WF_PROJECT_TEMPLATE` | empty | `<owner>/<number>` of the project the standardize process copies into a repository without one |
 
 A claim sets a worker knob for its one process; the [controller's readme](controller/README.md) names the knobs it accepts. The value wins per variable over the repository's settings ([settings](https://code.claude.com/docs/en/settings.md)).
 

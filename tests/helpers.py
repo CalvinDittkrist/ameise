@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SHIMS = ROOT / "tests" / "shims"
 WORKER = ROOT / "plugins" / "worker" / "scripts"
 STANDARDS = ROOT / "plugins" / "repo-standards" / "scripts"
+# The standardize scripts the controller owns; they use the templates, scaffold.sh and check.sh of STANDARDS.
+STANDARDIZE = ROOT / "controller" / "standardize"
 # The host's git configuration (a global ignore file, hooks, aliases) must not change what a test sees.
 GIT_ISOLATION = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 

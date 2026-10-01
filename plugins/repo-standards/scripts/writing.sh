@@ -4,7 +4,7 @@
 # Usage: writing.sh <repo-root> < files
 # The files are read from stdin, one path relative to the root per line. Prints one line per finding, its
 # group (`dash`, `words` or `docs`) and the message, tab separated; nothing when the files follow the rules.
-# check.sh fails or warns on the findings, facts.sh hands them to the docs auditor.
+# check.sh fails or warns on the findings; the controller's facts.sh hands them to the docs auditor.
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"

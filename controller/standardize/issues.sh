@@ -22,7 +22,7 @@ while IFS=$'\t' read -r cat target _ reason confidence; do
   n=$(printf '%s' "$titles" | jq -r --arg t "$title" '[.[] | select(.title == $t)] | first // empty | .number')
   if [ -n "$n" ]; then printf 'kept: #%s %s\n' "$n" "$title"; kept=$((kept + 1)); continue; fi
   # The reason is an auditor's judgement of repository content: quoted, so it reads as a finding, not a brief.
-  body=$(printf '## What to build\nResolve this finding of the standardisation run (`/repo-standards:apply`), from its `%s` audit of `%s`, confidence %s:\n\n> %s\n\nThe state before the run is tagged `%s`.\n\n## Acceptance criteria\n- [ ] `%s` no longer has the problem the finding describes.\n- [ ] `make check` passes.\n' \
+  body=$(printf '## What to build\nResolve this finding of the standardisation run (the standardize process of the controller), from its `%s` audit of `%s`, confidence %s:\n\n> %s\n\nThe state before the run is tagged `%s`.\n\n## Acceptance criteria\n- [ ] `%s` no longer has the problem the finding describes.\n- [ ] `make check` passes.\n' \
     "$cat" "$target" "$confidence" "$reason" "$WF_TAG" "$target")
   n=$(jq -n --arg t "$title" --arg b "$body" '{title: $t, body: $b, labels: ["ready-for-agent"]}' \
     | gh api --method POST "repos/$nwo/issues" --input - 2>"$err" | jq -r .number) || die "cannot open the issue $title: $(tail -n1 "$err")"

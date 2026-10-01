@@ -3,9 +3,10 @@
 The baseline every repository that runs this workflow is held to. Terms are defined in the [glossary](glossary.md).
 
 - `plugins/repo-standards/scripts/check.sh` (or `/repo-standards:docs-check`) verifies the file rules and the [writing rules](#writing-rules) offline and in CI.
-- `/repo-standards:standardize` audits a repository with six read-only auditors, one per area, and records the maintainer's approval per category. On an empty repository every finding is a create action.
-- `plugins/repo-standards/scripts/workspace.sh` brings the GitHub workspace and its milestones to the standard. The check reports its differences as warnings when GitHub is reachable.
-- `/repo-standards:apply` applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check.
+- The controller's [standardize process](../controller/README.md#standardize-process) audits a repository with six read-only auditors, one per area. It takes the maintainer's approval per category.
+- On an empty repository every finding is a create action.
+- The process applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check. Its scripts are in `controller/standardize/`.
+- `plugins/repo-standards/scripts/workspace.sh` compares the GitHub workspace and its milestones with the standard. The check reports its differences as warnings when GitHub is reachable.
 
 The local workflow that works a repository on this standard is the controller, installed as the npm package `ameise` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the plugins of the marketplace `ameise`, for sessions started by hand:
 
@@ -83,7 +84,7 @@ The check counts the em dash in every text file and the word caps in Markdown. S
 - Code blocks (fenced or indented), closed front matter, thematic breaks and tables are no paragraphs.
 - A document's count skips code blocks and front matter. A README that is not Markdown is counted whole.
 
-Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of `/repo-standards:apply` warns on them too, because rewriting the documents is an issue of its own. An accepted ADR may be shortened in wording; its decision is never edited ([ADR 0049](adr/0049-an-accepted-adr-may-be-shortened-in-wording-its-decision-is-never-edited.md)).
+Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of a standardisation warns on them too, because rewriting the documents is an issue of its own. An accepted ADR may be shortened in wording; its decision is never edited ([ADR 0049](adr/0049-an-accepted-adr-may-be-shortened-in-wording-its-decision-is-never-edited.md)).
 
 The templates in `plugins/repo-standards/templates/` are the fixed form of each document: `README.md.tpl`, `plugin-README.md`, `architecture.md`, `adr-template.md` and `glossary.md`.
 
@@ -93,8 +94,8 @@ Every repository has a `Makefile`, and `make check` runs everything CI gates on 
 ## GitHub workspace
 Set by an idempotent script that shows the difference first and keeps a snapshot of the previous state ([ADR 0011](adr/0011-github-workspace-configured-by-an-idempotent-script.md)).
 
-- `workspace.sh` prints one `diff:` line per difference and changes nothing.
-- `workspace.sh --apply` writes the previous state as JSON to a snapshot file, then makes exactly those changes.
+- `workspace.sh` prints one `diff:` line per difference and changes nothing. The plugin's copy does only this.
+- The controller's `workspace.sh --apply` writes the previous state as JSON to a snapshot file, then makes exactly those changes.
 - The snapshot file is `--snapshot <file>`, or a temporary file it names. Applying needs admin rights.
 - It refuses to apply while the default branch has no run of a CI job named `check`, because the ruleset requires that status.
 - It refuses too while the default branch is neither `main` nor `dev`.
@@ -162,7 +163,7 @@ It then opens one catalogue issue labelled `skill-candidate`, with one row per r
 - A second run updates the same issue.
 
 ## Applying the findings
-`/repo-standards:apply` runs after the audit and refuses while a category with findings is pending. Every step finds what an earlier run created. So a run that stopped anywhere continues when started again, and a run on a conforming repository changes nothing. Rejected categories are left untouched and named at the end.
+The apply of the standardize process runs after the audit and refuses while a category with findings is pending. Every step finds what an earlier run created. So a run that stopped anywhere continues when started again, and a run on a conforming repository changes nothing. Rejected categories are left untouched and named at the end.
 
 Approval is per category, never per finding ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)):
 

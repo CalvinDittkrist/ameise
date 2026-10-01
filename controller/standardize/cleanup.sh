@@ -76,7 +76,7 @@ if [ "$step" = prepare ]; then
   fork=$(base)
   g add -A
   kept=$({ for a in delete replace create; do approved_findings "$answers" "$a"; done | cut -f2
-    bash "$here/scaffold.sh" --paths | awk -F'\t' -v r=" $rejected " '!index(r, " " $1 " ") { print $2 }'; })
+    bash "$standards/scripts/scaffold.sh" --paths | awk -F'\t' -v r=" $rejected " '!index(r, " " $1 " ") { print $2 }'; })
   while IFS= read -r t; do
     [ -n "$t" ] || continue
     n=0
@@ -87,7 +87,7 @@ if [ "$step" = prepare ]; then
       n=1
     done < <(g diff --cached --name-only --no-renames -z "$fork" -- ":(literal)$t")
     [ "$n" = 0 ] || printf 'restored: %s (rejected)\n' "$t"
-  done < <({ bash "$here/scaffold.sh" --paths; cut -f1-3 "$(state_dir)/findings" | awk -F'\t' '$3 == "delete" || $3 == "replace" || $3 == "create"'; } \
+  done < <({ bash "$standards/scripts/scaffold.sh" --paths; cut -f1-3 "$(state_dir)/findings" | awk -F'\t' '$3 == "delete" || $3 == "replace" || $3 == "create"'; } \
     | awk -F'\t' -v r=" $rejected " 'index(r, " " $1 " ") { print $2 }' | awk '!seen[$0]++')
 
   # Deletions: the targets of approved delete findings. Only tracked files go through the pull request, and only
@@ -107,7 +107,7 @@ if [ "$step" = prepare ]; then
   done < <(approved_findings "$answers" delete | cut -f2 | awk '!seen[$0]++')
 
   skips=(); for c in $rejected; do skips+=(--skip "$c"); done
-  out=$(bash "$here/scaffold.sh" ${skips[@]+"${skips[@]}"} --name "${nwo#*/}" --default "$default" "$wt") || exit 1
+  out=$(bash "$standards/scripts/scaffold.sh" ${skips[@]+"${skips[@]}"} --name "${nwo#*/}" --default "$default" "$wt") || exit 1
   printf '%s\n' "$out" | grep -v '^next:' || true
   g add -A
 

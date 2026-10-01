@@ -19,7 +19,7 @@ Terms the code, the issues and the docs use, one row each.
 | catalogue issue | The issue, labelled `skill-candidate`, that lists the skills standardisation removed and how to restore each from the `pre-standard` tag. |
 | standardize process | A process of the controller on `chore/standardize` that runs the audit, the apply of the approved categories and the finalize of a standardisation, with the approval per category in its process view. |
 | drift | A difference between a repository's GitHub workspace and the standard; `workspace.sh` prints one `diff:` line per difference. |
-| snapshot | The JSON file `workspace.sh --apply` writes before its first change: the previous value of everything it changes. |
+| snapshot | The JSON file the controller's `workspace.sh --apply` writes before its first change: the previous value of everything it changes. |
 | open session | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): a planner session without a topic on a `plan/open-<yyyymmdd-hhmm>` branch. It became a planning session when a topic emerged. Now an open `plan` process. |
 | conversation language | The language the planner talks to the user in, set with `WF_PLANNER_LANGUAGE`; issues, comments and glossary terms stay English. |
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |

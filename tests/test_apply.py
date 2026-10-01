@@ -2,14 +2,14 @@ import json
 import subprocess
 import unittest
 
-from helpers import STANDARDS, ShimTest
+from helpers import STANDARDIZE, ShimTest
 
-REPORT = STANDARDS / "report.sh"
-APPROVE = STANDARDS / "approve.sh"
-BACKUP = STANDARDS / "backup.sh"
-CLEANUP = STANDARDS / "cleanup.sh"
-ISSUES = STANDARDS / "issues.sh"
-FINALIZE = STANDARDS / "finalize.sh"
+REPORT = STANDARDIZE / "report.sh"
+APPROVE = STANDARDIZE / "approve.sh"
+BACKUP = STANDARDIZE / "backup.sh"
+CLEANUP = STANDARDIZE / "cleanup.sh"
+ISSUES = STANDARDIZE / "issues.sh"
+FINALIZE = STANDARDIZE / "finalize.sh"
 CATALOGUE = "Standardisation: removed skills and how to restore them"
 WT = ".claude/worktrees/chore-standardize"
 

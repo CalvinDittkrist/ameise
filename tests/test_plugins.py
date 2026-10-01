@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import ROOT, STANDARDS, WORKER, ShimTest
+from helpers import ROOT, STANDARDIZE, STANDARDS, WORKER, ShimTest
 
 PLUGINS = sorted(p for p in (ROOT / "plugins").iterdir() if (p / ".claude-plugin/plugin.json").exists())
 
@@ -165,11 +165,6 @@ class ManifestTests(unittest.TestCase):
             fm = (ROOT / f"plugins/planner/skills/{skill}/SKILL.md").read_text().split("---")[1]
             self.assertIn("disable-model-invocation: true\n", fm, skill)
 
-    def test_the_standardisation_run_is_user_invoked_only(self):
-        for skill in ("standardize", "apply"):
-            fm = (ROOT / f"plugins/repo-standards/skills/{skill}/SKILL.md").read_text().split("---")[1]
-            self.assertIn("disable-model-invocation: true\n", fm, skill)
-
     def test_every_inline_command_in_a_skill_is_pre_approved(self):
         # A forked skill's !`command` fails silently without a matching allowed-tools rule (verified on 2.1.274).
         for plugin in PLUGINS:
@@ -283,18 +278,19 @@ class ShimCallLogTests(ShimTest):
 
 
 class LabelVocabularyTests(ShimTest):
-    """repo-standards carries a copy of the label vocabulary, and the contract fixture states it (ADR 0062); a copy
-    that differs from the fixture is a bug. The controller's github tools carry the other copy, which its own
-    test holds to the fixture."""
+    """repo-standards and the controller's standardize scripts each carry a copy of the label vocabulary, and the
+    contract fixture states it (ADR 0062); a copy that differs from the fixture is a bug. The controller's github
+    tools carry another copy, which its own test holds to the fixture."""
 
-    STANDARDS_FILE = str((STANDARDS / "lib.sh").relative_to(ROOT))
     FIXTURE_FILE = "contract/fixture.json"
 
-    def standards_vocabulary(self):
+    COPIES = [str((scripts / "lib.sh").relative_to(ROOT)) for scripts in (STANDARDS, STANDARDIZE)]
+
+    def standards_vocabulary(self, copy):
         """WF_LABELS as workspace.sh feeds it into its label loop. Sourced outside a git repository, because
         reading the vocabulary must not need one. Split like every shell reader of the value: a pipe in the
         description belongs to the description."""
-        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_LABELS"', "_", str(STANDARDS)],
+        r = subprocess.run(["bash", "-c", r'. "$1/lib.sh"; printf "%s\n" "$WF_LABELS"', "_", str((ROOT / copy).parent)],
                            cwd=self.base, text=True, capture_output=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         vocabulary = []
@@ -302,7 +298,7 @@ class LabelVocabularyTests(ShimTest):
             if not line:
                 continue
             entry = tuple(line.split("|", 2))
-            self.assertEqual(len(entry), 3, f"{self.STANDARDS_FILE} has a label that is not name|color|description: {line!r}")
+            self.assertEqual(len(entry), 3, f"{copy} has a label that is not name|color|description: {line!r}")
             vocabulary.append(entry)
         return vocabulary
 
@@ -311,23 +307,28 @@ class LabelVocabularyTests(ShimTest):
         labels = json.loads((ROOT / self.FIXTURE_FILE).read_text())["labels"]["vocabulary"]
         return [(l["name"], l["color"], l["description"]) for l in labels]
 
-    def test_the_standards_copy_of_the_label_vocabulary_follows_the_contract_fixture(self):
-        copy, fixture = self.standards_vocabulary(), self.fixture_vocabulary()
-        self.assertTrue(copy, f"no labels read from {self.STANDARDS_FILE}")
-        for at, (have, want) in enumerate(zip(copy, fixture)):
-            if have != want:
-                self.fail(f"label {want[0]!r}: {self.STANDARDS_FILE} has {have} at place {at + 1}, the contract fixture {want}. "
-                          f"Change the fixture first, then both copies; do not adjust this test.")
-        if len(copy) != len(fixture):
-            extra = copy[len(fixture):] or fixture[len(copy):]
-            self.fail(f"label {extra[0][0]!r}: {self.STANDARDS_FILE} and the contract fixture differ in the labels they carry")
+    def test_the_shell_copies_of_the_label_vocabulary_follow_the_contract_fixture(self):
+        fixture = self.fixture_vocabulary()
+        for file in self.COPIES:
+            with self.subTest(file):
+                copy = self.standards_vocabulary(file)
+                self.assertTrue(copy, f"no labels read from {file}")
+                for at, (have, want) in enumerate(zip(copy, fixture)):
+                    if have != want:
+                        self.fail(f"label {want[0]!r}: {file} has {have} at place {at + 1}, the contract fixture {want}. "
+                                  f"Change the fixture first, then every copy; do not adjust this test.")
+                if len(copy) != len(fixture):
+                    extra = copy[len(fixture):] or fixture[len(copy):]
+                    self.fail(f"label {extra[0][0]!r}: {file} and the contract fixture differ in the labels they carry")
 
     def test_the_routing_label_of_the_fixture_is_in_the_standards_vocabulary(self):
         """The frontier rule of the contract fixture leaves an issue with the routing label to the factory; a
         repository that lacks the label could not be routed by the name the peers read."""
         routing = json.loads((ROOT / self.FIXTURE_FILE).read_text())["frontier"]["routing_label"]
-        self.assertIn(routing, [name for name, _, _ in self.standards_vocabulary()],
-                      f"the fixture routes by the label {routing}, which {self.STANDARDS_FILE} does not define")
+        for file in self.COPIES:
+            with self.subTest(file):
+                self.assertIn(routing, [name for name, _, _ in self.standards_vocabulary(file)],
+                              f"the fixture routes by the label {routing}, which {file} does not define")
 
 
 class TestFileRuleTests(ShimTest):

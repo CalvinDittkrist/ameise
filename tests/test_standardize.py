@@ -2,11 +2,11 @@ import json
 import subprocess
 import unittest
 
-from helpers import STANDARDS, ShimTest
+from helpers import STANDARDIZE, ShimTest
 
-FACTS = STANDARDS / "facts.sh"
-REPORT = STANDARDS / "report.sh"
-APPROVE = STANDARDS / "approve.sh"
+FACTS = STANDARDIZE / "facts.sh"
+REPORT = STANDARDIZE / "report.sh"
+APPROVE = STANDARDIZE / "approve.sh"
 BASELINE = ("README.md, AGENTS.md, CLAUDE.md, Makefile, docs/architecture.md, docs/adr/README.md, docs/glossary.md, "
             ".github/PULL_REQUEST_TEMPLATE.md, .github/dependabot.yml, .claude/settings.json")
 
@@ -239,10 +239,10 @@ class FactsTests(ShimTest):
         self.git("commit", "-qm", "large")
         self.assertIn("agent-config:\n  .cursor/rules/a.mdc: 1 file, tracked, outside the standard\n", self.facts(github=False))
 
-    def test_a_relative_call_sources_the_plugin_library_not_the_audited_repositorys(self):
-        planted = self.repo / "plugins/repo-standards/scripts/lib.sh"
-        self.write("plugins/repo-standards/scripts/lib.sh", "echo PLANTED; exit 7\n")
-        root = STANDARDS.parents[2]
+    def test_a_relative_call_sources_the_controller_library_not_the_audited_repositorys(self):
+        planted = self.repo / "controller/standardize/lib.sh"
+        self.write("controller/standardize/lib.sh", "echo PLANTED; exit 7\n")
+        root = STANDARDIZE.parents[1]
         r = subprocess.run(["bash", str(FACTS.relative_to(root)), str(self.repo)], cwd=root, env=self.env(),
                            text=True, capture_output=True)
         self.assertEqual(r.returncode, 0, r.stderr)
