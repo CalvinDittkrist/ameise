@@ -1,5 +1,5 @@
 import { type ChildProcess, execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { api, canApi, canPages, canPulls, checkout, cleanup, type Machine, machine, read, start, tools } from './controller.js'
@@ -149,7 +149,7 @@ test('a standardize runs the six auditors read-only beside the facts and shows t
   expect(git(bare, 'tag')).toBe('')
 })
 
-test('an apply takes an answer per category and applies the approved ones alone: the backup first, then the cleanup pull request with its restore lines and the catalogue issue', async () => {
+test('an apply takes an answer per category and applies the approved ones alone: the backup first, then the cleanup pull request with its restore lines and the catalogue issue, and a finalize after the merge fails on the check and passes once it is fixed', async () => {
   auditor('agent-config', 'finding: agent-config | .claude/skills/old-helper | delete | a repository-local skill | high')
   const r = await audited()
   expect(r.state, r.note).toBe('input')
@@ -206,6 +206,39 @@ test('an apply takes an answer per category and applies the approved ones alone:
   const waiting = await settled(r.id)
   expect(waiting).toMatchObject({ stage: 'finalize', state: 'ready' })
   expect(waiting.note).toMatch(/^finalize\.sh refused: the cleanup pull request https:\/\/github\.com\/owner\/repo\/pull\/9 is not merged yet/)
+
+  // Merged, the finalize runs the standard check on the base, which fails while rejected categories leave it short of the standard.
+  const head = git(bare, 'rev-parse', 'chore/standardize')
+  git(bare, 'update-ref', 'refs/heads/main', head)
+  canPages(m, 'repos/owner/repo/pulls?head=owner:chore/standardize&state=all&per_page=100', [
+    [{ number: 9, html_url: 'https://github.com/owner/repo/pull/9', body: '', state: 'closed', merged_at: '2026-10-01T00:00:00Z', head: { sha: head } }],
+  ])
+  expect((await api(m, 'POST', '/api/standardize/finalize', { id: r.id })).status).toBe(200)
+  const checked = await settled(r.id)
+  expect(checked).toMatchObject({ stage: 'finalize', state: 'failed' })
+  expect(checked.note).toMatch(/^the standard check fails: check: fail: README\.md missing; .*; check: fail: docs\/adr\/ missing; fix it on the base and finalize again$/)
+  expect(checked.standardize?.applied?.at(-1)).toMatchObject({ step: 'finalize', ok: false })
+  expect(checked.standardize).toMatchObject({ result: 'fail' })
+
+  // Fixed on the base, the finalize again passes and the process is done.
+  const fix = join(m.root, 'fix')
+  execFileSync('git', ['clone', '-q', bare, fix])
+  mkdirSync(join(fix, '.github', 'workflows'), { recursive: true })
+  mkdirSync(join(fix, 'docs', 'adr'), { recursive: true })
+  writeFileSync(join(fix, 'README.md'), '# repo\n\nA repository.\n')
+  writeFileSync(join(fix, '.github', 'workflows', 'ci.yml'), 'on: [pull_request]\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: make check\n')
+  writeFileSync(join(fix, 'docs', 'architecture.md'), ['# Architecture', '', ...Array.from({ length: 14 }, (_, i) => `- Part ${i + 1}.`)].join('\n') + '\n')
+  writeFileSync(join(fix, 'docs', 'adr', 'README.md'), '# Decisions\n')
+  writeFileSync(join(fix, 'docs', 'adr', '0001-record-decisions.md'), '# Record decisions\n\nStatus: accepted\n\nDecisions are kept here.\n')
+  git(fix, 'add', '-A')
+  git(fix, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'the standard')
+  git(fix, 'push', '-q', 'origin', 'HEAD:main')
+  expect((await api(m, 'POST', '/api/standardize/finalize', { id: r.id })).status).toBe(200)
+  const finalized = await settled(r.id)
+  expect(finalized.state, `${finalized.note}\n${JSON.stringify(finalized.standardize?.applied?.at(-1), null, 1)}`).toBe('done')
+  expect(finalized.note).toBe('standardized: the workspace is configured and the standard check passes; finish to remove the process')
+  expect(finalized.standardize).toMatchObject({ result: 'pass' })
+  expect(await board()).toMatchObject([{ kind: 'standardize', state: 'done', stage: 'finalize', action: 'Finish', needs: true }])
 })
 
 test('a backup that fails deletes nothing and fails the apply, which applies again with the answers it has', async () => {
@@ -228,6 +261,38 @@ test('a backup that fails deletes nothing and fails the apply, which applies aga
   const done = await settled(r.id)
   expect(done.state, done.note).toBe('ready')
   expect(git(bare, 'ls-tree', '-r', '--name-only', 'chore/standardize').split('\n')).not.toContain('NOTES.md')
+})
+
+test('an apply whose answers approve.sh refuses fails the audit, which audits again', async () => {
+  const r = await audited()
+  rmSync(join(dir, '.git', 'standardize', 'findings'))
+  const answers = { files: 'approve', 'agent-config': 'reject', docs: 'reject', 'tests-ci': 'reject', workspace: 'reject', security: 'reject' }
+  expect((await api(m, 'POST', '/api/standardize/apply', { id: r.id, answers })).status).toBe(200)
+  const refused = await settled(r.id)
+  expect(refused).toMatchObject({ stage: 'audit', state: 'failed' })
+  expect(refused.note).toBe('approve.sh refused the answers: no findings recorded; run the audit and report.sh first; audit again')
+  const again = await api(m, 'POST', '/api/standardize/audit', { id: r.id })
+  expect(again.status, JSON.stringify(again.body)).toBe(200)
+  const audit = await settled(r.id)
+  expect(audit).toMatchObject({ stage: 'audit', state: 'input' })
+  expect(audit.standardize?.categories.every((c) => c.answer === undefined)).toBe(true)
+})
+
+test('a controller stopped while the apply session runs fails the apply at its next start, which applies again', async () => {
+  auditor('agent-config', 'finding: agent-config | .claude/skills/old-helper | delete | a repository-local skill | high')
+  const r = await audited()
+  writeFileSync(join(m.claude, 'apply'), 'wait\n')
+  const answers = { files: 'approve', 'agent-config': 'approve', docs: 'reject', 'tests-ci': 'reject', workspace: 'reject', security: 'reject' }
+  expect((await api(m, 'POST', '/api/standardize/apply', { id: r.id, answers })).status).toBe(200)
+  await until(r.id, (x) => x.note.startsWith('the apply session works'))
+  const exited = new Promise((d) => server.once('exit', d))
+  server.kill('SIGKILL')
+  await exited
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  server = s.process
+  expect(recordOf(r.id)).toMatchObject({ stage: 'apply', state: 'failed', note: 'the controller stopped while its apply ran; apply again in the process view' })
+  expect(await board()).toMatchObject([{ kind: 'standardize', state: 'failed', stage: 'apply' }])
 })
 
 const rmFails = (endpoint: string) => execFileSync('rm', ['-f', `${join(m.github, 'api', endpoint)}.fails`])
