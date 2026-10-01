@@ -105,14 +105,15 @@ export function Merge({ p, path, reload }: { p: Process & { pr: NonNullable<Proc
   )
 }
 
-// Accept opens a plan process on a spec whose tickets are all closed, with the acceptance route.
+// Accept starts the acceptance of a spec whose tickets are all closed, in a plan process whose page shows
+// the checker's items.
 export function Accept({ i, path, reload }: { i: Issue; path: string; reload: () => Promise<void> }) {
   return (
     <Confirm
       id={`accept-${i.number}`}
       trigger={<Button size="sm">Accept</Button>}
       title={`Accept #${i.number}`}
-      description={`Opens a plan process on ${i.title} with the acceptance route.`}
+      description={`Gathers the facts of ${i.title}, runs the spec checker read-only and shows its items in a plan process.`}
       confirm="Start acceptance"
       run={async () => {
         await accept(path, i.number)
