@@ -374,7 +374,7 @@ export async function stopAll(stateDir: string) {
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
 // its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
 // whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// A running acceptance fails, and checks again on request. A plan that waits for input waits
+// A running acceptance fails, and so does one whose checker asked a question; it checks again on request. A plan that waits for input waits
 // for a message or for its answers either way. Every other record stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
@@ -388,7 +388,9 @@ export function recover(stateDir: string) {
     try {
       const r = JSON.parse(readFileSync(recordFile(stateDir, id), 'utf8')) as SessionRecord
       if (r.kind === 'work' && ['running', 'waiting', 'created', 'approval', 'input'].includes(r.state) && !(r.state === 'input' && r.held)) interrupt(stateDir, id)
-      if (r.kind === 'plan' && ['running', 'approval'].includes(r.state)) interrupt(stateDir, id)
+      // A checker that asked a question waits in input with no items yet, and it is gone as well.
+      const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
+      if ((r.kind === 'plan' && ['running', 'approval'].includes(r.state)) || asking) interrupt(stateDir, id)
     } catch (err) {
       warn(id, 'could not read its record as the controller started', err)
     }
