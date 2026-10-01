@@ -83,7 +83,6 @@ Every knob is an environment variable in `.claude/settings.json` under `env`; th
 | `WF_DOCS_TIMEOUT` | `30` | seconds one request of `claude-docs.sh` may take (`/worker:docs`) |
 | `WF_PLANNER_LANGUAGE` | empty | conversation language of planner sessions, such as `german`; what the planner writes stays English |
 | `WF_MODE`, `WF_ISSUE` | set by the controller's claim | per-session mode (`manual` or `yolo`) and issue |
-| `WF_PLAN`, `WF_PLAN_ISSUE` | set by the controller's plan | per-session plan slug and planned issue |
 | `WF_CONTROLLER` | set by the controller | marks a session the controller started; a skill that needs the controller reads it |
 | `WF_PROJECT_TEMPLATE` | empty | `<owner>/<number>` of the project `workspace.sh --apply` copies into a repository without one |
 
