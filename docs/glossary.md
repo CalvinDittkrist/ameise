@@ -31,7 +31,7 @@ Terms the code, the issues and the docs use, one row each.
 | gap ticket | A `ready-for-agent` sub-issue an acceptance creates for an item that is not met. |
 | routing label | The label `factory`, which hands an issue to the factory host. A local claim refuses it without `--force`; the planner sets it per ticket ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)). |
 | spec run | A spec the factory works as one unit: its agent tickets on a spec branch, none of them routed one by one. The planner asks once per spec: spec run or normal run. |
-| spec-run label | The label `<routing label>:spec-run`, `factory:spec-run` by default, on a spec and its agent tickets. `issue.sh` refuses it beside the routing label or `ready-for-human`, and on a ticket whose spec lacks it. |
+| spec-run label | The label `<routing label>:spec-run`, `factory:spec-run` by default, on a spec and its agent tickets. The controller's github tools refuse it beside the routing label or `ready-for-human`, and on a ticket whose spec lacks it. |
 | spec branch | The branch `spec/<number>-<slug>` a spec run integrates its tickets on. The factory creates it through the API from the base, and that creation is the claim of the spec. |
 | spec pull request | The pull request from the spec branch to the base that ends a spec run once its tickets are closed. It is part of the spec, goes through the ci stage alone, and a person squash-merges it. |
 | label vocabulary | The fixed set of GitHub labels the workflow uses. Each plugin that creates labels defines it. Every copy follows the vocabulary in `contract/fixture.json`, and `tests/test_plugins.py` checks each one ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). |

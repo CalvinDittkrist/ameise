@@ -31,7 +31,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. `/planner:accept [spec]`: `accept-facts.sh` gathers the spec, its tickets, their pull requests and files. One `spec-checker` answers `item:` lines, and `accept-report.sh` counts them.
    - `ameise accept` opens it, sessionless ([acceptance start](../controller/README.md#acceptance-start)).
-7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. `accept-close.sh` closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
+7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing. The controller's `close` tool closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 
 ### Local delivery
 1. A claim on the dashboard or `ameise claim N` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin.

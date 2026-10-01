@@ -2,12 +2,11 @@
 name: plan
 description: Driver of a planning session. Shows the session facts and the routes, recommends one, then hands over to the stage skills the user invokes.
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/facts.sh), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/labels.sh), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/accept-due.sh)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/facts.sh), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/accept-due.sh)
 ---
 Session:
 !`${CLAUDE_PLUGIN_ROOT}/scripts/facts.sh`
 !`${CLAUDE_PLUGIN_ROOT}/scripts/accept-due.sh`
-!`${CLAUDE_PLUGIN_ROOT}/scripts/labels.sh`
 
 Routes:
 - **Idea to tickets.** `/planner:grill` asks question rounds until nothing is open, `/planner:spec` writes one spec issue, `/planner:tickets` cuts it into agent-ready issues with blocking edges.

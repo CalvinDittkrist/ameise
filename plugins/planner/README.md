@@ -1,16 +1,18 @@
 # planner
 
-Planning session for one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools and no Skill tool. It requires `gh`, `jq` and `git`.
+Planning session for one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools, the controller's github tools and no Skill tool. It requires `gh`, `jq` and `git`.
+
+It writes GitHub only through the controller's tools (ADR 0059): `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
 
 ## Skills
-| Skill | Script | Effect |
+| Skill | Script or tool | Effect |
 | --- | --- | --- |
-| `/planner:plan` | `facts.sh`, `accept-due.sh`, `labels.sh` | session facts, whether an acceptance is due, label vocabulary, the routes; recommends one and stops |
+| `/planner:plan` | `facts.sh`, `accept-due.sh` | session facts, whether an acceptance is due, the routes; recommends one and stops |
 | `/planner:grill [topic]` | | question rounds along the decision tree until nothing is open; collects glossary terms and ADR candidates |
-| `/planner:spec` | `issue.sh create --label spec` | one spec issue from the conversation, no new questions |
-| `/planner:tickets [spec]` | `issue.sh milestones`, `issue.sh milestone`, `issue.sh create --parent --milestone`, `issue.sh block` | asks once for a `vX.Y.Z` milestone, once spec run or normal run, then per ticket who works it; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
-| `/planner:accept [spec]` | `accept-facts.sh`, `accept-report.sh`, `issue.sh create\|comment\|block`, `accept-close.sh` | acceptance of a finished spec: facts, one read-only spec checker, one report, then gap tickets, accepted deviations or the spec closed |
-| `/planner:triage [issue]` | `triage-list.sh`, `issue.sh comment\|label\|close` | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |
+| `/planner:spec` | `create_issue` with `spec` | one spec issue from the conversation, no new questions |
+| `/planner:tickets [spec]` | `create_milestone`, `create_issue` with parent and milestone, `block` | asks once for a `vX.Y.Z` milestone, once spec run or normal run, then per ticket who works it; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
+| `/planner:accept [spec]` | `accept-facts.sh`, `accept-report.sh`, `create_issue`, `comment`, `block`, `close` | acceptance of a finished spec: facts, one read-only spec checker, one report, then gap tickets, accepted deviations or the spec closed |
+| `/planner:triage [issue]` | `triage-list.sh`, `comment`, `set_labels`, `close` | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |
 | `/planner:research <question>` | | background subagent, primary sources, answer lands in the issue |
 | `/planner:prototype <question>` | `capture-prototype.sh` | throwaway code, moved to `prototype/<plan>-<name>` and linked |
 | `/planner:finish [--force]` | `finish.sh`, `cleanup-self.sh` | refuses while uncommitted or unpushed work exists, then removes worktree and branch |
@@ -25,7 +27,7 @@ Acceptance works in four steps:
    - A ticket without a closing pull request is looked up by its head branch, merged into any base: GitHub links only merges into the default branch.
 2. One read-only `spec-checker` subagent with a fresh context judges each statement against the base branch: `item: <section> | <statement> | <verdict> | <evidence> | <confidence>`.
 3. `accept-report.sh <spec> [<file>...]` keeps the items, fails on a malformed one, counts them and prints every item that is not `met`.
-4. The maintainer decides per open item: a gap ticket, an accepted deviation or no finding. `accept-close.sh <spec> --comment-file <f> [<ticket>...]` then closes the spec.
+4. The maintainer decides per open item: a gap ticket, an accepted deviation or no finding. The `close` tool then closes the spec with the closing comment, as completed.
 
 The acceptance rules that no script output states:
 
@@ -34,16 +36,16 @@ The acceptance rules that no script output states:
 - Verdicts are `met`, `missing`, `deviates` and `untested`, over the sections User stories, Decisions, Testing, Vocabulary and ADRs to write.
 - An accepted deviation is a spec comment opening with `> Accepted deviation (spec acceptance).`. Only a commenter with write access counts.
 - Gap tickets keep the spec open, and the acceptance runs again in full after they close.
-- `accept-close.sh` refuses while a ticket is open or cannot be read.
+- `close` refuses a spec as completed without its closing comment, and while a ticket is open or cannot be read.
 - `accept-due.sh` prints one `acceptance:` line. Only `/planner:plan` injects it.
 
 Hook: `SessionStart` injects the topic from the branch description `plan.sh` wrote, or the issue text, marked as data. It is silent outside `plan/*` worktrees and in subagents.
 
-Labels the plugin owns and creates on demand: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `factory:spec-run`, `bug`, `enhancement`.
+Labels the controller's tools create on first use: `ready-for-agent`, `needs-triage`, `needs-info`, `ready-for-human`, `wontfix`, `spec`, `factory`, `factory:spec-run`, `bug`, `enhancement`.
 
 - `factory` is the routing label. The ticket and triage stages ask per ticket, following `skills/tickets/routing.md`.
 - `factory:spec-run` is the spec-run label. In a spec run the spec and its agent tickets carry it.
-- `issue.sh create` and `issue.sh label` refuse a set that leaves `factory` without `ready-for-agent` or next to `ready-for-human`.
+- `create_issue` and `set_labels` refuse a set that leaves `factory` without `ready-for-agent` or next to `ready-for-human`, and an unknown label.
 - They refuse `factory:spec-run` next to `factory` or `ready-for-human`, or on a non-spec whose parent lacks it.
 - Sub-issues and blocking edges use GitHub's native APIs and fall back to body text.
 

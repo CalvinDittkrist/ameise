@@ -26,10 +26,11 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { type Attempt, type Check, type CreatedRecord, type Finding, type Fix, type Point, writeAtomic, type WorkRecord } from './claim.js'
 import { ci } from './ci.js'
 import { gate, knob } from './gate.js'
+import { directWrite, githubServer, githubTools } from './github.js'
 import type { PlanRecord } from './plan.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
@@ -601,6 +602,7 @@ export function planBrief(record: PlanRecord, repo: string, glossary: boolean): 
     lines.push(`Topic: ${record.topic ?? 'unknown (ask the user)'}`)
   }
   lines.push(
+    "You write GitHub only through the controller's github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone); gh is for reads.",
     'The maintainer talks to you in the process view of the controller: ask a question with AskUserQuestion, or end your turn with it, and the answer comes as the next message.',
     'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, or /planner:prototype captures it.',
     'The maintainer ends the session with Finish in the process view, which removes this worktree.',
@@ -881,7 +883,7 @@ export function begin(record: SessionRecord, project: Project, rt: Runtime, mess
   else if (record.kind === 'plan') input.push(planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
   else input.push(brief(record, repo))
   running.set(id, s)
-  s.done = session(record, rt, s, live, spawned, ownRun(record, s))
+  s.done = session(record, rt, s, live, spawned, ownRun(record, s, rt, repo))
     .then(settle, (err: Error) => settle({ state: 'failed', note: `the ${what} failed: ${err.message}` }))
     .catch((err: unknown) => warn(id, 'its session ended unexpectedly', err))
     .then(() => exited)
@@ -984,13 +986,17 @@ interface Run {
   own: boolean
   schema?: Record<string, unknown>
   disallowed?: string[]
+  // tools are the controller's in-process tools the session writes GitHub with, allowed without a card.
+  tools?: McpSdkServerConfigWithInstance
   // read reads the structured result the session reported.
   read: (out: unknown, sessionId: string | undefined) => Ended
 }
 
 // ownRun is the run of a process's own session: a work session reports complete or blocked, a fix
 // session of the review also what it did with each finding, and a planner session reports nothing.
-function ownRun(record: SessionRecord, s: Running): Run {
+// A planner session writes GitHub through the controller's tools alone (ADR 0059), and every write goes
+// into the process's event log.
+function ownRun(record: SessionRecord, s: Running, rt: Runtime, repo: string): Run {
   const what = sessionOf(record)
   const review = record.kind === 'work' && record.stage === 'review'
   const address = record.kind === 'work' && record.stage === 'address-reviews'
@@ -1005,7 +1011,9 @@ function ownRun(record: SessionRecord, s: Running): Run {
     // pipeline, and with the stage timeout.
     later: record.kind === 'work' && record.stage !== 'implement',
     own: true,
-    ...(record.kind === 'plan' ? {} : { schema: review ? fixReport : address ? addressReport : report }),
+    ...(record.kind === 'plan'
+      ? { tools: githubTools(rt.gh, repo, (e) => event(rt.stateDir, record.id, e)) }
+      : { schema: review ? fixReport : address ? addressReport : report }),
     read: (raw, sessionId) => {
       const out = raw as { outcome?: unknown; message?: unknown; commits?: unknown; fixes?: unknown } | undefined
       const commits = Array.isArray(out?.commits) ? out.commits.filter((c): c is string => typeof c === 'string') : []
@@ -1273,6 +1281,17 @@ async function session(
   timer?.unref()
   const late = (): Ended => ({ state: 'failed', note: `the ${what} ran past its stage timeout of ${timeout} s` })
 
+  // A session with the tools writes GitHub through them alone: a hook denies every Bash call that writes
+  // GitHub with gh past them, before auto mode's classifier could allow it, in the session and its subagents.
+  const guard: HookCallback = (input) => {
+    const command = input.hook_event_name === 'PreToolUse' ? (input.tool_input as { command?: unknown } | undefined)?.command : undefined
+    const why = typeof command === 'string' ? directWrite(command) : undefined
+    if (why === undefined) return Promise.resolve({})
+    const reason = `${why}; write GitHub only through the github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone)`
+    event(rt.stateDir, id, { event: 'github-refused', tool: 'Bash', reason })
+    return Promise.resolve({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } })
+  }
+
   let stderr = ''
   const q = query({
     prompt: run.input,
@@ -1288,6 +1307,7 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
+      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard] }] } } : {}),
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

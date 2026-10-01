@@ -152,6 +152,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `address-reviews` says what the address-reviews session does: `reply <thread> <body>` and `answer <text>` are what it reports for the controller to post, `fixed` and `declined` the points.
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
+- `tool <name> <json>` calls a github tool of a planner session with the arguments.
 
 In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script):
 - `next-pull` is the number `gh pr create` gives.
@@ -160,6 +161,7 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 - `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
 - `pulls/<n>.threads.json` are the review threads of a pull request. The resolve mutation resolves a thread written with its id first, and `gh pr comment` appends to `pulls/<n>.comments`.
 - Once `gh pr merge` merged a canned pull request, `pulls/<n>.merged.json` answers before its readings.
+- `api/<endpoint>` answers `gh api` of that endpoint, whatever the method. An endpoint that is also the directory of longer ones keeps its answer in the file `@` inside it.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -433,6 +435,17 @@ The record has the route `idea`, `issue` or `open`, the topic, and the stage `pl
 - a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
   - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
   - It carries no text of the issue.
+
+The session writes GitHub only through the controller's github tools, an in-process MCP server registered in it and allowed without a card ([ADR 0059](../docs/adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)):
+- `create_issue` with labels, a parent it becomes a sub-issue of, and an open milestone `vX.Y.Z`, which the parent joins when it has none;
+- `set_labels`, `block`, `comment`, `close`, `attach_milestone` and `create_milestone`.
+
+The tools own the label vocabulary of the [contract fixture](../contract/fixture.json). A vocabulary label the repository lacks is created on first use, and a label outside it must exist in the repository.
+- They refuse `factory` without `ready-for-agent` or beside `ready-for-human`, judged on the labels the issue ends up with.
+- They refuse `factory:spec-run` beside either, and on an issue that is no spec and whose parent does not carry it.
+- A ticket of a spec run that cannot become a sub-issue loses the label and is refused.
+- `close` refuses a spec as completed without its closing comment, and while a ticket is open or cannot be read.
+- Every write is a `github` event in the process's log with what it changed, and every refusal a `github-refused` event with its reason.
 
 A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
 

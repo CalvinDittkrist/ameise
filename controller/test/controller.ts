@@ -7,11 +7,14 @@ import {
   chmodSync,
   constants,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -239,17 +242,37 @@ export function play(m: Machine, session: string) {
 // canApi cans the answer of gh api <endpoint> on the fake GitHub, an endpoint such as
 // repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100.
 export function canApi(m: Machine, endpoint: string, answer: unknown) {
+  writeFileSync(apiFile(m, endpoint), JSON.stringify(answer))
+}
+
+// apiFile is the file of the fake GitHub that answers the endpoint. An endpoint that is also the
+// directory of longer ones keeps its answer in the file @ of that directory, as fake/gh reads it.
+function apiFile(m: Machine, endpoint: string): string {
+  let at = join(m.github, 'api')
+  for (const part of endpoint.split('/').slice(0, -1)) {
+    at = join(at, part)
+    if (existsSync(at) && !statSync(at).isDirectory()) {
+      renameSync(at, `${at}.answer`)
+      mkdirSync(at)
+      renameSync(`${at}.answer`, join(at, '@'))
+    }
+  }
+  mkdirSync(at, { recursive: true })
   const file = join(m.github, 'api', endpoint)
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(answer))
+  return existsSync(file) && statSync(file).isDirectory() ? join(file, '@') : file
+}
+
+// failApi makes gh api <endpoint> fail with the message, as a GitHub that answers an error other than
+// not found does.
+export function failApi(m: Machine, endpoint: string, message: string) {
+  apiFile(m, endpoint)
+  writeFileSync(`${join(m.github, 'api', endpoint)}.fails`, message + '\n')
 }
 
 // canPages cans the answer of gh api --paginate <endpoint> as GitHub writes it over several pages: one
 // JSON array per page, one after the other.
 export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {
-  const file = join(m.github, 'api', endpoint)
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, pages.map((p) => JSON.stringify(p)).join('\n'))
+  writeFileSync(apiFile(m, endpoint), pages.map((p) => JSON.stringify(p)).join('\n'))
 }
 
 // canIssue cans an issue of a repository, as gh issue view answers it: its state OPEN or CLOSED and its
