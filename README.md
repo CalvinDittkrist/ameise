@@ -11,7 +11,7 @@ The local workflow is the controller `ameise`, one package with its dashboard an
 
 ```mermaid
 flowchart LR
-  C[controller ameise<br/>dashboard: plan · claim · merge · release] -->|worktree + plan process| PL[planner<br/>/grill · /spec · /tickets · /triage · /accept]
+  C[controller ameise<br/>dashboard: plan · claim · merge · release] -->|worktree + plan process| PL[planner<br/>/grill · /spec · /tickets · /triage]
   PL -->|ready-for-agent issues| C
   C -->|worktree + work process| W[worker<br/>implement + verify]
   W --> G[gate]
@@ -29,7 +29,7 @@ flowchart LR
 
 | Plugin | What it gives you | Runs where |
 | --- | --- | --- |
-| [planner](plugins/planner/README.md) | `/grill`, `/spec`, `/tickets`, `/triage`, `/accept`, `/research`, `/prototype`, `/finish`; writes issues and runs the acceptance, never code | each planning worktree |
+| [planner](plugins/planner/README.md) | `/grill`, `/spec`, `/tickets`, `/triage`, `/accept`, `/research`, `/prototype`, `/finish`; writes issues through the controller's tools, never code | each planning worktree |
 | [worker](plugins/worker/README.md) | the `worker` agent, the reviewer panel, `/hunt-tests`, `/docs` | each issue worktree |
 | [repo-standards](plugins/repo-standards/README.md) | `/standardize`, `/apply`, `/adr`, `/docs-check`; the templates of the standard | any repository |
 
@@ -96,7 +96,7 @@ A session takes its model from the first that is set:
 
 The planner runs on Fable. Neither it nor the worker sets an effort.
 
-Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers, auditors, the test hunter, docs lookup and spec checker. The planner's research subagent follows its session.
+Every subagent with an agent file runs on `sonnet`: `high` effort for reviewers, auditors, the test hunter and docs lookup. The planner's research subagent follows its session.
 
 ## Design
 

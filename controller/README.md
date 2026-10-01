@@ -436,7 +436,7 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 - the slug of the issue's title,
 - or `open-<local time to the second>` for an open session.
 
-The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
+The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
 `WF_PLANNER_LANGUAGE` names the language the planner talks in, such as `german`. The [planner's readme](../plugins/planner/README.md#configuration) documents it.
 - The controller reads it from the env block of the checkout's `.claude/settings.json`, and the plan records the value when it opens.
@@ -446,10 +446,9 @@ The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`,
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
-- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
-  - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+- session settings: `WF_CONTROLLER=1`, `WF_BASE_BRANCH` and foreground subagents,
   - and the runtime's `language` setting from `WF_PLANNER_LANGUAGE`, when the repository sets it,
-- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
+- a brief that runs `/planner:plan` and carries the session's context.
   - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
   - It carries no text of the issue.
 
@@ -471,7 +470,7 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 - A push that fails keeps the commit on the local branch and the worktree as it was.
 - In fake mode it pushes nothing.
 
-A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
+A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat lists what the session wrote and leaves the removal to the finish. `/planner:prototype` asks the maintainer for the capture.
 
 ## Quota
 The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
