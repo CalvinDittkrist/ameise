@@ -401,6 +401,30 @@ still_proven: no, it touched no behaviour
         r = self.hunt("triage", "1", stdin="no candidates\n", ok=False)
         self.assertIn("the hunt has ended", r.stderr)
 
+    def test_the_record_as_json_holds_the_rounds_the_removals_and_the_kept_candidates(self):
+        empty = json.loads(self.hunt("json").stdout)
+        self.assertEqual(empty, {"branch": "hunt/tests-2026-09-24", "rounds": 0, "max_rounds": 3, "ended": None,
+                                 "removed": [], "kept": [], "stale": 0})
+        self.hunt("round")
+        self.hunt("triage", "1", stdin='candidate: tests/test_logout.py | test_logout | mocks-subject | a "stub"\\ only | medium\n')
+        self.remove_constant_test()
+        self.hunt("removed", stdin=self.REMOVED)
+        head = self.git("rev-parse", "--short", "HEAD").strip()
+        record = json.loads(self.hunt("json").stdout)
+        self.assertEqual(record["rounds"], 1)
+        self.assertIsNone(record["ended"])
+        self.assertEqual(record["removed"], [{
+            "round": 1, "commit": head, "path": "tests/test_login.py", "test": "test_constant", "category": "cannot-fail",
+            "reason": "asserts the constant 1", "why": "it checks that the number 1 is true, which no change to the code can break",
+            "still_proven": "no, it touched no behaviour"}])
+        # A hunter's text reaches the controller as it stands, quotes and backslashes included.
+        self.assertEqual(record["kept"], [{"round": 1, "path": "tests/test_logout.py", "test": "test_logout",
+                                           "category": "mocks-subject", "reason": 'a "stub"\\ only', "confidence": "medium"}])
+        self.hunt("round")
+        self.hunt("triage", "1", stdin="no candidates\n")
+        self.hunt("round")
+        self.assertEqual(json.loads(self.hunt("json").stdout)["ended"], "round 2 found no new candidate")
+
     def test_a_hunt_that_finds_nothing_ends_after_its_first_round_without_a_pull_request(self):
         self.hunt("round")
         self.hunt("triage", "1", stdin="no candidates\n")

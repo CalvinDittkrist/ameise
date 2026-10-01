@@ -30,6 +30,7 @@ The build copies the plugins of the checkout into `dist/plugins`, and every sess
 - `ameise release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
 - `ameise accept <spec> [--project <path>]` starts the acceptance of a spec in a plan process; see [Acceptance](#acceptance).
 - `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
+- `ameise hunt [--project <path>]` opens a hunt process and starts its test hunt; see [Hunt process](#hunt-process).
   - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
@@ -85,7 +86,8 @@ The board is derived on every request from the state directory, git and GitHub, 
   - `id` names its record, the file `processes/<id>.json`, and is null for a worktree without one.
   - `unseen` says it turned `blocked`, `ready` or `failed` and its page has not been opened since.
   - A claimed process is `created` until its first session starts.
-  - `blocked`, `approval`, `ready`, `input`, `interrupted` and `foreign` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume` or `Adopt`.
+  - `blocked`, `approval`, `ready`, `input`, `interrupted`, `foreign` and `done` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume`, `Adopt` or `Finish`.
+  - `done` is a hunt that removed nothing and opens no pull request.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
@@ -366,13 +368,14 @@ While the headless session still runs, the terminal is a second runtime on the s
 Stopping and starting the controller loses no process.
 - A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
 - The start reads every record before it answers a request.
-- A work process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill, and is marked `interrupted` too.
+- A work or hunt process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill.
+  - It is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
   - An acceptance whose checker ran turns `failed`, and a check runs it again.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: its implement session, gate, review round, pr stage, wait on the pull request or address-reviews session.
+- A resume goes on with an interrupted process: its implement or hunt session, gate, review round, pr stage, wait on the pull request or address-reviews session.
   - One interrupted before its address-reviews session started waits on the pull request again.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
@@ -472,6 +475,25 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 
 A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat lists what the session wrote and leaves the removal to the finish. `/planner:prototype` asks the maintainer for the capture.
 
+## Hunt process
+A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
+- a hunt process, a `hunt/` worktree or a local `hunt/` branch,
+- a `hunt/` branch on origin; a list of origin's branches that cannot be read is a warning instead,
+- a base without a test file by the hunt's rule:
+  - `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*` and `*.spec.*` of JavaScript and TypeScript,
+  - code files in a `tests` or `spec` directory, leaving out fixtures, testdata, `__snapshots__`, `node_modules` and `vendor`.
+
+Its hunt session starts at once, in the stage `hunt`, as the implement session does, without `WF_ISSUE`. Its brief starts with `/worker:hunt-tests`, so the worker runs its rounds with the `test-hunter` agents and removes and commits only.
+- The record's `hunt` is the hunt record as the worker's `hunt.sh json` prints it: `rounds`, `max_rounds`, `ended`, `removed`, `kept` and `stale`.
+  - The controller reads it again after each tool result of the session and once the session reports `complete`.
+- A hunt that removed a test goes on to the [gate](#gate-stage), the [review](#review-stage), the [pr](#pr-stage) and the [ci](#ci-stage) stages of a work process.
+  - Each brief names the hunt record, which its session reads with `hunt.sh print`, in place of the issue.
+  - The review checks each removal against its reason.
+  - The pull request, and the gate's draft on CI, close no issue.
+  - A merge removes it as it removes a work process.
+- A hunt that removed nothing opens no pull request. It turns `done`, and its note says so with its rounds and the candidates it kept.
+  - A finish stops its session, then removes the worktree, the hunt branch and the process. It refuses, unless forced, changes not committed and commits not on origin.
+
 ## Quota
 The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
@@ -528,6 +550,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
+  - `{"id": "<id>"}` resumes an interrupted hunt process, which has no issue.
   - `404` says the issue has no process.
   - `409` refuses one that is not interrupted, or whose worktree is gone or no longer on its branch.
 - `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>, "branch": "<branch>"}`: adopts the issue's foreign worktree on the branch and answers `201` with `{record}`.
@@ -545,8 +568,9 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - `400` refuses an item not met without an answer, `409` an acceptance without items or answered already, `502` a write GitHub refused.
 - `POST /api/acceptances/check` with `{"id": "<id>"}`: runs a failed acceptance again and answers `200` with `{record}`.
 - `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
+- `POST /api/hunts` with `{"project": "<path>"}`: opens a [hunt process](#hunt-process), starts its session and answers `201` with `{record, warnings}`; `409` refuses the hunt.
 - `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.
-- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan and answers `200` with `{id, branch, worktree}`.
+- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan or the hunt and answers `200` with `{id, branch, worktree}`.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.

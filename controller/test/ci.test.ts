@@ -178,8 +178,9 @@ test('the review threads are read only once the checks and the bot review have p
   const calls = ghCalls()
   const views = calls.map((c, i) => (c.startsWith('pr view 7 ') ? i : -1)).filter((i) => i >= 0)
   const threads = calls.map((c, i) => (c.startsWith('api graphql ') ? i : -1)).filter((i) => i >= 0)
-  expect(threads).toHaveLength(1)
-  expect(threads[0]).toBeGreaterThan(views[2] ?? Infinity)
+  // A gh call that fails meanwhile makes the stage read again, so the reads are counted from the third view on.
+  expect(threads.length).toBeGreaterThan(0)
+  expect(Math.min(...threads)).toBeGreaterThan(views[2] ?? Infinity)
 })
 
 test('the ci stage waits for the checks, then for the bot review within the review wait, and shows what it waits for', async () => {

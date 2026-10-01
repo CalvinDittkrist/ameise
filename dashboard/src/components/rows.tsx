@@ -18,13 +18,15 @@ export const dot: Record<Process["state"], string> = {
   failed: "bg-red-700",
   created: "border-2 border-blue-500",
   interrupted: "bg-orange-500",
+  done: "bg-muted-foreground",
   foreign: "border-2 border-dashed border-muted-foreground",
 }
 
-// The controller carries out claim, abandon, resume, adopt, merge, plan and the start of an acceptance. A
-// permission, a question, a blocked session and a failed one are answered or read on the process's
-// page, which their actions open. It does not serve any other action yet, so a row shows those disabled.
-const opens = ["Answer", "Approve", "Continue", "Open"]
+// The controller carries out claim, abandon, resume, adopt, merge, plan, a hunt and the start of an
+// acceptance. A permission, a question, a blocked session and a failed one are answered or read on the
+// process's page, which their actions open, and so is the finish of a hunt that removed nothing. It does
+// not serve any other action yet, so a row shows those disabled.
+const opens = ["Answer", "Approve", "Continue", "Open", "Finish"]
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work

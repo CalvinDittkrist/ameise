@@ -30,7 +30,9 @@
 #                       then says the answer
 #   wait                it waits for the next message, then says what it read
 #   commit <file>       it writes the file in its directory and commits it
-#   run <command>       it runs the command in its directory with bash, whatever it exits with
+#   run <command>       it runs the command with bash in its directory, whatever it exits with.
+#                       CLAUDE_PLUGIN_ROOT is the first --plugin-dir, as a plugin's script sees it.
+#                       A hunt plays the worker's hunt.sh so, as in run bash "$CLAUDE_PLUGIN_ROOT/scripts/hunt.sh" round
 #   bash <command>      it asks the PreToolUse hook of Bash the SDK registered whether it may run the
 #                       command in Bash, then says whether the hook denied it; it never runs it
 #   tool <name> <json>  it calls the tool of that name of the controller's in-process server github with
@@ -286,7 +288,7 @@ play() {
         printf '%s\n' "$rest" > "$rest"
         git add -- "$rest" && git commit -q -m "fix: write $rest" >/dev/null ;;
       run)
-        bash -c "$rest" >/dev/null 2>&1 || true ;;
+        CLAUDE_PLUGIN_ROOT=${plugins[0]:-} bash -c "$rest" >/dev/null 2>&1 || true ;;
       bash)
         n=$((n + 1))
         local input

@@ -29,7 +29,7 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { merge } from './actions.js'
-import { type Attempt, type Check, fetch, git, type Point, push, recordsDir, type WorkRecord } from './claim.js'
+import { type Attempt, type Check, fetch, git, type Point, push, recordsDir, type StageRecord } from './claim.js'
 import { run } from './exec.js'
 import { defaultGrace, knob, setting } from './gate.js'
 import type { Project } from './project.js'
@@ -46,7 +46,7 @@ const checksGrace = 600
 
 // botsOf reads WF_PR_BOT_REVIEWERS of the process: a comma-separated list of logins, written with or
 // without [bot]; empty means no bot is waited for, and unset means the worker's default.
-export function botsOf(record: WorkRecord): string[] {
+export function botsOf(record: StageRecord): string[] {
   const value = setting(record, 'WF_PR_BOT_REVIEWERS')
   if (value === undefined) return [defaultBots]
   if (typeof value !== 'string') throw new Error(`WF_PR_BOT_REVIEWERS=${String(value)} is not a list of logins; set it as such, such as ${defaultBots}, or empty for no bot`)
@@ -338,10 +338,10 @@ export function pause(ms: number, signal: AbortSignal): Promise<void> {
 // has exited, and answers the record as it runs. A stop ends its wait; before is the abort of that
 // session, which a stop of the stage aborts too while its runtime exits. The replies and the answer an
 // address-reviews session reported are in the record's addressing, which the stage posts once it has pushed.
-export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): WorkRecord {
+export function ci(record: StageRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): StageRecord {
   const id = record.id
   const n = record.pull?.number
-  const started = (update(rt.stateDir, id, { stage: 'ci', state: 'waiting', note: `waiting on PR #${n ?? '?'}`, fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
+  const started = (update(rt.stateDir, id, { stage: 'ci', state: 'waiting', note: `waiting on PR #${n ?? '?'}`, fixing: false } as Partial<StageRecord>) as StageRecord | undefined) ?? record
   event(rt.stateDir, id, { event: 'ci-start', stage: 'ci', pr: n })
   const abort = new AbortController()
   if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
@@ -352,7 +352,7 @@ export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Pro
       if (!own()) return
       const note = `the ci stage failed: ${(err as Error).message}`
       event(rt.stateDir, id, { event: 'ci-end', stage: 'ci', state: 'failed', note })
-      const failed = update(rt.stateDir, id, { state: 'failed', note, wait: undefined, unseen: true } as Partial<WorkRecord>)
+      const failed = update(rt.stateDir, id, { state: 'failed', note, wait: undefined, unseen: true } as Partial<StageRecord>)
       if (failed) rt.announce(failed)
     })
     .catch((err: unknown) => {
@@ -362,7 +362,7 @@ export function ci(record: WorkRecord, project: Project, rt: Runtime, after: Pro
   return started
 }
 
-type Reported = NonNullable<NonNullable<WorkRecord['addressing']>['reported']>
+type Reported = NonNullable<NonNullable<StageRecord['addressing']>['reported']>
 
 // The mutations that reply to a review thread and resolve it.
 const replyMutation = 'mutation($threadId:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){comment{url}}}'
@@ -375,7 +375,7 @@ const maxReply = 60000
 // A reply to a thread the brief did not list is posted nowhere, since the session's writing may have
 // been steered by what it read. What cannot be posted is a note; a thread whose reply failed is asked
 // again by the next round. It answers the attempt that records what it posted.
-async function post(record: WorkRecord, project: Project, rt: Runtime, n: number, url: string, got: Reported): Promise<Attempt> {
+async function post(record: StageRecord, project: Project, rt: Runtime, n: number, url: string, got: Reported): Promise<Attempt> {
   const repo = `${project.owner}/${project.name}`
   const shown = record.addressing?.points ?? []
   const threads = new Map(shown.filter((p) => p.kind === 'thread').map((p) => [p.key, p]))
@@ -439,7 +439,7 @@ async function post(record: WorkRecord, project: Project, rt: Runtime, n: number
 // mention comments on the pull request that the repair budget is spent, and mentions the writers whose
 // points still stand, never a bot, whose mention may start a review of its own. A comment that cannot be
 // posted is a note.
-async function mention(record: WorkRecord, project: Project, rt: Runtime, n: number, repairs: number, asks: Point[]) {
+async function mention(record: StageRecord, project: Project, rt: Runtime, n: number, repairs: number, asks: Point[]) {
   const logins = [...new Set(asks.filter((p) => !p.bot).map((p) => p.login))]
   const who = logins.length > 0 ? `${logins.map((l) => `@${l}`).join(' ')} ` : ''
   const text = `${who}The controller spent the ${repairs} repair round(s) of this pull request and answers no more of its review on its own: ${asks.length} point(s) are left to a person.`
@@ -454,7 +454,7 @@ async function mention(record: WorkRecord, project: Project, rt: Runtime, n: num
   }
 }
 
-async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
+async function wait(record: StageRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const wt = record.worktree
@@ -462,7 +462,7 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
   const end = (state: 'ready' | 'blocked' | 'failed', note: string, a?: Attempt) => {
     if (!own()) return
     event(rt.stateDir, id, { event: 'ci-end', stage: 'ci', state, note })
-    const change = { state, note, wait: undefined, unseen: true } as Partial<WorkRecord>
+    const change = { state, note, wait: undefined, unseen: true } as Partial<StageRecord>
     const ended = a ? attempt(rt.stateDir, id, a, change) : update(rt.stateDir, id, change)
     if (ended) rt.announce(ended)
   }
@@ -499,15 +499,15 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
   if (reported) {
     const posted = await post(record, project, rt, n, pull.url, reported)
     if (!own()) return
-    attempt(rt.stateDir, id, posted, { addressing: undefined } as Partial<WorkRecord>)
+    attempt(rt.stateDir, id, posted, { addressing: undefined } as Partial<StageRecord>)
   }
   const head = await git(wt, 'rev-parse', 'HEAD')
   const now = () => new Date().toISOString()
   const doneAt: { at?: number } = {}
   let shown = ''
   let seen = ''
-  const history = () => (readRecord(rt.stateDir, id) as WorkRecord | undefined)?.history ?? record.history ?? []
-  update(rt.stateDir, id, { repairs: { spent: repairsSpent(history()), of: repairs } } as Partial<WorkRecord>)
+  const history = () => (readRecord(rt.stateDir, id) as StageRecord | undefined)?.history ?? record.history ?? []
+  update(rt.stateDir, id, { repairs: { spent: repairsSpent(history()), of: repairs } } as Partial<StageRecord>)
   for (;;) {
     if (!own()) return
     let verdict: Verdict
@@ -528,12 +528,12 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
         shown = verdict.wait
         seen = said
         event(rt.stateDir, id, { event: 'ci-wait', stage: 'ci', pr: n, wait: verdict.wait })
-        update(rt.stateDir, id, { state: 'waiting', note: `PR #${n}: waiting for ${verdict.wait}`, wait: verdict.wait, checks } as Partial<WorkRecord>)
+        update(rt.stateDir, id, { state: 'waiting', note: `PR #${n}: waiting for ${verdict.wait}`, wait: verdict.wait, checks } as Partial<StageRecord>)
       }
       await pause(rt.poll, signal)
       continue
     }
-    update(rt.stateDir, id, { checks } as Partial<WorkRecord>)
+    update(rt.stateDir, id, { checks } as Partial<StageRecord>)
     const a: Attempt = { stage: 'ci', kind: 'wait', result: verdict.kind, at: now(), commit: head, pr: n, url: pull.url, checks }
     if (verdict.kind === 'green') return green(record, project, rt, n, a, end)
     if (verdict.kind === 'merged') return end('blocked', `PR #${n} is merged already on GitHub; abandon the process to remove its worktree and branch`, a)
@@ -580,7 +580,7 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
         note,
         addressing: { mandate, points: asks },
         repairs: { spent: mandate === 'writer' ? 0 : spent + 1, of: repairs },
-      } as Partial<WorkRecord>)
+      } as Partial<StageRecord>)
       if (!addressing || !own()) return
       begin(addressing, project, rt, addressBrief(addressing, repo, n, asks))
       return
@@ -594,7 +594,7 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
     }
     if (!own()) return
     // A fix session is a fresh session: the one before it is in the history, not in its resume.
-    const fixing = attempt(rt.stateDir, id, a, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; repair round ${spent + 1} of ${repairs}`, repairs: { spent: spent + 1, of: repairs } } as Partial<WorkRecord>)
+    const fixing = attempt(rt.stateDir, id, a, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; repair round ${spent + 1} of ${repairs}`, repairs: { spent: spent + 1, of: repairs } } as Partial<StageRecord>)
     if (!fixing || !own()) return
     begin(fixing, project, rt, ciFixBrief(fixing, repo, n, verdict.kind, failing))
     return
@@ -605,12 +605,12 @@ async function wait(record: WorkRecord, project: Project, rt: Runtime, signal: A
 // merge. A yolo process whose panel passed is merged at once, by the merge action's rules, which remove
 // its worktree, its branch and its record; the maintainer is told of it as it ended. A merge that is
 // refused, or that a merge queue takes, leaves it ready with the reason.
-async function green(record: WorkRecord, project: Project, rt: Runtime, n: number, a: Attempt, end: (state: 'ready', note: string, a?: Attempt) => void) {
+async function green(record: StageRecord, project: Project, rt: Runtime, n: number, a: Attempt, end: (state: 'ready', note: string, a?: Attempt) => void) {
   const note = `PR #${n} is green: it merges, its checks pass and no review asks for changes`
   if (record.mode !== 'yolo') return end('ready', note, a)
   if (record.panel !== 'pass') return end('ready', `${note}; its panel did not pass, so the yolo process waits for the merge`, a)
   const id = record.id
-  const before = attempt(rt.stateDir, id, a, { note: `${note}; merging it, as the process is yolo` } as Partial<WorkRecord>)
+  const before = attempt(rt.stateDir, id, a, { note: `${note}; merging it, as the process is yolo` } as Partial<StageRecord>)
   if (!before) return
   event(rt.stateDir, id, { event: 'ci-note', note: `merging PR #${n}, as the process is yolo` })
   let merged: Awaited<ReturnType<typeof merge>>
@@ -623,13 +623,13 @@ async function green(record: WorkRecord, project: Project, rt: Runtime, n: numbe
   const closed = merged.closed !== null ? `, closed #${merged.closed}` : ''
   const warned = merged.warnings.length > 0 ? `; ${merged.warnings.join('; ')}` : ''
   // The merge removed the record, so the maintainer is told of the process as it was, merged.
-  rt.announce({ ...before, state: 'ready', note: `merged PR #${n} into ${merged.base}${closed}, as the process is yolo${warned}`, wait: undefined } as WorkRecord)
+  rt.announce({ ...before, state: 'ready', note: `merged PR #${n} into ${merged.base}${closed}, as the process is yolo${warned}`, wait: undefined } as StageRecord)
 }
 
 // Whether a process the ci stage left calls for a follow-up: one ready, or blocked on a review, whose
 // pull request the stage waits on again once its reviews ask for an answer or have changed.
-const following = (r: WorkRecord) =>
-  r.kind === 'work' &&
+const following = (r: StageRecord) =>
+  (r.kind === 'work' || r.kind === 'hunt') &&
   r.stage === 'ci' &&
   r.pull !== undefined &&
   (r.state === 'ready' || (r.state === 'blocked' && ['review-comments', 'answered'].includes(r.history?.at(-1)?.result ?? '') && r.history?.at(-1)?.kind === 'wait'))
@@ -653,7 +653,7 @@ export async function followUps(rt: Runtime, projectOf: (path: string) => Promis
   for (const name of names) {
     const id = name.slice(0, -'.json'.length)
     try {
-      const r = readRecord(rt.stateDir, id) as WorkRecord | undefined
+      const r = readRecord(rt.stateDir, id) as StageRecord | undefined
       if (!r || !following(r) || busy(id)) continue
       const project = await projectOf(r.project)
       const n = r.pull!.number
@@ -668,7 +668,7 @@ export async function followUps(rt: Runtime, projectOf: (path: string) => Promis
       const changed = r.state === 'ready' ? points.lines.length > 0 : JSON.stringify(points.lines) !== JSON.stringify(r.history?.at(-1)?.reviews ?? [])
       if (!fresh && !changed) continue
       // The record is read again, as a click may have changed it while GitHub answered.
-      const now = readRecord(rt.stateDir, id) as WorkRecord | undefined
+      const now = readRecord(rt.stateDir, id) as StageRecord | undefined
       if (!now || !following(now) || busy(id)) continue
       event(rt.stateDir, id, { event: 'ci-note', note: fresh ? `a review of PR #${n} asks for an answer: the follow-up waits on it again` : now.state === 'ready' ? `a review of PR #${n} stands since it was green: the follow-up waits on it again` : `the review PR #${n} was blocked on has changed: the follow-up waits on it again` })
       ci(now, project, rt)

@@ -8,6 +8,7 @@
 #                          refuses every line that does not fit
 #        hunt.sh removed   record the removal the last commit made, its block on stdin
 #        hunt.sh print     the hunt block the reviewer and pull request briefs carry instead of an issue
+#        hunt.sh json      the same record as one JSON object, which the controller keeps in the process record
 # The records live in this worktree's git directory (ADR 0018), and the
 # numbers below are fixed, never knobs (ADR 0046).
 set -euo pipefail
@@ -222,6 +223,28 @@ $dirty
 $1"
 }
 
+# A field as a JSON string: backslash and double quote escaped, a tab a space, other control characters dropped.
+json_string() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/ }
+  s=${s//[[:cntrl:]]/}
+  printf '"%s"' "$s"
+}
+# The fields $2... of the record file $1 as the members of a JSON object, the round a number.
+json_fields() {
+  local f=$1 key out="" v
+  shift
+  for key in "$@"; do
+    v=$(field "$f" "$key")
+    if [ "$key" = round ]; then out="$out${out:+,}\"round\":${v:-0}"
+    elif [ "$key" = commit ]; then out="$out${out:+,}\"commit\":$(json_string "$(wf_short "$v")")"
+    else out="$out${out:+,}\"$key\":$(json_string "$v")"; fi
+  done
+  printf '{%s}' "$out"
+}
+
 removal_list=$(removals)
 test_files=""
 
@@ -373,5 +396,16 @@ $removed_form"
     for k in $kept_list; do printf '  kept, round %s: %s\n' "$(field "$(kept_file "$k")" round)" "$(kept_line "$k")"; done
     [ "$removed$kept" != 00 ] || printf '  nothing removed and nothing kept\n'
     ;;
-  *) wf_die "usage: hunt.sh paths | hunt.sh round | hunt.sh triage <share> < reply | hunt.sh removed < block | hunt.sh print" ;;
+  json)
+    n=$(rounds); why=$(ended)
+    removed="" kept=""
+    for k in $removal_list; do removed="$removed${removed:+,}$(json_fields "$(removal "$k")" round commit path test category reason why still_proven)"; done
+    for k in $(kept_records); do kept="$kept${kept:+,}$(json_fields "$(kept_file "$k")" round path test category reason confidence)"; done
+    stale=$(( $(count_files removal) - $(printf '%s' "$removal_list" | grep -c . || true) ))
+    ended_json=null
+    [ -z "$why" ] || ended_json=$(json_string "$why")
+    printf '{"branch":%s,"rounds":%s,"max_rounds":%s,"ended":%s,"removed":[%s],"kept":[%s],"stale":%s}\n' \
+      "$(json_string "$(wf_branch)")" "$n" "$max_rounds" "$ended_json" "$removed" "$kept" "$stale"
+    ;;
+  *) wf_die "usage: hunt.sh paths | hunt.sh round | hunt.sh triage <share> < reply | hunt.sh removed < block | hunt.sh print | hunt.sh json" ;;
 esac

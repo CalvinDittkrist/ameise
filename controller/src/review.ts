@@ -9,7 +9,7 @@
 // passes and the pr stage (pr.ts) opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
 // verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
 // panel. A reviewer that reports no verdict ends the process failed with the reason.
-import { type Attempt, git, type Verdict, type WorkRecord } from './claim.js'
+import { type Attempt, git, type Verdict, type StageRecord } from './claim.js'
 import { knob, setting } from './gate.js'
 import { pr } from './pr.js'
 import type { Project } from './project.js'
@@ -28,7 +28,7 @@ const defaultRounds = 3
 
 // reviewersOf reads WF_REVIEWERS of the process: a comma-separated list of the reviewers above, the five
 // where it is not set. A name that is no reviewer is refused with the reason.
-export function reviewersOf(record: WorkRecord): string[] {
+export function reviewersOf(record: StageRecord): string[] {
   const value = setting(record, 'WF_REVIEWERS')
   if (value === undefined || value === '') return defaultReviewers
   if (typeof value !== 'string') throw new Error(`WF_REVIEWERS=${String(value)} is not a list of reviewers; set it as such, such as code,security, or leave it out for ${defaultReviewers.join(',')}`)
@@ -40,9 +40,9 @@ export function reviewersOf(record: WorkRecord): string[] {
 
 // review starts a round of the review stage of a process and answers the record as it runs. A stop ends
 // its reviewers; a resume runs the round again.
-export function review(record: WorkRecord, project: Project, rt: Runtime): WorkRecord {
+export function review(record: StageRecord, project: Project, rt: Runtime): StageRecord {
   const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'review', state: 'running', note: 'the reviewers run', fixing: false } as Partial<WorkRecord>) as WorkRecord | undefined) ?? record
+  const started = (update(rt.stateDir, id, { stage: 'review', state: 'running', note: 'the reviewers run', fixing: false } as Partial<StageRecord>) as StageRecord | undefined) ?? record
   const abort = new AbortController()
   // The round starts on the next turn, once the stage is tracked, so a stop meanwhile ends it.
   const tracked: { own: () => boolean; s?: Running } = { own: () => false }
@@ -63,18 +63,18 @@ export function review(record: WorkRecord, project: Project, rt: Runtime): WorkR
   return started
 }
 
-async function round(record: WorkRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
+async function round(record: StageRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   // end ends the review with the note, unless a stop has taken it over: a panel that passed or failed
   // goes on to the pr stage, a review that failed ends the process failed.
-  const end = (state: 'ready' | 'failed', note: string, a?: Attempt, change: Partial<WorkRecord> = {}) => {
+  const end = (state: 'ready' | 'failed', note: string, a?: Attempt, change: Partial<StageRecord> = {}) => {
     if (!own()) return
     event(rt.stateDir, id, { event: 'review-end', stage: 'review', state: state === 'ready' ? (change.panel ?? 'pass') : state, note })
     if (state === 'ready') {
       const full = { ...change, note }
       const next = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
-      if (next && own()) pr(next as WorkRecord, project, rt)
+      if (next && own()) pr(next as StageRecord, project, rt)
       return
     }
     const full = { ...change, state, note, unseen: true }
@@ -92,7 +92,7 @@ async function round(record: WorkRecord, project: Project, rt: Runtime, s: Runni
 
   // The rounds of this review: those since the implement session last ended, whose work it reviews.
   const history = record.history ?? []
-  const since = history.map((h) => h.stage === 'implement').lastIndexOf(true)
+  const since = history.map((h) => h.stage === 'implement' || h.stage === 'hunt').lastIndexOf(true)
   const past = history.slice(since + 1).filter((h) => h.stage === 'review' && h.kind === 'round')
   const n = past.length + 1
   const last = new Map<string, string>()
@@ -136,9 +136,9 @@ async function round(record: WorkRecord, project: Project, rt: Runtime, s: Runni
 
 // resumeFix starts the fix session of the review afresh for a process the controller stopped before that
 // session reported its id: with every finding of the last round, as the round had started it.
-export function resumeFix(record: WorkRecord, project: Project, rt: Runtime): WorkRecord {
+export function resumeFix(record: StageRecord, project: Project, rt: Runtime): StageRecord {
   const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
   if (!last || last.result !== 'fix') return review(record, project, rt)
   const findings = (last.verdicts ?? []).flatMap((v) => v.findings)
-  return begin(record, project, rt, reviewFixBrief(record, `${project.owner}/${project.name}`, last.round ?? 1, findings)) as WorkRecord
+  return begin(record, project, rt, reviewFixBrief(record, `${project.owner}/${project.name}`, last.round ?? 1, findings)) as StageRecord
 }

@@ -22,6 +22,7 @@ import {
   type Entry,
   type Fix,
   hold,
+  type Hunt,
   openTerminal,
   type Process,
   type ProcessRecord,
@@ -35,8 +36,14 @@ import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
 // The stages a process of each kind runs in the controller. A work process runs implement, the gate, the
-// review, pr and ci, and address-reviews once a review of its pull request asks for an answer.
-const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate", "review", "pr", "ci"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
+// review, pr and ci, and address-reviews once a review of its pull request asks for an answer. A hunt
+// runs hunt in place of implement.
+const stagesOf: Record<Process["kind"], string[]> = {
+  work: ["implement", "gate", "review", "pr", "ci"],
+  plan: ["plan"],
+  hunt: ["hunt", "gate", "review", "pr", "ci"],
+  standardize: ["audit"],
+}
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
 // for the permissions and questions that wait for the maintainer, a chat that writes to the session and
@@ -153,6 +160,12 @@ function Header({ record }: { record: ProcessRecord }) {
             <Finish id={record.id} project={record.project} />
           </div>
         )}
+        {/* A hunt that removed nothing is done, one that failed cannot go on, and a finish ends either. */}
+        {record.kind === "hunt" && (record.state === "done" || record.state === "failed") && (
+          <div className="ml-auto flex gap-2">
+            <Finish id={record.id} project={record.project} kind="hunt" />
+          </div>
+        )}
         {holdable && (
           <Button
             size="sm"
@@ -170,7 +183,7 @@ function Header({ record }: { record: ProcessRecord }) {
         <Button
           size="sm"
           variant="outline"
-          className={cn(record.kind !== "plan" && !holdable && "ml-auto")}
+          className={cn(record.kind !== "plan" && !holdable && !(record.kind === "hunt" && record.state === "done") && "ml-auto")}
           disabled={!record.session_id || opening}
           title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
@@ -188,7 +201,7 @@ function Header({ record }: { record: ProcessRecord }) {
   )
 }
 
-const reported: Process["state"][] = ["blocked", "ready", "failed"]
+const reported: Process["state"][] = ["blocked", "ready", "done", "failed"]
 
 // tokens is a size in tokens as the fact row shows it: in thousands from a thousand on.
 const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`)
@@ -200,7 +213,7 @@ const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
   const kind = process?.kind ?? record.kind ?? "work"
   // A work process lists address-reviews once a review of its pull request was answered or is.
-  const answering = kind === "work" && (record.history ?? []).some((a) => a.stage === "address-reviews")
+  const answering = (kind === "work" || kind === "hunt") && (record.history ?? []).some((a) => a.stage === "address-reviews")
   const listed = answering ? [...stagesOf[kind], "address-reviews"] : stagesOf[kind]
   const stages = listed.includes(record.stage) ? listed : [...listed, record.stage]
   const at = stages.indexOf(record.stage)
@@ -277,10 +290,48 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
           )
         })}
       </ol>
+      {record.hunt && <HuntLog hunt={record.hunt} />}
       <Rounds history={record.history ?? []} />
       <FollowUps history={record.history ?? []} />
       {(record.stage === "ci" || record.stage === "gate" || record.stage === "address-reviews") && <Wait record={record} />}
     </>
+  )
+}
+
+// HuntLog is the hunt record of a hunt process: its rounds and why it ended, each test it removed with why
+// it proved nothing and whether another still proves its behaviour, and each candidate it checked and kept.
+function HuntLog({ hunt }: { hunt: Hunt }) {
+  return (
+    <section aria-label="Hunt record" className="flex flex-col gap-2 text-sm">
+      <span className="text-xs text-muted-foreground">
+        {hunt.rounds === 0 ? "no round yet" : `round ${hunt.rounds} of at most ${hunt.max_rounds}`}
+        {hunt.ended && ` · ended: ${hunt.ended}`}
+      </span>
+      {hunt.removed.length > 0 && (
+        <ul aria-label="Removed tests" className="flex flex-col gap-1">
+          {hunt.removed.map((r) => (
+            <li key={`${r.path} ${r.test}`} className="flex flex-col gap-0.5">
+              <span>
+                removed <span className="font-mono">{r.test}</span> in <span className="font-mono">{r.path}</span> · {r.category} · round {r.round} at{" "}
+                <span className="font-mono">{r.commit}</span>
+              </span>
+              <span className="pl-2 text-xs text-muted-foreground">
+                {r.why} Still proven: {r.still_proven}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hunt.kept.length > 0 && (
+        <ul aria-label="Kept candidates" className="flex flex-col gap-1 text-xs text-muted-foreground">
+          {hunt.kept.map((k) => (
+            <li key={`${k.path} ${k.test}`}>
+              kept <span className="font-mono">{k.test}</span> in <span className="font-mono">{k.path}</span> · {k.category}, {k.confidence}: {k.reason}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
