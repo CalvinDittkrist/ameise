@@ -162,7 +162,7 @@ export const FILES: Record<string, string> = {
   'skills-lock.json': JSON.stringify({ version: 1, skills: { lint: { source: 'acme/skills' } } }) + '\n',
   '.cursor/rules/style.mdc': 'be nice\n',
   'NOTES.md': 'handover notes\n',
-  'src/app.py': "print('hi')  # a — b\n", // an em dash the apply leaves to an issue: the check warns
+  'src/app.py': "print('hi')  # a \u2014 b\n", // an em dash the apply leaves to an issue: the check warns
 }
 
 export const REPLIES = `The agent-config auditor:

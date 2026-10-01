@@ -122,7 +122,7 @@ describe('facts', () => {
   test('the writing findings are the ones the check counts and are cut at twenty', async () => {
     const f = repo()
     f.write('README.md', '# shop\n\n' + Array(81).fill('word').join(' ') + '\n')
-    f.write('src/app.py', 'x = 1  # a — b\n')
+    f.write('src/app.py', 'x = 1  # a \u2014 b\n')
     f.git('add', '.')
     f.git('commit', '-qm', 'docs')
     expect(section(await run(), 'writing-findings:')).toEqual([
@@ -130,7 +130,7 @@ describe('facts', () => {
       '  src/app.py has 1 em dash; use a comma, a colon or two sentences',
       '  README.md:3: paragraph of 81 words (>80); split it or make it bullets',
     ])
-    for (let i = 0; i < 25; i++) f.write(`docs/n${String(i).padStart(2, '0')}.md`, '—\n')
+    for (let i = 0; i < 25; i++) f.write(`docs/n${String(i).padStart(2, '0')}.md`, '\u2014\n')
     const out = section(await run(), 'writing-findings:')
     expect(out).toHaveLength(22)
     expect(out.at(-1)).toBe('  (+7 more)')
