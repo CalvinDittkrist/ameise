@@ -2,10 +2,8 @@
 name: spec
 description: Turn the current conversation into one spec issue. Synthesis only, no new questions.
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/facts.sh)
 ---
-Session:
-!`${CLAUDE_PLUGIN_ROOT}/scripts/facts.sh`
+Without the controller's github tools (`create_issue` and the others) in this session, the controller did not start it: say that writing the spec needs a plan process of the controller `ameise`, opened with Plan on its board or `ameise plan`, and stop.
 
 Write the spec from what the conversation has settled. Do not interview. If something material is still open, list it under Open questions instead of guessing.
 

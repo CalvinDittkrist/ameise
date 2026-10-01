@@ -3,14 +3,15 @@ name: triage
 description: Move an issue through the triage states. Verify the claim, grill when needed, post the agent brief, set category and state labels.
 disable-model-invocation: true
 argument-hint: [issue]
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh)
 ---
-Queue:
-!`${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh`
+Without the controller's github tools (`create_issue` and the others) in this session, the controller did not start it: say that triage, which writes labels and comments, needs a plan process of the controller `ameise`, opened with Plan on its board or `ameise plan`, and stop.
 
 Labels. Category: `bug` or `enhancement`, exactly one. State: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` or `wontfix`, exactly one. Routing: `factory`, optional, only next to `ready-for-agent`; for a ticket whose parent carries `factory:spec-run`, that label instead of `factory`. If an issue carries two states, say so and ask before doing anything else. Every comment you post starts with `> Written by an agent during triage.`
 
-Without an argument: show the three buckets above, one line each, and let the user pick. With an issue ($ARGUMENTS):
+Without an argument: list the open issues with `gh issue list --state open --limit 100 --json number,title,labels,author,comments --jq '.[] | "#\(.number) \(.title) | by \(.author.login) | labels: \([.labels[].name] | join(",")) | last comment by: \(.comments | last | .author.login // "-")"'`. Show three buckets, one line per issue, and let the user pick:
+- unlabeled: no state label and no `spec`;
+- needs-triage;
+- needs-info with a last comment by someone other than you (`gh api user -q .login`). With an issue ($ARGUMENTS):
 
 1. Read it fully with `gh issue view <n> --comments`, including earlier triage notes; do not re-ask what they settled.
    - Search the code for an existing implementation of the request by concept, not by wording.

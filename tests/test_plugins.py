@@ -45,7 +45,6 @@ class ManifestTests(unittest.TestCase):
             "worker/agents/senior-reviewer.md": "high",
             "worker/agents/test-hunter.md": "high",
             "worker/agents/docs-lookup.md": "high",
-            "planner/agents/spec-checker.md": "high",
             "repo-standards/agents/agent-config-auditor.md": "high",
             "repo-standards/agents/docs-auditor.md": "high",
             "repo-standards/agents/files-auditor.md": "high",
@@ -83,9 +82,6 @@ class ManifestTests(unittest.TestCase):
         for agent in agents.glob("*.md"):
             self.assert_read_only(agent)
 
-    def test_the_spec_checker_is_read_only_by_its_declared_tools(self):
-        self.assert_read_only(ROOT / "plugins/planner/agents/spec-checker.md")
-
     def test_the_documentation_lookup_is_read_only_by_its_declared_tools(self):
         self.assert_read_only(ROOT / "plugins/worker/agents/docs-lookup.md")
 
@@ -113,6 +109,16 @@ class ManifestTests(unittest.TestCase):
             used |= set(re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/scripts/([\w.-]+)", skill.read_text()))
         scripts = {p.name for p in (worker / "scripts").glob("*.sh")}
         self.assertEqual(scripts - {"lib.sh"}, used, "a worker script no skill runs is steering the controller owns")
+
+    def test_the_planner_plugin_carries_skills_and_agents_and_no_hook_or_script(self):
+        """The controller writes GitHub, captures prototypes, finishes plans and runs acceptances (ADR 0063):
+        the planner plugin holds prompts and nothing that runs."""
+        planner = ROOT / "plugins/planner"
+        self.assertFalse((planner / "hooks").exists(), "the planner plugin carries a hooks directory")
+        self.assertFalse((planner / "scripts").exists(), "the planner plugin carries a scripts directory")
+        self.assertNotIn("hooks", json.loads((planner / ".claude-plugin/plugin.json").read_text()))
+        for skill in planner.glob("skills/*/SKILL.md"):
+            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}/scripts/", skill.read_text(), skill)
 
     def test_the_worker_reaches_the_documentation_through_its_script_and_not_through_the_web_tools(self):
         """The worker's main context holds issue text written by someone else, so its own tool list carries
