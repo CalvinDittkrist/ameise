@@ -19,6 +19,6 @@ When the question is answered:
    - The controller commits the worktree's changes to `prototype/<plan>-<name>` and pushes it. The worktree is clean afterwards.
    - Without the controller's github tools in this session, the controller did not start it.
    - Then say that capturing needs a plan process of the controller, and leave the code where it is.
-3. Once the user confirms the capture, the branch is at `https://github.com/<owner>/<repo>/tree/prototype/<plan>-<name>`.
-   - `<plan>` is the plan branch without `plan/`.
+3. Once the user confirms the capture, ask for the URL the controller shows for it, unless the user gave it already.
+   - The controller turns the name into the branch name, so do not build the URL yourself.
    - Put the verdict and that URL into the spec or ticket. The plan branch stays clean.

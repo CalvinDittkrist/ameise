@@ -11,6 +11,7 @@ The controller `ameise` runs the acceptance of a spec, not this session. Tell th
 - The controller gathers the facts, runs a read-only spec checker and shows every item with its verdict, evidence and confidence in the process view.
 - Per item not met the maintainer picks a gap ticket, an accepted deviation or no finding there.
 - The controller writes them and closes the spec once nothing is open.
+- A spec a plan process already holds, such as the issue of this session, cannot be accepted. The user finishes this process with `/planner:finish` first.
 
 When the spec ($ARGUMENTS, or the issue of this session) is not ready yet, say which of its tickets are still open: `gh api 'repos/{owner}/{repo}/issues/<spec>/sub_issues?per_page=100' --jq '.[] | select(.state == "open") | "#\(.number) \(.title)"'`.
 
