@@ -6,12 +6,11 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ## Components
 | Component | Responsibility | Entry point |
 | --- | --- | --- |
-| `planner` plugin | One session per topic: spec, tickets, triage, research, prototypes, acceptance. Writes issues, never code. | SessionStart hook, `/planner:plan`; `plugins/planner/scripts/*.sh` |
+| `planner` plugin | Skills and agents: the `planner` agent for one session per topic, and its spec, tickets, triage, research and prototype skills. Writes issues through the controller's tools, never code; no hook and no script ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `plugins/planner/agents/planner.md`, `/planner:plan` |
 | `worker` plugin | Skills and agents: the `worker` agent that implements an issue, the reviewers, the test hunt and the documentation lookup; no hook and no steering script ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `plugins/worker/agents/worker.md`, `/worker:hunt-tests`, `/worker:docs` |
 | test hunt | A worker session without an issue that removes the tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). | `plugins/worker/skills/hunt-tests`, `plugins/worker/agents/test-hunter.md` |
 | reviewer agents | Five read-only subagents with fresh context: code, security, docs, tests, senior. | `plugins/worker/agents/*-reviewer.md` |
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
-| `spec-checker` agent | Judges every checkable statement of a spec against the code during an acceptance. | `plugins/planner/agents/spec-checker.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
 | controller | The local workflow: projects, processes and their stages, headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): audits, applies approved findings, scaffolds the baseline, checks it and brings the GitHub workspace to it. | `/repo-standards:standardize`, `/repo-standards:apply`, `plugins/repo-standards/scripts/check.sh` |
@@ -27,12 +26,11 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Without an idea or an issue it opens an open session.
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone. Or it triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
-4. `/planner:finish` removes the worktree; the plan branch never carries commits.
+4. Finish in the process view removes the worktree; the plan branch never carries commits. Capture prototype moves prototype code to a branch of its own first.
 5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. Accept on the board or `ameise accept` starts the acceptance in a plan process ([acceptance](../controller/README.md#acceptance)).
    - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
    - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
-   - In a planning session `/planner:accept [spec]` runs the same steps through `accept-facts.sh`, one `spec-checker` and `accept-report.sh`.
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing.
    - The controller writes them through its github tools and closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
 

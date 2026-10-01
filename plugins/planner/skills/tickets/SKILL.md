@@ -4,6 +4,8 @@ description: Break the spec into agent-ready issues, each a complete vertical sl
 disable-model-invocation: true
 argument-hint: [spec issue]
 ---
+Without the controller's github tools (`create_issue` and the others) in this session, the controller did not start it: say that publishing tickets needs a plan process of the controller `ameise`, opened with Plan on its board or `ameise plan`, and stop.
+
 Source: the spec issue named in the argument ($ARGUMENTS), or the spec this session wrote. Fetch it with `gh issue view <n> --comments` when it is not in context.
 
 1. Explore the code if you have not. Use the project's vocabulary; respect ADRs in the area.

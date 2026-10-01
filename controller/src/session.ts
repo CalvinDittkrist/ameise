@@ -584,9 +584,9 @@ export function addressBrief(record: WorkRecord, repo: string, pr: number, point
   ].join('\n')
 }
 
-// planBrief is the first prompt of a planner session: the plan skill, then the start context the
-// planner's SessionStart hook injects in a pane. It names the issue a plan starts from and the command
-// that reads it, and carries none of its text. glossary says whether the worktree has docs/glossary.md.
+// planBrief is the first prompt of a planner session: the plan skill, then the session's context: the
+// plan branch, its base, and the topic or the issue. It names the issue a plan starts from and the
+// command that reads it, and carries none of its text. glossary says whether the worktree has docs/glossary.md.
 export function planBrief(record: PlanRecord, repo: string, glossary: boolean): string {
   const name = record.branch.slice('plan/'.length)
   const lines = [
@@ -613,7 +613,7 @@ export function planBrief(record: PlanRecord, repo: string, glossary: boolean): 
   lines.push(
     "You write GitHub only through the controller's github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone); gh is for reads.",
     'The maintainer talks to you in the process view of the controller: ask a question with AskUserQuestion, or end your turn with it, and the answer comes as the next message.',
-    'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, or /planner:prototype captures it.',
+    'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, which /planner:prototype asks for.',
     'The maintainer ends the session with Finish in the process view, which removes this worktree.',
   )
   return lines.join('\n')
@@ -630,19 +630,15 @@ export type Settings = {
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
 
-// planSettings are a planner session's own settings: the plan and its issue as the planner's scripts
-// read them, the base, the foreground subagents (ADR 0017), and the marks that the controller runs the
-// session: WF_CONTROLLER, which the plugins' skills read, and WF_PLAN_CONTROLLER, which silences the
-// planner's start hook, since the brief carries its context. The marketplace
-// copies of the plugins are switched off, so the bundled planner is the one the session loads. The
-// repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the planner talks in.
+// planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
+// WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
+// The marketplace copies of the plugins are switched off, so the bundled planner is the one the session
+// loads. The repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the
+// planner talks in.
 export function planSettings(record: PlanRecord): Settings {
   return {
     ...(record.language !== undefined ? { language: record.language } : {}),
     env: {
-      WF_PLAN: record.branch.slice('plan/'.length),
-      ...(record.issue !== null ? { WF_PLAN_ISSUE: String(record.issue) } : {}),
-      WF_PLAN_CONTROLLER: '1',
       WF_CONTROLLER: '1',
       WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
