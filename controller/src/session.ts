@@ -27,6 +27,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'n
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { confidences, sections, verdicts } from './checkitems.js'
 import { type Attempt, type Check, type CreatedRecord, type Finding, type Fix, type Point, writeAtomic, type WorkRecord } from './claim.js'
 import { ci } from './ci.js'
 import { gate, knob } from './gate.js'
@@ -373,7 +374,7 @@ export async function stopAll(stateDir: string) {
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
 // its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
 // whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// An acceptance whose checker ran fails, and checks again on request. A plan that waits for input waits
+// A running acceptance fails, and checks again on request. A plan that waits for input waits
 // for a message or for its answers either way. Every other record stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
@@ -1177,11 +1178,11 @@ const checkerReport = {
       items: {
         type: 'object',
         properties: {
-          section: { type: 'string', enum: ['User stories', 'Decisions', 'Testing', 'Vocabulary', 'ADRs to write'] },
+          section: { type: 'string', enum: [...sections] },
           statement: { type: 'string', description: "the spec's statement in one line of your own words, specific enough to find it again" },
-          verdict: { type: 'string', enum: ['met', 'missing', 'deviates', 'untested'] },
+          verdict: { type: 'string', enum: [...verdicts] },
           evidence: { type: 'string', description: 'path:line for met, deviates and untested; for missing what you searched and found nothing' },
-          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          confidence: { type: 'string', enum: [...confidences] },
         },
         required: ['section', 'statement', 'verdict', 'evidence', 'confidence'],
         additionalProperties: false,
@@ -1322,8 +1323,7 @@ async function session(
   let timeout: number | undefined
   if (later) {
     try {
-      // A plan has no overrides of a claim, so its knob comes from the repository's settings alone.
-      timeout = knob(record.kind === 'work' ? record : ({ ...record, env: {} } as unknown as WorkRecord), 'WF_STAGE_TIMEOUT', stageTimeout, 1)
+      timeout = knob(record, 'WF_STAGE_TIMEOUT', stageTimeout, 1)
     } catch (err) {
       return { state: 'failed', note: (err as Error).message }
     }
