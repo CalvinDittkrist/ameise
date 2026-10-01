@@ -122,13 +122,13 @@ test('the answers create agent-ready gap tickets and post the deviation, and the
   canApi(m, 'repos/owner/repo/issues/100/sub_issues', {})
   canApi(m, 'repos/owner/repo/issues/100/comments', {})
 
-  const missing = await answer(r.id, [{ item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' }])
-  expect(missing.status).toBe(400)
-  expect((missing.body as { error: string }).error).toBe('item-3, item-4 not answered; answer every item not met with a gap ticket, a deviation or none')
-  expect(calls()).toEqual([])
+  // The answers may come in batches; the items left wait for the next.
+  const first = await answer(r.id, [{ item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' }])
+  expect(first.status, JSON.stringify(first.body)).toBe(200)
+  expect(now(r.id)).toMatchObject({ state: 'input', note: '2 item(s) left to answer: item-3, item-4; answer each in the process view' })
+  expect(now(r.id).acceptance?.gaps).toBeUndefined()
 
   const done = await answer(r.id, [
-    { item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' },
     { item: 'item-3', answer: 'deviation', reason: 'The checker reads with Bash, and the default mode asks for anything else.' },
     { item: 'item-4', answer: 'none', reason: 'The fake is test code.' },
   ])
@@ -300,4 +300,91 @@ test('a check of a spec whose ticket was reopened fails, and so does one of a sp
   await recheck('the acceptance failed: #100 has no tickets, so there is nothing to accept')
   // The checker did not run again.
   expect(read(m.claudeLog)).toBe(ran)
+})
+
+test('a gap ticket that does not become a sub-issue holds the answers until it is one', async () => {
+  canSpec()
+  const r = await started()
+  canPages(m, 'repos/owner/repo/labels?per_page=100', [[{ name: 'ready-for-agent' }]])
+  canPages(m, 'repos/owner/repo/milestones?state=all&per_page=100', [[{ number: 3, title: 'v1.0.0', state: 'open', open_issues: 0, closed_issues: 1 }]])
+  canApi(m, 'repos/owner/repo/issues', { id: 5140, number: 140, html_url: 'https://github.com/owner/repo/issues/140' })
+  failApi(m, 'repos/owner/repo/issues/100/sub_issues', 'HTTP 500: Internal Server Error')
+  canApi(m, 'repos/owner/repo/issues/100/comments', {})
+  const answers = [
+    { item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' },
+    { item: 'item-3', answer: 'deviation', reason: 'The checker reads with Bash.' },
+    { item: 'item-4', answer: 'none' },
+  ]
+
+  const refused = await answer(r.id, answers)
+  expect(refused.status).toBe(502)
+  expect((refused.body as { error: string }).error).toMatch(/^#140 is no sub-issue of #100 \(.*\), so the next acceptance would not see it; attach it to #100 on GitHub/)
+  expect(now(r.id).acceptance?.items.map((i) => i.written)).toEqual([undefined, '#140', undefined, undefined])
+
+  // Attached on GitHub, the same answers go on without creating the ticket again.
+  canApi(m, 'repos/owner/repo/issues/140/parent', { number: 100 })
+  const done = await answer(r.id, answers)
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(now(r.id).acceptance).toMatchObject({ gaps: [140] })
+  expect(calls().filter((c) => c.includes('-f title='))).toHaveLength(1)
+})
+
+test('the gap tickets take the labels and the milestone the spec has when the answers come', async () => {
+  canSpec()
+  const r = await started()
+  canApi(m, 'repos/owner/repo/issues/100', { id: 5100, number: 100, title: 'Offline mode', state: 'open', labels: [{ name: 'spec' }, { name: 'factory:spec-run' }], milestone: { title: 'v1.1.0' } })
+  canIssue(m, 'owner/repo', 100, 'Offline mode', ['spec', 'factory:spec-run'])
+  canPages(m, 'repos/owner/repo/labels?per_page=100', [[{ name: 'ready-for-agent' }, { name: 'factory:spec-run' }]])
+  canPages(m, 'repos/owner/repo/milestones?state=all&per_page=100', [[{ number: 4, title: 'v1.1.0', state: 'open', open_issues: 0, closed_issues: 0 }]])
+  canApi(m, 'repos/owner/repo/issues', { id: 5140, number: 140, html_url: 'https://github.com/owner/repo/issues/140' })
+  canApi(m, 'repos/owner/repo/issues/100/sub_issues', {})
+  canApi(m, 'repos/owner/repo/issues/100/comments', {})
+  const done = await answer(r.id, [
+    { item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' },
+    { item: 'item-3', answer: 'none' },
+    { item: 'item-4', answer: 'none' },
+  ])
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(writes(r.id)[0]).toMatchObject({ write: 'issue-created', labels: ['ready-for-agent', 'factory:spec-run'], milestone: 'v1.1.0' })
+})
+
+test('a spec GitHub closed while the record missed it is recognised by its closing comment and not closed again', async () => {
+  canSpec()
+  checker('item User stories | Work offline | met | src/cache.ts:3 | high')
+  const r = await started()
+  canApi(m, 'repos/owner/repo/issues/100', { id: 5100, number: 100, title: 'Offline mode', state: 'closed', labels: [{ name: 'spec' }], milestone: { title: 'v1.0.0' } })
+  canPages(m, 'repos/owner/repo/issues/100/comments?per_page=100', [[{ body: 'Accepted: the acceptance checked #100 against the code and nothing is left open.\n\nItems: 1, 1 met.' }]])
+  const done = await answer(r.id, [])
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(now(r.id)).toMatchObject({ note: '#100 closed: nothing is left open; finish this process', acceptance: { closed: true } })
+  expect(calls()).toEqual([])
+})
+
+test('a controller killed while the checker asks a question fails the acceptance on restart', async () => {
+  canSpec()
+  mkdirSync(m.claude, { recursive: true })
+  writeFileSync(join(m.claude, 'checker'), 'ask Which base do you mean?')
+  const r = await api(m, 'POST', '/api/acceptances', { project: dir, spec: 100 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  const id = (r.body as { record: Rec }).record.id
+  await settled(id)
+  expect(now(id).state).toBe('input')
+  expect(now(id).acceptance).toBeUndefined()
+
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGKILL')
+  await exited
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  server = s.process
+  expect(now(id)).toMatchObject({ state: 'failed', note: 'the controller stopped while the acceptance ran; check again in the process view' })
+})
+
+test('the pull requests of a ticket count whatever the case GitHub spells the repository in', async () => {
+  canSpec()
+  canPages(m, 'repos/owner/repo/issues/101/timeline?per_page=100', [
+    [{ event: 'cross-referenced', source: { issue: { number: 12, repository_url: 'https://api.github.com/repos/Owner/Repo', pull_request: { merged_at: '2026-09-01T00:00:00Z' } } } }],
+  ])
+  const r = await started()
+  expect(r.acceptance).toMatchObject({ tickets: [{ number: 101, prs: [12] }], files: 1 })
 })

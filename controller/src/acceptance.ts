@@ -11,7 +11,7 @@
 // closing comment. An item the maintainer accepted as a deviation earlier is not reported again.
 import { pages } from './board.js'
 import { confidences, sections, verdicts } from './checkitems.js'
-import { held } from './claim.js'
+import { fetch, git, held } from './claim.js'
 import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
 import type { PlanRecord } from './plan.js'
@@ -36,6 +36,9 @@ export interface Item {
   // deviation or none. An item written is not written again when the answers are sent once more.
   answer?: ItemAnswer
   written?: string
+  // unlinked marks a gap ticket created that did not become a sub-issue of the spec. The next acceptance
+  // reads the tickets from the sub-issues, so the answers go on only once it is one.
+  unlinked?: boolean
 }
 
 // What the acceptance keeps on the process's record: the facts the checker was briefed with, its items,
@@ -116,7 +119,8 @@ async function gather(gh: string, repo: string, n: number): Promise<Facts> {
           ...new Set(
             events.flatMap((e) => {
               const i = e.source?.issue
-              const ours = i?.repository_url === undefined || i.repository_url.endsWith(`/repos/${repo}`)
+              // GitHub's names are case-insensitive, and the checkout's origin may spell them otherwise.
+              const ours = i?.repository_url === undefined || i.repository_url.toLowerCase().endsWith(`/repos/${repo}`.toLowerCase())
               return e.event === 'cross-referenced' && ours && i?.pull_request?.merged_at && typeof i.number === 'number' ? [i.number] : []
             }),
           ),
@@ -178,6 +182,10 @@ async function gather(gh: string, repo: string, n: number): Promise<Facts> {
   }
 }
 
+// shownFiles bounds the files the brief lists, so a spec whose pull requests touched many files does not
+// fill the checker's context; it finds the rest in the worktree.
+const shownFiles = 200
+
 // checkerBrief is the brief of the spec checker: what it judges and how, the facts and the spec's body.
 // It names the base the worktree is on, which is the code it judges.
 export function checkerBrief(record: PlanRecord, repo: string, f: Facts): string {
@@ -203,7 +211,8 @@ export function checkerBrief(record: PlanRecord, repo: string, f: Facts): string
     `tickets[${f.tickets.length}]:`,
     ...f.tickets.map((t) => `  #${t.number} ${t.title}  pull requests: ${t.prs.map((p) => `#${p}`).join(' ') || '-'}`),
     `files[${f.files.length}]:`,
-    ...f.files.map((p) => `  ${p}`),
+    ...f.files.slice(0, shownFiles).map((p) => `  ${p}`),
+    ...(f.files.length > shownFiles ? [`  ... and ${f.files.length - shownFiles} more; search the worktree for them`] : []),
     `deviations[${f.deviations.length}]:`,
     ...f.deviations.map((d) => `  ${d}`),
     ...(f.notes.length > 0 ? [`notes[${f.notes.length}]:`, ...f.notes.map((x) => `  ${x}`)] : []),
@@ -261,6 +270,8 @@ export function check(record: PlanRecord, project: Project, rt: Runtime): PlanRe
       const s = tracked.s
       if (!s) return
       const repo = `${project.owner}/${project.name}`
+      await refresh(started, rt.fake)
+      if (!own() || s.abort.signal.aborted) return
       const facts = await gather(rt.gh, repo, record.issue as number)
       if (!own() || s.abort.signal.aborted) return
       event(rt.stateDir, id, { event: 'acceptance-facts', tickets: facts.tickets.map((t) => ({ issue: t.number, prs: t.prs })), files: facts.files.length, deviations: facts.deviations.length, notes: facts.notes })
@@ -292,6 +303,18 @@ export function check(record: PlanRecord, project: Project, rt: Runtime): PlanRe
     })
   Object.assign(tracked, track(id, abort, done, 'the spec checker runs'))
   return started
+}
+
+// refresh moves the acceptance's worktree to the base as origin has it now, so a check run again judges
+// the code its tickets merged into. The plan branch carries no commit, so it fast-forwards.
+async function refresh(record: PlanRecord, fake: boolean) {
+  const base = record.base.replace(/^origin\//, '')
+  if (record.base.startsWith('origin/') && !(await fetch(record.worktree, base, fake))) throw new Error(`could not fetch ${base} from origin; check the network and check again`)
+  try {
+    await git(record.worktree, 'merge', '-q', '--ff-only', record.base)
+  } catch (err) {
+    throw new Error(`could not move ${record.worktree} to ${record.base}: ${(err as Error).message}; finish this process and accept the spec again`, { cause: err })
+  }
 }
 
 // recheck checks a spec again whose acceptance failed or was stopped, before any answer was written.
@@ -382,8 +405,8 @@ function closing(spec: number, a: Acceptance): string {
 // decide writes the maintainer's answers to an acceptance and answers its record. Every item not met
 // needs an answer. A gap ticket is created as an agent-ready sub-issue of the spec on its milestone, a
 // deviation is posted on the spec. With a gap ticket the spec stays open; with nothing left open it
-// closes with its closing comment. A write that is refused keeps what was written before it, and the same
-// answers sent again go on from there.
+// closes with its closing comment. The answers may come in batches: the items left wait for the next. A
+// write that is refused keeps what was written before it, and the same answers sent again go on from there.
 export function decide(project: Project, stateDir: string, gh: string, id: string, decisions: Decision[]): Promise<PlanRecord> {
   const r = acceptanceOf(stateDir, id)
   return held(project, `#${r.issue}`, () => decideHeld(project, stateDir, gh, id, decisions))
@@ -403,27 +426,52 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
     if (byItem.has(d.item)) throw new Refusal(`${d.item} has two answers; send one`)
     byItem.set(d.item, d)
   }
-  const open = a.items.filter((i) => i.verdict !== 'met')
-  const missing = open.filter((i) => !byItem.has(i.id) && !i.written)
-  if (missing.length > 0) throw new Refusal(`${missing.map((i) => i.id).join(', ')} not answered; answer every item not met with a gap ticket, a deviation or none`)
 
   const repo = `${project.owner}/${project.name}`
+  const api = async <T>(endpoint: string, paginate = false): Promise<T> => {
+    const out = await run(gh, ['api', ...(paginate ? ['--paginate'] : []), `repos/${repo}/${endpoint}`])
+    return (paginate ? pages(out) : JSON.parse(out)) as T
+  }
+  // The spec is read as it is now: its labels and milestone may have changed while the answers waited.
+  let now: GitHubIssue
+  try {
+    now = await api<GitHubIssue>(`issues/${spec}`)
+  } catch (err) {
+    throw new Refusal(`could not read #${spec}: ${(err as Error).message}; send the answers again`, 502)
+  }
   const w = writer(gh, repo, (e) => event(stateDir, id, e))
   const items = a.items.map((i) => ({ ...i }))
   const save = () => update(stateDir, id, { acceptance: { ...a, items } } as Partial<PlanRecord>) as PlanRecord | undefined
-  const spun = a.spec.labels.includes(specRunLabel)
+  const spun = (now.labels ?? []).some((l) => l.name === specRunLabel)
   // The spec's milestone goes to its gap tickets when it is a release; any other name stays off them.
-  const milestone = a.spec.milestone && /^v[0-9]+\.[0-9]+\.[0-9]+$/.test(a.spec.milestone) ? a.spec.milestone : undefined
+  const current = now.milestone?.title ?? null
+  const milestone = current && /^v[0-9]+\.[0-9]+\.[0-9]+$/.test(current) ? current : undefined
+  const unlinked = (n: string, why: string) =>
+    new Refused(`${n} is no sub-issue of #${spec} (${why}), so the next acceptance would not see it; attach it to #${spec} on GitHub, then send the answers again`)
   try {
     for (const item of items) {
-      if (item.verdict === 'met' || item.written) continue
-      const d = byItem.get(item.id) as Decision
+      if (item.verdict === 'met') continue
+      if (item.written && item.unlinked) {
+        // A gap ticket created before goes on once it is a sub-issue of the spec.
+        const parent = await api<{ number?: number }>(`issues/${item.written.slice(1)}/parent`).catch(() => undefined)
+        if (parent?.number !== spec) throw unlinked(item.written, 'not linked yet')
+        delete item.unlinked
+        save()
+        continue
+      }
+      if (item.written) continue
+      const d = byItem.get(item.id)
+      if (!d) continue
       const answer = Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'item')) as ItemAnswer
       if (d.answer === 'gap') {
         // An agent works a gap ticket, in the spec run when the spec is one.
         const out = await w.createIssue({ title: d.title, body: gapBody(spec, item, d.what), labels: ['ready-for-agent', ...(spun ? [specRunLabel] : [])], parent: spec, ...(milestone ? { milestone } : {}) })
         const made = /^issue: #(\d+)/.exec(out[0] ?? '')?.[1]
         Object.assign(item, { answer, written: made ? `#${made}` : 'gap' })
+        if (made && !out.includes(`parent: #${spec} (sub-issue)`)) {
+          item.unlinked = true
+          throw unlinked(`#${made}`, out.find((l) => l.startsWith('warning:'))?.replace(/^warning: /, '') ?? 'the link was not confirmed')
+        }
       } else if (d.answer === 'deviation') {
         await w.comment({ issue: spec, body: `${deviationMarker}\n${item.section}: ${item.statement}\n${d.reason}` })
         Object.assign(item, { answer, written: 'deviation' })
@@ -438,6 +486,11 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
     throw new Refusal(`${err.message}; what was written before stays, and the same answers sent again go on from there`, 502)
   }
 
+  const left = items.filter((i) => i.verdict !== 'met' && !i.written)
+  if (left.length > 0) {
+    const note = `${left.length} item(s) left to answer: ${left.map((i) => i.id).join(', ')}; answer each in the process view`
+    return (update(stateDir, id, { note, acceptance: { ...a, items } } as Partial<PlanRecord>) as PlanRecord | undefined) ?? r
+  }
   const gaps = items.flatMap((i) => (i.written?.startsWith('#') ? [Number(i.written.slice(1))] : []))
   if (items.some((i) => i.answer?.answer === 'gap')) {
     const note = `${gaps.length} gap ticket(s) ${gaps.map((g) => `#${g}`).join(' ')}: #${spec} stays open, and its acceptance runs again once they are closed; finish this process`
@@ -446,7 +499,15 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
   }
   const done = { ...a, items }
   try {
-    await w.close({ issue: spec, comment: closing(spec, done), reason: 'completed', tickets: a.tickets.map((t) => t.number) })
+    // A close that GitHub made but this record missed, as the controller stopped or the answer was lost,
+    // is recognised by its closing comment, so the answers sent again do not close it twice.
+    if (now.state === 'closed') {
+      const comments = await api<Comment[]>(`issues/${spec}/comments?per_page=100`, true).catch((err: Error) => {
+        throw new Refusal(`#${spec} is closed, and its comments could not be read: ${err.message}; send the answers again`, 502)
+      })
+      const ours = closing(spec, done).split('\n')[0] as string
+      if (!comments.some((c) => (c.body ?? '').startsWith(ours))) throw new Refusal(`#${spec} was closed outside this acceptance; reopen it and send the answers again, or finish this process`, 409)
+    } else await w.close({ issue: spec, comment: closing(spec, done), reason: 'completed', tickets: a.tickets.map((t) => t.number) })
   } catch (err) {
     if (!(err instanceof Refused)) throw err
     throw new Refusal(`${err.message}; the answers are written, and sending them again closes the spec`, 502)
