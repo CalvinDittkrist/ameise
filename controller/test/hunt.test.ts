@@ -97,16 +97,29 @@ test('a hunt that removed a test keeps the hunt record and goes through the gate
     'candidate: tests/test_login.py | test_constant | cannot-fail | asserts the constant 1 | high\\ncandidate: tests/test_logout.py | test_logout | mocks-subject | logout may be stubbed | medium',
     'run git rm -q tests/test_login.py && git commit -q -m "test: remove test_constant"',
     `run printf 'remove: tests/test_login.py | test_constant | cannot-fail | asserts the constant 1\\nwhy: it cannot fail\\nstill_proven: no, it touched no behaviour\\n' | bash ${script} removed`,
+    `run bash ${script} round`,
+    `run printf 'no candidates\\n' | bash ${script} triage 1`,
+    `run bash ${script} round`,
     'complete Removed test_constant',
   )
   canPull(m, 'owner/repo', 7, [reading(7)])
   const r = await hunted()
   expect(r).toMatchObject({ kind: 'hunt', issue: null, stage: 'hunt', branch: expect.stringMatching(/^hunt\/tests-[0-9]{4}-[0-9]{2}-[0-9]{2}$/) as unknown })
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'ready', stage: 'ci', hunt: { rounds: 1, ended: null, removed: [{ path: 'tests/test_login.py', test: 'test_constant', why: 'it cannot fail' }], kept: [{ test: 'test_logout' }] } })
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', hunt: { rounds: 2, ended: 'round 2 found no new candidate', removed: [{ path: 'tests/test_login.py', test: 'test_constant', why: 'it cannot fail' }], kept: [{ test: 'test_logout' }] } })
   expect(shape(done)).toEqual(['hunt session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   // The pull request closes no issue.
   expect(read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.body'))).not.toMatch(/Closes #/)
+})
+
+test('a hunt session that reports complete before hunt.sh ended the hunt waits for input and opens no pull request', async () => {
+  tested()
+  playHunt('no candidates', 'complete hunt: nothing removed')
+  const r = await hunted()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'input', stage: 'hunt', hunt: { rounds: 1, ended: null } })
+  expect(done.note).toMatch(/before hunt\.sh ended the hunt/)
+  expect(read(m.ghLog)).not.toMatch(/^pr create/m)
 })
 
 test('a hunt that removed nothing opens no pull request, ends done with that message, and a finish removes it', async () => {

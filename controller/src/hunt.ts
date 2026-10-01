@@ -11,6 +11,7 @@ import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { addWorktree, exists, fetch, git, held, writeProcess, type HuntLog, type HuntRecord } from './claim.js'
 import { gate } from './gate.js'
+import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
 import { event, forget, huntScript, readRecord, type Runtime, stop, track, update } from './session.js'
 
@@ -148,8 +149,16 @@ export function hunted(record: HuntRecord, project: Project, rt: Runtime, after:
       if (!own()) return
       const now = update(rt.stateDir, id, { hunt } as Partial<HuntRecord>) as HuntRecord | undefined
       if (!now) return
-      const removed = hunt.removed.length - hunt.stale
-      if (removed > 0) {
+      // hunt.sh ends the hunt, never the session's report: a complete before it waits for the session.
+      if (hunt.ended === null) {
+        const note = `the hunt session reported complete after ${plural(hunt.rounds, 'round')}, before hunt.sh ended the hunt; write to it to run its rounds until hunt.sh round answers none`
+        event(rt.stateDir, id, { event: 'hunt-unended', stage: 'hunt', state: 'input', note, rounds: hunt.rounds })
+        const waiting = update(rt.stateDir, id, { state: 'input', note, unseen: true })
+        if (waiting) rt.announce(waiting)
+        return
+      }
+      // hunt.sh lists only the removals that still stand, and counts the stale ones apart.
+      if (hunt.removed.length > 0) {
         // The gate takes the process's place among the running ones from this reading.
         gate(now, project, rt)
         return
@@ -178,13 +187,17 @@ function huntOf(stateDir: string, id: string): HuntRecord {
 }
 
 // finishHunt ends a hunt process: it stops its session, then removes its worktree, its hunt branch and
-// its record. It refuses commits that are on no branch of origin and changes not committed, which would
-// be lost, unless force is given.
+// its record. It refuses while its session runs in a terminal the maintainer opened, which the controller
+// cannot stop, and commits that are on no branch of origin and changes not committed, which would be
+// lost, unless force is given.
 export function finishHunt(project: Project, stateDir: string, id: string, force: boolean): Promise<{ branch: string; worktree: string | null }> {
   huntOf(stateDir, id)
   return held(project, 'hunt', async () => {
     const top = project.path
     const r = huntOf(stateDir, id)
+    if (r.session_id && (await resumed(r.session_id))) {
+      throw new Refusal(`the session of ${r.branch} runs in a terminal; quit it there, then finish again`, 409)
+    }
     const tree = (await worktrees(top)).find((t) => t.branch === r.branch)
     const clean = async () => {
       if (force) return
