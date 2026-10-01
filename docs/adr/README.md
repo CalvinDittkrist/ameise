@@ -9,7 +9,7 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0003](0003-herdr-worktree-per-issue.md) | One Herdr worktree workspace per issue, branch name as contract | superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0004](0004-reviewers-as-fresh-read-only-subagents.md) | Reviewers are fresh-context, read-only subagents | amended by [0019](0019-the-gate-runs-once-per-review-round.md) |
 | [0005](0005-sandboxing-strategy.md) | Sandboxing strategy: layered, Docker Sandboxes opt-in | accepted; the Docker sandbox flag superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
-| [0006](0006-planner-session-writes-issues-not-code.md) | Planning is its own session that writes issues, not code | accepted |
+| [0006](0006-planner-session-writes-issues-not-code.md) | Planning is its own session that writes issues, not code | amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md) |
 | [0007](0007-agents-md-is-the-instruction-source.md) | AGENTS.md is the instruction source and CLAUDE.md imports it | accepted |
 | [0008](0008-make-check-is-the-single-gate.md) | make check is the single gate and check the single required status check | amended by [0041](0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md) |
 | [0009](0009-profile-derived-from-github-with-two-branch-models.md) | The profile is derived from GitHub, with exactly two branch models | accepted |
@@ -17,14 +17,14 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0011](0011-github-workspace-configured-by-an-idempotent-script.md) | The GitHub workspace is configured by an idempotent script with rulesets and no bypass | accepted |
 | [0012](0012-releases-are-manual-and-close-a-milestone.md) | Releases are manual and close a milestone | accepted |
 | [0013](0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md) | Promotions merge with a merge commit, and the release tags it | accepted |
-| [0014](0014-claims-require-ready-for-agent.md) | Claiming requires ready-for-agent, with --force as the only exception | accepted |
+| [0014](0014-claims-require-ready-for-agent.md) | Claiming requires ready-for-agent, with --force as the only exception | amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md) |
 | [0015](0015-a-spec-with-tickets-is-closed-by-an-acceptance.md) | A spec with tickets is closed by an acceptance | accepted |
 | [0016](0016-approval-is-per-category-and-scripts-own-what-they-apply.md) | Approval is per category, and scripts own what they apply | amended by [0035](0035-every-category-the-apply-phase-scaffolds-is-answerable.md) |
 | [0017](0017-worker-subagents-run-in-the-foreground.md) | Worker sessions run subagents in the foreground, and the agent never waits by polling | superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
 | [0018](0018-worker-stages-hand-facts-over-through-the-worktree-git-dir.md) | A worker stage hands a fact to the next one through the worktree's git directory | superseded by [0058](0058-the-controller-drives-the-local-stages-and-a-person-merges.md) |
 | [0019](0019-the-gate-runs-once-per-review-round.md) | The gate runs once per review, and its result is a fact in the brief | amended; superseded by [0058](0058-the-controller-drives-the-local-stages-and-a-person-merges.md) |
 | [0020](0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md) | The pane's status line measures a worker's context, and the worktree carries the value | superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) |
-| [0021](0021-routing-is-decided-in-the-planner-and-never-stands-alone.md) | Routing is decided in the planner, and the routing label never stands alone | accepted |
+| [0021](0021-routing-is-decided-in-the-planner-and-never-stands-alone.md) | Routing is decided in the planner, and the routing label never stands alone | amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md) |
 | [0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md) | The factory is a second driver over the worker pipeline | superseded by [0040](0040-the-factory-owns-the-delivery-lifecycle-in-go.md) |
 | [0023](0023-github-is-the-only-control-surface-of-the-factory.md) | GitHub is the only control surface of the factory | amended by [0051](0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md) |
 | [0024](0024-a-claim-is-the-creation-of-the-branch-through-the-api.md) | A claim is the creation of the branch through the GitHub API | accepted |

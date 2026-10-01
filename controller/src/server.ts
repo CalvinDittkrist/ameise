@@ -7,6 +7,7 @@ import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
+import { check, decide, decideRequest, recheck } from './acceptance.js'
 import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
 import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
@@ -222,9 +223,32 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const spec = specRequest(body)
     const project = await known(body)
-    const record = await accept(project, o.stateDir, o.gh, o.fake, spec)
-    log({ event: 'accept', project: project.path, issue: spec, branch: record.branch })
+    const done = await accept(project, o.stateDir, o.gh, o.fake, spec)
+    log({ event: 'accept', project: project.path, issue: spec, branch: done.branch })
+    // The acceptance gathers its facts and runs its checker at once; the answer is its record as it runs.
+    const record = check(done, project, rt)
     send(res, 201, { record })
+  }
+
+  // A check runs a failed acceptance again; the answers to its items write its gap tickets and
+  // deviations, and close the spec once nothing is left open.
+  async function checked(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const r = recorded(body.id)
+    const project = await known({ project: r.project })
+    const record = recheck(project, rt, r.id)
+    log({ event: 'accept again', process: r.id, issue: r.issue })
+    send(res, 200, { record })
+  }
+
+  async function decided(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const r = recorded(body.id)
+    const answers = decideRequest(body)
+    const project = await known({ project: r.project })
+    const record = await decide(project, o.stateDir, o.gh, r.id, answers)
+    log({ event: 'accept answered', process: r.id, issue: r.issue, gaps: record.acceptance?.gaps ?? [], closed: record.acceptance?.closed === true })
+    send(res, 200, { record })
   }
 
   // A plan opens a plan process from an idea, an issue or nothing and starts its planner session at once;
@@ -444,6 +468,10 @@ export function serve(o: Options): Server {
           return released(req, res)
         case 'POST /api/acceptances':
           return accepted(req, res)
+        case 'POST /api/acceptances/check':
+          return checked(req, res)
+        case 'POST /api/acceptances/answers':
+          return decided(req, res)
         case 'POST /api/plans':
           return planned(req, res)
         case 'POST /api/hunts':

@@ -101,8 +101,9 @@ test('a plan from an idea opens a plan branch and starts the planner with its pl
   // A planner reports no structured result.
   expect(args).not.toContain('--json-schema')
   const settings = JSON.parse(flag(args, '--settings') ?? '{}') as { env: { [k: string]: string }; enabledPlugins: { [k: string]: boolean } }
-  expect(settings.env).toMatchObject({ WF_PLAN: 'offline-mode', WF_PLAN_CONTROLLER: '1', WF_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
-  expect(settings.env.WF_PLAN_ISSUE).toBeUndefined()
+  expect(settings.env).toMatchObject({ WF_CONTROLLER: '1', WF_BASE_BRANCH: 'main' })
+  // The brief carries the plan's context; no hook or script of the planner reads it from the environment.
+  expect(Object.keys(settings.env).filter((k) => k.startsWith('WF_PLAN'))).toEqual([])
   expect(settings.enabledPlugins).toEqual({ 'worker@ameise': false, 'planner@ameise': false, 'orchestrator@ameise': false, 'repo-standards@ameise': false })
   const brief = prompt(s ?? { read: [] })
   expect(brief).toContain('/planner:plan')
@@ -118,7 +119,6 @@ test('a plan from an issue names the issue and the read of it, and carries none 
   expect(git(dir, 'config', 'branch.plan/fix-login-timeout.description')).toBe('issue: #12')
   await waiting(r.id)
   const s = sessions()[0] ?? { args: [], read: [] }
-  expect((JSON.parse(flag(s.args, '--settings') ?? '{}') as { env: { [k: string]: string } }).env.WF_PLAN_ISSUE).toBe('12')
   const brief = prompt(s)
   expect(brief).toContain('Issue: #12')
   expect(brief).toContain('gh issue view 12 --repo owner/repo')

@@ -754,10 +754,10 @@ test("merge, accept and release each ask once, show the controller's refusal, an
   await expect(merge).toBeHidden()
   expect(sent()).toEqual({ project, pr })
 
-  // Accept on a spec ready for acceptance opens a plan process.
+  // Accept on a spec ready for acceptance starts its acceptance in a plan process.
   await section(page, "Needs you").locator('[aria-label="#100"]').getByRole("button", { name: "Accept" }).click()
   const acceptance = page.getByRole("dialog", { name: "Accept #100" })
-  await expect(acceptance).toContainText("Opens a plan process on Offline mode with the acceptance route.")
+  await expect(acceptance).toContainText("Gathers the facts of Offline mode, runs the spec checker read-only and shows its items in a plan process.")
   sent = await answer(page, "/api/acceptances", 201, { record: { branch: "plan/offline-mode" } })
   await acceptance.getByRole("button", { name: "Start acceptance" }).click()
   await expect(acceptance).toBeHidden()
@@ -895,6 +895,48 @@ test("hunt tests opens a hunt process, whose page shows the hunt record, and a h
   await page.getByRole("dialog", { name: "Finish" }).getByRole("button", { name: "Finish" }).click()
   await expect(page).toHaveURL(new RegExp(`#${new URLSearchParams({ project })}$`))
   expect(sent()).toEqual({ id, force: false })
+})
+
+test("an acceptance's page shows every item with its verdict and sends one answer per item not met", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "plan-100-0123abcd"
+  const item = (n: number, verdict: string, statement: string) => ({ id: `item-${n}`, section: "User stories", statement, verdict, evidence: `src/a.ts:${n}`, confidence: "high" })
+  const record = {
+    id, project, kind: "plan", route: "accept", branch: "plan/offline-mode", issue: 100, stage: "accept", state: "input",
+    note: "3 item(s), 2 not met; answer each in the process view", updated_at: new Date().toISOString(),
+    acceptance: {
+      spec: { title: "Offline mode", milestone: "v0.12.0", labels: ["spec"] }, tickets: [{ number: 101, title: "Cache", prs: [12] }], files: 2,
+      deviations: [], notes: [], repeated: 0,
+      items: [item(1, "met", "Work offline"), item(2, "missing", "Sync on reconnect"), item(3, "deviates", "Cache for a day")],
+    },
+  }
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url(`/#process=${id}`))
+  const items = page.getByRole("list", { name: "Items" })
+  await expect(items.getByRole("listitem")).toHaveCount(3)
+  await expect(items.locator('[aria-label="item-1"]')).toContainText("metUser stories · confidence highWork offlinesrc/a.ts:1")
+  // A met item takes no answer, and the answers go once every item not met has one.
+  await expect(items.locator('[aria-label="item-1"]').getByRole("button")).toHaveCount(0)
+  const write = page.getByRole("button", { name: "Write the answers" })
+  await expect(write).toBeDisabled()
+  await items.locator('[aria-label="item-2"]').getByRole("button", { name: "Gap ticket" }).click()
+  await expect(page.getByLabel("Title")).toHaveValue("Sync on reconnect")
+  await items.locator('[aria-label="item-3"]').getByRole("button", { name: "Accepted deviation" }).click()
+  await expect(write).toBeDisabled()
+  await page.getByLabel("Why the code is right").fill("A day is what the devices hold.")
+  const sent = await answer(page, "/api/acceptances/answers", 200, { record })
+  await write.click()
+  await expect.poll(sent).toEqual({
+    id,
+    answers: [
+      { item: "item-2", answer: "gap", title: "Sync on reconnect" },
+      { item: "item-3", answer: "deviation", reason: "A day is what the devices hold." },
+    ],
+  })
+  // An acceptance runs no session of its own, so the chat is closed.
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeDisabled()
 })
 
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {

@@ -29,10 +29,12 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { confidences, sections, verdicts } from './checkitems.js'
 import { type Attempt, type Check, type CreatedRecord, type Finding, type Fix, type HuntRecord, type Point, writeAtomic, type StageRecord } from './claim.js'
 import { ci } from './ci.js'
 import { gate, knob } from './gate.js'
+import { directWrite, githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
 import type { PlanRecord } from './plan.js'
 import { type Answer, context, detail, questions } from './conversation.js'
@@ -338,11 +340,17 @@ function interruptedNote(record: StageRecord): string {
 
 // interrupt marks a work process interrupted and keeps its session id, so a resume goes on with it. A
 // plan process whose session had started waits for the maintainer instead, whose message resumes it by
-// its id; one whose session never started has failed.
+// its id; one whose session never started has failed, and so has an acceptance, which checks again.
 function interrupt(stateDir: string, id: string) {
   const file = recordFile(stateDir, id)
   if (!existsSync(file)) return
   const record = JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
+  if (record.kind === 'plan' && record.route === 'accept') {
+    const note = 'the controller stopped while the acceptance ran; check again in the process view'
+    event(stateDir, id, { event: 'acceptance-end', stage: record.stage, state: 'failed', note })
+    update(stateDir, id, { state: 'failed', note, unseen: true })
+    return
+  }
   if (record.kind === 'plan') {
     const state = record.session_id ? 'input' : 'failed'
     const note = record.session_id
@@ -375,8 +383,8 @@ export async function stopAll(stateDir: string) {
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
 // its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
 // whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// A plan that waits for input waits for a message either way, and one created without a session, as
-// an acceptance start leaves it, has none to lose. Every other record stays as it was.
+// A running acceptance fails, and so does one whose checker asked a question; it checks again on request. A plan that waits for input waits
+// for a message or for its answers either way. Every other record stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
   try {
@@ -389,7 +397,9 @@ export function recover(stateDir: string) {
     try {
       const r = JSON.parse(readFileSync(recordFile(stateDir, id), 'utf8')) as SessionRecord
       if ((r.kind === 'work' || r.kind === 'hunt') && ['running', 'waiting', 'created', 'approval', 'input'].includes(r.state) && !(r.state === 'input' && r.held)) interrupt(stateDir, id)
-      if (r.kind === 'plan' && ['running', 'approval'].includes(r.state)) interrupt(stateDir, id)
+      // A checker that asked a question waits in input with no items yet, and it is gone as well.
+      const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
+      if ((r.kind === 'plan' && ['running', 'approval'].includes(r.state)) || asking) interrupt(stateDir, id)
     } catch (err) {
       warn(id, 'could not read its record as the controller started', err)
     }
@@ -630,9 +640,9 @@ export function addressBrief(record: StageRecord, repo: string, pr: number, poin
   ].join('\n')
 }
 
-// planBrief is the first prompt of a planner session: the plan skill, then the start context the
-// planner's SessionStart hook injects in a pane. It names the issue a plan starts from and the command
-// that reads it, and carries none of its text. glossary says whether the worktree has docs/glossary.md.
+// planBrief is the first prompt of a planner session: the plan skill, then the session's context: the
+// plan branch, its base, and the topic or the issue. It names the issue a plan starts from and the
+// command that reads it, and carries none of its text. glossary says whether the worktree has docs/glossary.md.
 export function planBrief(record: PlanRecord, repo: string, glossary: boolean): string {
   const name = record.branch.slice('plan/'.length)
   const lines = [
@@ -657,8 +667,9 @@ export function planBrief(record: PlanRecord, repo: string, glossary: boolean): 
     lines.push(`Topic: ${record.topic ?? 'unknown (ask the user)'}`)
   }
   lines.push(
+    "You write GitHub only through the controller's github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone); gh is for reads.",
     'The maintainer talks to you in the process view of the controller: ask a question with AskUserQuestion, or end your turn with it, and the answer comes as the next message.',
-    'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, or /planner:prototype captures it.',
+    'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, which /planner:prototype asks for.',
     'The maintainer ends the session with Finish in the process view, which removes this worktree.',
   )
   return lines.join('\n')
@@ -675,19 +686,15 @@ export type Settings = {
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
 
-// planSettings are a planner session's own settings: the plan and its issue as the planner's scripts
-// read them, the base, the foreground subagents (ADR 0017), and the marks that the controller runs the
-// session: WF_CONTROLLER, which the plugins' skills read, and WF_PLAN_CONTROLLER, which silences the
-// planner's start hook, since the brief carries its context. The marketplace
-// copies of the plugins are switched off, so the bundled planner is the one the session loads. The
-// repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the planner talks in.
+// planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
+// WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
+// The marketplace copies of the plugins are switched off, so the bundled planner is the one the session
+// loads. The repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the
+// planner talks in.
 export function planSettings(record: PlanRecord): Settings {
   return {
     ...(record.language !== undefined ? { language: record.language } : {}),
     env: {
-      WF_PLAN: record.branch.slice('plan/'.length),
-      ...(record.issue !== null ? { WF_PLAN_ISSUE: String(record.issue) } : {}),
-      WF_PLAN_CONTROLLER: '1',
       WF_CONTROLLER: '1',
       WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
@@ -809,6 +816,8 @@ export interface Ended {
   verdict?: { verdict: 'pass' | 'fix'; findings: Omit<Finding, 'id'>[] }
   pull?: { title: string; body: string }
   addressed?: Addressed
+  // items are what the spec checker of an acceptance reported, as acceptance.ts reads them.
+  items?: unknown[]
 }
 
 // What an address-reviews session reported for the controller to post, and what it fixed and declined.
@@ -939,7 +948,7 @@ export function begin(record: SessionRecord, project: Project, rt: Runtime, mess
   else if (record.kind === 'plan') input.push(planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
   else input.push(brief(record, repo))
   running.set(id, s)
-  s.done = session(record, rt, s, live, spawned, ownRun(record, s))
+  s.done = session(record, rt, s, live, spawned, ownRun(record, s, rt, repo))
     .then(settle, (err: Error) => settle({ state: 'failed', note: `the ${what} failed: ${err.message}` }))
     .catch((err: unknown) => warn(id, 'its session ended unexpectedly', err))
     .then(() => exited)
@@ -1043,13 +1052,17 @@ interface Run {
   own: boolean
   schema?: Record<string, unknown>
   disallowed?: string[]
+  // tools are the controller's in-process tools the session writes GitHub with, allowed without a card.
+  tools?: McpSdkServerConfigWithInstance
   // read reads the structured result the session reported.
   read: (out: unknown, sessionId: string | undefined) => Ended
 }
 
 // ownRun is the run of a process's own session: a work session reports complete or blocked, a fix
 // session of the review also what it did with each finding, and a planner session reports nothing.
-function ownRun(record: SessionRecord, s: Running): Run {
+// A planner session writes GitHub through the controller's tools alone (ADR 0059), and every write goes
+// into the process's event log.
+function ownRun(record: SessionRecord, s: Running, rt: Runtime, repo: string): Run {
   const what = sessionOf(record)
   const review = record.kind !== 'plan' && record.stage === 'review'
   const address = record.kind !== 'plan' && record.stage === 'address-reviews'
@@ -1064,7 +1077,9 @@ function ownRun(record: SessionRecord, s: Running): Run {
     // and its pipeline, and with the stage timeout.
     later: record.kind !== 'plan' && record.stage !== firstStage(record),
     own: true,
-    ...(record.kind === 'plan' ? {} : { schema: review ? fixReport : address ? addressReport : report }),
+    ...(record.kind === 'plan'
+      ? { tools: githubTools(rt.gh, repo, (e) => event(rt.stateDir, record.id, e)) }
+      : { schema: review ? fixReport : address ? addressReport : report }),
     read: (raw, sessionId) => {
       const out = raw as { outcome?: unknown; message?: unknown; commits?: unknown; fixes?: unknown } | undefined
       const commits = Array.isArray(out?.commits) ? out.commits.filter((c): c is string => typeof c === 'string') : []
@@ -1145,7 +1160,7 @@ interface Aside {
 // aside runs a read-only session beside the process's own, a fresh one in the default mode with the stage
 // timeout, and answers how it ended. s is the process's entry of the stage, whose abort stops it and which
 // holds its requests; own tells it apart from a stop. exits is told of its runtime's exit.
-async function aside(record: StageRecord, rt: Runtime, s: Running, own: () => boolean, a: Aside, exits: Promise<void>[]): Promise<Ended> {
+async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, a: Aside, exits: Promise<void>[]): Promise<Ended> {
   const abort = new AbortController()
   const all = () => abort.abort()
   // A parent stopped already ends the session at once; the forwarding stays until its runtime exits.
@@ -1210,6 +1225,51 @@ export async function author(record: StageRecord, rt: Runtime, s: Running, own: 
   return ended
 }
 
+// The result the spec checker of an acceptance reports through: one item per checkable statement.
+const checkerReport = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      description: 'one item per checkable statement of the spec',
+      items: {
+        type: 'object',
+        properties: {
+          section: { type: 'string', enum: [...sections] },
+          statement: { type: 'string', description: "the spec's statement in one line of your own words, specific enough to find it again" },
+          verdict: { type: 'string', enum: [...verdicts] },
+          evidence: { type: 'string', description: 'path:line for met, deviates and untested; for missing what you searched and found nothing' },
+          confidence: { type: 'string', enum: [...confidences] },
+        },
+        required: ['section', 'statement', 'verdict', 'evidence', 'confidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['items'],
+  additionalProperties: false,
+}
+
+// checker runs the spec checker of an acceptance, read-only beside the plan process, and answers how it
+// ended once its runtime has exited: complete with the items it reported, or failed. It runs without
+// the planner's agent, on its brief alone, as the author session does.
+export async function checker(record: PlanRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
+  const exits: Promise<void>[] = []
+  const ended = await aside(record, rt, s, own, {
+    name: 'spec checker',
+    stage: 'checker',
+    brief,
+    schema: checkerReport,
+    read: (raw, sessionId) => {
+      const items = (raw as { items?: unknown } | undefined)?.items
+      if (!Array.isArray(items)) return { state: 'failed', note: 'the spec checker ended without its items', session_id: sessionId }
+      return { state: 'complete', note: `${items.length} item(s)`, session_id: sessionId, items }
+    },
+  }, exits)
+  await Promise.all(exits)
+  return ended
+}
+
 // pullOf reads the title and the body the author session reported. A title that is empty after trimming
 // is no report.
 function pullOf(raw: unknown, sessionId: string | undefined): Ended {
@@ -1228,7 +1288,8 @@ async function session(
   run: Run,
 ): Promise<Ended> {
   const id = record.id
-  const plan = record.kind === 'plan'
+  // A planner session's own turn ends in a wait; a session beside it, as the spec checker, reports.
+  const plan = record.kind === 'plan' && run.own
   const { what, later, agent } = run
   const plugins = sessionPlugins(rt.plugins, record)
   const missing = plugins.find((path) => !existsSync(join(path, '.claude-plugin', 'plugin.json')))
@@ -1319,7 +1380,7 @@ async function session(
   let timeout: number | undefined
   if (later) {
     try {
-      timeout = knob(record as StageRecord, 'WF_STAGE_TIMEOUT', stageTimeout, 1)
+      timeout = knob(record, 'WF_STAGE_TIMEOUT', stageTimeout, 1)
     } catch (err) {
       return { state: 'failed', note: (err as Error).message }
     }
@@ -1331,6 +1392,17 @@ async function session(
   }, timeout * 1000)
   timer?.unref()
   const late = (): Ended => ({ state: 'failed', note: `the ${what} ran past its stage timeout of ${timeout} s` })
+
+  // A session with the tools writes GitHub through them alone: a hook denies every Bash call that writes
+  // GitHub with gh past them, before auto mode's classifier could allow it, in the session and its subagents.
+  const guard: HookCallback = (input) => {
+    const command = input.hook_event_name === 'PreToolUse' ? (input.tool_input as { command?: unknown } | undefined)?.command : undefined
+    const why = typeof command === 'string' ? directWrite(command) : undefined
+    if (why === undefined) return Promise.resolve({})
+    const reason = `${why}; write GitHub only through the github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone)`
+    event(rt.stateDir, id, { event: 'github-refused', tool: 'Bash', reason })
+    return Promise.resolve({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } })
+  }
 
   let stderr = ''
   const q = query({
@@ -1347,6 +1419,7 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
+      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard] }] } } : {}),
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

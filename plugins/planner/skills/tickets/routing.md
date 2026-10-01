@@ -13,14 +13,11 @@ Recommend not routed (in a spec run: a person works it), and name the reason, wh
 
 ## A normal run
 
-A `ready-for-human` issue is never routed, whatever its criteria say; the issue script refuses that combination and the one where the routing label would sit without `ready-for-agent`.
+A `ready-for-human` issue is never routed, whatever its criteria say; the controller's tools refuse that combination and the one where the routing label would sit without `ready-for-agent`.
 
 **Ask once**, with the breakdown in front of you: one line per ticket with number or position, title, the recommendation and the reason for every ticket you advise against. The maintainer answers with the tickets to route (all, none or a list). Nothing is routed by default and nothing the maintainer did not name is routed, whatever you recommended.
 
-Route a ticket by adding the label when it is created or afterwards:
-
-    "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <file> --label ready-for-agent --label factory ...
-    "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" label <n> --add factory
+Route a ticket by adding the label `factory` when it is created (`create_issue` with `ready-for-agent` and `factory`) or afterwards (`set_labels` adding `factory`).
 
 Setting or removing the label by hand on GitHub stays possible, and is how the maintainer routes a ticket later or cancels a run.
 
@@ -31,10 +28,8 @@ Setting or removing the label by hand on GitHub stays possible, and is how the m
 - Label the spec before its tickets: a ticket carries the label only when its spec does.
 - A person's ticket carries `ready-for-human` and no spec-run label. The factory waits for it.
 - No issue of a spec run carries `factory`.
-- The issue script refuses `factory:spec-run` next to `factory` or `ready-for-human`, and on an issue that is neither a `spec` nor a ticket of a spec run.
+- The controller's tools refuse `factory:spec-run` next to `factory` or `ready-for-human`, and on an issue that is neither a `spec` nor a ticket of a spec run.
 
-    "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" label <spec> --add factory:spec-run
-    "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <file> --label ready-for-agent --label factory:spec-run --parent <spec> ...
-    "${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh" create --title "<title>" --body-file <file> --label ready-for-human --parent <spec> ...
+So `set_labels` on the spec adds `factory:spec-run` first. Then `create_issue` makes each agent ticket with `ready-for-agent` and `factory:spec-run`, and each person's ticket with `ready-for-human`, both with the spec as parent.
 
 Removing the spec-run label from the spec, or closing the spec, cancels the run.

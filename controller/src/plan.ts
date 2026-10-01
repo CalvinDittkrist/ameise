@@ -8,6 +8,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { run } from './exec.js'
 import { issueFromBranch, recordFiles, worktrees } from './board.js'
+import type { Acceptance } from './acceptance.js'
 import { addWorktree, exists, fetch, git, held, slug, writeProcess, type CreatedRecord } from './claim.js'
 import { settingOf } from './gate.js'
 import { type Project, Refusal } from './project.js'
@@ -21,12 +22,14 @@ export type Route = (typeof routes)[number]
 
 // A plan process, as the state directory holds it in processes/<id>.json. Its route names the planner's
 // route its session takes, and its topic is the idea or the issue's title it plans. Its language is the
-// repository's WF_PLANNER_LANGUAGE when the plan opened, the language the planner talks in.
+// repository's WF_PLANNER_LANGUAGE when the plan opened, the language the planner talks in. An
+// acceptance keeps its facts, its items and what their answers wrote (acceptance.ts).
 export interface PlanRecord extends CreatedRecord {
   kind: 'plan'
   route: Route
   topic?: string
   language?: string
+  acceptance?: Acceptance
 }
 
 export type PlanRequest = { route: 'idea'; idea: string } | { route: 'issue'; issue: number } | { route: 'open' }
@@ -83,9 +86,9 @@ function stamp(d = new Date()): string {
 
 // plan opens a plan process: the branch plan/<slug> from the base, its worktree and a record in the
 // state created. The slug is the idea's, the issue's title's, or open-<time> for an open session. The
-// branch's description carries the topic, as the planner's scripts read it. It refuses an issue that is
-// not open, an issue with a process already, a plan branch that exists, and a WF_PLANNER_LANGUAGE that
-// is no language.
+// branch's description carries the topic, so the checkout tells what the plan is about. It refuses an
+// issue that is not open, an issue with a process already, a plan branch that exists, and a
+// WF_PLANNER_LANGUAGE that is no language.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
 export function plan(project: Project, stateDir: string, gh: string, fake: boolean, req: PlanRequest): Promise<PlanRecord> {
   // A language the session would refuse is refused here, before anything is created.
@@ -139,7 +142,7 @@ async function planHeld(project: Project, stateDir: string, gh: string, fake: bo
     await git(top, 'worktree', 'remove', '--force', path).catch(() => undefined)
     await git(top, 'branch', '-D', branch).catch(() => undefined)
   }
-  // The description is how the planner's scripts tell the topic, the issue or an open session.
+  // The description names the topic, the issue or an open session in the branch's git config.
   const description = req.route === 'issue' ? `issue: #${req.issue}` : req.route === 'idea' ? `topic: ${req.idea.replace(/\s+/g, ' ')}` : `open: ${name.slice('open-'.length)}`
   try {
     await git(top, 'config', `branch.${branch}.description`, description)

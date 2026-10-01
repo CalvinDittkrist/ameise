@@ -8,6 +8,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { Acceptance } from "@/components/acceptance"
 import { Capture, Finish } from "@/components/actions"
 import { Prose } from "@/components/markdown"
 import { dot } from "@/components/rows"
@@ -95,6 +96,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
           <MessageScroller.Viewport aria-label="Process" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-3 outline-none data-pending-scroll:invisible lg:p-6 lg:pb-3">
             <Header record={record} />
             <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
+            {record.route === "accept" && <Acceptance record={record} />}
             <Separator />
             <Conversation record={record} list={list} settled={settled} />
           </MessageScroller.Viewport>
@@ -544,8 +546,9 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
   return { list, settled }
 }
 
-// A process the maintainer can write to: one whose session runs, or has run and can be resumed.
-const writable = (r: ProcessRecord) => r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input"
+// A process the maintainer can write to: one whose session runs, or has run and can be resumed. An
+// acceptance runs no session of its own; its items take its answers.
+const writable = (r: ProcessRecord) => r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
 
 // Conversation is the log of the message scroller, one item per turn.
 function Conversation({ record, list, settled }: { record: ProcessRecord; list: Turn[]; settled: Map<string, Settled> }) {

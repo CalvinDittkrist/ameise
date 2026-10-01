@@ -3,14 +3,15 @@ name: triage
 description: Move an issue through the triage states. Verify the claim, grill when needed, post the agent brief, set category and state labels.
 disable-model-invocation: true
 argument-hint: [issue]
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh)
 ---
-Queue:
-!`${CLAUDE_PLUGIN_ROOT}/scripts/triage-list.sh`
+Without the controller's github tools (`create_issue` and the others) in this session, the controller did not start it: say that triage, which writes labels and comments, needs a plan process of the controller `ameise`, opened with Plan on its board or `ameise plan`, and stop.
 
 Labels. Category: `bug` or `enhancement`, exactly one. State: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` or `wontfix`, exactly one. Routing: `factory`, optional, only next to `ready-for-agent`; for a ticket whose parent carries `factory:spec-run`, that label instead of `factory`. If an issue carries two states, say so and ask before doing anything else. Every comment you post starts with `> Written by an agent during triage.`
 
-Without an argument: show the three buckets above, one line each, and let the user pick. With an issue ($ARGUMENTS):
+Without an argument: list the open issues with `gh issue list --state open --limit 100 --json number,title,labels,author,comments --jq '.[] | "#\(.number) \(.title) | by \(.author.login) | labels: \([.labels[].name] | join(",")) | last comment by: \(.comments | last | .author.login // "-")"'`. Show three buckets, one line per issue, and let the user pick:
+- unlabeled: no state label and no `spec`;
+- needs-triage;
+- needs-info with a last comment by someone other than you (`gh api user -q .login`). With an issue ($ARGUMENTS):
 
 1. Read it fully with `gh issue view <n> --comments`, including earlier triage notes; do not re-ask what they settled.
    - Search the code for an existing implementation of the request by concept, not by wording.
@@ -18,14 +19,14 @@ Without an argument: show the three buckets above, one line each, and let the us
 2. Recommend category and state with reasoning and a three-line summary of the relevant code. Wait for the user.
 3. Verify the claim before any interview. Reproduce a bug from the reported steps; for a request, confirm the gap exists. Report confirmed, failed, or not enough detail (a `needs-info` signal).
 4. If the request needs shaping, run the interview rules in [../grill/SKILL.md](../grill/SKILL.md) round by round.
-5. Apply the outcome with `"${CLAUDE_PLUGIN_ROOT}/scripts/issue.sh"`:
+5. Apply the outcome with the controller's tools:
    - `ready-for-agent`: post the brief from [brief.md](brief.md) with `comment`.
      - Then ask whether the issue is routed to the factory, following [../tickets/routing.md](../tickets/routing.md): your recommendation with its reason, for this one issue.
      - For a ticket whose parent carries `factory:spec-run` (`gh api repos/{owner}/{repo}/issues/<n>/parent`), offer that label instead: the ticket joins the spec run.
-     - Then `label <n> --add ready-for-agent --remove needs-triage`, with `--add factory` or `--add factory:spec-run` as the maintainer answered.
-   - `ready-for-human`: the same brief plus one line on why it cannot be delegated. It is never routed; the script refuses that combination.
-   - `needs-info`: post the notes template below, then `label <n> --add needs-info --remove needs-triage`.
-   - `wontfix`: `close <n> --reason not-planned --comment-file <f>`.
+     - Then `set_labels` adding `ready-for-agent` and removing `needs-triage`, adding `factory` or `factory:spec-run` as the maintainer answered.
+   - `ready-for-human`: the same brief plus one line on why it cannot be delegated. It is never routed; the tools refuse that combination.
+   - `needs-info`: post the notes template below with `comment`, then `set_labels` adding `needs-info` and removing `needs-triage`.
+   - `wontfix`: `close` with the reason `not planned` and the comment.
      - For a request that already exists, point to where it lives. For a rejected one, give the reason. The closed issue is the record; write no file.
 6. When the user says "move #n to <state>", confirm the change in one line and do it.
    - Skip the interview, but offer a brief when the target is `ready-for-agent`, and ask about routing with it.

@@ -28,7 +28,7 @@ The build copies the plugins of the checkout into `dist/plugins`, and every sess
 - `ameise adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
 - `ameise merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
 - `ameise release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
-- `ameise accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+- `ameise accept <spec> [--project <path>]` starts the acceptance of a spec in a plan process; see [Acceptance](#acceptance).
 - `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
 - `ameise hunt [--project <path>]` opens a hunt process and starts its test hunt; see [Hunt process](#hunt-process).
   - Without `--project` each acts on the project of the current directory.
@@ -154,6 +154,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `address-reviews` says what the address-reviews session does: `reply <thread> <body>` and `answer <text>` are what it reports for the controller to post, `fixed` and `declined` the points.
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
+- `tool <name> <json>` calls a github tool of a planner session with the arguments.
 
 In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script):
 - `next-pull` is the number `gh pr create` gives.
@@ -162,6 +163,7 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 - `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
 - `pulls/<n>.threads.json` are the review threads of a pull request. The resolve mutation resolves a thread written with its id first, and `gh pr comment` appends to `pulls/<n>.comments`.
 - Once `gh pr merge` merged a canned pull request, `pulls/<n>.merged.json` answers before its readings.
+- `api/<endpoint>` answers `gh api` of that endpoint, whatever the method. An endpoint that is also the directory of longer ones keeps its answer in the file `@` inside it.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -371,6 +373,7 @@ Stopping and starting the controller loses no process.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
+  - An acceptance whose checker ran turns `failed`, and a check runs it again.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
 - A resume goes on with an interrupted process: its implement or hunt session, gate, review round, pr stage, wait on the pull request or address-reviews session.
   - One interrupted before its address-reviews session started waits on the pull request again.
@@ -406,13 +409,29 @@ A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milesto
 
 Then it publishes the release with generated notes and closes the milestone.
 
-## Acceptance start
-An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the state `created`. It refuses, with `409`:
+## Acceptance
+An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the stage `accept`. It refuses, with `409`:
 - an issue that is not an open spec,
 - a spec without tickets or with a ticket open,
 - a spec that has a process.
 
-The spec then leaves `acceptance`. No session starts yet.
+The spec then leaves `acceptance`, and the acceptance runs at once:
+1. It gathers the facts: the spec, its tickets, the merged pull requests of this repository that referenced each ticket, the files those changed, and the deviations accepted earlier.
+   - An accepted deviation is a comment on the spec whose first line is `> Accepted deviation (spec acceptance).`, by someone with write access.
+   - What it cannot read becomes a note on the record.
+2. It runs the spec checker: a read-only session in the default mode beside the process, briefed with the facts and the spec's body, without Edit, Write or Agent.
+   - It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
+3. It keeps the items on the record, in the state `input`. An item whose `<section>: <statement>` an earlier deviation names is left out and counted in `repeated`.
+
+A checker that reports no item fails the process; a check runs it again. A controller stopped while the acceptance runs leaves it failed.
+
+Each item not met takes one answer in the process view:
+- A gap ticket: an issue with `ready-for-agent`, and `factory:spec-run` when the spec carries it.
+  - It is created as a sub-issue of the spec on its `vX.Y.Z` milestone through the github tools of the [plan process](#plan-process), under their rules.
+- An accepted deviation: the comment above, with the item's `<section>: <statement>` on its second line and the reason below.
+- No finding: nothing is written; the closing comment names the item as overruled.
+
+With a gap ticket the spec stays open, and its acceptance runs again once the gap tickets are closed. With nothing left open the spec closes as completed. Its closing comment counts the items per section, lists the tickets with their pull requests and names the deviations and the overruled items. A write that is refused keeps what was written before it; the same answers sent again go on from there. A finish then ends the process.
 
 ## Plan process
 A plan opens a plan process from an idea, an issue or nothing, an open session. It creates the branch `plan/<slug>` from `origin/<base>` and its worktree:
@@ -420,7 +439,7 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 - the slug of the issue's title,
 - or `open-<local time to the second>` for an open session.
 
-The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
+The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
 `WF_PLANNER_LANGUAGE` names the language the planner talks in, such as `german`. The [planner's readme](../plugins/planner/README.md#configuration) documents it.
 - The controller reads it from the env block of the checkout's `.claude/settings.json`, and the plan records the value when it opens.
@@ -430,12 +449,22 @@ The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`,
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
-- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
-  - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+- session settings: `WF_CONTROLLER=1`, `WF_BASE_BRANCH` and foreground subagents,
   - and the runtime's `language` setting from `WF_PLANNER_LANGUAGE`, when the repository sets it,
-- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
+- a brief that runs `/planner:plan` and carries the session's context.
   - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
   - It carries no text of the issue.
+
+The session writes GitHub only through the controller's github tools, an in-process MCP server registered in it and allowed without a card ([ADR 0059](../docs/adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)):
+- `create_issue` with labels, a parent it becomes a sub-issue of, and an open milestone `vX.Y.Z`, which the parent joins when it has none;
+- `set_labels`, `block`, `comment`, `close`, `attach_milestone` and `create_milestone`.
+
+The tools own the label vocabulary of the [contract fixture](../contract/fixture.json). A vocabulary label the repository lacks is created on first use, and a label outside it must exist in the repository.
+- They refuse `factory` without `ready-for-agent` or beside `ready-for-human`, judged on the labels the issue ends up with.
+- They refuse `factory:spec-run` beside either, and on an issue that is no spec and whose parent does not carry it.
+- A ticket of a spec run that cannot become a sub-issue loses the label and is refused.
+- `close` refuses a spec as completed without its closing comment, and while a ticket is open or cannot be read.
+- Every write is a `github` event in the process's log with what it changed, and every refusal a `github-refused` event with its reason.
 
 A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
 
@@ -444,7 +473,7 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 - A push that fails keeps the commit on the local branch and the worktree as it was.
 - In fake mode it pushes nothing.
 
-A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
+A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat lists what the session wrote and leaves the removal to the finish. `/planner:prototype` asks the maintainer for the capture.
 
 ## Hunt process
 A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
@@ -534,7 +563,10 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - `409` refuses a pull request that is not ready or work not on origin, `502` a GitHub that does not answer.
 - `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
   - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
-- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process, starts its [acceptance](#acceptance) and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances/answers` with `{"id": "<id>", "answers": [{"item": "item-2", "answer": "gap", "title": "...", "what": "..."}, {"item": "item-3", "answer": "deviation", "reason": "..."}, {"item": "item-4", "answer": "none", "reason": "..."}]}`: writes the answers and answers `200` with `{record}`.
+  - `400` refuses an item not met without an answer, `409` an acceptance without items or answered already, `502` a write GitHub refused.
+- `POST /api/acceptances/check` with `{"id": "<id>"}`: runs a failed acceptance again and answers `200` with `{record}`.
 - `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
 - `POST /api/hunts` with `{"project": "<path>"}`: opens a [hunt process](#hunt-process), starts its session and answers `201` with `{record, warnings}`; `409` refuses the hunt.
 - `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.

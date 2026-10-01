@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SHIMS = ROOT / "tests" / "shims"
 WORKER = ROOT / "plugins" / "worker" / "scripts"
 STANDARDS = ROOT / "plugins" / "repo-standards" / "scripts"
-PLANNER = ROOT / "plugins" / "planner" / "scripts"
 # The host's git configuration (a global ignore file, hooks, aliases) must not change what a test sees.
 GIT_ISOLATION = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 

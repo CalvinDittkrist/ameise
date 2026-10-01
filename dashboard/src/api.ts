@@ -241,6 +241,36 @@ export type Hunt = {
   stale: number
 }
 
+// An item the spec checker of an acceptance reported, with the maintainer's answer and what the
+// controller wrote for it once it was answered: the gap ticket as #<n>, deviation or none.
+export type AcceptanceItem = {
+  id: string
+  section: string
+  statement: string
+  verdict: "met" | "missing" | "deviates" | "untested"
+  evidence: string
+  confidence: "high" | "medium" | "low"
+  answer?: ItemAnswer
+  written?: string
+}
+
+// The answers to an item not met: a gap ticket, an accepted deviation, or no finding.
+export type ItemAnswer = { answer: "gap"; title: string; what?: string } | { answer: "deviation"; reason: string } | { answer: "none"; reason?: string }
+
+// What an acceptance keeps on its record: the facts its checker was briefed with, the items, and the gap
+// tickets or the close its answers wrote.
+export type Acceptance = {
+  spec: { title: string; milestone: string | null; labels: string[] }
+  tickets: { number: number; title: string; prs: number[] }[]
+  files: number
+  deviations: string[]
+  notes: string[]
+  items: AcceptanceItem[]
+  repeated: number
+  gaps?: number[]
+  closed?: boolean
+}
+
 // A process record as the controller keeps it, with the context size at which its session compacts.
 export type ProcessRecord = {
   id: string
@@ -252,6 +282,8 @@ export type ProcessRecord = {
   mode?: "manual" | "yolo"
   route?: "idea" | "issue" | "open" | "accept"
   topic?: string
+  // acceptance is an acceptance's: its facts and items, once its checker reported.
+  acceptance?: Acceptance
   stage: string
   state: Process["state"]
   note: string
@@ -376,8 +408,16 @@ export const hunt = (path: string) => call<{ record: { id: string; branch: strin
 // pushed.
 export const finish = (id: string, force: boolean) => call<{ branch: string }>("POST", "/api/processes/finish", { id, force })
 
-// accept opens a plan process with the acceptance route on a spec of the project at path.
-export const accept = (path: string, spec: number) => call<{ record: { branch: string } }>("POST", "/api/acceptances", { project: path, spec })
+// accept starts the acceptance of a spec of the project at path in a plan process: its facts, then its
+// checker, whose items wait in the process view.
+export const accept = (path: string, spec: number) => call<{ record: { id: string; branch: string } }>("POST", "/api/acceptances", { project: path, spec })
+
+// answerItems writes the answers to the items of an acceptance not met: gap tickets and deviations, and
+// the close of the spec once nothing is left open.
+export const answerItems = (id: string, answers: ({ item: string } & ItemAnswer)[]) => call<{ record: unknown }>("POST", "/api/acceptances/answers", { id, answers })
+
+// checkAgain runs a failed acceptance again.
+export const checkAgain = (id: string) => call<{ record: unknown }>("POST", "/api/acceptances/check", { id })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
