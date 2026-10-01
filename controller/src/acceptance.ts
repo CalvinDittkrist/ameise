@@ -10,17 +10,13 @@
 // acceptance runs again once the gap tickets are closed. With nothing left open the spec closes with its
 // closing comment. An item the maintainer accepted as a deviation earlier is not reported again.
 import { pages } from './board.js'
+import { confidences, sections, verdicts } from './checkitems.js'
 import { held } from './claim.js'
 import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
 import type { PlanRecord } from './plan.js'
 import { type Project, Refusal } from './project.js'
 import { checker, event, readRecord, type Runtime, track, update } from './session.js'
-
-// The sections of a spec the checker judges, in the order the closing comment counts them.
-export const sections = ['User stories', 'Decisions', 'Testing', 'Vocabulary', 'ADRs to write'] as const
-export const verdicts = ['met', 'missing', 'deviates', 'untested'] as const
-const confidences = ['high', 'medium', 'low'] as const
 
 // The first line of a comment that accepts a deviation, as the glossary defines it.
 export const deviationMarker = '> Accepted deviation (spec acceptance).'
@@ -422,7 +418,7 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
     for (const item of items) {
       if (item.verdict === 'met' || item.written) continue
       const d = byItem.get(item.id) as Decision
-      const answer = { ...d, item: undefined }
+      const answer = Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'item')) as ItemAnswer
       if (d.answer === 'gap') {
         // An agent works a gap ticket, in the spec run when the spec is one.
         const out = await w.createIssue({ title: d.title, body: gapBody(spec, item, d.what), labels: ['ready-for-agent', ...(spun ? [specRunLabel] : [])], parent: spec, ...(milestone ? { milestone } : {}) })
