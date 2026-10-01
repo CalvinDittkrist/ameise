@@ -10,7 +10,8 @@
 // its endpoint.
 import { createSdkMcpServer, type McpSdkServerConfigWithInstance, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { pages } from './board.js'
+import { version } from './actions.js'
+import { labels as named, pages } from './board.js'
 import { run } from './exec.js'
 
 export interface Label {
@@ -40,8 +41,8 @@ export const skillCandidate: Label = { name: 'skill-candidate', color: 'C5DEF5',
 
 // The factory's routing label, which the frontier rule of the contract fixture names, and the spec-run
 // label beside it. The factory works an issue that carries either unattended, with nobody to ask.
-export const routingLabel = 'factory'
-export const specRunLabel = `${routingLabel}:spec-run`
+const routingLabel = named.routing
+export const specRunLabel = named.specRun
 
 // The server's name in a session: its tools are mcp__github__<tool>, and mcp__github the rule that allows them.
 export const githubServer = 'github'
@@ -50,7 +51,7 @@ export const githubServer = 'github'
 export class Refused extends Error {}
 
 // A write the tools made, as the event log holds it: what was written, and on what.
-export type Write = Record<string, unknown> & { write: string }
+type Write = Record<string, unknown> & { write: string }
 
 interface Issue {
   id: number
@@ -73,9 +74,19 @@ interface Milestone {
 // compare, and canonical spells a label of the vocabulary as the vocabulary does.
 const key = (label: string) => label.toLowerCase()
 const has = (labels: string[], name: string) => labels.some((l) => key(l) === key(name))
-const canonical = (label: string) => vocabulary.find((v) => v.name === key(label))?.name ?? label
+const inVocabulary = (label: string) => vocabulary.find((v) => v.name === key(label))
+const canonical = (label: string) => inVocabulary(label)?.name ?? label
 // distinct drops the labels that name one already in the list, whatever their case.
 const distinct = (labels: string[]) => labels.filter((l, i) => labels.findIndex((x) => key(x) === key(l)) === i)
+
+// attempt runs a call of gh, and refuses with what failed when it fails.
+async function attempt<T>(what: string, call: Promise<T>): Promise<T> {
+  try {
+    return await call
+  } catch (err) {
+    throw new Refused(`${what} failed: ${(err as Error).message}`)
+  }
+}
 
 // unavailable tells a failed call that GitHub lacks the feature here (404 or 422) from any other failure.
 const unavailable = (err: unknown) => /\b(404|422)\b|Not Found|Unprocessable/.test((err as Error).message)
@@ -84,10 +95,10 @@ const unavailable = (err: unknown) => /\b(404|422)\b|Not Found|Unprocessable/.te
 // only beside ready-for-agent, and never beside ready-for-human. drop says how this call drops it.
 function routable(subject: string, drop: string, labels: string[]) {
   if (!has(labels, routingLabel)) return
-  if (has(labels, 'ready-for-human')) {
+  if (has(labels, named.human)) {
     throw new Refused(`${subject} would carry ${routingLabel} and ready-for-human: the factory works unattended, so an issue a person has to implement is never routed to it. Drop one of the two labels; ${drop}.`)
   }
-  if (!has(labels, 'ready-for-agent')) {
+  if (!has(labels, named.ready)) {
     throw new Refused(`${subject} would carry ${routingLabel} without ready-for-agent: the factory takes only issues a worker can finish from the brief alone. Add ready-for-agent, or ${drop}.`)
   }
 }
@@ -100,10 +111,10 @@ async function specRun(subject: string, drop: string, labels: string[], parent: 
   if (has(labels, routingLabel)) {
     throw new Refused(`${subject} would carry ${routingLabel} and ${specRunLabel}: a spec run routes its tickets itself, so an issue carries one of the two. Drop one of them; ${drop}, or drop ${routingLabel}.`)
   }
-  if (has(labels, 'ready-for-human')) {
+  if (has(labels, named.human)) {
     throw new Refused(`${subject} would carry ${specRunLabel} and ready-for-human: the factory skips a ticket a person works, so that ticket keeps ready-for-human alone. Drop one of the two labels; ${drop}.`)
   }
-  if (has(labels, 'spec')) return
+  if (has(labels, named.spec)) return
   const p = await parent()
   if (p === undefined) {
     throw new Refused(`${subject} would carry ${specRunLabel} but is no spec and has no parent: the label marks a spec and the tickets of its spec run. Label the spec, or make the issue a ticket of a spec that carries it; ${drop}.`)
@@ -115,7 +126,7 @@ async function specRun(subject: string, drop: string, labels: string[], parent: 
 
 // milestoneName refuses a milestone that is not named vX.Y.Z.
 function milestoneName(title: string): string {
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(title)) throw new Refused(`milestone must be named vX.Y.Z, got '${title}'`)
+  if (!version.test(title)) throw new Refused(`milestone must be named vX.Y.Z, got '${title}'`)
   return title
 }
 
@@ -140,7 +151,7 @@ class GitHub {
 
   // list reads every page of a list endpoint.
   async list<T>(endpoint: string): Promise<T[]> {
-    return pages<T>(await run(this.gh, ['api', '--paginate', endpoint]))
+    return pages<T>(await this.api(endpoint, ['--paginate']))
   }
 
   path = (rest: string) => `repos/${this.repo}/${rest}`
@@ -178,11 +189,17 @@ class GitHub {
     }
   }
 
+  // milestone is the open milestone of that title, or undefined when there is none. A closed one refuses.
+  async milestone(title: string): Promise<Milestone | undefined> {
+    const m = (await this.milestones()).find((x) => x.title === title)
+    if (m && m.state !== 'open') throw new Refused(`milestone ${title} is closed (released); pick a new version`)
+    return m
+  }
+
   // openMilestone is the open milestone of that title, or the refusal that says why there is none.
   async openMilestone(title: string): Promise<Milestone> {
-    const m = (await this.milestones()).find((x) => x.title === title)
+    const m = await this.milestone(title)
     if (!m) throw new Refused(`milestone ${title} does not exist; create it with create_milestone ${title} and its goal`)
-    if (m.state !== 'open') throw new Refused(`milestone ${title} is closed (released); pick a new version`)
     return m
   }
 
@@ -191,7 +208,7 @@ class GitHub {
   async ensure(labels: string[]) {
     if (labels.length === 0) return
     this.known ??= this.list<{ name: string }>(this.path('labels?per_page=100')).then(
-      (ls) => new Set(ls.map((l) => l.name.toLowerCase())),
+      (ls) => new Set(ls.map((l) => key(l.name))),
       (err: Error) => {
         this.known = undefined
         throw new Refused(`could not list the labels of ${this.repo}: ${err.message}; is gh authenticated for this repository?`)
@@ -200,7 +217,7 @@ class GitHub {
     const known = await this.known
     for (const name of labels) {
       if (known.has(key(name))) continue
-      const v = vocabulary.find((l) => l.name === key(name))
+      const v = inVocabulary(name)
       if (!v) throw new Refused(`${name} is neither a label of the workflow's vocabulary nor one of ${this.repo}; use a label of the vocabulary (${vocabulary.map((l) => l.name).join(', ')}), or create ${name} on GitHub first`)
       let made = this.creating.get(v.name)
       if (!made) {
@@ -212,11 +229,7 @@ class GitHub {
   }
 
   private async create(v: Label, known: Set<string>) {
-    try {
-      await this.api(this.path('labels'), ['-f', `name=${v.name}`, '-f', `color=${v.color}`, '-f', `description=${v.description}`], 'POST')
-    } catch (err) {
-      throw new Refused(`could not create the label ${v.name} in ${this.repo}: ${(err as Error).message}`)
-    }
+    await attempt(`creating the label ${v.name} in ${this.repo}`, this.api(this.path('labels'), ['-f', `name=${v.name}`, '-f', `color=${v.color}`, '-f', `description=${v.description}`], 'POST'))
     known.add(v.name)
     this.log({ write: 'label-created', label: v.name })
   }
@@ -241,12 +254,7 @@ async function createIssue(g: GitHub, a: { title: string; body: string; labels?:
   const m = milestone === undefined ? undefined : await g.openMilestone(milestone)
   await g.ensure(labels)
   const fields = ['-f', `title=${title}`, '-f', `body=${a.body}`, ...labels.flatMap((l) => ['-f', `labels[]=${l}`]), ...(m ? ['-F', `milestone=${m.number}`] : [])]
-  let made: Issue
-  try {
-    made = await g.json<Issue>(g.path('issues'), fields, 'POST')
-  } catch (err) {
-    throw new Refused(`creating the issue failed: ${(err as Error).message}`)
-  }
+  const made = await attempt('creating the issue', g.json<Issue>(g.path('issues'), fields, 'POST'))
   const n = made.number
   const url = made.html_url ?? `https://github.com/${g.repo}/issues/${n}`
   g.log({ write: 'issue-created', issue: n, title, labels, ...(milestone ? { milestone } : {}), url })
@@ -278,18 +286,13 @@ async function createIssue(g: GitHub, a: { title: string; body: string; labels?:
     )
   }
   // The spec hangs on the milestone of its tickets, so the release waits for its acceptance.
-  if (milestone && m) out.push(await attachParent(g, parent, milestone, m.number))
+  if (m) out.push(await attachParent(g, parent, spec?.milestone?.title ?? '', m))
   return out
 }
 
 // attachParent puts the spec on the milestone of its ticket when it carries none, and keeps another one.
-async function attachParent(g: GitHub, parent: number, milestone: string, number: number): Promise<string> {
-  let have: string
-  try {
-    have = (await g.issue(parent)).milestone?.title ?? ''
-  } catch {
-    return `warning: cannot read the milestone of #${parent}; attach it to ${milestone} on GitHub`
-  }
+// have is the milestone the spec carries, read before the ticket was created.
+async function attachParent(g: GitHub, parent: number, have: string, { title: milestone, number }: Milestone): Promise<string> {
   if (have === milestone) return `parent-milestone: #${parent} already on ${milestone}`
   if (have !== '') return `warning: #${parent} stays on milestone ${have} while its sub-issues go to ${milestone}; move it if ${milestone} releases this work`
   try {
@@ -318,13 +321,11 @@ async function setLabels(g: GitHub, a: { issue: number; add?: string[]; remove?:
   routable(`#${n}`, drop(routingLabel, 'routing'), resulting)
   await g.ensure(added)
   const changed = added.length + removed.length > 0
-  try {
-    if (changed && resulting.length > 0) await g.api(g.path(`issues/${n}/labels`), resulting.flatMap((l) => ['-f', `labels[]=${l}`]), 'PUT')
-    else if (changed) await g.api(g.path(`issues/${n}/labels`), [], 'DELETE')
-  } catch (err) {
-    throw new Refused(`setting the labels of #${n} failed: ${(err as Error).message}`)
+  if (changed) {
+    const fields = resulting.flatMap((l) => ['-f', `labels[]=${l}`])
+    await attempt(`setting the labels of #${n}`, g.api(g.path(`issues/${n}/labels`), fields, resulting.length > 0 ? 'PUT' : 'DELETE'))
+    g.log({ write: 'labels', issue: n, ...(added.length ? { added } : {}), ...(removed.length ? { removed } : {}) })
   }
-  if (changed) g.log({ write: 'labels', issue: n, ...(added.length ? { added } : {}), ...(removed.length ? { removed } : {}) })
   return [`labels: #${n} ${resulting.length ? resulting.join(', ') : 'none'}`]
 }
 
@@ -349,11 +350,7 @@ async function block(g: GitHub, a: { issue: number; by: number[] }): Promise<Don
 
 async function comment(g: GitHub, a: { issue: number; body: string }): Promise<Done> {
   if (a.body.trim() === '') throw new Refused('comment needs a body')
-  try {
-    await g.api(g.path(`issues/${a.issue}/comments`), ['-f', `body=${a.body}`], 'POST')
-  } catch (err) {
-    throw new Refused(`commenting on #${a.issue} failed: ${(err as Error).message}`)
-  }
+  await attempt(`commenting on #${a.issue}`, g.api(g.path(`issues/${a.issue}/comments`), ['-f', `body=${a.body}`], 'POST'))
   g.log({ write: 'comment', issue: a.issue, body: a.body })
   return [`comment: #${a.issue} posted`]
 }
@@ -367,12 +364,17 @@ async function close(g: GitHub, a: { issue: number; comment?: string; reason?: '
   const out: Done = []
   const issue = await g.issue(n)
   if (issue.state !== 'open') throw new Refused(`#${n} is ${issue.state}, not open`)
-  if (reason === 'completed' && has(issue.labels.map((l) => l.name), 'spec')) {
+  if (reason === 'completed' && has(issue.labels.map((l) => l.name), named.spec)) {
     if ((a.comment ?? '').trim() === '') throw new Refused(`closing the spec #${n} needs its closing comment; the closing comment records what the acceptance checked`)
     const hint = `pass the ticket numbers in tickets`
     const tickets = new Set(a.tickets ?? [])
+    // The list of the native sub-issues carries their states, so only the tickets passed outside it are read.
+    const states = new Map<number, string>()
     try {
-      for (const s of await g.list<{ number: number }>(g.path(`issues/${n}/sub_issues?per_page=100`))) tickets.add(s.number)
+      for (const s of await g.list<{ number: number; state: string }>(g.path(`issues/${n}/sub_issues?per_page=100`))) {
+        tickets.add(s.number)
+        states.set(s.number, s.state)
+      }
     } catch {
       if (tickets.size === 0) throw new Refused(`could not read the sub-issues of #${n}; ${hint}`)
       out.push(`warning: could not read the sub-issues of #${n}; only the tickets passed were checked, a gap ticket outside them stays unseen`)
@@ -380,16 +382,12 @@ async function close(g: GitHub, a: { issue: number; comment?: string; reason?: '
     if (tickets.size === 0) throw new Refused(`#${n} has no native sub-issues; ${hint}`)
     const open: number[] = []
     // A ticket whose state cannot be read is never counted as closed: the refusal stops the close.
-    for (const t of [...tickets].sort((x, y) => x - y)) if ((await g.issue(t)).state === 'open') open.push(t)
+    for (const t of [...tickets].sort((x, y) => x - y)) if ((states.get(t) ?? (await g.issue(t)).state) === 'open') open.push(t)
     if (open.length > 0) throw new Refused(`#${n} still has open sub-issues: ${open.map((t) => `#${t}`).join(' ')}; the acceptance runs again once they are closed`)
     out.push(`tickets: ${tickets.size} checked, all closed`)
   }
   if (a.comment !== undefined && a.comment.trim() !== '') out.push(...(await comment(g, { issue: n, body: a.comment })))
-  try {
-    await g.api(g.path(`issues/${n}`), ['-f', 'state=closed', '-f', `state_reason=${reason === 'not planned' ? 'not_planned' : 'completed'}`], 'PATCH')
-  } catch (err) {
-    throw new Refused(`closing #${n} failed: ${(err as Error).message}`)
-  }
+  await attempt(`closing #${n}`, g.api(g.path(`issues/${n}`), ['-f', 'state=closed', '-f', `state_reason=${reason === 'not planned' ? 'not_planned' : 'completed'}`], 'PATCH'))
   g.log({ write: 'closed', issue: n, reason })
   out.push(`closed: #${n} (${reason})`)
   return out
@@ -398,11 +396,7 @@ async function close(g: GitHub, a: { issue: number; comment?: string; reason?: '
 async function attachMilestone(g: GitHub, a: { issue: number; milestone: string }): Promise<Done> {
   const title = milestoneName(a.milestone)
   const m = await g.openMilestone(title)
-  try {
-    await g.api(g.path(`issues/${a.issue}`), ['-F', `milestone=${m.number}`], 'PATCH')
-  } catch (err) {
-    throw new Refused(`attaching #${a.issue} to ${title} failed: ${(err as Error).message}`)
-  }
+  await attempt(`attaching #${a.issue} to ${title}`, g.api(g.path(`issues/${a.issue}`), ['-F', `milestone=${m.number}`], 'PATCH'))
   g.log({ write: 'milestone-attached', issue: a.issue, milestone: title })
   return [`milestone: #${a.issue} attached to ${title}`]
 }
@@ -410,16 +404,9 @@ async function attachMilestone(g: GitHub, a: { issue: number; milestone: string 
 // createMilestone creates the milestone with its goal, or reuses the open one of that title.
 async function createMilestone(g: GitHub, a: { title: string; description?: string }): Promise<Done> {
   const title = milestoneName(a.title)
-  const m = (await g.milestones()).find((x) => x.title === title)
-  if (m) {
-    if (m.state !== 'open') throw new Refused(`milestone ${title} is closed (released); pick a new version`)
-    return [`milestone: ${title} (existing, ${m.open_issues} open, ${m.closed_issues} closed)`]
-  }
-  try {
-    await g.api(g.path('milestones'), ['-f', `title=${title}`, '-f', `description=${a.description ?? ''}`], 'POST')
-  } catch (err) {
-    throw new Refused(`creating milestone ${title} failed: ${(err as Error).message}`)
-  }
+  const m = await g.milestone(title)
+  if (m) return [`milestone: ${title} (existing, ${m.open_issues} open, ${m.closed_issues} closed)`]
+  await attempt(`creating milestone ${title}`, g.api(g.path('milestones'), ['-f', `title=${title}`, '-f', `description=${a.description ?? ''}`], 'POST'))
   g.log({ write: 'milestone-created', milestone: title, ...(a.description ? { description: a.description } : {}) })
   return [`milestone: ${title} (created)`]
 }
@@ -457,10 +444,13 @@ export function directWrite(command: string): string | undefined {
 const issueNumber = z.number().int().positive()
 const label = z.string().min(1)
 
+// connect is the repository owner/name written through gh, its writes logged into the process's event log.
+const connect = (gh: string, repo: string, log: (e: Record<string, unknown>) => void) => new GitHub(gh, repo, (w) => log({ event: 'github', ...w }))
+
 // githubTools is the server of the tools for one planner session on the repository owner/name. log
 // writes into the process's event log.
 export function githubTools(gh: string, repo: string, log: (e: Record<string, unknown>) => void): McpSdkServerConfigWithInstance {
-  const g = new GitHub(gh, repo, (w) => log({ event: 'github', ...w }))
+  const g = connect(gh, repo, log)
   // answer runs a tool and answers its lines, or its refusal as an error the session reads.
   const answer = <A>(name: string, f: (g: GitHub, a: A) => Promise<Done>) => async (a: A) => {
     try {
@@ -510,7 +500,7 @@ export function githubTools(gh: string, repo: string, log: (e: Record<string, un
 // posts its deviations and closes its spec with them, under the same rules and into the same event log.
 // A write it refuses throws a Refused with the reason.
 export function writer(gh: string, repo: string, log: (e: Record<string, unknown>) => void) {
-  const g = new GitHub(gh, repo, (w) => log({ event: 'github', ...w }))
+  const g = connect(gh, repo, log)
   return {
     createIssue: (a: Parameters<typeof createIssue>[1]) => createIssue(g, a),
     comment: (a: Parameters<typeof comment>[1]) => comment(g, a),
