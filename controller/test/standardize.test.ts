@@ -16,7 +16,7 @@ const catalogueTitle = 'Standardisation: removed skills and how to restore them'
 
 beforeEach(async () => {
   m = await machine()
-  // The standardize scripts the controller runs call these.
+  // The scripts of the repo-standards plugin the standardize steps run call these.
   tools(m, ['sed', 'awk', 'grep', 'wc', 'tr', 'head', 'tail', 'sort', 'uniq', 'date', 'mv', 'mkdir', 'dirname', 'rm', 'cut', 'ls', 'basename', 'jq', 'mktemp', 'find', 'xargs', 'comm', 'touch', 'cp', 'tee', 'od', 'stat', 'du', 'rmdir', 'chmod', 'readlink', 'diff', 'cmp', 'expr', 'env', 'sleep'])
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)

@@ -1,7 +1,7 @@
 # 0057. The controller does, agents decide
 
 Date: 2026-09-27
-Status: accepted
+Status: accepted; amended 2026-10-01 (the standardize steps are controller code too: `controller/standardize/*.sh` is no longer a place for deterministic work)
 Supersedes: [0002](0002-scripts-do-agents-decide.md)
 
 ## Context
@@ -10,6 +10,7 @@ Supersedes: [0002](0002-scripts-do-agents-decide.md)
 
 ## Decision
 - Deterministic work is controller code: claims, worktrees, the gate, the order of stages, the GitHub writes, the records.
+  - Amended 2026-10-01: the steps of a standardisation are controller code as well (`controller/src/standard/`). A script the controller owns, as `controller/standardize/*.sh` was, is no longer a place for deterministic work.
 - A skill is a prompt that decides. It calls no steering script.
 - A session reports through a structured result, and the controller acts on it.
 

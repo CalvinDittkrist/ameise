@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import ROOT, STANDARDIZE, STANDARDS, WORKER, ShimTest
+from helpers import ROOT, STANDARDS, WORKER, ShimTest
 
 PLUGINS = sorted(p for p in (ROOT / "plugins").iterdir() if (p / ".claude-plugin/plugin.json").exists())
 
@@ -278,13 +278,13 @@ class ShimCallLogTests(ShimTest):
 
 
 class LabelVocabularyTests(ShimTest):
-    """repo-standards and the controller's standardize scripts each carry a copy of the label vocabulary, and the
-    contract fixture states it (ADR 0062); a copy that differs from the fixture is a bug. The controller's github
-    tools carry another copy, which its own test holds to the fixture."""
+    """repo-standards carries a copy of the label vocabulary, and the contract fixture states it (ADR 0062); a copy
+    that differs from the fixture is a bug. The controller carries another copy, which its own test holds to the
+    fixture."""
 
     FIXTURE_FILE = "contract/fixture.json"
 
-    COPIES = [str((scripts / "lib.sh").relative_to(ROOT)) for scripts in (STANDARDS, STANDARDIZE)]
+    COPIES = [str((STANDARDS / "lib.sh").relative_to(ROOT))]
 
     def standards_vocabulary(self, copy):
         """WF_LABELS as workspace.sh feeds it into its label loop. Sourced outside a git repository, because

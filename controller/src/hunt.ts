@@ -110,7 +110,7 @@ async function huntHeld(project: Project, stateDir: string, gh: string, fake: bo
 
 // huntLog reads the hunt record of a worktree through the worker's hunt.sh.
 export async function huntLog(worktree: string): Promise<HuntLog> {
-  const out = JSON.parse(await run('bash', [huntScript, 'json'], {}, worktree)) as HuntLog
+  const out = JSON.parse(await run(huntScript, ['json'], {}, worktree)) as HuntLog
   return { rounds: out.rounds, max_rounds: out.max_rounds, ended: out.ended, removed: out.removed, kept: out.kept, stale: out.stale }
 }
 
