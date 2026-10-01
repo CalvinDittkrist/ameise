@@ -118,7 +118,7 @@ go -C factory run . -fake -config factory.json    # the factory on a canned queu
 npm --prefix factory/ui run dev                   # the dashboard with hot reload, against a factory started beside it
 ```
 
-The controller's build bundles the checkout's plugins, so its sessions run what the checkout holds. Tests run the real plugin scripts against the `gh` shim in `tests/shims/`.
+The controller's build bundles the checkout's plugins, so its sessions run what the checkout holds. Tests in `controller/test/scripts/` run the real plugin scripts with the scripted `gh` of the controller's fake mode.
 
 - A plugin is released by bumping `version` in its manifest and running `scripts/release.sh <plugin> --push`.
 - The controller: bump `version` in `controller/package.json` and run `scripts/release.sh controller --push` on `main`; CI attaches the package to its release.

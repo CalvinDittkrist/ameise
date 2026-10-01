@@ -70,12 +70,9 @@ Run the following as root unless it says otherwise.
    - Read them from its CI workflow (for this repository `.github/workflows/ci.yml`) and from the error lines of its `Makefile`, not from the distribution.
    - A distribution's version finds other things than CI's. The gate then fails on the host on files the change never touched, which no worker can fix.
    - For this repository that is shellcheck 0.11.0, Go 1.26, Node 24 and staticcheck 2026.2.1.
-   - Python is the distribution's `python3`, which CI does not pin.
    - One host has one version of each tool.
    - When two connected repositories pin different versions of one, the host runs the newest pin. The repository that is behind moves its CI to it.
-   - The gate's tests call two more tools that a minimal Debian image lacks and CI's runner has:
-     - a C compiler (`build-essential`), because `go test -race` builds with cgo
-     - `file`, with which the release test checks that the factory's binaries are static
+   - The gate's tests call one more tool that a minimal Debian image lacks and CI's runner has: a C compiler (`build-essential`), because `go test -race` builds with cgo.
 
    ```sh
    cd "$(mktemp -d)"
@@ -99,7 +96,7 @@ Run the following as root unless it says otherwise.
    echo "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d  nodesource-repo.gpg.key" | sha256sum --check &&
      install -D -m 0644 nodesource-repo.gpg.key "$key" &&
      echo "deb [arch=$(dpkg --print-architecture) signed-by=$key] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list &&
-     apt-get update && apt-get install -y nodejs python3 build-essential file
+     apt-get update && apt-get install -y nodejs build-essential
    node --version                 # v24.<minor>.<patch>
    ```
 

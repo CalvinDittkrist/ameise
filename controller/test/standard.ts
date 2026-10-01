@@ -1,5 +1,5 @@
 // The helper of the tests of the standardize steps: a temporary repository with one commit on main, and a step
-// run in it against the gh and claude shims of tests/shims, whose stateful GitHub lives in a directory of JSON
+// run in it against the gh and claude shims of controller/test/shims, whose stateful GitHub lives in a directory of JSON
 // files (SHIM_WS). The steps run as the controller runs them, in this process, and every command they start gets
 // the shims first on PATH and a git that reads no configuration of the host.
 import { execFileSync } from 'node:child_process'
@@ -16,7 +16,7 @@ import { type Ctx, step } from '../src/standard/lib.js'
 import { approve, report } from '../src/standard/report.js'
 
 export const root = fileURLToPath(new URL('../..', import.meta.url))
-export const shims = join(root, 'tests', 'shims')
+export const shims = fileURLToPath(new URL('./shims', import.meta.url))
 
 // What the host's environment would change: the workflow's own variables, the shims' settings of a suite this
 // one runs in, the settings of a Claude Code session and of a make that runs the suite.

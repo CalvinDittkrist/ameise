@@ -1,11 +1,11 @@
 # The gate: `make check` runs everything CI gates on, locally and in the CI job named `check`.
-SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard tests/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
+SCRIPTS := $(wildcard plugins/*/scripts/*.sh scripts/*.sh) $(wildcard controller/test/shims/*) factory/testdata/gh factory/testdata/claude controller/fake/gh
 
-.PHONY: check lint validate standard test ui factory factory-go browser binaries controller dashboard
-# The gate parallelises inside its targets (the Python runner's process pool, go test) and never across
-# them: the targets run one after the other so their output does not interleave, because the make that
-# ships with macOS is 3.81 and has no --output-sync to keep a parallel target's lines together.
-check: lint validate standard test ui factory browser controller dashboard
+.PHONY: check lint validate standard ui factory factory-go browser binaries controller dashboard
+# The gate parallelises inside its targets (vitest, go test) and never across them: the targets run
+# one after the other so their output does not interleave, because the make that ships with macOS is
+# 3.81 and has no --output-sync to keep a parallel target's lines together.
+check: lint validate standard ui factory browser controller dashboard
 
 # The factory's dashboard: an npm package that Vite builds into factory/ui/dist/app, which the binary
 # embeds. Every target below needs that build, so it is a file the others depend on.
@@ -31,13 +31,6 @@ validate:
 
 standard:
 	plugins/repo-standards/scripts/check.sh
-
-# The suite builds the release binaries with the real scripts/factory-binaries.sh, which refuses to
-# build one without the dashboard inside it, so the build it embeds has to be there first. The runner
-# runs the test classes on a pool of processes, one per CPU; `python3 tests/run.py -j 1 <module or class>`
-# repeats one alone, and plain `python3 -m unittest discover -s tests` still runs them all.
-test: $(UI_BUILD)
-	python3 tests/run.py
 
 # The binaries a factory host downloads, built the way the release workflow builds them: the
 # dashboard first, because the binary embeds it, then one static binary per host architecture.
@@ -86,10 +79,12 @@ factory-go:
 	go -C factory test -race -count=1 -parallel 16 ./... # the service is goroutines over shared run records: the gate says so
 
 # The controller, the local peer of the factory: a TypeScript package in controller/. Its lint is eslint
-# and the type check; its tests build the binary and start it in fake mode with a scripted gh.
+# and the type check; its tests build the binary and start it in fake mode with a scripted gh. They also run
+# the shell scripts that stay shell (controller/test/scripts), among them scripts/factory-binaries.sh, which
+# refuses to build a binary without the dashboard inside it, so the build it embeds has to be there first.
 CONTROLLER := controller
 
-controller: $(CONTROLLER)/node_modules
+controller: $(UI_BUILD) $(CONTROLLER)/node_modules
 	npm --prefix $(CONTROLLER) run lint
 	npm --prefix $(CONTROLLER) test
 
