@@ -66,6 +66,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
 2. `report.sh` merges their `finding:` lines per category, and `approve.sh` records the answer per category ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).
 3. `/repo-standards:apply` runs `backup.sh`, `cleanup.sh prepare` on `chore/standardize`, `cleanup.sh open` for the cleanup pull request, and `issues.sh`.
 4. After the merge `finalize.sh` applies the workspace for an approved `configure` finding, posts the snapshot and runs `check.sh` ([ADR 0010](adr/0010-standardisation-audits-read-only-and-backs-up-before-deleting.md)).
+5. "Standardize" on the project page opens a standardize process of the controller, which runs the same scripts and auditors ([controller](../controller/README.md#standardize-process)).
+   - Each auditor reports its findings through its structured result, and the process view takes the approval per category.
 
 ### Factory
 1. The factory clones each connected repository. Every poll derives one queue of routed issues, oldest routing first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)).

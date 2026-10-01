@@ -147,8 +147,9 @@ jobs:
           cache-dependency-path: |
             controller/package-lock.json
             dashboard/package-lock.json
-      - name: Install make, which the image leaves out
-        run: apt-get update && apt-get install -y --no-install-recommends make
+      # jq: the repo-standards scripts the standardize test runs call it.
+      - name: Install make and jq, which the image leaves out
+        run: apt-get update && apt-get install -y --no-install-recommends make jq
       # The job runs as root in a checkout the runner's user owns, and git refuses to read a repository
       # someone else owns. go build reads it to stamp the binary with its commit.
       - name: Let git read the checkout

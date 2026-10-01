@@ -24,9 +24,10 @@ export const dot: Record<Process["state"], string> = {
 
 // The controller carries out claim, abandon, resume, adopt, merge, plan, a hunt and the start of an
 // acceptance. A permission, a question, a blocked session and a failed one are answered or read on the
-// process's page, which their actions open, and so is the finish of a hunt that removed nothing. It does
-// not serve any other action yet, so a row shows those disabled.
-const opens = ["Answer", "Approve", "Continue", "Open", "Finish"]
+// process's page, which their actions open, and so are the finish of a hunt that removed nothing and the
+// answers and the finalize of a standardize process. It does not serve any other action yet, so a row
+// shows those disabled.
+const opens = ["Answer", "Approve", "Continue", "Open", "Finish", "Finalize"]
 
 // ProcessRow is one process of the project at path: its state as a dot, its issue and branch, the note,
 // the stage and the time since it last changed. It shows the one action that moves it on, and a work

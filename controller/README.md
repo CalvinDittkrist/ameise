@@ -87,7 +87,8 @@ The board is derived on every request from the state directory, git and GitHub, 
   - `unseen` says it turned `blocked`, `ready` or `failed` and its page has not been opened since.
   - A claimed process is `created` until its first session starts.
   - `blocked`, `approval`, `ready`, `input`, `interrupted`, `foreign` and `done` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume`, `Adopt` or `Finish`.
-  - `done` is a hunt that removed nothing and opens no pull request.
+  - `done` is a hunt that removed nothing and opens no pull request, or a standardisation that is finalized.
+  - A standardize process waiting for its answers (`input`) has the action `Approve`, one whose cleanup pull request is open (`ready`) `Finalize`.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
@@ -155,6 +156,9 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 - `tool <name> <json>` calls a github tool of a planner session with the arguments.
+- `auditor-<category>` says what the auditor of that category of a [standardize process](#standardize-process) reports, `auditor` what every other one reports.
+  - It plays `found <line>` per finding line, then `findings`. Without either file each auditor reports one finding of its category.
+- `apply` says what the apply session of a standardize process does. Without it, it reports `complete`.
 
 In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script):
 - `next-pull` is the number `gh pr create` gives.
@@ -164,6 +168,8 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 - `pulls/<n>.threads.json` are the review threads of a pull request. The resolve mutation resolves a thread written with its id first, and `gh pr comment` appends to `pulls/<n>.comments`.
 - Once `gh pr merge` merged a canned pull request, `pulls/<n>.merged.json` answers before its readings.
 - `api/<endpoint>` answers `gh api` of that endpoint, whatever the method. An endpoint that is also the directory of longer ones keeps its answer in the file `@` inside it.
+  - A body `gh api --input -` sends is appended, as one line, to `api/<endpoint>.<METHOD>`, such as `api/repos/o/r/pulls.POST`.
+- `git/<owner>/<name>.git` is the repository the scripts of a standardize process push to and fetch from as origin.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -494,6 +500,34 @@ Its hunt session starts at once, in the stage `hunt`, as the implement session d
 - A hunt that removed nothing opens no pull request. It turns `done`, and its note says so with its rounds and the candidates it kept.
   - A finish stops its session, then removes the worktree, the hunt branch and the process. It refuses, unless forced, changes not committed and commits not on origin.
 
+## Standardize process
+Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand. The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
+- The scripts work the default branch GitHub names, so a project whose base differs is refused with `409`.
+  - So is a project that is a linked worktree, since the scripts find the cleanup worktree from the main checkout.
+- A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content.
+  - An empty repository is refused with the first commit it needs.
+
+The process runs the plugin's scripts from the bundled plugins in the checkout, in three stages:
+1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
+   - Each is one session with the agent `repo-standards:<category>-auditor`, read-only in the default mode with no tool that writes.
+   - Each reports its `finding:` lines in its structured result. `report.sh` merges them per category; a line it refuses is dropped and named in `dropped`.
+   - The process turns `input`: the record's `standardize` holds the facts, each auditor's end, and per category its findings and what `report.sh` says approving it triggers.
+   - A `workspace.sh` that cannot read the workspace leaves it unaudited: its error goes into `unaudited` and the note, and a later `done` does not call the workspace configured.
+   - An auditor that fails, or a restart while the audit runs or a session of it asks a question, fails the audit, which runs again on request.
+2. `apply` takes an answer, `approve` or `reject`, for every category in the report.
+   - It runs `approve.sh`, `backup.sh`, `cleanup.sh prepare`, the apply session for the todo lines, `cleanup.sh open` and `issues.sh`, in that order.
+   - It keeps each step in `applied`.
+   - An `approve.sh` that refuses the answers, as when its stored report is gone, fails the audit, which runs again on request.
+   - The backup comes before any deletion: a backup that fails stops the apply and deletes nothing.
+   - The apply session works in the worktree in auto mode; one that ends `blocked` turns the process `blocked`. It runs once: no chat or terminal resumes it.
+   - It turns `ready` with the cleanup pull request in `pull` and the catalogue issue in `catalogue`. A failed or blocked apply applies again with the answers it has.
+3. `finalize`, once the cleanup pull request is merged, runs `finalize.sh`: the workspace for an approved `configure` finding and the standard check.
+   - A pass turns the process `done`, a failing check `failed` with the failing lines, and a refusal, as for a pull request not merged yet, `ready` again with the reason.
+
+A finish removes the worktree, the local branch and the process, as for a hunt. The tag `pre-standard`, the pull request and the catalogue issue stay.
+
+In fake mode the scripts push to the canned `git/<owner>/<name>.git` and call the scripted gh.
+
 ## Quota
 The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
@@ -569,8 +603,13 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/acceptances/check` with `{"id": "<id>"}`: runs a failed acceptance again and answers `200` with `{record}`.
 - `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
 - `POST /api/hunts` with `{"project": "<path>"}`: opens a [hunt process](#hunt-process), starts its session and answers `201` with `{record, warnings}`; `409` refuses the hunt.
+- `POST /api/standardize` with `{"project": "<path>"}`: opens a [standardize process](#standardize-process), starts its audit and answers `201` with `{record}`; `409` refuses it.
+- `POST /api/standardize/audit` with `{"id": "<id>"}`: runs a failed audit again and answers `200` with `{record}`.
+- `POST /api/standardize/apply` with `{"id": "<id>", "answers": {"files": "approve", "docs": "reject", ...}}`: applies the approved categories and answers `200` with `{record}`.
+  - `400` refuses a category without an answer, `409` a process whose audit does not wait for its answers. Without `answers` it applies a failed or blocked apply again.
+- `POST /api/standardize/finalize` with `{"id": "<id>"}`: runs `finalize.sh` once the cleanup pull request is open and answers `200` with `{record}`.
 - `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.
-- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan or the hunt and answers `200` with `{id, branch, worktree}`.
+- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan, the hunt or the standardisation and answers `200` with `{id, branch, worktree}`.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.

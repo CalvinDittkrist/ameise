@@ -31,6 +31,8 @@
 #                                          ...}, is resolved by the resolveReviewThread mutation
 #     repos/<owner>/<name>/pulls/<n>.comments
 #                                          written by gh pr comment --body-file: every comment on it
+#     repos/<owner>/<name>/projects.json  the projects linked to it, which the graphql query of workspace.sh
+#                                          answers; absent, it has none
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
 #                                          (gh issue close, gh release create and gh api --method PATCH
@@ -45,6 +47,11 @@
 #                                          its answer in the file @ of that directory
 #     api/<endpoint>.fails                 present: gh api <endpoint> fails with its content on stderr, as a
 #                                          GitHub that answers an error other than not found does
+#     api/<endpoint>.<METHOD>              written by gh api --method <METHOD> <endpoint> --input -, such as
+#                                          api/repos/<owner>/<name>/issues.POST: every body it was sent, one
+#                                          a line; it answers api/<endpoint> where that is canned, else {}
+#     git/<owner>/<name>.git               the repository origin is in fake mode for the scripts of the
+#                                          standardize process, which push and fetch (standardize.ts)
 #     repos/<owner>/<name>/runs/<id>.log   the failed log gh run view <id> --log-failed answers
 #     login                                the login gh api user answers; fake without it
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
@@ -150,8 +157,39 @@ case "$*" in
     printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
   'issue close '*' --repo '*)
     printf 'Closed issue %s#%s\n' "$5" "$3" ;;
+  'api '*' --input -')
+    args=("$@")
+    endpoint=${args[$# - 3]}
+    method=POST
+    for ((i = 1; i < $# - 1; i++)); do
+      if [ "${args[$i]}" = --method ]; then method=${args[$i + 1]}; fi
+    done
+    case "$endpoint" in *..* | '' | -*)
+      printf 'error: the fake gh has no answer to: gh %s\n' "$*" >&2
+      exit 1 ;;
+    esac
+    body=$(cat)
+    if [ -z "$canned" ]; then
+      printf '{}\n'
+      exit 0
+    fi
+    mkdir -p "$(dirname "$canned/api/$endpoint")"
+    printf '%s\n' "$(tr -d '\n' <<<"$body")" >> "$canned/api/$endpoint.$method"
+    file="$canned/api/$endpoint"
+    if [ -d "$file" ]; then file="$file/@"; fi
+    if [ -f "$file" ]; then cat "$file"; else printf '{}\n'; fi ;;
   'api --method PATCH '*)
     printf '{}\n' ;;
+  'repo view --json nameWithOwner -q .nameWithOwner')
+    # The repository of the checkout it runs in, by the origin it was cloned from.
+    origin=$(git config --get remote.origin.url 2>/dev/null || true)
+    nwo=${origin#*github.com[:/]}
+    nwo=${nwo%.git}
+    if [ "$nwo" = "$origin" ] || [ -z "$nwo" ]; then
+      printf 'none of the git remotes configured for this repository point to a known GitHub host\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$nwo" ;;
   'pr list --repo '*' --state open --limit 100 --json '*)
     file="$canned/repos/$4/pulls.json"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
@@ -214,6 +252,11 @@ case "$*" in
       done
     fi
     printf '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}\n' ;;
+  'api graphql -f query='*' -f o='*' -f n='*)
+    file="$canned/repos/${6#o=}/${8#n=}/projects.json"
+    projects='[]'
+    if [ -n "$canned" ] && [ -f "$file" ]; then projects=$(cat "$file"); fi
+    printf '{"data":{"repository":{"projectsV2":{"nodes":%s}}}}\n' "$projects" ;;
   'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
     file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
     threads='[]'

@@ -68,10 +68,11 @@ class ManifestTests(unittest.TestCase):
                 self.assertIn(effort.group(1), {"low", "medium", "high", "xhigh", "max"}, rel)
             self.assertEqual((model.group(1), effort and effort.group(1)), expected[rel], rel)
 
-    def assert_read_only(self, agent):
-        """An agent that only judges: no edit tool and no agent tool, neither granted nor reachable."""
+    def assert_read_only(self, agent, reports=False):
+        """An agent that only judges: no edit tool and no agent tool, neither granted nor reachable. One that
+        reports to the controller also has StructuredOutput, which hands its result over and changes nothing."""
         fields = dict(line.split(": ", 1) for line in agent.read_text().split("---")[1].strip().splitlines())
-        self.assertEqual(fields["tools"].split(", "), ["Read", "Grep", "Glob", "Bash"], agent)
+        self.assertEqual(fields["tools"].split(", "), ["Read", "Grep", "Glob", "Bash"] + (["StructuredOutput"] if reports else []), agent)
         self.assertTrue({"Edit", "Write", "NotebookEdit", "Agent"} <= set(fields["disallowedTools"].split(", ")), agent)
         self.assertNotIn("mcpServers", fields, agent)
 
@@ -80,7 +81,7 @@ class ManifestTests(unittest.TestCase):
         names = {"files", "agent-config", "docs", "tests-ci", "workspace", "security"}
         self.assertEqual({p.stem for p in agents.glob("*.md")}, {f"{n}-auditor" for n in names})
         for agent in agents.glob("*.md"):
-            self.assert_read_only(agent)
+            self.assert_read_only(agent, reports=True)
 
     def test_the_documentation_lookup_is_read_only_by_its_declared_tools(self):
         self.assert_read_only(ROOT / "plugins/worker/agents/docs-lookup.md")

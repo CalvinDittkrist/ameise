@@ -39,6 +39,10 @@ const actions: Partial<Record<State, string>> = {
   failed: 'Open',
 }
 
+// A standardize process waits in input for an answer per category, and once ready for its finalize after
+// the cleanup pull request is merged by hand.
+const standardizeActions: Partial<Record<State, string>> = { ...actions, input: 'Approve', ready: 'Finalize' }
+
 export type Checks = 'none' | 'pending' | 'pass' | 'fail'
 
 export interface Process {
@@ -224,7 +228,7 @@ function derived(branch: string, record: (ProcessRecord & { id: string }) | unde
     since: record?.updated_at ?? since ?? null,
     note,
     needs: actions[state] !== undefined,
-    action: actions[state] ?? 'Open',
+    action: (kind === 'standardize' ? standardizeActions : actions)[state] ?? 'Open',
     unseen: record?.unseen === true,
   }
 }
