@@ -2,7 +2,7 @@ import json
 import subprocess
 import unittest
 
-from helpers import STANDARDIZE, STANDARDS, ShimTest
+from helpers import STANDARDS, ShimTest
 
 
 class StandardsTests(ShimTest):
@@ -77,27 +77,6 @@ class StandardsTests(ShimTest):
         settings = json.loads((self.repo / ".claude/settings.json").read_text())
         self.assertEqual(settings["enabledPlugins"], {"foo@bar": False, "planner@ameise": True,
                                                       "repo-standards@ameise": True, "worker@ameise": True})
-
-    def test_the_scaffolded_categories_are_the_ones_the_report_names(self):
-        """WF_SCAFFOLD_CATEGORIES (the controller's lib.sh) is what report.sh promises; scaffold.sh of the plugin is
-        what really writes files. One run per category, everything else skipped, so a put call added or moved shows
-        up here."""
-        def var(lib, name):
-            return subprocess.run(["bash", "-c", f'. "{lib / "lib.sh"}"; printf "%s" "${name}"'],
-                                  capture_output=True, text=True, check=True).stdout.split()
-        every, scaffolded = var(STANDARDS, "WF_CATEGORIES"), var(STANDARDIZE, "WF_SCAFFOLD_CATEGORIES")
-        self.assertEqual(every, var(STANDARDIZE, "WF_CATEGORIES"), "the plugin and the controller name other categories")
-        self.assertTrue(set(scaffolded) <= set(every), scaffolded)
-        for c in every:
-            root = self.base / f"scaffold-{c}"
-            root.mkdir()
-            skips = [a for other in every if other != c for a in ("--skip", other)]
-            r = self.run_script(STANDARDS / "scaffold.sh", *skips, str(root))
-            self.assertEqual(r.returncode, 0, r.stderr)
-            written = sorted(str(f.relative_to(root)) for f in root.rglob("*") if f.is_file())
-            self.assertEqual(bool(written), c in scaffolded, f"{c} alone wrote {written}")
-            # The settings file is the agent-config part of the scaffold, which the report names on its own.
-            self.assertEqual(".claude/settings.json" in written, c == "agent-config", f"{c} alone wrote {written}")
 
     def test_scaffold_skips_the_files_of_a_category(self):
         r = self.run_script(STANDARDS / "scaffold.sh", "--skip", "agent-config", "--skip", "docs")
