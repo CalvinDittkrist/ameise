@@ -79,9 +79,10 @@ export function settingOf(env: Record<string, string>, checkout: string, name: s
 }
 
 // knob reads a whole-number knob of the process, or the default where it is not set. A value that is no
-// whole number of at least min is refused with the reason.
-export function knob(record: WorkRecord, name: string, fallback: number, min = 0): number {
-  const value = setting(record, name)
+// whole number of at least min is refused with the reason. A record without overrides, as a plan's,
+// reads it from the repository's settings alone.
+export function knob(record: { env?: Record<string, string>; project: string }, name: string, fallback: number, min = 0): number {
+  const value = settingOf(record.env ?? {}, record.project, name)
   if (value === undefined || value === '') return fallback
   const n = Number(value)
   if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
