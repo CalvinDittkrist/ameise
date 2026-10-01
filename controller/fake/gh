@@ -31,6 +31,8 @@
 #                                          ...}, is resolved by the resolveReviewThread mutation
 #     repos/<owner>/<name>/pulls/<n>.comments
 #                                          written by gh pr comment --body-file: every comment on it
+#     repos/<owner>/<name>/projects.json  the projects linked to it, which the graphql query of workspace.sh
+#                                          answers; absent, it has none
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
 #                                          (gh issue close, gh release create and gh api --method PATCH
@@ -250,6 +252,11 @@ case "$*" in
       done
     fi
     printf '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}\n' ;;
+  'api graphql -f query='*' -f o='*' -f n='*)
+    file="$canned/repos/${6#o=}/${8#n=}/projects.json"
+    projects='[]'
+    if [ -n "$canned" ] && [ -f "$file" ]; then projects=$(cat "$file"); fi
+    printf '{"data":{"repository":{"projectsV2":{"nodes":%s}}}}\n' "$projects" ;;
   'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
     file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
     threads='[]'

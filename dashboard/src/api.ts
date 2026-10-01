@@ -285,6 +285,8 @@ export type Standardization = {
   workspace: string[]
   auditors: { category: StandardCategory; state: string; note: string; findings: number }[]
   summary: string
+  // The error of workspace.sh when the GitHub workspace could not be audited.
+  unaudited?: string
   categories: {
     name: StandardCategory
     findings: { target: string; action: string; reason: string; confidence: string }[]

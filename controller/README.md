@@ -502,19 +502,22 @@ Its hunt session starts at once, in the stage `hunt`, as the implement session d
 
 ## Standardize process
 Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand. The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
+- The scripts work the default branch GitHub names, so a project whose base differs is refused with `409`; so is a project that is a linked worktree, since the scripts find the cleanup worktree from the main checkout.
+- A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content. An empty repository is refused with the first commit it needs.
 
 The process runs the plugin's scripts from the bundled plugins in the checkout, in three stages:
 1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
    - Each is one session with the agent `repo-standards:<category>-auditor`, read-only in the default mode with no tool that writes.
    - Each reports its `finding:` lines in its structured result. `report.sh` merges them per category; a line it refuses is dropped and named in `dropped`.
    - The process turns `input`: the record's `standardize` holds the facts, each auditor's end, and per category its findings and what `report.sh` says approving it triggers.
-   - An auditor that fails, or a restart while the audit runs, fails the audit, which runs again on request.
+   - A `workspace.sh` that cannot read the workspace leaves it unaudited: its error goes into `unaudited` and the note, and a later `done` does not call the workspace configured.
+   - An auditor that fails, or a restart while the audit runs or a session of it asks a question, fails the audit, which runs again on request.
 2. `apply` takes an answer, `approve` or `reject`, for every category in the report.
    - It runs `approve.sh`, `backup.sh`, `cleanup.sh prepare`, the apply session for the todo lines, `cleanup.sh open` and `issues.sh`, in that order.
    - It keeps each step in `applied`.
    - An `approve.sh` that refuses the answers, as when its stored report is gone, fails the audit, which runs again on request.
    - The backup comes before any deletion: a backup that fails stops the apply and deletes nothing.
-   - The apply session works in the worktree in auto mode; one that ends `blocked` turns the process `blocked`.
+   - The apply session works in the worktree in auto mode; one that ends `blocked` turns the process `blocked`. It runs once: no chat or terminal resumes it.
    - It turns `ready` with the cleanup pull request in `pull` and the catalogue issue in `catalogue`. A failed or blocked apply applies again with the answers it has.
 3. `finalize`, once the cleanup pull request is merged, runs `finalize.sh`: the workspace for an approved `configure` finding and the standard check.
    - A pass turns the process `done`, a failing check `failed` with the failing lines, and a refusal, as for a pull request not merged yet, `ready` again with the reason.

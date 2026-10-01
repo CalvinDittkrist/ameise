@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canPages, canPulls, checkout, cleanup, type Machine, machine, read, start, tools } from './controller.js'
+import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, read, start, tools } from './controller.js'
 
 afterEach(cleanup)
 
@@ -40,8 +40,12 @@ beforeEach(async () => {
   canApi(m, 'repos/owner/repo/issues?labels=ready-for-agent&state=open&per_page=100', [])
   canApi(m, 'repos/owner/repo/issues?labels=spec&state=open&per_page=100', [])
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
-  canApi(m, 'repos/owner/repo', { full_name: 'owner/repo', default_branch: 'main', visibility: 'private', private: true, owner: { login: 'owner', type: 'User' } })
+  canApi(m, 'repos/owner/repo', { full_name: 'owner/repo', default_branch: 'main', visibility: 'private', private: true, permissions: { admin: true }, owner: { login: 'owner', type: 'User' } })
   canPages(m, 'repos/owner/repo/rulesets?includes_parents=false&per_page=100', [[]])
+  // The dry run of workspace.sh reads the workspace with the admin rights the account has.
+  canApi(m, 'repos/owner/repo/commits/main/check-runs?check_name=check&per_page=1', { total_count: 1 })
+  canApi(m, 'repos/owner/repo/actions/permissions/workflow', { default_workflow_permissions: 'read', can_approve_pull_request_reviews: false })
+  canPages(m, 'repos/owner/repo/milestones?state=open&per_page=100', [[]])
   canPages(m, 'repos/owner/repo/labels?per_page=100', [[{ name: 'skill-candidate' }, { name: 'ready-for-agent' }]])
   // The catalogue issue is found by its title; the backup updates its body.
   canPages(m, 'repos/owner/repo/issues?labels=skill-candidate&state=all&per_page=100', [[{ number: 5, title: catalogueTitle }]])
@@ -278,16 +282,23 @@ test('an apply whose answers approve.sh refuses fails the audit, which audits ag
   expect(audit.standardize?.categories.every((c) => c.answer === undefined)).toBe(true)
 })
 
-test('a controller stopped while the apply session runs fails the apply at its next start, which applies again', async () => {
+test('a controller stopped while the apply session runs or asks fails the apply at its next start, which applies again, and no terminal resumes that session', async () => {
   auditor('agent-config', 'finding: agent-config | .claude/skills/old-helper | delete | a repository-local skill | high')
   const r = await audited()
   writeFileSync(join(m.claude, 'apply'), 'wait\n')
   const answers = { files: 'approve', 'agent-config': 'approve', docs: 'reject', 'tests-ci': 'reject', workspace: 'reject', security: 'reject' }
   expect((await api(m, 'POST', '/api/standardize/apply', { id: r.id, answers })).status).toBe(200)
   await until(r.id, (x) => x.note.startsWith('the apply session works'))
+  // The apply session runs once, within the apply: no terminal resumes it.
+  const terminal = await api(m, 'POST', '/api/processes/terminal', { id: r.id })
+  expect(terminal.status).toBe(409)
+  expect((terminal.body as { error: string }).error).toMatch(/^the apply session of a standardize process runs once/)
   const exited = new Promise((d) => server.once('exit', d))
   server.kill('SIGKILL')
   await exited
+  // The session had asked a question, which turned the process to input.
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  writeFileSync(file, JSON.stringify({ ...recordOf(r.id), state: 'input' }))
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
   server = s.process
@@ -309,6 +320,23 @@ test('a standardize is refused while one runs or its branch exists, and a finish
   expect(origin.status).toBe(409)
   expect((origin.body as { error: string }).error).toMatch(/^the branch chore\/standardize exists on origin/)
   canPages(m, 'repos/owner/repo/branches?per_page=100', [[]])
+
+  // The scripts work the default branch GitHub names, so a project on another base is refused.
+  canApi(m, 'repos/owner/repo', { full_name: 'owner/repo', default_branch: 'dev', permissions: { admin: true } })
+  const base = await api(m, 'POST', '/api/standardize', { project: dir })
+  expect(base.status).toBe(409)
+  expect((base.body as { error: string }).error).toMatch(/^the base of .* is main, but the standardisation works the default branch dev/)
+  canApi(m, 'repos/owner/repo', { full_name: 'owner/repo', default_branch: 'main', visibility: 'private', private: true, permissions: { admin: true }, owner: { login: 'owner', type: 'User' } })
+
+  // A linked worktree is no project the scripts find their cleanup worktree from.
+  const linked = join(m.root, 'linked')
+  git(dir, 'worktree', 'add', '-q', '-b', 'linked', linked)
+  expect((await api(m, 'POST', '/api/projects', { path: linked })).status).toBe(201)
+  const inLinked = await api(m, 'POST', '/api/standardize', { project: linked })
+  expect(inLinked.status).toBe(409)
+  expect((inLinked.body as { error: string }).error).toMatch(/is a linked worktree of /)
+  expect((await api(m, 'DELETE', '/api/projects', { path: linked })).status).toBe(200)
+  git(dir, 'worktree', 'remove', '--force', linked)
 
   const r = await audited()
   const twice = await api(m, 'POST', '/api/standardize', { project: dir })
@@ -346,10 +374,14 @@ test('a controller stopped mid-audit fails the audit at its next start, and the 
 })
 
 test('an auditor without a result fails the audit, and a finding line report.sh refuses is dropped and named', async () => {
-  auditor('files', 'finding: files | /etc/passwd | delete | outside | high', 'finding: files | NOTES.md | delete | agent notes | high')
+  auditor('files', 'finding: files | /etc/passwd | delete | outside | high', '- `finding: files | ../up | delete | outside | high`', 'finding: files | NOTES.md | delete | agent notes | high')
   const r = await audited()
   expect(r.state, r.note).toBe('input')
-  expect(r.standardize?.dropped).toEqual(['finding: files | /etc/passwd | delete | outside | high (target /etc/passwd leaves the repository; use a path relative to its root)'])
+  // A line in a list item or backticks is dropped as report.sh names it, without them.
+  expect(r.standardize?.dropped).toEqual([
+    'finding: files | /etc/passwd | delete | outside | high (target /etc/passwd leaves the repository; use a path relative to its root)',
+    'finding: files | ../up | delete | outside | high (target ../up leaves the repository; use a path relative to its root)',
+  ])
   expect(r.standardize?.categories.find((c) => c.name === 'files')?.findings.map((f) => f.target)).toEqual(['NOTES.md'])
 
   const f = await api(m, 'POST', '/api/processes/finish', { id: r.id })
@@ -358,4 +390,12 @@ test('an auditor without a result fails the audit, and a finding line report.sh 
   const broke = await audited()
   expect(broke).toMatchObject({ state: 'failed', stage: 'audit' })
   expect(broke.note).toMatch(/^the security auditor failed: the security auditor exited without a result; audit again$/)
+})
+
+test('a workspace that cannot be read is reported as not audited, and the finalize does not call it configured', async () => {
+  failApi(m, 'repos/owner/repo/milestones?state=open&per_page=100', 'gh: Server Error (HTTP 502)')
+  const r = await audited()
+  expect(r.state, r.note).toBe('input')
+  expect(r.note).toBe('findings: 6 in 6 categories; 5 for the run, 1 as issues; the GitHub workspace was not audited: cannot read repos/owner/repo/milestones?state=open&per_page=100: gh: Server Error (HTTP 502); approve or reject each category in the process view')
+  expect((r.standardize as { unaudited?: string } | undefined)?.unaudited).toBe('cannot read repos/owner/repo/milestones?state=open&per_page=100: gh: Server Error (HTTP 502)')
 })

@@ -12,11 +12,12 @@
 // the standard check. Every script is safe to run again, so a failed step is applied again from the start.
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { addWorktree, type CreatedRecord, exists, fetch, git, held, type Mode, writeProcess } from './claim.js'
+import { run } from './exec.js'
 import { settingOf } from './gate.js'
 import { removal } from './hunt.js'
 import { type Project, Refusal } from './project.js'
@@ -57,8 +58,8 @@ export interface Step {
 }
 
 // What a standardize process keeps on its record: the facts the auditors were briefed with, how each
-// auditor ended, the report per category, the finding lines report.sh refused, and what the apply and the
-// finalize did.
+// auditor ended, the report per category, the finding lines report.sh refused, the error of workspace.sh
+// when the workspace could not be audited, and what the apply and the finalize did.
 export interface Standardization {
   facts: string[]
   workspace: string[]
@@ -67,6 +68,7 @@ export interface Standardization {
   categories: CategoryReport[]
   dropped: string[]
   applied?: Step[]
+  unaudited?: string
   pull?: string
   catalogue?: number
   result?: 'pass' | 'fail'
@@ -107,10 +109,28 @@ async function standardizeHeld(project: Project, stateDir: string, gh: string, f
   }
   if (remote) throw new Refusal(`the branch ${branch} exists on origin; merge its pull request and finalize, or delete it with git push origin --delete ${branch}`, 409)
 
+  // The repo-standards scripts derive the cleanup worktree from the main checkout, beside its git directory.
+  const main = dirname(resolve(top, await git(top, 'rev-parse', '--git-common-dir')))
+  if (realpathSync(main) !== realpathSync(top)) throw new Refusal(`${top} is a linked worktree of ${main}, whose cleanup worktree the repo-standards scripts work in; add ${main} as the project and standardize there`, 409)
+  // The scripts back up, clean up, open the pull request on and check the default branch GitHub names, so
+  // the standardisation works that branch alone.
   const base = project.base
-  await fetch(top, base, fake)
+  let named: string
+  try {
+    named = (JSON.parse(await run(gh, ['api', `repos/${repo}`])) as { default_branch?: string }).default_branch ?? ''
+  } catch (err) {
+    throw new Refusal(`could not read the default branch of ${repo}: ${(err as Error).message}; standardize again once GitHub answers`, 502)
+  }
+  if (named !== base) throw new Refusal(`the base of ${top} is ${base}, but the standardisation works the default branch ${named || 'of GitHub, which names none'}; make ${base} the default branch on GitHub, or drop WF_BASE_BRANCH, and standardize again`, 409)
+  // An empty repository has no commit to branch from; a first commit on origin gives it one.
+  const empty = `${repo} has no commit yet, so the standardisation has nothing to branch from; push a first commit (git commit --allow-empty -m init && git push -u origin HEAD) and standardize again`
+  // A stale tracking ref would audit and branch from old content, so the base comes fresh from origin.
+  if (!(await fetch(top, base, fake))) {
+    if (!(await exists(top, 'HEAD'))) throw new Refusal(empty, 409)
+    throw new Refusal(`could not fetch ${base} from origin; standardize again once origin answers`, 502)
+  }
   const start = (await exists(top, `origin/${base}`)) ? `origin/${base}` : base
-  if (!(await exists(top, start))) throw new Refusal(`the base ${base} is neither on origin nor in ${top}; fetch it and standardize again`, 409)
+  if (!(await exists(top, start))) throw new Refusal(await exists(top, 'HEAD') ? `the base ${base} is neither on origin nor in ${top}; fetch it and standardize again` : empty, 409)
   const { path } = await addWorktree(top, branch, start)
   const undo = async () => {
     await git(top, 'worktree', 'remove', '--force', path).catch(() => undefined)
@@ -231,8 +251,14 @@ export function auditorBrief(record: StandardizeRecord, repo: string, category: 
   ].join('\n')
 }
 
-// oneLine keeps a finding line to one line, as report.sh reads one finding a line.
-const oneLine = (s: string) => s.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim()
+// oneLine keeps a finding line to one line, as report.sh reads one finding a line, and strips a list
+// bullet and backticks around it as report.sh does, so its error names the line as the controller keeps it.
+const oneLine = (s: string) =>
+  s
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ')
+    .trim()
+    .replace(/^([-*]\s+)?`?/, '')
+    .replace(/`\s*$/, '')
 
 // audit starts the audit of a standardize process and answers the record as it runs: the facts, the six
 // auditors in parallel and their report per category, then the wait for an answer per category.
@@ -248,7 +274,9 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
     if (f.code !== 0) return failed(rt, id, 'audit', `the audit failed: facts.sh: ${firstError(f, 'facts.sh')}; audit again`)
     const ws = await script(project, rt, signal, 'workspace.sh')
     if (!own()) return
-    event(rt.stateDir, id, { event: 'audit-facts', facts: f.lines.length, workspace: ws.code === 0 ? 'read' : firstError(ws, 'workspace.sh') })
+    // A workspace that cannot be read is not audited, which the report says, as the plugin's does.
+    const unaudited = ws.code === 0 ? undefined : firstError(ws, 'workspace.sh')
+    event(rt.stateDir, id, { event: 'audit-facts', facts: f.lines.length, workspace: unaudited ?? 'read' })
     update(rt.stateDir, id, { note: 'the six auditors run' })
     const ends = await auditors(started, rt, s, own, categories.map((c) => ({ category: c, brief: auditorBrief(started, repo, c, f.lines, ws.lines) })))
     if (!own()) return
@@ -267,8 +295,10 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
       summary: reported.summary,
       categories: reported.categories,
       dropped: reported.dropped,
+      ...(unaudited ? { unaudited } : {}),
     }
-    const note = `${reported.summary}; approve or reject each category in the process view`
+    const unread = unaudited ? `; the GitHub workspace was not audited: ${unaudited}` : ''
+    const note = `${reported.summary}${unread}; approve or reject each category in the process view`
     event(rt.stateDir, id, { event: 'audit-end', stage: 'audit', state: 'input', note, categories: reported.categories.map((c) => c.name), dropped: reported.dropped.length })
     const waiting = update(rt.stateDir, id, { state: 'input', note, unseen: true, standardize: standardization } as Partial<StandardizeRecord>)
     if (waiting) rt.announce(waiting)
@@ -476,7 +506,9 @@ export function finalize(project: Project, rt: Runtime, id: string): Standardize
     const applied = [...(st.applied ?? []), { step: 'finalize', ok: out.code === 0, lines: out.lines, at: new Date().toISOString() }]
     update(rt.stateDir, id, { standardize: { ...st, applied, ...(result ? { result } : {}) } } as Partial<StandardizeRecord>)
     if (out.code === 0) {
-      const note = 'standardized: the workspace is configured and the standard check passes; finish to remove the process'
+      const note = st.unaudited
+        ? `standardized but for the GitHub workspace, which the audit could not read (${st.unaudited}); the standard check passes; configure the workspace with workspace.sh, then finish to remove the process`
+        : 'standardized: the workspace is configured and the standard check passes; finish to remove the process'
       event(rt.stateDir, id, { event: 'finalize-end', stage: 'finalize', state: 'done', note })
       const done = update(rt.stateDir, id, { state: 'done', note, unseen: true })
       if (done) rt.announce(done)

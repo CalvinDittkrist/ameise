@@ -53,6 +53,11 @@ export function Standardize({ record }: { record: ProcessRecord }) {
   return (
     <form aria-label="Standardisation" onSubmit={submit} className="flex max-w-3xl flex-col gap-3 text-sm">
       <p className="text-muted-foreground">{st.summary}</p>
+      {st.unaudited && (
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
+          The GitHub workspace was not audited: {st.unaudited}
+        </p>
+      )}
       {st.dropped.length > 0 && (
         <ul aria-label="Dropped findings" className="flex flex-col gap-0.5 text-xs text-amber-700 dark:text-amber-400">
           {st.dropped.map((d) => (
