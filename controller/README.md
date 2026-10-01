@@ -502,8 +502,10 @@ Its hunt session starts at once, in the stage `hunt`, as the implement session d
 
 ## Standardize process
 Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand. The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
-- The scripts work the default branch GitHub names, so a project whose base differs is refused with `409`; so is a project that is a linked worktree, since the scripts find the cleanup worktree from the main checkout.
-- A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content. An empty repository is refused with the first commit it needs.
+- The scripts work the default branch GitHub names, so a project whose base differs is refused with `409`.
+  - So is a project that is a linked worktree, since the scripts find the cleanup worktree from the main checkout.
+- A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content.
+  - An empty repository is refused with the first commit it needs.
 
 The process runs the plugin's scripts from the bundled plugins in the checkout, in three stages:
 1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
