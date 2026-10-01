@@ -1,19 +1,22 @@
 // The acceptance of a spec: the start gathers the facts and runs the scripted checker read-only, the
 // items wait on the record, and the answers write gap tickets and deviations through the github tools
 // and close the spec once nothing is left open.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import type { ChildProcess } from 'node:child_process'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { api, canApi, canIssue, canPages, canPulls, canRepo, checkout, cleanup, type Machine, machine, read, start } from './controller.js'
+import { api, canApi, canIssue, canPages, canPulls, canRepo, checkout, cleanup, failApi, type Machine, machine, read, start } from './controller.js'
 
 afterEach(cleanup)
 
 let m: Machine
 let dir: string
+let server: ChildProcess
 beforeEach(async () => {
   m = await machine()
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
+  server = s.process
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   canRepo(m, 'owner/repo', 'main')
   canPulls(m, 'owner/repo', [])
@@ -193,4 +196,108 @@ test('an acceptance whose checker reports no items fails, and checks again on re
   expect(again.status, JSON.stringify(again.body)).toBe(200)
   for (let i = 0; i < 400 && now(r.id).state === 'running'; i++) await new Promise((done) => setTimeout(done, 50))
   expect(now(r.id)).toMatchObject({ state: 'input', note: '1 item(s), all met; close the spec in the process view' })
+})
+
+// settled waits for the record of the acceptance to leave the state.
+async function settled(id: string, state = 'running') {
+  for (let i = 0; i < 400 && now(id).state === state; i++) await new Promise((done) => setTimeout(done, 50))
+}
+
+test.each(['SIGTERM', 'SIGKILL'] as const)('a controller stopped by %s while the checker runs fails the acceptance on restart, which checks again on request', async (signal) => {
+  canSpec()
+  mkdirSync(m.claude, { recursive: true })
+  // Without an end the checker runs until its input closes.
+  writeFileSync(join(m.claude, 'checker'), 'say Reading the code.')
+  const r = await api(m, 'POST', '/api/acceptances', { project: dir, spec: 100 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  const id = (r.body as { record: Rec }).record.id
+  for (let i = 0; i < 400 && !(existsSync(m.claudeLog) && read(m.claudeLog).includes('"type":"user"')); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(now(id)).toMatchObject({ state: 'running', note: 'the spec checker runs' })
+
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill(signal)
+  await exited
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  server = s.process
+  expect(now(id)).toMatchObject({ state: 'failed', note: 'the controller stopped while the acceptance ran; check again in the process view' })
+  expect(events(id).at(-1)).toMatchObject({ event: 'acceptance-end', state: 'failed' })
+
+  writeFileSync(join(m.claude, 'checker'), 'item Testing | The cache is tested | met | src/cache.ts:9 | high\nitems')
+  const again = await api(m, 'POST', '/api/acceptances/check', { id })
+  expect(again.status, JSON.stringify(again.body)).toBe(200)
+  await settled(id)
+  expect(now(id)).toMatchObject({ state: 'input', note: '1 item(s), all met; close the spec in the process view' })
+})
+
+test('a refused write keeps what was written before it, and the same answers sent again go on from there', async () => {
+  canSpec()
+  const r = await started()
+  canPages(m, 'repos/owner/repo/labels?per_page=100', [[{ name: 'ready-for-agent' }]])
+  canPages(m, 'repos/owner/repo/milestones?state=all&per_page=100', [[{ number: 3, title: 'v1.0.0', state: 'open', open_issues: 0, closed_issues: 1 }]])
+  canApi(m, 'repos/owner/repo/issues', { id: 5140, number: 140, html_url: 'https://github.com/owner/repo/issues/140' })
+  canApi(m, 'repos/owner/repo/issues/100/sub_issues', {})
+  failApi(m, 'repos/owner/repo/issues/100/comments', 'HTTP 500: Internal Server Error')
+  const answers = [
+    { item: 'item-2', answer: 'gap', title: 'Start an acceptance from the board' },
+    { item: 'item-3', answer: 'deviation', reason: 'The checker reads with Bash.' },
+    { item: 'item-4', answer: 'none', reason: 'The fake is test code.' },
+  ]
+
+  const refused = await answer(r.id, answers)
+  expect(refused.status).toBe(502)
+  expect((refused.body as { error: string }).error).toMatch(/^commenting on #100 failed: .*; what was written before stays, and the same answers sent again go on from there$/)
+  expect(now(r.id).acceptance?.items.map((i) => i.written)).toEqual([undefined, '#140', undefined, undefined])
+  expect(now(r.id).acceptance?.gaps).toBeUndefined()
+
+  rmSync(join(m.github, 'api', 'repos/owner/repo/issues/100/comments.fails'))
+  canApi(m, 'repos/owner/repo/issues/100/comments', {})
+  const done = await answer(r.id, answers)
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(now(r.id).acceptance).toMatchObject({ gaps: [140] })
+  expect(now(r.id).acceptance?.items.map((i) => i.written)).toEqual([undefined, '#140', 'deviation', 'none'])
+  // The gap ticket is created once, before the refusal, and not again.
+  expect(writes(r.id).map((w) => w.write)).toEqual(['issue-created', 'sub-issue', 'comment'])
+  expect(calls().filter((c) => c.includes('-f title='))).toHaveLength(1)
+})
+
+test('a refused close keeps the answers written, and sending them again closes the spec', async () => {
+  canSpec()
+  checker('item User stories | Work offline | met | src/cache.ts:3 | high', 'item Testing | The cache is tested | untested | src/cache.ts:9 | medium')
+  const r = await started()
+  failApi(m, 'repos/owner/repo/issues/100/comments', 'HTTP 500: Internal Server Error')
+  const answers = [{ item: 'item-2', answer: 'none', reason: 'Covered by the browser test.' }]
+
+  const refused = await answer(r.id, answers)
+  expect(refused.status).toBe(502)
+  expect((refused.body as { error: string }).error).toMatch(/; the answers are written, and sending them again closes the spec$/)
+  expect(now(r.id).acceptance?.items.map((i) => i.written)).toEqual([undefined, 'none'])
+  expect(now(r.id).acceptance?.closed).toBeUndefined()
+
+  rmSync(join(m.github, 'api', 'repos/owner/repo/issues/100/comments.fails'))
+  canApi(m, 'repos/owner/repo/issues/100/comments', {})
+  const done = await answer(r.id, answers)
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(now(r.id)).toMatchObject({ note: '#100 closed: nothing is left open; finish this process', acceptance: { closed: true } })
+})
+
+test('a check of a spec whose ticket was reopened fails, and so does one of a spec without tickets', async () => {
+  canSpec()
+  mkdirSync(m.claude, { recursive: true })
+  writeFileSync(join(m.claude, 'checker'), 'silent')
+  const r = await started('failed')
+  const ran = read(m.claudeLog)
+  const recheck = async (note: string) => {
+    const again = await api(m, 'POST', '/api/acceptances/check', { id: r.id })
+    expect(again.status, JSON.stringify(again.body)).toBe(200)
+    await settled(r.id)
+    expect(now(r.id)).toMatchObject({ state: 'failed', note })
+  }
+
+  canPages(m, 'repos/owner/repo/issues/100/sub_issues?per_page=100', [[{ id: 5101, number: 101, title: 'Cache the pages', state: 'closed' }, { id: 5102, number: 102, title: 'Sync on reconnect', state: 'open' }]])
+  await recheck('the acceptance failed: #100 has ticket(s) open (#102); accept it once they are closed')
+  canPages(m, 'repos/owner/repo/issues/100/sub_issues?per_page=100', [[]])
+  await recheck('the acceptance failed: #100 has no tickets, so there is nothing to accept')
+  // The checker did not run again.
+  expect(read(m.claudeLog)).toBe(ran)
 })
