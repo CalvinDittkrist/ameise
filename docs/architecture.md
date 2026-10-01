@@ -14,11 +14,11 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
 | controller | The local workflow: projects, processes and their stages, headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): the auditors, the templates, the scaffold and the check; skills and agents beside them ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `/repo-standards:adr`, `/repo-standards:docs-check`, `plugins/repo-standards/scripts/check.sh` |
-| standardize scripts | The controller's steps of a standardisation: facts, report, approval, backup, cleanup, issues, workspace apply and finalize. They use the plugin's templates, scaffold and check. | `controller/standardize/*.sh`, bundled into `dist/standardize` |
+| standardize steps | The controller's steps of a standardisation, as controller code: facts, report, approval, backup, cleanup, issues, workspace apply and finalize. They run the plugin's templates, scaffold and check. | `controller/src/standard/*.ts` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
-| Python suite | Runs the real plugin scripts and the controller's standardize scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
+| Python suite | Runs the real plugin scripts against the shims in `tests/shims/`. | `make test`, `tests/run.py` |
 
 ## Data flow
 
@@ -63,7 +63,9 @@ This repository holds the local workflow, a controller with plugins, and the fac
 6. A hunt that removed nothing opens no pull request: the process turns `done` and says so, and a finish removes it.
 
 ### Standardisation
-1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)). The scripts below are its own, in `controller/standardize/`.
+1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)).
+   - The steps below are its own code, in `controller/src/standard/`.
+   - Each keeps the name of the script it replaced, such as `report.sh`, in what it says.
 2. The audit runs `facts.sh` and `workspace.sh` as a dry run and starts the six auditors in parallel, changing nothing.
    - Each auditor reports its findings through its structured result.
 3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).

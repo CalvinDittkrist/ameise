@@ -5,7 +5,7 @@ The baseline every repository that runs this workflow is held to. Terms are defi
 - `plugins/repo-standards/scripts/check.sh` (or `/repo-standards:docs-check`) verifies the file rules and the [writing rules](#writing-rules) offline and in CI.
 - The controller's [standardize process](../controller/README.md#standardize-process) audits a repository with six read-only auditors, one per area. It takes the maintainer's approval per category.
 - On an empty repository every finding is a create action.
-- The process applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check. Its scripts are in `controller/standardize/`.
+- The process applies the approved findings: backup, cleanup pull request, issues, then the workspace and the check. Its steps are controller code, in `controller/src/standard/`.
 - `plugins/repo-standards/scripts/workspace.sh` compares the GitHub workspace and its milestones with the standard. The check reports its differences as warnings when GitHub is reachable.
 
 The local workflow that works a repository on this standard is the controller, installed as the npm package `ameise` from its GitHub release ([controller](../controller/README.md#install)); it is not on npm yet. Its sessions load the plugins it bundles and switch the marketplace's copies off. The settings file still enables the plugins of the marketplace `ameise`, for sessions started by hand:
