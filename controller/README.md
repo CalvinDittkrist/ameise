@@ -28,7 +28,7 @@ The build copies the plugins of the checkout into `dist/plugins`, and every sess
 - `ameise adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
 - `ameise merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
 - `ameise release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
-- `ameise accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+- `ameise accept <spec> [--project <path>]` starts the acceptance of a spec in a plan process; see [Acceptance](#acceptance).
 - `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
   - Without `--project` each acts on the project of the current directory.
 - Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
@@ -370,6 +370,7 @@ Stopping and starting the controller loses no process.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
+  - An acceptance whose checker ran turns `failed`, and a check runs it again.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
 - A resume goes on with an interrupted process: its implement session, gate, review round, pr stage, wait on the pull request or address-reviews session.
   - One interrupted before its address-reviews session started waits on the pull request again.
@@ -405,13 +406,27 @@ A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milesto
 
 Then it publishes the release with generated notes and closes the milestone.
 
-## Acceptance start
-An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the state `created`. It refuses, with `409`:
+## Acceptance
+An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the stage `accept`. It refuses, with `409`:
 - an issue that is not an open spec,
 - a spec without tickets or with a ticket open,
 - a spec that has a process.
 
-The spec then leaves `acceptance`. No session starts yet.
+The spec then leaves `acceptance`, and the acceptance runs at once:
+1. It gathers the facts: the spec, its tickets, the merged pull requests of this repository that referenced each ticket, the files those changed, and the deviations accepted earlier.
+   - An accepted deviation is a comment on the spec whose first line is `> Accepted deviation (spec acceptance).`, by someone with write access.
+   - What it cannot read becomes a note on the record.
+2. It runs the spec checker: a read-only session in the default mode beside the process, briefed with the facts and the spec's body, without Edit, Write or Agent. It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
+3. It keeps the items on the record, in the state `input`. An item whose `<section>: <statement>` an earlier deviation names is left out and counted in `repeated`.
+
+A checker that reports no item fails the process; a check runs it again. A controller stopped while the acceptance runs leaves it failed.
+
+Each item not met takes one answer in the process view:
+- A gap ticket: an issue with `ready-for-agent`, and `factory:spec-run` when the spec carries it, created as a sub-issue of the spec on its `vX.Y.Z` milestone through the github tools of the [plan process](#plan-process), under their rules.
+- An accepted deviation: the comment above, with the item's `<section>: <statement>` on its second line and the reason below.
+- No finding: nothing is written; the closing comment names the item as overruled.
+
+With a gap ticket the spec stays open, and its acceptance runs again once the gap tickets are closed. With nothing left open the spec closes as completed. Its closing comment counts the items per section, lists the tickets with their pull requests and names the deviations and the overruled items. A write that is refused keeps what was written before it; the same answers sent again go on from there. A finish then ends the process.
 
 ## Plan process
 A plan opens a plan process from an idea, an issue or nothing, an open session. It creates the branch `plan/<slug>` from `origin/<base>` and its worktree:
@@ -524,7 +539,10 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - `409` refuses a pull request that is not ready or work not on origin, `502` a GitHub that does not answer.
 - `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
   - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
-- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process, starts its [acceptance](#acceptance) and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances/answers` with `{"id": "<id>", "answers": [{"item": "item-2", "answer": "gap", "title": "...", "what": "..."}, {"item": "item-3", "answer": "deviation", "reason": "..."}, {"item": "item-4", "answer": "none", "reason": "..."}]}`: writes the answers and answers `200` with `{record}`.
+  - `400` refuses an item not met without an answer, `409` an acceptance without items or answered already, `502` a write GitHub refused.
+- `POST /api/acceptances/check` with `{"id": "<id>"}`: runs a failed acceptance again and answers `200` with `{record}`.
 - `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
 - `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.
 - `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan and answers `200` with `{id, branch, worktree}`.
