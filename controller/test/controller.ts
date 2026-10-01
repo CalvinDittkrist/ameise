@@ -247,13 +247,13 @@ export function play(m: Machine, session: string) {
 
 // canApi cans the answer of gh api <endpoint> on the fake GitHub, an endpoint such as
 // repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100.
-export function canApi(m: Machine, endpoint: string, answer: unknown) {
+export function canApi(m: Pick<Machine, 'github'>, endpoint: string, answer: unknown) {
   writeFileSync(apiFile(m, endpoint), JSON.stringify(answer))
 }
 
 // apiFile is the file of the fake GitHub that answers the endpoint. An endpoint that is also the
 // directory of longer ones keeps its answer in the file @ of that directory, as fake/gh reads it.
-function apiFile(m: Machine, endpoint: string): string {
+export function apiFile(m: Pick<Machine, 'github'>, endpoint: string): string {
   let at = join(m.github, 'api')
   for (const part of endpoint.split('/').slice(0, -1)) {
     at = join(at, part)
