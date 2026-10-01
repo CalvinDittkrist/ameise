@@ -158,8 +158,8 @@ function Header({ record }: { record: ProcessRecord }) {
             <Finish id={record.id} project={record.project} />
           </div>
         )}
-        {/* A hunt that removed nothing is done, and a finish ends it. */}
-        {record.kind === "hunt" && record.state === "done" && (
+        {/* A hunt that removed nothing is done, one that failed cannot go on, and a finish ends either. */}
+        {record.kind === "hunt" && (record.state === "done" || record.state === "failed") && (
           <div className="ml-auto flex gap-2">
             <Finish id={record.id} project={record.project} kind="hunt" />
           </div>
