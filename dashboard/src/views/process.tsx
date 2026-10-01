@@ -198,8 +198,8 @@ function Header({ record }: { record: ProcessRecord }) {
               !(record.kind === "standardize" && record.state !== "running" && record.state !== "created") &&
               "ml-auto",
           )}
-          disabled={!record.session_id || opening}
-          title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
+          disabled={record.kind === "standardize" || !record.session_id || opening}
+          title={record.kind === "standardize" ? "The apply session of a standardisation runs once and resumes nowhere" : record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
         >
           <TerminalIcon />
@@ -561,10 +561,10 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
 }
 
 // A process the maintainer can write to: one whose session runs, or has run and can be resumed. An
-// acceptance runs no session of its own; its items take its answers. A standardisation takes writing only
-// while its apply session runs, and its answers in its categories.
+// acceptance runs no session of its own; its items take its answers. A standardisation takes no writing,
+// since the controller refuses it; its answers go in its categories and its permissions on their cards.
 const writable = (r: ProcessRecord) =>
-  r.kind === "standardize" ? r.state === "running" || r.state === "approval" : r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
+  r.kind !== "standardize" && r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
 
 // Conversation is the log of the message scroller, one item per turn.
 function Conversation({ record, list, settled }: { record: ProcessRecord; list: Turn[]; settled: Map<string, Settled> }) {
