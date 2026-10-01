@@ -33,7 +33,8 @@ const usage = `usage:
   ameise release <vX.Y.Z> [--project <path>]
                                      tag the finished milestone, publish its release and close it
   ameise accept <spec> [--project <path>]
-                                     open a plan process on the spec with the acceptance route
+                                     start the acceptance of the spec in a plan process; its
+                                     items are answered in the process view
   ameise plan [<idea>... | <issue>] [--project <path>]
                                      open a plan process from an idea, an issue, or nothing (an open
                                      session) and start its planner session

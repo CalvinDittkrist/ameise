@@ -330,11 +330,17 @@ function interruptedNote(record: WorkRecord): string {
 
 // interrupt marks a work process interrupted and keeps its session id, so a resume goes on with it. A
 // plan process whose session had started waits for the maintainer instead, whose message resumes it by
-// its id; one whose session never started has failed.
+// its id; one whose session never started has failed, and so has an acceptance, which checks again.
 function interrupt(stateDir: string, id: string) {
   const file = recordFile(stateDir, id)
   if (!existsSync(file)) return
   const record = JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
+  if (record.kind === 'plan' && record.route === 'accept') {
+    const note = 'the controller stopped while the acceptance ran; check again in the process view'
+    event(stateDir, id, { event: 'acceptance-end', stage: record.stage, state: 'failed', note })
+    update(stateDir, id, { state: 'failed', note, unseen: true })
+    return
+  }
   if (record.kind === 'plan') {
     const state = record.session_id ? 'input' : 'failed'
     const note = record.session_id
@@ -367,8 +373,8 @@ export async function stopAll(stateDir: string) {
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
 // its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
 // whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// A plan that waits for input waits for a message either way, and one created without a session, as
-// an acceptance start leaves it, has none to lose. Every other record stays as it was.
+// An acceptance whose checker ran fails, and checks again on request. A plan that waits for input waits
+// for a message or for its answers either way. Every other record stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
   try {
@@ -755,6 +761,8 @@ export interface Ended {
   verdict?: { verdict: 'pass' | 'fix'; findings: Omit<Finding, 'id'>[] }
   pull?: { title: string; body: string }
   addressed?: Addressed
+  // items are what the spec checker of an acceptance reported, as acceptance.ts reads them.
+  items?: unknown[]
 }
 
 // What an address-reviews session reported for the controller to post, and what it fixed and declined.
@@ -1094,7 +1102,7 @@ interface Aside {
 // aside runs a read-only session beside the process's own, a fresh one in the default mode with the stage
 // timeout, and answers how it ended. s is the process's entry of the stage, whose abort stops it and which
 // holds its requests; own tells it apart from a stop. exits is told of its runtime's exit.
-async function aside(record: WorkRecord, rt: Runtime, s: Running, own: () => boolean, a: Aside, exits: Promise<void>[]): Promise<Ended> {
+async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, a: Aside, exits: Promise<void>[]): Promise<Ended> {
   const abort = new AbortController()
   const all = () => abort.abort()
   // A parent stopped already ends the session at once; the forwarding stays until its runtime exits.
@@ -1159,6 +1167,51 @@ export async function author(record: WorkRecord, rt: Runtime, s: Running, own: (
   return ended
 }
 
+// The result the spec checker of an acceptance reports through: one item per checkable statement.
+const checkerReport = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      description: 'one item per checkable statement of the spec',
+      items: {
+        type: 'object',
+        properties: {
+          section: { type: 'string', enum: ['User stories', 'Decisions', 'Testing', 'Vocabulary', 'ADRs to write'] },
+          statement: { type: 'string', description: "the spec's statement in one line of your own words, specific enough to find it again" },
+          verdict: { type: 'string', enum: ['met', 'missing', 'deviates', 'untested'] },
+          evidence: { type: 'string', description: 'path:line for met, deviates and untested; for missing what you searched and found nothing' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: ['section', 'statement', 'verdict', 'evidence', 'confidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['items'],
+  additionalProperties: false,
+}
+
+// checker runs the spec checker of an acceptance, read-only beside the plan process, and answers how it
+// ended once its runtime has exited: complete with the items it reported, or failed. It runs without
+// the planner's agent, on its brief alone, as the author session does.
+export async function checker(record: PlanRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
+  const exits: Promise<void>[] = []
+  const ended = await aside(record, rt, s, own, {
+    name: 'spec checker',
+    stage: 'checker',
+    brief,
+    schema: checkerReport,
+    read: (raw, sessionId) => {
+      const items = (raw as { items?: unknown } | undefined)?.items
+      if (!Array.isArray(items)) return { state: 'failed', note: 'the spec checker ended without its items', session_id: sessionId }
+      return { state: 'complete', note: `${items.length} item(s)`, session_id: sessionId, items }
+    },
+  }, exits)
+  await Promise.all(exits)
+  return ended
+}
+
 // pullOf reads the title and the body the author session reported. A title that is empty after trimming
 // is no report.
 function pullOf(raw: unknown, sessionId: string | undefined): Ended {
@@ -1177,7 +1230,8 @@ async function session(
   run: Run,
 ): Promise<Ended> {
   const id = record.id
-  const plan = record.kind === 'plan'
+  // A planner session's own turn ends in a wait; a session beside it, as the spec checker, reports.
+  const plan = record.kind === 'plan' && run.own
   const { what, later, agent } = run
   const plugins = sessionPlugins(rt.plugins, record)
   const missing = plugins.find((path) => !existsSync(join(path, '.claude-plugin', 'plugin.json')))
@@ -1268,7 +1322,8 @@ async function session(
   let timeout: number | undefined
   if (later) {
     try {
-      timeout = knob(record as WorkRecord, 'WF_STAGE_TIMEOUT', stageTimeout, 1)
+      // A plan has no overrides of a claim, so its knob comes from the repository's settings alone.
+      timeout = knob(record.kind === 'work' ? record : ({ ...record, env: {} } as unknown as WorkRecord), 'WF_STAGE_TIMEOUT', stageTimeout, 1)
     } catch (err) {
       return { state: 'failed', note: (err as Error).message }
     }
