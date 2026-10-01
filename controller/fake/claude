@@ -15,6 +15,11 @@
 #                              pull Fake pull request
 #     checker                  the session the spec checker of an acceptance plays; without it, it
 #                              reports one item met, one missing, one deviating and one untested
+#     auditor-<category>       the session the auditor of that category of a standardize process plays,
+#                              such as auditor-files; without it auditor, and without that it reports
+#                              one finding of its category, so the auditors report in every category
+#     apply                    the session that works the todo lines of a standardize process's apply;
+#                              without it, it reports complete
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
@@ -48,6 +53,8 @@
 #   item <section> | <statement> | <verdict> | <evidence> | <confidence>
 #                       an item the spec checker reports, such as
 #                       item Testing | The board is tested | met | test/board.test.ts:1 | high
+#   found <line>        a finding line an auditor reports, such as
+#                       found finding: files | NOTES.md | delete | agent notes | high
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
@@ -55,6 +62,7 @@
 #   verdict <pass|fix>  a reviewer reports the verdict with its findings
 #   pull <title>        the author reports the pull request with the title and its body lines
 #   items               the spec checker reports its items
+#   findings            an auditor reports its finding lines
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -140,6 +148,22 @@ case "$stage" in
     if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then file=''; steps=('verdict pass'); fi ;;
   author)
     if [ "$file" != author ]; then file=''; steps=('pull Fake pull request'); fi ;;
+  auditor-*)
+    if [ "$file" != "$stage" ]; then file=auditor; fi
+    if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then
+      file=''
+      case "$stage" in
+        auditor-files) steps=('found finding: files | NOTES.md | delete | agent notes left in the repository | high') ;;
+        auditor-agent-config) steps=('found finding: agent-config | .claude/commands/old.md | delete | a repository-local command | medium') ;;
+        auditor-docs) steps=('found finding: docs | docs/glossary.md | create | the glossary is missing | high') ;;
+        auditor-tests-ci) steps=('found finding: tests-ci | Makefile | replace | the check target runs no test | medium') ;;
+        auditor-workspace) steps=('found finding: workspace | branch protection of main | configure | main takes force pushes | high') ;;
+        auditor-security) steps=('found finding: security | config/deploy.env | issue | a token may be committed | low') ;;
+      esac
+      steps+=('findings')
+    fi ;;
+  apply)
+    if [ -z "$canned" ] || [ ! -f "$canned/apply" ]; then file=''; steps=('complete Worked the todo lines'); fi ;;
   checker)
     if [ "$file" != checker ]; then
       file=''
@@ -160,7 +184,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull | items) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull | items | findings) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -196,6 +220,8 @@ fixes=''
 body=''
 # items are the items the spec checker reports, as JSON.
 items=''
+# found are the finding lines an auditor reports, as JSON.
+found=''
 # replies, answer, fixedl and declinedl are what an address-reviews session reports.
 replies=''
 answer=''
@@ -333,6 +359,8 @@ play() {
           fields="$fields${fields:+,}\"${names[$i]}\":$(json "$part")"
         done
         items="$items${items:+,}{$fields}" ;;
+      found)
+        found="$found${found:+,}$(json "$rest")" ;;
       body)
         local line
         line=$(json "$rest")
@@ -391,6 +419,9 @@ while next; do
           exit 0 ;;
         items)
           result "{\"items\":[$items]}"
+          exit 0 ;;
+        findings)
+          result "{\"findings\":[$found]}"
           exit 0 ;;
         pull)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"

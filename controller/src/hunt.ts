@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
-import { addWorktree, exists, fetch, git, held, writeProcess, type HuntLog, type HuntRecord } from './claim.js'
+import { addWorktree, type CreatedRecord, exists, fetch, git, held, writeProcess, type HuntLog, type HuntRecord } from './claim.js'
 import { gate } from './gate.js'
 import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
@@ -192,33 +192,37 @@ function huntOf(stateDir: string, id: string): HuntRecord {
 // lost, unless force is given.
 export function finishHunt(project: Project, stateDir: string, id: string, force: boolean): Promise<{ branch: string; worktree: string | null }> {
   huntOf(stateDir, id)
-  return held(project, 'hunt', async () => {
-    const top = project.path
-    const r = huntOf(stateDir, id)
-    if (r.session_id && (await resumed(r.session_id))) {
-      throw new Refusal(`the session of ${r.branch} runs in a terminal; quit it there, then finish again`, 409)
+  return held(project, 'hunt', () => removal(project, stateDir, huntOf(stateDir, id), force))
+}
+
+// removal stops the process of a branch of its own, a hunt or a standardize process, then removes its
+// worktree, its branch and its record, with the refusals of a finish of a hunt.
+export async function removal(project: Project, stateDir: string, r: CreatedRecord, force: boolean): Promise<{ branch: string; worktree: string | null }> {
+  const top = project.path
+  const id = r.id
+  if (r.session_id && (await resumed(r.session_id))) {
+    throw new Refusal(`the session of ${r.branch} runs in a terminal; quit it there, then finish again`, 409)
+  }
+  const tree = (await worktrees(top)).find((t) => t.branch === r.branch)
+  const clean = async () => {
+    if (force) return
+    if (tree && (await git(tree.path, 'status', '--porcelain')) !== '') {
+      throw new Refusal(`${tree.path} has changes not committed; commit them, or finish with force to lose them`, 409)
     }
-    const tree = (await worktrees(top)).find((t) => t.branch === r.branch)
-    const clean = async () => {
-      if (force) return
-      if (tree && (await git(tree.path, 'status', '--porcelain')) !== '') {
-        throw new Refusal(`${tree.path} has changes not committed; commit them, or finish with force to lose them`, 409)
-      }
-      if (!(await exists(top, `refs/heads/${r.branch}`))) return
-      const n = Number(await git(top, 'rev-list', '--count', r.branch, '--not', r.base, '--remotes=origin'))
-      if (n > 0) throw new Refusal(`${r.branch} has ${n} commit(s) on no branch of origin; push them, or finish with force to lose them`, 409)
-    }
-    await clean()
-    await stop(id)
-    await clean()
-    if (tree) {
-      await git(top, 'worktree', 'remove', '--force', tree.path)
-      await git(top, 'worktree', 'prune')
-    }
-    await git(top, 'branch', '-D', r.branch).catch(() => undefined)
-    forget(stateDir, id)
-    return { branch: r.branch, worktree: tree?.path ?? null }
-  })
+    if (!(await exists(top, `refs/heads/${r.branch}`))) return
+    const n = Number(await git(top, 'rev-list', '--count', r.branch, '--not', r.base, '--remotes=origin'))
+    if (n > 0) throw new Refusal(`${r.branch} has ${n} commit(s) on no branch of origin; push them, or finish with force to lose them`, 409)
+  }
+  await clean()
+  await stop(id)
+  await clean()
+  if (tree) {
+    await git(top, 'worktree', 'remove', '--force', tree.path)
+    await git(top, 'worktree', 'prune')
+  }
+  await git(top, 'branch', '-D', r.branch).catch(() => undefined)
+  forget(stateDir, id)
+  return { branch: r.branch, worktree: tree?.path ?? null }
 }
 
 // resumableHunt is the record of an interrupted hunt process, whose session or stage a resume goes on

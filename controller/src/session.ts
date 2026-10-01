@@ -37,6 +37,7 @@ import { gate, knob } from './gate.js'
 import { directWrite, githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
 import type { PlanRecord } from './plan.js'
+import type { StandardizeRecord } from './standardize.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
 
@@ -58,8 +59,8 @@ export interface Runtime {
   announce: Announce
 }
 
-// A process that runs sessions: a work process or a plan process.
-export type SessionRecord = StageRecord | PlanRecord
+// A process that runs sessions: a work process, a plan process or a standardize process.
+export type SessionRecord = StageRecord | PlanRecord | StandardizeRecord
 
 // Announce is told of a process once it has turned blocked, ready or failed, with its record as it
 // ended. A yolo process that ended ready is told of although its record is gone.
@@ -76,7 +77,7 @@ export const agentOf = (record: SessionRecord): 'planner' | 'worker' => (record.
 
 // firstStage is the stage whose session a process of the record's kind starts with: implement for a
 // work process, hunt for a hunt process.
-export const firstStage = (record: StageRecord): 'implement' | 'hunt' => (record.kind === 'hunt' ? 'hunt' : 'implement')
+export const firstStage = (record: { kind: string }): 'implement' | 'hunt' => (record.kind === 'hunt' ? 'hunt' : 'implement')
 
 // sessionAgent is the agent a session of the record runs with, or undefined for a stage after implement
 // or hunt, whose fresh session runs its own brief without the worker's agent and its pipeline.
@@ -345,6 +346,14 @@ function interrupt(stateDir: string, id: string) {
   const file = recordFile(stateDir, id)
   if (!existsSync(file)) return
   const record = JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
+  // A standardize process runs scripts that are safe to run again: its stage fails, and runs again on request.
+  if (record.kind === 'standardize') {
+    const again = record.stage === 'audit' ? 'audit again' : record.stage === 'apply' ? 'apply again' : 'finalize again'
+    const note = `the controller stopped while its ${record.stage} ran; ${again} in the process view`
+    event(stateDir, id, { event: `${record.stage}-end`, stage: record.stage, state: 'failed', note })
+    update(stateDir, id, { state: 'failed', note, unseen: true })
+    return
+  }
   if (record.kind === 'plan' && record.route === 'accept') {
     const note = 'the controller stopped while the acceptance ran; check again in the process view'
     event(stateDir, id, { event: 'acceptance-end', stage: record.stage, state: 'failed', note })
@@ -383,8 +392,10 @@ export async function stopAll(stateDir: string) {
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
 // its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
 // whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// A running acceptance fails, and so does one whose checker asked a question; it checks again on request. A plan that waits for input waits
-// for a message or for its answers either way. Every other record stays as it was.
+// A running acceptance fails, and so does one whose checker asked a question; it checks again on request.
+// A standardize process whose audit, apply or finalize ran fails, and runs that stage again on request.
+// A plan that waits for input waits for a message or for its answers either way. Every other record
+// stays as it was.
 export function recover(stateDir: string) {
   let names: string[]
   try {
@@ -400,6 +411,8 @@ export function recover(stateDir: string) {
       // A checker that asked a question waits in input with no items yet, and it is gone as well.
       const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
       if ((r.kind === 'plan' && ['running', 'approval'].includes(r.state)) || asking) interrupt(stateDir, id)
+      // A standardize process waits for its answers or its finalize with nothing running, and lost its stage otherwise.
+      if (r.kind === 'standardize' && ['running', 'created', 'approval'].includes(r.state)) interrupt(stateDir, id)
     } catch (err) {
       warn(id, 'could not read its record as the controller started', err)
     }
@@ -711,7 +724,7 @@ export function planSettings(record: PlanRecord): Settings {
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
 // has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
 // needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
-export function workSettings(record: StageRecord): Settings {
+export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {
       ...record.env,
@@ -818,6 +831,8 @@ export interface Ended {
   addressed?: Addressed
   // items are what the spec checker of an acceptance reported, as acceptance.ts reads them.
   items?: unknown[]
+  // findings are the finding lines an auditor of a standardize process reported.
+  findings?: string[]
 }
 
 // What an address-reviews session reported for the controller to post, and what it fixed and declined.
@@ -847,7 +862,7 @@ const stageOf = (record: SessionRecord) => (record.kind === 'plan' ? record.stag
 // the process is gone.
 export function attempt(stateDir: string, id: string, a: Attempt, change: Partial<StageRecord> = {}): StageRecord | undefined {
   const now = readRecord(stateDir, id)
-  if (!now || now.kind === 'plan') return undefined
+  if (!now || now.kind === 'plan' || now.kind === 'standardize') return undefined
   return update(stateDir, id, { ...change, history: [...(now.history ?? []), a] } as unknown as Partial<CreatedRecord>) as StageRecord | undefined
 }
 
@@ -856,7 +871,7 @@ export function attempt(stateDir: string, id: string, a: Attempt, change: Partia
 // in its worktree. The session goes on after the answer; its end is written into the record. A work
 // session that reports complete starts the gate stage, or opens the hold when one is set on implement.
 // A message is the first turn of the session, in place of the brief.
-export function begin(record: SessionRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
+export function begin(record: StageRecord | PlanRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
   const id = record.id
   const resumed = record.session_id
   const what = sessionOf(record)
@@ -983,6 +998,8 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   const now = readRecord(rt.stateDir, id)
   if (!now) throw new Refusal(`${id} is not a process of this machine`, 404)
   if (!now.session_id) throw new Refusal('the process has no session to write to yet; wait until its session has started', 409)
+  // A standardize process runs its apply session once per apply, which an apply again starts afresh.
+  if (now.kind === 'standardize') throw new Refusal('the apply session of this standardize process has ended; apply again to start it afresh', 409)
   event(rt.stateDir, id, { event: 'message', text })
   // A follow-up to a ready work process is new work on it: its session goes on as the implement session,
   // whose complete runs the gate and a review with every reviewer again. A ready hunt goes on as its hunt
@@ -995,7 +1012,7 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
       : now.kind !== 'plan' && now.stage === 'ci' && !now.fixing
         ? (update(rt.stateDir, id, { fixing: true } as Partial<CreatedRecord>) ?? now)
         : now
-  begin(next, p, rt, text)
+  begin(next as StageRecord | PlanRecord, p, rt, text)
   return 'resumed'
 }
 
@@ -1062,7 +1079,7 @@ interface Run {
 // session of the review also what it did with each finding, and a planner session reports nothing.
 // A planner session writes GitHub through the controller's tools alone (ADR 0059), and every write goes
 // into the process's event log.
-function ownRun(record: SessionRecord, s: Running, rt: Runtime, repo: string): Run {
+function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo: string): Run {
   const what = sessionOf(record)
   const review = record.kind !== 'plan' && record.stage === 'review'
   const address = record.kind !== 'plan' && record.stage === 'address-reviews'
@@ -1155,6 +1172,9 @@ interface Aside {
   brief: string
   schema: Record<string, unknown>
   read: (out: unknown, sessionId: string | undefined) => Ended
+  // writes says it writes the worktree as the process's own session, whose stream the event log follows,
+  // in the auto mode and with every tool; the apply session of a standardize process is one.
+  writes?: boolean
 }
 
 // aside runs a read-only session beside the process's own, a fresh one in the default mode with the stage
@@ -1176,9 +1196,9 @@ async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => 
     stage: a.stage,
     ...(a.agent ? { agent: a.agent } : {}),
     later: true,
-    own: false,
+    own: a.writes === true,
     schema: a.schema,
-    disallowed: readOnly,
+    ...(a.writes ? {} : { disallowed: readOnly }),
     read: a.read,
   }
   try {
@@ -1264,6 +1284,68 @@ export async function checker(record: PlanRecord, rt: Runtime, s: Running, own: 
       const items = (raw as { items?: unknown } | undefined)?.items
       if (!Array.isArray(items)) return { state: 'failed', note: 'the spec checker ended without its items', session_id: sessionId }
       return { state: 'complete', note: `${items.length} item(s)`, session_id: sessionId, items }
+    },
+  }, exits)
+  await Promise.all(exits)
+  return ended
+}
+
+// The result an auditor of a standardize process reports through: its finding lines.
+const auditorReport = {
+  type: 'object',
+  properties: {
+    findings: {
+      type: 'array',
+      description: 'one finding line each, in the format of your instructions: finding: <category> | <target> | <action> | <reason> | <confidence>; empty when nothing in your area differs from the standard',
+      items: { type: 'string' },
+    },
+  },
+  required: ['findings'],
+  additionalProperties: false,
+}
+
+// auditors runs the auditors of a standardize process in parallel, each a read-only session as the agent
+// of its category, and answers how each ended once every runtime has exited: complete with its finding
+// lines, or failed.
+export async function auditors<C extends string>(record: StandardizeRecord, rt: Runtime, s: Running, own: () => boolean, briefs: { category: C; brief: string }[]): Promise<{ category: C; ended: Ended }[]> {
+  const exits: Promise<void>[] = []
+  const ends = await Promise.all(
+    briefs.map(async (b) => ({
+      category: b.category,
+      ended: await aside(record, rt, s, own, {
+        name: `${b.category} auditor`,
+        stage: `auditor-${b.category}`,
+        agent: `repo-standards:${b.category}-auditor`,
+        brief: b.brief,
+        schema: auditorReport,
+        read: (raw, sessionId) => {
+          const findings = (raw as { findings?: unknown } | undefined)?.findings
+          if (!Array.isArray(findings)) return { state: 'failed', note: `the ${b.category} auditor ended without its findings`, session_id: sessionId }
+          const lines = findings.filter((f): f is string => typeof f === 'string')
+          return { state: 'complete', note: `${lines.length} finding line(s)`, session_id: sessionId, findings: lines }
+        },
+      }, exits),
+    })),
+  )
+  await Promise.all(exits)
+  return ends
+}
+
+// applier runs the apply session of a standardize process, which works the todo lines of the cleanup in
+// its worktree as the process's own session, and answers how it ended once its runtime has exited:
+// complete, blocked with its question, or failed.
+export async function applier(record: StandardizeRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
+  const exits: Promise<void>[] = []
+  const ended = await aside(record, rt, s, own, {
+    name: 'apply session',
+    stage: 'apply',
+    brief,
+    schema: report,
+    writes: true,
+    read: (raw, sessionId) => {
+      const out = raw as { outcome?: unknown; message?: unknown } | undefined
+      if (out && (out.outcome === 'complete' || out.outcome === 'blocked') && typeof out.message === 'string') return { state: out.outcome, note: out.message, session_id: sessionId }
+      return { state: 'failed', note: 'the apply session ended without a report of complete or blocked', session_id: sessionId }
     },
   }, exits)
   await Promise.all(exits)
