@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Force, Refused, warn } from "@/components/process-actions"
-import { accept, capture, finish, hunt, type Issue, merge, plan, type Process, release } from "@/api"
+import { accept, capture, finish, hunt, type Issue, merge, plan, type Process, release, standardize } from "@/api"
 import { href } from "@/route"
 
 // Confirm asks once before an action changes anything: its trigger opens a dialog that says what the
@@ -191,9 +191,9 @@ export function Capture({ id }: { id: string }) {
   )
 }
 
-// Finish ends a plan or a hunt: it stops its session and removes its worktree, its branch and its
-// process, then opens the page of its project.
-export function Finish({ id, project, kind = "plan" }: { id: string; project: string; kind?: "plan" | "hunt" }) {
+// Finish ends a plan, a hunt or a standardisation: it stops its session and removes its worktree, its
+// branch and its process, then opens the page of its project.
+export function Finish({ id, project, kind = "plan" }: { id: string; project: string; kind?: "plan" | "hunt" | "standardize" }) {
   const [force, setForce] = useState(false)
   return (
     <Confirm
@@ -203,7 +203,9 @@ export function Finish({ id, project, kind = "plan" }: { id: string; project: st
       description={
         kind === "hunt"
           ? "Stops the hunt session and removes the worktree, the hunt branch and the process."
-          : "Stops the planner session and removes the worktree, the plan branch and the process. The issues it wrote and the prototype branches stay."
+          : kind === "standardize"
+            ? "Stops the standardisation and removes its worktree, its local branch and the process. The tag pre-standard, the cleanup pull request and the catalogue issue stay."
+            : "Stops the planner session and removes the worktree, the plan branch and the process. The issues it wrote and the prototype branches stay."
       }
       confirm="Finish"
       reset={() => setForce(false)}
@@ -213,9 +215,9 @@ export function Finish({ id, project, kind = "plan" }: { id: string; project: st
       }}
     >
       <Force id="finish-force" checked={force} onChange={setForce}>
-        {kind === "hunt"
-          ? "Force: finish even with changes not committed or commits not on origin, which are lost"
-          : "Force: finish even with changes not captured or commits on the plan branch, which are lost"}
+        {kind === "plan"
+          ? "Force: finish even with changes not captured or commits on the plan branch, which are lost"
+          : "Force: finish even with changes not committed or commits not on origin, which are lost"}
       </Force>
     </Confirm>
   )
@@ -234,6 +236,24 @@ export function Hunt({ path }: { path: string }) {
       run={async () => {
         const done = await hunt(path)
         if (done.warnings.length > 0) warn({ title: "Hunt tests", said: "The hunt started with these warnings.", warnings: done.warnings })
+        location.hash = href({ page: "process", id: done.record.id })
+      }}
+    />
+  )
+}
+
+// Standardize opens a standardize process in the project at path and opens its page, where the auditors
+// run read-only and their findings wait per category for an approval.
+export function Standardize({ path }: { path: string }) {
+  return (
+    <Confirm
+      id="standardize"
+      trigger={<Button size="sm" variant="outline">Standardize</Button>}
+      title="Standardize"
+      description="Runs the repo-standards auditors read-only and shows their findings per category. Nothing changes until you approve a category; the approved ones go into a cleanup pull request on chore/standardize, after a backup tag."
+      confirm="Start the audit"
+      run={async () => {
+        const done = await standardize(path)
         location.hash = href({ page: "process", id: done.record.id })
       }}
     />

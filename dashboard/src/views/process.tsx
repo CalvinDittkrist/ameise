@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Acceptance } from "@/components/acceptance"
 import { Capture, Finish } from "@/components/actions"
+import { Standardize } from "@/components/standardize"
 import { Prose } from "@/components/markdown"
 import { dot } from "@/components/rows"
 import {
@@ -37,12 +38,12 @@ import { href } from "@/route"
 
 // The stages a process of each kind runs in the controller. A work process runs implement, the gate, the
 // review, pr and ci, and address-reviews once a review of its pull request asks for an answer. A hunt
-// runs hunt in place of implement.
+// runs hunt in place of implement. A standardisation audits, applies what was approved and finalizes.
 const stagesOf: Record<Process["kind"], string[]> = {
   work: ["implement", "gate", "review", "pr", "ci"],
   plan: ["plan"],
   hunt: ["hunt", "gate", "review", "pr", "ci"],
-  standardize: ["audit"],
+  standardize: ["audit", "apply", "finalize"],
 }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
@@ -97,6 +98,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
             <Header record={record} />
             <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
             {record.route === "accept" && <Acceptance record={record} />}
+            {record.kind === "standardize" && <Standardize record={record} />}
             <Separator />
             <Conversation record={record} list={list} settled={settled} />
           </MessageScroller.Viewport>
@@ -166,6 +168,12 @@ function Header({ record }: { record: ProcessRecord }) {
             <Finish id={record.id} project={record.project} kind="hunt" />
           </div>
         )}
+        {/* A standardisation ends by a finish whenever nothing of it runs. */}
+        {record.kind === "standardize" && record.state !== "running" && record.state !== "created" && (
+          <div className="ml-auto flex gap-2">
+            <Finish id={record.id} project={record.project} kind="standardize" />
+          </div>
+        )}
         {holdable && (
           <Button
             size="sm"
@@ -183,7 +191,13 @@ function Header({ record }: { record: ProcessRecord }) {
         <Button
           size="sm"
           variant="outline"
-          className={cn(record.kind !== "plan" && !holdable && !(record.kind === "hunt" && record.state === "done") && "ml-auto")}
+          className={cn(
+            record.kind !== "plan" &&
+              !holdable &&
+              !(record.kind === "hunt" && record.state === "done") &&
+              !(record.kind === "standardize" && record.state !== "running" && record.state !== "created") &&
+              "ml-auto",
+          )}
           disabled={!record.session_id || opening}
           title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
@@ -547,8 +561,10 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
 }
 
 // A process the maintainer can write to: one whose session runs, or has run and can be resumed. An
-// acceptance runs no session of its own; its items take its answers.
-const writable = (r: ProcessRecord) => r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
+// acceptance runs no session of its own; its items take its answers. A standardisation takes writing only
+// while its apply session runs, and its answers in its categories.
+const writable = (r: ProcessRecord) =>
+  r.kind === "standardize" ? r.state === "running" || r.state === "approval" : r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
 
 // Conversation is the log of the message scroller, one item per turn.
 function Conversation({ record, list, settled }: { record: ProcessRecord; list: Turn[]; settled: Map<string, Settled> }) {

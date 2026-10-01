@@ -271,6 +271,33 @@ export type Acceptance = {
   closed?: boolean
 }
 
+// A category of the standardisation and the maintainer's answer to it: approve applies its findings,
+// reject leaves them.
+export type StandardCategory = "files" | "agent-config" | "docs" | "tests-ci" | "workspace" | "security"
+export type StandardAnswer = "approve" | "reject"
+
+// What a standardize process keeps on its record: the facts and the dry run of the workspace its auditors
+// were briefed with, each auditor's end, the findings per category with what report.sh says approving it
+// triggers, the lines report.sh refused, and the steps of the apply with the pull request and the
+// catalogue issue they wrote.
+export type Standardization = {
+  facts: string[]
+  workspace: string[]
+  auditors: { category: StandardCategory; state: string; note: string; findings: number }[]
+  summary: string
+  categories: {
+    name: StandardCategory
+    findings: { target: string; action: string; reason: string; confidence: string }[]
+    report: string[]
+    answer?: StandardAnswer
+  }[]
+  dropped: string[]
+  applied?: { step: string; ok: boolean; lines: string[]; at: string }[]
+  pull?: string
+  catalogue?: number
+  result?: "pass" | "fail"
+}
+
 // A process record as the controller keeps it, with the context size at which its session compacts.
 export type ProcessRecord = {
   id: string
@@ -308,6 +335,8 @@ export type ProcessRecord = {
   repairs?: { spent: number; of: number }
   // hunt is a hunt process's hunt record.
   hunt?: Hunt
+  // standardize is a standardize process's audit and apply.
+  standardize?: Standardization
   updated_at: string
 }
 
@@ -404,8 +433,8 @@ export const capture = (id: string, name: string) => call<{ branch: string; url:
 // runs and what the hunt could not check, or throws the controller's reason.
 export const hunt = (path: string) => call<{ record: { id: string; branch: string }; warnings: string[] }>("POST", "/api/hunts", { project: path })
 
-// finish removes a plan's or a hunt's worktree, branch and process; force drops what was not captured or
-// pushed.
+// finish removes a plan's, a hunt's or a standardisation's worktree, branch and process; force drops
+// what was not captured or pushed.
 export const finish = (id: string, force: boolean) => call<{ branch: string }>("POST", "/api/processes/finish", { id, force })
 
 // accept starts the acceptance of a spec of the project at path in a plan process: its facts, then its
@@ -418,6 +447,21 @@ export const answerItems = (id: string, answers: ({ item: string } & ItemAnswer)
 
 // checkAgain runs a failed acceptance again.
 export const checkAgain = (id: string) => call<{ record: unknown }>("POST", "/api/acceptances/check", { id })
+
+// standardize opens a standardize process of the project at path and starts its read-only audit, whose
+// findings wait per category in the process view.
+export const standardize = (path: string) => call<{ record: { id: string; branch: string } }>("POST", "/api/standardize", { project: path })
+
+// auditAgain runs a failed audit of a standardize process again.
+export const auditAgain = (id: string) => call<{ record: unknown }>("POST", "/api/standardize/audit", { id })
+
+// applyStandard applies the approved categories of a standardize process: with answers once every
+// category has one, without them to apply again after a failure.
+export const applyStandard = (id: string, answers?: Partial<Record<StandardCategory, StandardAnswer>>) =>
+  call<{ record: unknown }>("POST", "/api/standardize/apply", answers ? { id, answers } : { id })
+
+// finalizeStandard checks the standard once the cleanup pull request is merged.
+export const finalizeStandard = (id: string) => call<{ record: unknown }>("POST", "/api/standardize/finalize", { id })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
