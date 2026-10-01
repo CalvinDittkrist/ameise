@@ -34,6 +34,10 @@ export const vocabulary: Label[] = [
   { name: 'enhancement', color: 'A2EEEF', description: 'New feature or improvement' },
 ]
 
+// The label of the vocabulary the fixture marks planner false: a standardisation marks its catalogue issue of
+// removed skills with it, and the tools never create it.
+export const skillCandidate: Label = { name: 'skill-candidate', color: 'C5DEF5', description: 'A removed skill that could move into the marketplace' }
+
 // The factory's routing label, which the frontier rule of the contract fixture names, and the spec-run
 // label beside it. The factory works an issue that carries either unattended, with nobody to ask.
 export const routingLabel = 'factory'

@@ -1,21 +1,19 @@
 // The standardize process: the standardisation of a project on the branch chore/standardize, which works
 // no issue. A standardize opens the branch from the base and its worktree, which is the cleanup worktree
-// of the standardize scripts, and the server then starts its audit. The audit gathers the facts
-// (facts.sh and the dry run of workspace.sh), runs the six auditors as read-only sessions in parallel
-// (session.ts), and merges their finding lines per category with report.sh. The process then waits for
+// of the standardize steps (standard/), and the server then starts its audit. The audit gathers the facts
+// (the facts and the dry run of the workspace step), runs the six auditors as read-only sessions in parallel
+// (session.ts), and merges their finding lines per category with the report. The process then waits for
 // one answer per category, approve or reject.
 //
-// The apply records the answers with approve.sh and applies the approved categories in this
-// order: backup.sh (the tag pre-standard and the catalogue issue) before anything is
-// deleted, cleanup.sh prepare, a session for the todo lines that need judgement, cleanup.sh open for the
-// cleanup pull request, and issues.sh. After the merge, the finalize runs finalize.sh: the workspace and
-// the standard check. Every script is safe to run again, so a failed step is applied again from the start.
-import { spawn } from 'node:child_process'
+// The apply records the answers and applies the approved categories in this order: the backup (the tag
+// pre-standard and the catalogue issue) before anything is deleted, the cleanup's prepare, a session for the
+// todo lines that need judgement, the cleanup's open for the cleanup pull request, and the issues. After the
+// merge, the finalize configures the workspace and runs the standard check. Every step is safe to run again,
+// so a failed step is applied again from the start. The steps keep the names of the scripts they were in the
+// lines they report (approve.sh, cleanup.sh open), which the process view and its notes show.
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { addWorktree, type CreatedRecord, exists, fetch, git, held, type Mode, writeProcess } from './claim.js'
 import { run } from './exec.js'
@@ -23,17 +21,24 @@ import { settingOf } from './gate.js'
 import { removal } from './hunt.js'
 import { type Project, Refusal } from './project.js'
 import { applier, auditors, type Ended, event, readRecord, type Running, type Runtime, track, update } from './session.js'
+import { backup as backupStep } from './standard/backup.js'
+import { cleanupOpen, cleanupPrepare } from './standard/cleanup.js'
+import { facts } from './standard/facts.js'
+import { finalize as finalizeStep } from './standard/finalize.js'
+import { issues as issuesStep } from './standard/issues.js'
+import { type Category, categories, type Ctx, step } from './standard/lib.js'
+import { approve, report as reportStep } from './standard/report.js'
+import { workspace } from './standard/workspace.js'
 
-// The branch of a standardize process, the cleanup branch of the standardize scripts (WF_BRANCH).
+// The branch of a standardize process, the cleanup branch of the standardize steps.
 export const standardizeBranch = 'chore/standardize'
 
-// The six finding categories, one per auditor, in the order of the report (WF_CATEGORIES in lib.sh).
-export const categories = ['files', 'agent-config', 'docs', 'tests-ci', 'workspace', 'security'] as const
-export type Category = (typeof categories)[number]
+// The six finding categories, one per auditor, in the order of the report.
+export { type Category, categories }
 
 export type Answer = 'approve' | 'reject'
 
-// A finding of the report, as report.sh stores it.
+// A finding of the report, as the report stores it.
 export interface StandardFinding {
   target: string
   action: string
@@ -50,7 +55,7 @@ export interface CategoryReport {
   answer?: Answer
 }
 
-// A step of the apply or the finalize: the script or the session, what it printed, and whether it held.
+// A step of the apply or the finalize: the step or the session, what it printed, and whether it held.
 export interface Step {
   step: string
   ok: boolean
@@ -59,7 +64,7 @@ export interface Step {
 }
 
 // What a standardize process keeps on its record: the facts the auditors were briefed with, how each
-// auditor ended, the report per category, the finding lines report.sh refused, the error of workspace.sh
+// auditor ended, the report per category, the finding lines the report refused, the error of the workspace step
 // when the workspace could not be audited, and what the apply and the finalize did.
 export interface Standardization {
   facts: string[]
@@ -83,10 +88,6 @@ export interface StandardizeRecord extends CreatedRecord {
   env: Record<string, string>
   standardize?: Standardization
 }
-
-// The standardize scripts the controller owns, which the build copies from controller/standardize into
-// dist/standardize, beside the bundled plugins whose templates and check they use.
-const scripts = fileURLToPath(new URL('./standardize', import.meta.url))
 
 // standardize opens a standardize process: the branch chore/standardize from the base, its worktree and a
 // record in the state created. It refuses while a standardize process runs, or the branch exists here or
@@ -112,9 +113,9 @@ async function standardizeHeld(project: Project, stateDir: string, gh: string, f
   }
   if (remote) throw new Refusal(`the branch ${branch} exists on origin; merge its pull request and finalize, or delete it with git push origin --delete ${branch}`, 409)
 
-  // The standardize scripts derive the cleanup worktree from the main checkout, beside its git directory.
+  // The standardize steps derive the cleanup worktree from the main checkout, beside its git directory.
   const main = dirname(resolve(top, await git(top, 'rev-parse', '--git-common-dir')))
-  if (realpathSync(main) !== realpathSync(top)) throw new Refusal(`${top} is a linked worktree of ${main}, whose cleanup worktree the standardize scripts work in; add ${main} as the project and standardize there`, 409)
+  if (realpathSync(main) !== realpathSync(top)) throw new Refusal(`${top} is a linked worktree of ${main}, whose cleanup worktree the standardize steps work in; add ${main} as the project and standardize there`, 409)
   // The scripts back up, clean up, open the pull request on and check the default branch GitHub names, so
   // the standardisation works that branch alone.
   const base = project.base
@@ -168,23 +169,18 @@ function standardizeOf(stateDir: string, id: string): StandardizeRecord {
   return r
 }
 
-// Ran is how a script ended: its exit code and every line it wrote, stdout and stderr in their order.
+// Ran is how a step ended: its exit code and every line it reported.
 interface Ran {
   code: number
   lines: string[]
 }
 
-// How long a script of the apply may run: the check of the finalize runs the repository's gate.
-const scriptTimeout = 30 * 60 * 1000
-
-// scriptEnv is the environment the scripts run in: the controller's own, the repository's
-// WF_PROJECT_TEMPLATE, which the workspace reads, and in fake mode the scripted gh on PATH and origin
-// redirected to the canned GitHub's repository git/<owner>/<name>.git, since the scripts push and fetch.
-async function scriptEnv(project: Project, rt: Runtime): Promise<NodeJS.ProcessEnv> {
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
-  const template = settingOf({}, project.path, 'WF_PROJECT_TEMPLATE')
-  if (typeof template === 'string' && template !== '') env.WF_PROJECT_TEMPLATE = template
-  if (rt.gh.includes('/')) env.PATH = `${dirname(rt.gh)}:${env.PATH ?? ''}`
+// stepEnv is what the steps add to the environment of every command they run: in fake mode the scripted gh on
+// PATH, for the plugin scripts that call gh themselves, and origin redirected to the canned GitHub's repository
+// git/<owner>/<name>.git, since the steps push and fetch.
+async function stepEnv(project: Project, rt: Runtime): Promise<Record<string, string>> {
+  const env: Record<string, string> = {}
+  if (rt.gh.includes('/')) env.PATH = `${dirname(rt.gh)}:${process.env.PATH ?? ''}`
   const canned = process.env.AMEISE_FAKE_GH
   if (rt.fake && canned) {
     const origin = await git(project.path, 'config', '--get', 'remote.origin.url').catch(() => '')
@@ -195,25 +191,19 @@ async function scriptEnv(project: Project, rt: Runtime): Promise<NodeJS.ProcessE
   return env
 }
 
-// script runs a standardize script in the checkout and answers how it ended. A stop kills it.
-async function script(project: Project, rt: Runtime, signal: AbortSignal, name: string, args: string[] = []): Promise<Ran> {
-  const env = await scriptEnv(project, rt)
-  return new Promise((done) => {
-    const child = spawn('bash', [join(scripts, name), ...args], { cwd: project.path, env, signal, timeout: scriptTimeout, stdio: ['ignore', 'pipe', 'pipe'] })
-    let out = ''
-    child.stdout.on('data', (d: Buffer) => (out += d.toString()))
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()))
-    const end = (code: number, why?: string) => done({ code, lines: [...out.split('\n').filter((l) => l.trim() !== ''), ...(why ? [`error: ${why}`] : [])] })
-    child.on('error', (err) => end(1, `${name} could not run: ${err.message}`))
-    child.on('close', (code, sig) => end(code ?? 1, sig ? `${name} ended with ${sig}` : undefined))
-  })
+// script runs a step of the standardisation in the checkout and answers how it ended. A stop ends the command
+// it runs. The workspace reads the repository's WF_PROJECT_TEMPLATE.
+async function script(project: Project, rt: Runtime, signal: AbortSignal, work: (c: Ctx) => Promise<number | void>): Promise<Ran> {
+  const template = settingOf({}, project.path, 'WF_PROJECT_TEMPLATE')
+  const r = await step({ root: project.path, gh: rt.gh, env: await stepEnv(project, rt), signal, ...(typeof template === 'string' && template !== '' ? { template } : {}) }, work)
+  return { code: r.code, lines: r.lines.filter((l) => l.trim() !== '') }
 }
 
 const errors = (r: Ran) => r.lines.filter((l) => l.startsWith('error: ')).map((l) => l.slice('error: '.length))
 const firstError = (r: Ran, name: string) => errors(r)[0] ?? `${name} exited with ${r.code}`
 
 // background runs one stage of a standardize process in the background, tracked, so a stop ends it and its
-// script or session. A stage that throws ends the process failed with the reason.
+// step or session. A stage that throws ends the process failed with the reason.
 function background(record: StandardizeRecord, rt: Runtime, busy: string, work: (s: Running, own: () => boolean) => Promise<void>) {
   const id = record.id
   const abort = new AbortController()
@@ -254,8 +244,8 @@ export function auditorBrief(record: StandardizeRecord, repo: string, category: 
   ].join('\n')
 }
 
-// oneLine keeps a finding line to one line, as report.sh reads one finding a line, and strips a list
-// bullet and backticks around it as report.sh does, so its error names the line as the controller keeps it.
+// oneLine keeps a finding line to one line, as the report reads one finding a line, and strips a list
+// bullet and backticks around it as the report does, so its error names the line as the controller keeps it.
 const oneLine = (s: string) =>
   s
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ')
@@ -272,10 +262,10 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
   background(started, rt, 'the auditors run', async (s, own) => {
     const repo = `${project.owner}/${project.name}`
     const signal = s.abort.signal
-    const f = await script(project, rt, signal, 'facts.sh', [started.worktree])
+    const f = await script(project, rt, signal, (c) => facts(c, started.worktree))
     if (!own()) return
     if (f.code !== 0) return failed(rt, id, 'audit', `the audit failed: facts.sh: ${firstError(f, 'facts.sh')}; audit again`)
-    const ws = await script(project, rt, signal, 'workspace.sh')
+    const ws = await script(project, rt, signal, (c) => workspace(c, { apply: false }))
     if (!own()) return
     // A workspace that cannot be read is not audited, which the report says, as the plugin's does.
     const unaudited = ws.code === 0 ? undefined : firstError(ws, 'workspace.sh')
@@ -309,36 +299,29 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
   return started
 }
 
-// report merges the finding lines with report.sh and reads its report per category. A line report.sh
-// refuses as malformed is dropped and named, and the rest are reported again, since report.sh stores
-// nothing while one line is malformed.
+// report merges the finding lines with the report step and reads its report per category. A line the
+// report refuses as malformed is dropped and named, and the rest are reported again, since the report
+// stores nothing while one line is malformed.
 async function report(project: Project, rt: Runtime, signal: AbortSignal, lines: string[]): Promise<{ summary: string; categories: CategoryReport[]; dropped: string[] } | { error: string }> {
-  const dir = mkdtempSync(join(tmpdir(), 'ameise-standardize-'))
-  try {
-    const file = join(dir, 'findings')
-    const dropped: string[] = []
-    let kept = lines
-    for (let i = 0; i < 3; i++) {
-      writeFileSync(file, kept.join('\n') + '\n')
-      const r = await script(project, rt, signal, 'report.sh', [file])
-      if (r.code === 0) return { summary: r.lines[0] ?? '', categories: await readReport(project, r.lines), dropped }
-      // report.sh names each malformed line as error: <why>: <line>.
-      const bad = new Map<string, string>()
-      for (const e of errors(r)) {
-        const at = e.indexOf(': finding:')
-        if (at > 0) bad.set(e.slice(at + 2), e.slice(0, at))
-      }
-      if (bad.size === 0) return { error: firstError(r, 'report.sh') }
-      dropped.push(...[...bad].map(([line, why]) => `${line} (${why})`))
-      kept = kept.filter((l) => !bad.has(l))
+  const dropped: string[] = []
+  let kept = lines
+  for (let i = 0; i < 3; i++) {
+    const r = await script(project, rt, signal, (c) => reportStep(c, kept))
+    if (r.code === 0) return { summary: r.lines[0] ?? '', categories: await readReport(project, r.lines), dropped }
+    // The report names each malformed line as error: <why>: <line>.
+    const bad = new Map<string, string>()
+    for (const e of errors(r)) {
+      const at = e.indexOf(': finding:')
+      if (at > 0) bad.set(e.slice(at + 2), e.slice(0, at))
     }
-    return { error: 'its lines stayed malformed' }
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
+    if (bad.size === 0) return { error: firstError(r, 'report.sh') }
+    dropped.push(...[...bad].map(([line, why]) => `${line} (${why})`))
+    kept = kept.filter((l) => !bad.has(l))
   }
+  return { error: 'its lines stayed malformed' }
 }
 
-// readReport reads the categories the report asks about, in its order, with the findings report.sh stored
+// readReport reads the categories the report asks about, in its order, with the findings the report stored
 // in <git dir>/standardize/findings and the report's lines on each.
 async function readReport(project: Project, lines: string[]): Promise<CategoryReport[]> {
   const common = resolve(project.path, await git(project.path, 'rev-parse', '--git-common-dir'))
@@ -381,10 +364,10 @@ export function applyRequest(body: Record<string, unknown>): Partial<Record<Cate
   return out
 }
 
-// apply records the answers and applies the approved categories in the background: approve.sh, backup.sh,
-// cleanup.sh prepare, a session for its todo lines, cleanup.sh open and issues.sh. Every category of the
+// apply records the answers and applies the approved categories in the background: the approval, the
+// backup, the cleanup's prepare, a session for its todo lines, the cleanup's open and the issues. Every category of the
 // report needs an answer, so only an approved one is applied. A failed or blocked apply applies again
-// with the answers it has, since every script goes on from what an earlier run created.
+// with the answers it has, since every step goes on from what an earlier run created.
 export function apply(project: Project, rt: Runtime, id: string, answers: Partial<Record<Category, Answer>> | undefined): StandardizeRecord {
   const r = standardizeOf(rt.stateDir, id)
   const st = r.standardize
@@ -409,15 +392,15 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
       if (now?.standardize) update(rt.stateDir, id, { standardize: { ...now.standardize, ...change, applied: [...steps] } } as Partial<StandardizeRecord>)
       event(rt.stateDir, id, { event: 'apply-step', step, ok })
     }
-    // run runs a script as a step; read takes what the record keeps of its output.
-    const run = async (step: string, name: string, args: string[], note: string, read: (out: string) => Partial<Standardization> = () => ({})): Promise<Ran | undefined> => {
+    // run runs a step; read takes what the record keeps of its output.
+    const run = async (step: string, work: (c: Ctx) => Promise<number | void>, note: string, read: (out: string) => Partial<Standardization> = () => ({})): Promise<Ran | undefined> => {
       update(rt.stateDir, id, { note })
-      const out = await script(project, rt, signal, name, args)
+      const out = await script(project, rt, signal, work)
       if (!own()) return undefined
       keep(step, out.code === 0, out.lines, out.code === 0 ? read(out.lines.join('\n')) : {})
       return out
     }
-    const answer = await run('approve', 'approve.sh', answered.categories.map((c) => `${c.name}=${c.answer}`), 'the apply records the answers')
+    const answer = await run('approve', (c) => approve(c, answered.categories.map((x) => `${x.name}=${x.answer}`)), 'the apply records the answers')
     if (!answer) return
     // approve.sh refuses when the report it stored is gone or differs, so the audit fails and runs again.
     if (answer.code !== 0) {
@@ -425,13 +408,13 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
       return failed(rt, id, 'audit', `approve.sh refused the answers: ${firstError(answer, 'approve.sh')}; audit again`)
     }
     // Nothing is deleted without the backup: a backup that failed stops the apply here.
-    const backup = await run('backup', 'backup.sh', [], 'the apply backs up: the tag pre-standard and the catalogue issue', (out) => {
+    const backup = await run('backup', backupStep, 'the apply backs up: the tag pre-standard and the catalogue issue', (out) => {
       const catalogue = Number(/^catalogue: #(\d+)/m.exec(out)?.[1])
       return catalogue ? { catalogue } : {}
     })
     if (!backup) return
     if (backup.code !== 0) return failed(rt, id, 'apply', `the backup failed, so nothing was deleted: ${firstError(backup, 'backup.sh')}; apply again`)
-    const prepare = await run('prepare', 'cleanup.sh', ['prepare'], 'the apply prepares the cleanup on chore/standardize')
+    const prepare = await run('prepare', cleanupPrepare, 'the apply prepares the cleanup on chore/standardize')
     if (!prepare) return
     if (prepare.code !== 0) return failed(rt, id, 'apply', `cleanup.sh prepare failed: ${firstError(prepare, 'cleanup.sh prepare')}; apply again`)
     const todo = prepare.lines.filter((l) => l.startsWith('todo: '))
@@ -450,14 +433,14 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
       if (ended.state !== 'complete') return failed(rt, id, 'apply', `the apply session failed: ${ended.note}; apply again`)
     }
     const pullOf = (out: string) => /^pr: (\S+) (opened|updated|unchanged)$/m.exec(out)?.[1]
-    const open = await run('open', 'cleanup.sh', ['open'], 'the apply opens the cleanup pull request', (out) => {
+    const open = await run('open', cleanupOpen, 'the apply opens the cleanup pull request', (out) => {
       const pull = pullOf(out)
       return pull ? { pull } : {}
     })
     if (!open) return
     if (open.code !== 0) return failed(rt, id, 'apply', `cleanup.sh open failed: ${firstError(open, 'cleanup.sh open')}; apply again`)
     const pull = pullOf(open.lines.join('\n'))
-    const issues = await run('issues', 'issues.sh', [], 'the apply opens the issues of the approved findings')
+    const issues = await run('issues', issuesStep, 'the apply opens the issues of the approved findings')
     if (!issues) return
     if (issues.code !== 0) return failed(rt, id, 'apply', `issues.sh failed: ${firstError(issues, 'issues.sh')}; apply again`)
     const note = pull
@@ -490,7 +473,7 @@ export function applyBrief(record: StandardizeRecord, repo: string, facts: strin
   ].join('\n')
 }
 
-// finalize runs finalize.sh once the cleanup pull request is merged: the workspace of an approved
+// finalize runs the finalize step once the cleanup pull request is merged: the workspace of an approved
 // workspace category and the standard check. While the pull request is not merged it refuses, and the
 // process waits again with the reason. A check that fails ends the process failed; it finalizes again.
 export function finalize(project: Project, rt: Runtime, id: string): StandardizeRecord {
@@ -500,7 +483,7 @@ export function finalize(project: Project, rt: Runtime, id: string): Standardize
   const started = (update(rt.stateDir, id, { stage: 'finalize', state: 'running', note: 'finalize.sh runs: the workspace and the standard check' }) as StandardizeRecord | undefined) ?? r
   event(rt.stateDir, id, { event: 'finalize-start', stage: 'finalize' })
   background(started, rt, 'the finalize runs', async (s, own) => {
-    const out = await script(project, rt, s.abort.signal, 'finalize.sh')
+    const out = await script(project, rt, s.abort.signal, finalizeStep)
     if (!own()) return
     const now = readRecord(rt.stateDir, id) as StandardizeRecord | undefined
     const st = now?.standardize ?? started.standardize

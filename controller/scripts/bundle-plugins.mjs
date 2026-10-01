@@ -2,8 +2,7 @@
 // plugins of the checkout into dist/plugins, where the sessions load them from. A copy of an earlier
 // build goes first, so a file removed from a plugin is removed from the bundle too. The repository's
 // licence goes beside them, since the package carries its code and the MIT terms travel with it. The
-// standardize scripts the controller owns go to dist/standardize, beside the plugins whose templates and
-// check they use.
+// standardize steps in dist/standard use the templates and scripts of the bundled repo-standards plugin.
 import { cpSync, existsSync, rmSync } from 'node:fs'
 import { basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,8 +22,4 @@ rmSync(target, { recursive: true, force: true })
 for (const name of bundled) {
   cpSync(`${source}${name}`, `${target}${name}`, { recursive: true, filter: (path) => basename(path) !== '__pycache__' && basename(path) !== '.DS_Store' })
 }
-const standardize = fileURLToPath(new URL('../standardize/', import.meta.url))
-const standardizeTarget = fileURLToPath(new URL('../dist/standardize/', import.meta.url))
-rmSync(standardizeTarget, { recursive: true, force: true })
-cpSync(standardize, standardizeTarget, { recursive: true })
 cpSync(licence, fileURLToPath(new URL('../dist/LICENSE', import.meta.url)))
