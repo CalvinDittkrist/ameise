@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { vocabulary } from '../src/github.js'
+import { skillCandidate, vocabulary } from '../src/github.js'
 import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
@@ -62,6 +62,8 @@ test('the label vocabulary the tools create follows the contract fixture', () =>
   const planned = fixture.labels.vocabulary.filter((l) => l.planner !== false).map(({ name, color, description }) => ({ name, color, description }))
   expect(vocabulary).toEqual(planned)
   expect(vocabulary.map((l) => l.name)).toContain(fixture.frontier.routing_label)
+  // A standardisation creates the whole vocabulary, skill-candidate included, which the tools never create.
+  expect([...vocabulary, skillCandidate]).toEqual(fixture.labels.vocabulary.map(({ name, color, description }) => ({ name, color, description })))
 })
 
 test('a ticket is created with its labels, its parent and its milestone, and the missing labels are created first', async () => {
