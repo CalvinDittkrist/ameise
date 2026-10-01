@@ -21,10 +21,30 @@ const timeout = 30000
 // maxBuffer bounds the report quota-axi may print.
 const maxBuffer = 4 * 1024 * 1024
 
+// windowIds are the windows a reading shows in this order, as quota-axi names them: the five-hour session
+// window, then the weekly window, which Claude names seven_day and Codex weekly.
+const windowIds = ['five_hour', 'seven_day', 'weekly']
+
+// fableScope is the scope of Claude's Fable model, which the provider limits apart from the others and
+// quota-axi reports only where it does.
+const fableScope = 'model:fable'
+
+// A window of a runtime: its percentage left where quota-axi reports one, and its reset.
+export interface Window {
+  id: string
+  remaining: number | null
+  reset: string | null
+}
+
+// A scope of one model: known with its percentage left and the latest reset of the windows that limit
+// it, or unknown with the reason.
+export type Scope = { known: true; remaining: number; reset: string | null } | { known: false; reason: string }
+
 // A reading of one runtime: known with the percentage left of its all-models scope and the latest
-// reset of the windows that limit it, or unknown with the reason.
+// reset of the windows that limit it, its session and weekly windows, and for Claude the Fable scope when
+// quota-axi reports one; or unknown with the reason.
 export type Reading =
-  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
+  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean; windows: Window[]; fable?: Scope }
   | { runtime: string; known: false; reason: string; below: false }
 
 // A quota with the check switched off says so with off and reads no runtime.
@@ -39,15 +59,16 @@ interface Report {
   providers?: {
     provider?: string
     state?: { stale?: boolean; error?: string }
-    windows?: { id?: string; resetsAt?: string }[]
+    windows?: { id?: string; percentRemaining?: number; resetsAt?: string }[]
     quotaSemantics?: {
       effectiveAvailability?: { scope?: string; status?: string; effectivePercentRemaining?: number | null; limitingWindowIds?: string[] }[]
     }
   }[]
 }
 
-// parse reads the all-models scope of one runtime out of quota-axi's report, or throws the reason.
-export function parse(raw: string, runtime: string): { remaining: number; reset: string | null } {
+// parse reads the all-models scope of one runtime out of quota-axi's report, with its windows and the
+// Fable scope of Claude, or throws the reason.
+export function parse(raw: string, runtime: string): { remaining: number; reset: string | null; windows: Window[]; fable?: Scope } {
   let report: Report
   try {
     report = JSON.parse(raw) as Report
@@ -61,12 +82,29 @@ export function parse(raw: string, runtime: string): { remaining: number; reset:
   const row = (p.quotaSemantics?.effectiveAvailability ?? []).find((r) => r.scope === 'all_models')
   if (!row) throw new Error(`quota-axi reports no all_models scope for ${runtime}${p.state?.error ? `: ${p.state.error}` : ''}`)
   if (row.status !== 'known' || typeof row.effectivePercentRemaining !== 'number') throw new Error(`quota-axi does not know how much of ${runtime} is left`)
-  let reset: number | undefined
-  for (const id of row.limitingWindowIds ?? []) {
-    const at = Date.parse((p.windows ?? []).find((w) => w.id === id)?.resetsAt ?? '')
-    if (!Number.isNaN(at) && (reset === undefined || at > reset)) reset = at
+  const windows = p.windows ?? []
+  const resetOf = (ids: string[]) => {
+    let reset: number | undefined
+    for (const id of ids) {
+      const at = Date.parse(windows.find((w) => w.id === id)?.resetsAt ?? '')
+      if (!Number.isNaN(at) && (reset === undefined || at > reset)) reset = at
+    }
+    return reset === undefined ? null : new Date(reset).toISOString()
   }
-  return { remaining: row.effectivePercentRemaining, reset: reset === undefined ? null : new Date(reset).toISOString() }
+  const read = {
+    remaining: row.effectivePercentRemaining,
+    reset: resetOf(row.limitingWindowIds ?? []),
+    windows: windowIds.flatMap((id) => {
+      const w = windows.find((x) => x.id === id)
+      return w ? [{ id, remaining: typeof w.percentRemaining === 'number' ? w.percentRemaining : null, reset: resetOf([id]) }] : []
+    }),
+  }
+  const fable = runtime === 'claude' ? (p.quotaSemantics?.effectiveAvailability ?? []).find((r) => r.scope?.toLowerCase() === fableScope) : undefined
+  if (!fable) return read
+  if (fable.status !== 'known' || typeof fable.effectivePercentRemaining !== 'number') {
+    return { ...read, fable: { known: false, reason: `quota-axi does not know how much of Fable is left (status ${fable.status ?? 'missing'})` } }
+  }
+  return { ...read, fable: { known: true, remaining: fable.effectivePercentRemaining, reset: resetOf(fable.limitingWindowIds ?? []) } }
 }
 
 // readOne runs quota-axi for one runtime and answers its reading. It never throws: whatever keeps the

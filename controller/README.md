@@ -529,7 +529,14 @@ A finish removes the worktree, the local branch and the process, as for a hunt. 
 In fake mode the scripts push to the canned `git/<owner>/<name>.git` and call the scripted gh.
 
 ## Quota
-The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
+The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
+
+Beside that headline a reading gives:
+- `windows`: the five-hour window `five_hour` and the weekly window, `seven_day` on Claude and `weekly` on Codex.
+  - Each has its `reset` and its `remaining`, null where quota-axi reports no percentage of its own.
+- On Claude `fable`: the scope `model:fable` with its percentage left and reset, or unknown with the reason. A report without that scope gives no `fable`.
+
+The headline, `below` and a claim's warning come from `all_models` alone. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
 A reading is unknown, with the reason, when quota-axi is not installed or fails. So is one that answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
 

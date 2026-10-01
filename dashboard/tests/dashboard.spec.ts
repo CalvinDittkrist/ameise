@@ -48,15 +48,42 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
 
 test("the sidebar shows the quota of each runtime with its reset, and marks one below the minimum", async ({ page }) => {
   await page.goto(url())
-  const claude = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Claude" })
-  await expect(claude).toHaveText("Claude8%below 12% · resets in 2h")
+  const list = sidebar(page).getByRole("list", { name: "Quota" })
+  const claude = list.getByRole("listitem", { name: "Claude", exact: true })
+  await expect(claude).toHaveText(/^Claude8%below 12% · resets in 2h/)
   await expect(claude).toHaveAttribute("data-below", "true")
-  const codex = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Codex" })
-  await expect(codex).toHaveText("Codex64%resets in 3d")
+  const codex = list.getByRole("listitem", { name: "Codex", exact: true })
+  await expect(codex).toHaveText(/^Codex64%resets in 3d/)
   await expect(codex).toHaveAttribute("data-below", "false")
-  await expect(sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem")).toHaveText([/^Claude/, /^Codex/])
+  await expect(list.locator(":scope > li")).toHaveText([/^Claude/, /^Codex/])
   const quota = await (await fetch(url("/api/quota"))).json()
   expect(quota).toMatchObject({ minimum: 12, runtimes: [{ runtime: "claude", known: true, remaining: 8, below: true }, { runtime: "codex", known: true, remaining: 64, below: false }] })
+})
+
+test("under each runtime the sidebar shows its five-hour and weekly windows, and under Claude the Fable scope", async ({ page }) => {
+  await page.goto(url())
+  const claude = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
+  await expect(claude).toHaveText(["5-hour8% · resets in 2h", "Weekly60% · resets in 5d", "Fable30% · resets in 4d"])
+  const codex = sidebar(page).getByRole("list", { name: "Codex windows" }).getByRole("listitem")
+  await expect(codex).toHaveText(["5-hour64% · resets in 3d", "Weekly60% · resets in 5d"])
+})
+
+test("a report without Fable shows no Fable row, one whose Fable is unknown says so with the reason, and a window without a percentage shows its reset", async ({ page }) => {
+  const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
+  const reason = "quota-axi does not know how much of Fable is left (status unknown)"
+  const windows = [{ id: "five_hour", remaining: 40, reset }, { id: "seven_day", remaining: null, reset }]
+  const report: { fable?: object } = {}
+  await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
+    { runtime: "claude", known: true, remaining: 40, reset, below: false, windows, ...report },
+  ] } }))
+  await page.goto(url())
+  const rows = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
+  await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h"])
+
+  report.fable = { known: false, reason }
+  await page.reload()
+  await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h", "Fableunknown"])
+  await expect(rows.last().getByText("unknown")).toHaveAttribute("title", reason)
 })
 
 test("a quota check switched off says off in the sidebar and warns no claim", async ({ page }) => {
@@ -73,8 +100,8 @@ test("a quota check switched off says off in the sidebar and warns no claim", as
 test("a Codex below the minimum is marked in the sidebar and warns no claim", async ({ page }) => {
   const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
   await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
-    { runtime: "claude", known: true, remaining: 40, reset, below: false },
-    { runtime: "codex", known: true, remaining: 5, reset, below: true },
+    { runtime: "claude", known: true, remaining: 40, reset, below: false, windows: [] },
+    { runtime: "codex", known: true, remaining: 5, reset, below: true, windows: [] },
   ] } }))
   await page.goto(url())
   const codex = sidebar(page).getByRole("listitem", { name: "Codex" })
@@ -1094,6 +1121,13 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto(url(`/#process=${id}`))
       await expect(page.getByRole("list", { name: "Categories" }).locator("[aria-label]")).toHaveCount(6)
       await page.evaluate(() => document.fonts.ready)
+      // The scroller follows the end within a tolerance, so on a slow runner it can rest a pixel short
+      // of it; the screenshot is of the page scrolled to its very end.
+      const pane = main(page).getByLabel("Process", { exact: true })
+      await expect.poll(() => pane.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+        return el.scrollHeight - el.clientHeight - el.scrollTop
+      })).toBeLessThan(1)
       await expect(page).toHaveScreenshot(`standardize-${scheme}.png`, {
         animations: "disabled",
         caret: "hide",
