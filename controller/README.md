@@ -501,7 +501,7 @@ Its hunt session starts at once, in the stage `hunt`, as the implement session d
   - A finish stops its session, then removes the worktree, the hunt branch and the process. It refuses, unless forced, changes not committed and commits not on origin.
 
 ## Standardize process
-Standardize opens a standardize process: the standardisation of the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand, with an approval per category in the process view. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses, with `409`, a standardize process, a worktree on the branch, a local branch and the branch on origin; a list of origin's branches that cannot be read refuses it with `502`.
+Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand. The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
 
 The process runs the plugin's scripts from the bundled plugins in the checkout, in three stages:
 1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
@@ -512,6 +512,7 @@ The process runs the plugin's scripts from the bundled plugins in the checkout, 
 2. `apply` takes an answer, `approve` or `reject`, for every category in the report.
    - It runs `approve.sh`, `backup.sh`, `cleanup.sh prepare`, the apply session for the todo lines, `cleanup.sh open` and `issues.sh`, in that order.
    - It keeps each step in `applied`.
+   - An `approve.sh` that refuses the answers, as when its stored report is gone, fails the audit, which runs again on request.
    - The backup comes before any deletion: a backup that fails stops the apply and deletes nothing.
    - The apply session works in the worktree in auto mode; one that ends `blocked` turns the process `blocked`.
    - It turns `ready` with the cleanup pull request in `pull` and the catalogue issue in `catalogue`. A failed or blocked apply applies again with the answers it has.

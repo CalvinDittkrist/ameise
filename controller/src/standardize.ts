@@ -189,7 +189,7 @@ async function script(project: Project, rt: Runtime, signal: AbortSignal, name: 
 const errors = (r: Ran) => r.lines.filter((l) => l.startsWith('error: ')).map((l) => l.slice('error: '.length))
 const firstError = (r: Ran, name: string) => errors(r)[0] ?? `${name} exited with ${r.code}`
 
-// run runs one stage of a standardize process in the background, tracked, so a stop ends it and its
+// background runs one stage of a standardize process in the background, tracked, so a stop ends it and its
 // script or session. A stage that throws ends the process failed with the reason.
 function background(record: StandardizeRecord, rt: Runtime, busy: string, work: (s: Running, own: () => boolean) => Promise<void>) {
   const id = record.id
@@ -386,7 +386,11 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
     }
     const answer = await run('approve', 'approve.sh', answered.categories.map((c) => `${c.name}=${c.answer}`), 'the apply records the answers')
     if (!answer) return
-    if (answer.code !== 0) return failed(rt, id, 'apply', `approve.sh refused the answers: ${firstError(answer, 'approve.sh')}; audit again`)
+    // approve.sh refuses when the report it stored is gone or differs, so the audit fails and runs again.
+    if (answer.code !== 0) {
+      update(rt.stateDir, id, { stage: 'audit' })
+      return failed(rt, id, 'audit', `approve.sh refused the answers: ${firstError(answer, 'approve.sh')}; audit again`)
+    }
     // Nothing is deleted without the backup: a backup that failed stops the apply here.
     const backup = await run('backup', 'backup.sh', [], 'the apply backs up: the tag pre-standard and the catalogue issue', (out) => {
       const catalogue = Number(/^catalogue: #(\d+)/m.exec(out)?.[1])
