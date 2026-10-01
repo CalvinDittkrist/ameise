@@ -182,7 +182,7 @@ if ws=$(cd "$root" && bash "$(dirname "$0")/workspace.sh" 2>&1); then
     while IFS= read -r d; do warn "GitHub workspace: $d"; done <<EOF
 $drift
 EOF
-    warn "GitHub workspace differs from the standard; plugins/repo-standards/scripts/workspace.sh shows why, --apply fixes it"
+    warn "GitHub workspace differs from the standard; plugins/repo-standards/scripts/workspace.sh shows why, the standardize process of the controller fixes it"
   fi
 else printf 'skip: GitHub workspace not checked (%s)\n' "$(printf '%s\n' "$ws" | { grep '^error: ' || printf '%s\n' "$ws"; } | tail -n1 | sed 's/^error: //')"; fi
 

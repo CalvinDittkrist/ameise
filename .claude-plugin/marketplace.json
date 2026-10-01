@@ -37,7 +37,7 @@
     {
       "name": "repo-standards",
       "source": "./plugins/repo-standards",
-      "description": "Repository standard: AGENTS.md with a CLAUDE.md import, make check, architecture.md, ADRs, settings; /standardize, /apply, /adr, /docs-check.",
+      "description": "Repository standard: AGENTS.md with a CLAUDE.md import, make check, architecture.md, ADRs, settings; /adr, /docs-check, the standardisation auditors and the templates.",
       "category": "documentation",
       "keywords": [
         "adr",

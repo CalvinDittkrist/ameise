@@ -501,13 +501,13 @@ Its hunt session starts at once, in the stage `hunt`, as the implement session d
   - A finish stops its session, then removes the worktree, the hunt branch and the process. It refuses, unless forced, changes not committed and commits not on origin.
 
 ## Standardize process
-Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md) that `/repo-standards:standardize` and `/repo-standards:apply` run by hand. The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which the plugin's scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
+Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md). The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which its scripts use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
 - The scripts work the default branch GitHub names, so a project whose base differs is refused with `409`.
   - So is a project that is a linked worktree, since the scripts find the cleanup worktree from the main checkout.
 - A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content.
   - An empty repository is refused with the first commit it needs.
 
-The process runs the plugin's scripts from the bundled plugins in the checkout, in three stages:
+The process runs its own scripts, `controller/standardize/*.sh`, which the build copies to `dist/standardize` beside the bundled plugins. They use the templates, `scaffold.sh` and `check.sh` of the bundled repo-standards plugin. The process runs in three stages:
 1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
    - Each is one session with the agent `repo-standards:<category>-auditor`, read-only in the default mode with no tool that writes.
    - Each reports its `finding:` lines in its structured result. `report.sh` merges them per category; a line it refuses is dropped and named in `dropped`.

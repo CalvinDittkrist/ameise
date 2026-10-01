@@ -502,7 +502,7 @@ class WorkspaceTests(ShimTest):
             "warn: GitHub workspace: ruleset standard: main: differs -> replace",
             "warn: GitHub workspace: ruleset standard: pre-standard: missing -> create",
             "warn: GitHub workspace differs from the standard; plugins/repo-standards/scripts/workspace.sh shows why, "
-            "--apply fixes it"])
+            "the standardize process of the controller fixes it"])
         snap = self.base / "snapshot.json"
         self.assertEqual(self.ws_run("--apply", "--snapshot", str(snap)).returncode, 0)
         r = self.run_script(STANDARDS / "check.sh", SHIM_WS=str(self.ws))

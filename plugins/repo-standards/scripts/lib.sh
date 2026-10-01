@@ -39,8 +39,8 @@ ci_check_workflow() {
   done; return 0
 }
 
-# The names the README and the licence may have, the standard's name first. facts.sh, check.sh and scaffold.sh
-# accept exactly these, so the audit, the check and the scaffold agree on what exists. The other baseline files
+# The names the README and the licence may have, the standard's name first. check.sh, scaffold.sh and the
+# controller's facts.sh accept exactly these, so the audit, the check and the scaffold agree on what exists. The other baseline files
 # have one or two names each, listed where they are used (the Makefile in make's order of precedence).
 # shellcheck disable=SC2034
 WF_README_NAMES="README.md README.rst README.txt README readme.md" WF_LICENSE_NAMES="LICENSE LICENSE.md LICENSE.txt COPYING"

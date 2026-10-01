@@ -4,7 +4,7 @@
 # Usage: scaffold.sh [--skip <category>]... [--name <repo>] [--default <branch>] [<repo-root>]
 #        scaffold.sh --paths   (prints `<category>\t<path>` for every file it may write, and writes nothing)
 # --name and --default default to the directory name and the branch origin/HEAD names (else the current one);
-# the apply phase passes both, because it scaffolds a worktree.
+# the controller's apply phase passes both, because it scaffolds a worktree.
 # --skip leaves the files of a category alone: agent-config (AGENTS.md, CLAUDE.md, .claude/settings.json),
 # docs (README.md, docs/, the PR template), tests-ci (Makefile, the CI job check), workspace (.github/dependabot.yml).
 # Settings: the marketplace and the workflow plugins go in through `claude plugin ... --scope project`, every
@@ -60,7 +60,8 @@ put docs glossary.md docs/glossary.md
 put docs PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md
 put workspace dependabot.yml .github/dependabot.yml .github/dependabot.yaml
 # The CI job named check, unless a workflow already has one.
-# --paths ends here: a file written below this line must be listed on it too, or cleanup.sh stops reconciling it.
+# --paths ends here: a file written below this line must be listed on it too, or the controller's cleanup.sh stops
+# reconciling it.
 [ -z "$paths" ] || { put tests-ci check.yml .github/workflows/check.yml; printf 'agent-config\t.claude/settings.json\n'; exit 0; }
 if ! skipped tests-ci; then
   gate=$(ci_check_workflow "$root")

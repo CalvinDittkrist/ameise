@@ -50,7 +50,6 @@ Tools, plugins and instructions:
 - The controller starts its sessions with `--strict-mcp-config`, so account-level MCP connectors (their instructions and tool names, ≈1.7k) stay out.
 - They load only the plugin of their agent and repo-standards, and switch the marketplace's copies off (`enabledPlugins`).
 - So a planner never carries worker skill descriptions or the reviewer agent listing, and a worker never carries the planner's.
-- `/repo-standards:standardize` and `/repo-standards:apply` are `disable-model-invocation: true` too.
 - Plugin agents cannot be hidden, so the six auditor descriptions (one line each) are listed in every session that enables `repo-standards`.
 - Every session keeps `repo-standards` for `/repo-standards:adr` and carries those six lines.
 - Every planner skill is `disable-model-invocation: true`, which keeps even its description out of context. Enabling the plugin costs other sessions nothing.
