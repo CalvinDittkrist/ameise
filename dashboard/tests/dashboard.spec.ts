@@ -90,6 +90,7 @@ test("a report without Fable shows no Fable row, one whose Fable is unknown says
   await page.goto(url())
   const rows = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
   await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h"])
+  // A window with a percentage of its own carries the runtime's, so no bar of all models repeats it.
   await expect(rows.first().getByRole("meter")).toHaveCount(1)
   await expect(rows.last().getByRole("meter")).toHaveCount(0)
 
@@ -111,6 +112,13 @@ test("a quota check switched off says off in the sidebar and warns no claim", as
   await expect(dialog.getByRole("status", { name: "Quota" })).toHaveCount(0)
 })
 
+test("a quota the controller does not answer says so in the sidebar, naming the quota", async ({ page }) => {
+  await page.route("**/api/quota", (r) => r.abort())
+  await page.goto(url())
+  await expect(sidebar(page).getByText("The quota could not be read: the controller does not answer; start it with ameise")).toBeVisible()
+  await expect(sidebar(page).getByRole("list", { name: "Quota" })).toHaveCount(0)
+})
+
 test("a Codex below the minimum is marked in the sidebar and warns no claim", async ({ page }) => {
   const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
   await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
@@ -119,8 +127,10 @@ test("a Codex below the minimum is marked in the sidebar and warns no claim", as
   ] } }))
   await page.goto(url())
   const codex = sidebar(page).getByRole("listitem", { name: "Codex" })
-  await expect(codex).toHaveText("Codexbelow 12%")
+  await expect(codex).toHaveText("Codexbelow 12%All models5% · resets in 3h")
   await expect(codex).toHaveAttribute("data-below", "true")
+  // Without a window of its own percentage, the bar of all models carries what is left of the runtime.
+  await expect(codex.getByRole("meter", { name: "All models left" }).locator("div")).toHaveAttribute("style", "width: 5%;")
   await section(page, "Ready to start").locator('[aria-label="#144"]').getByRole("button", { name: "Claim" }).click()
   const dialog = page.getByRole("dialog", { name: "Claim #144" })
   await expect(dialog.getByRole("status", { name: "Quota" })).toHaveCount(0)
