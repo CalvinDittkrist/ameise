@@ -4,11 +4,14 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
-- Its footer holds the quota of `GET /api/quota`: for Claude, then Codex, the percentage left as a bar and the time to its reset.
+- Its footer holds the quota of `GET /api/quota`: Claude, then Codex, by name, and under each name a bar per window, five-hour and weekly.
+  - A bar shows the percentage left and the time to its reset.
+  - Under Claude a bar of Fable does the same. A Fable scope quota-axi does not know says unknown, with the reason on hover.
+  - A window without a percentage of its own shows its reset alone.
+  - Where no window has a percentage, a bar of all models shows the runtime's.
   - A runtime below the configured minimum is red and says so. One the controller could not read says unknown, with the reason on hover.
-  - Under each bar a row per window, five-hour and weekly, says what is left and when it resets.
-  - Under Claude a row of Fable does the same. A Fable scope quota-axi does not know says unknown, with the reason on hover.
   - With no `quota_axi` configured it says the check is off.
+  - While it is read, and when it could not be, a line says so and names the quota.
   - It is read when the page opens, on focus and every minute.
 - The sidebar collapses to its icons, which hides the footer.
 - A process that turned blocked, ready or failed carries a badge, `new`, on its row until its page is opened. The Orchestrator entry counts them.
