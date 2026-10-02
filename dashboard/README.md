@@ -4,8 +4,10 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
-- Under each project it lists the project's processes in the board's order, once the board has loaded. A project that does not derive and a board that could not be read list none.
-  - An entry shows the state as the row's dot, the issue and the branch, and the badge `new` while the row carries it. Hovering shows the full branch and the note.
+- Under each project it lists the project's processes in the board's order, once the board has loaded.
+  - A project that does not derive and a board that could not be read list none.
+  - An entry shows the state as the row's dot, the issue and the branch, and the badge `new` while the row carries it.
+  - Hovering over an entry shows the full branch and the note.
   - An entry opens its process's page and is marked active there. A foreign worktree has no page and stands as text.
 - The sidebar's footer holds the quota of `GET /api/quota`: Claude, then Codex, by name, and under each name a bar per window, five-hour and weekly.
   - A bar shows the percentage left and the time to its reset.
