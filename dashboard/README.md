@@ -4,7 +4,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
-- Its footer holds the quota of `GET /api/quota`: Claude, then Codex, by name, and under each name a bar per window, five-hour and weekly, with the percentage left and the time to its reset.
+- Its footer holds the quota of `GET /api/quota`: Claude, then Codex, by name, and under each name a bar per window, five-hour and weekly.
+  - A bar shows the percentage left and the time to its reset.
   - Under Claude a bar of Fable does the same. A Fable scope quota-axi does not know says unknown, with the reason on hover.
   - A window without a percentage of its own shows its reset alone.
   - A runtime below the configured minimum is red and says so. One the controller could not read says unknown, with the reason on hover.
