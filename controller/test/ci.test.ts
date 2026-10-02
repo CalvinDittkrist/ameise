@@ -318,21 +318,34 @@ test('with no bot reviewer no review is waited for', async () => {
   expect(reviewWaits(r.id)).toEqual([])
 })
 
-test('a thumbs up on a ready process starts no follow-up', async () => {
-  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [] })])
-  const r = await claim(['WF_PR_REVIEW_WAIT=0'])
+test('a thumbs up on a ready process starts no follow-up, which reads no reactions', async () => {
+  // The bot reviewed, so the stage is ready within a review wait that still stands.
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [{ login: codex, state: 'COMMENTED' }] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600'])
   const ready = await ended(r.id)
   expect(ready).toMatchObject({ state: 'ready', stage: 'ci', note: green })
   // The thumbs up comes after the ready, and the follow-up reads the pull request again a few times.
   const readings = join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.readings')
   writeFileSync(join(readings, '001.json'), JSON.stringify(reading(7, { reviews: [] })))
   writeFileSync(join(readings, '001.reactions'), JSON.stringify([{ content: 'THUMBS_UP', user: { login: `${codex}[bot]` } }]))
+  const calls = ghCalls().length
   const views = () => ghCalls().filter((c) => c.startsWith('pr view 7 ')).length
   const before = views()
   for (let i = 0; i < 200 && views() < before + 3; i++) await new Promise((d) => setTimeout(d, 50))
   expect(views()).toBeGreaterThanOrEqual(before + 3)
-  expect(recordOf(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green, history: ready.history })
+  expect(ghCalls().slice(calls).filter((c) => c.startsWith('api graphql ') && c.includes('reactions('))).toEqual([])
+  expect(recordOf(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green })
   expect(events(r.id).filter((e) => e.event === 'ci-start')).toHaveLength(1)
+  expect(reviewWaits(r.id)).toEqual([])
+})
+
+test('a reading that asks only for the review threads reads no reactions', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [{ login: codex, state: 'COMMENTED' }] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600'])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  const graphql = ghCalls().filter((c) => c.startsWith('api graphql ') && c.includes('reviewThreads'))
+  expect(graphql.length).toBeGreaterThan(0)
+  expect(graphql.filter((c) => c.includes('reactions('))).toEqual([])
 })
 
 test('an empty rollup in a repository with workflows waits for GitHub to register the checks', async () => {
