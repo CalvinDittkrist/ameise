@@ -71,6 +71,7 @@ Terms the code, the issues and the docs use, one row each.
 | release signal | Removing the assignee from an issue the factory holds, which queues a resumed run. |
 | outage signal | A held run that ended `blocked` or `failed` after the auto mode classifier gave no verdict (`Classifier unavailable`). It queues a resumed run after `outage_wait`, on the one automatic resume an interruption spends. |
 | changes-requested signal | A writer's new review asking for changes on a held issue's pull request, after the last run ended; only the latest counts. It is a mandate: the follow-up run's repair count starts at none. |
+| bot review | A review in any state, or a thumbs-up reaction on the pull request, of a bot the bot reviewers list; the signal the controller's ci stage waits for. |
 | bot review signal | A Bot account's review on a held issue's pull request, after the last run ended, that leaves an unresolved thread. It queues a follow-up run whose repair count carries over ([ADR 0051](adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md)). |
 | follow-up run | The factory run that answers a review on a held issue's pull request, in the claim's worktree, starting at address-reviews. A changes-requested signal starts its repair count afresh; a bot review signal carries it over. |
 | follow-up | The controller's answer to a review on the pull request of a `work` process the ci stage left ready or blocked on a review: its ci stage waits on the pull request again and starts an address-reviews session. |
