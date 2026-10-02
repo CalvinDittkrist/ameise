@@ -12,7 +12,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { abandon, adopt, claim, claimed, type Issue, type Process, QuotaContext, type Reading, resume, resumeHunt, runtimeName, until } from "@/api"
+import { abandon, adopt, claim, claimed, type Issue, type Process, QuotaContext, type Reading, resume, resumeHunt, runtimeName } from "@/api"
+import { Until } from "@/components/span"
 import { cn } from "@/lib/utils"
 
 // Force lifts what the controller refuses, and says so in the dialog that asks for it.
@@ -174,7 +175,7 @@ export function Claim({ i, path, reload }: { i: Issue; path: string; reload: () 
               {low.map((r) => (
                 <li key={r.runtime}>
                   {runtimeName(r.runtime)} has {Math.round(r.remaining)}% of its quota left, below the minimum of {quota.minimum}%
-                  {r.reset ? `; it resets in ${until(r.reset)}` : ""}. Claim anyway?
+                  {r.reset && <>; it resets in <Until at={r.reset} /></>}. Claim anyway?
                 </li>
               ))}
             </ul>

@@ -267,6 +267,33 @@ test("a process whose session failed waits under needs you with its reason, a da
   }
 })
 
+test("the age of an idle process advances while its page and the board stay open", async ({ page }) => {
+  // An idle process sends no event, so only the page's own clock can move its age.
+  const file = join(process.env.AMEISE_RECORDS!, "p73.json")
+  const at = new Date(Date.now() - 3_000).toISOString()
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/73-keep-the-clock", issue: 73,
+    stage: "implement", state: "blocked", note: "Which clock?", updated_at: at,
+  }))
+  const advances = async (span: Locator) => {
+    await expect(span).toHaveText(/^\d+s$/)
+    const first = await span.textContent()
+    await expect(span).not.toHaveText(first!, { timeout: 2_500 })
+  }
+  try {
+    await page.goto(url("/#process=p73"))
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("#73 fix/73-keep-the-clock")
+    // A mark on the window survives only while the page is not reloaded.
+    await page.evaluate(() => Object.assign(window, { kept: true }))
+    await advances(main(page).locator(`[title="${at}"]`))
+    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await advances(section(page, "Needs you").locator("[aria-label='fix/73-keep-the-clock'] [data-slot=age]"))
+    expect(await page.evaluate(() => "kept" in window)).toBe(true)
+  } finally {
+    rmSync(file, { force: true })
+  }
+})
+
 test("a process page links the pull request of its branch with its checks", async ({ page }) => {
   // The ready process of the fixture turns running for this test and is ready again after it.
   const file = join(process.env.AMEISE_RECORDS!, "p131.json")

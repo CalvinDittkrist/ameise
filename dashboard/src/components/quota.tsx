@@ -1,4 +1,5 @@
-import { type Quota, type QuotaScope, type QuotaWindow, runtimeName, until } from "@/api"
+import { type Quota, type QuotaScope, type QuotaWindow, runtimeName } from "@/api"
+import { Until } from "@/components/span"
 import { cn } from "@/lib/utils"
 
 // windowName is how the dashboard names a window quota-axi reports: the five-hour session window, and the
@@ -61,7 +62,7 @@ function Bar({ name, scope, below }: { name: string; scope: Pick<QuotaWindow, "r
         <span className="tabular-nums">
           {remaining !== null ? `${Math.round(remaining)}%` : ""}
           {remaining !== null && reset ? " · " : ""}
-          {reset ? <span title={new Date(reset).toLocaleString()}>resets in {until(reset)}</span> : remaining === null ? "no reset named" : ""}
+          {reset ? <span title={new Date(reset).toLocaleString()}>resets in <Until at={reset} /></span> : remaining === null ? "no reset named" : ""}
         </span>
       </div>
       {remaining !== null && (

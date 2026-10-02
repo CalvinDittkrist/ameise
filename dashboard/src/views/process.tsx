@@ -12,9 +12,9 @@ import { Acceptance } from "@/components/acceptance"
 import { Capture, Finish } from "@/components/actions"
 import { Standardize } from "@/components/standardize"
 import { Prose } from "@/components/markdown"
+import { Age } from "@/components/span"
 import { dot } from "@/components/rows"
 import {
-  age,
   type Answer,
   answer,
   type Attempt,
@@ -255,7 +255,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
           </span>
         )}
         <Badge variant="outline">{record.mode ?? record.kind}</Badge>
-        <span title={record.updated_at}>{age(record.updated_at)}</span>
+        <span title={record.updated_at}><Age since={record.updated_at} /></span>
         <span
           aria-label="Context"
           className="flex items-center gap-2"
@@ -295,7 +295,7 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
                 <ol aria-label={`Records of ${s}`} className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                   {attempts.map((a, i) => (
                     <li key={i} className={cn(failed(a) && "text-destructive")} title={a.tail ?? a.note ?? a.at}>
-                      {described(a)} · {age(a.at)}
+                      {described(a)} · <Age since={a.at} />
                     </li>
                   ))}
                 </ol>
@@ -370,7 +370,7 @@ function Rounds({ history }: { history: Attempt[] }) {
         return (
           <li key={i} aria-label={`Round ${a.round ?? ""}`} className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">
-              round {a.round} · {a.result} · {age(a.at)}
+              round {a.round} · {a.result} · <Age since={a.at} />
             </span>
             <ul className="flex flex-col gap-1">
               {(a.verdicts ?? []).map((v) => (
@@ -418,7 +418,7 @@ function FollowUps({ history }: { history: Attempt[] }) {
       {sessions.map((a, i) => (
         <li key={i} aria-label={`Follow-up ${i + 1}`} className="flex flex-col gap-0.5">
           <span className="text-xs text-muted-foreground">
-            {a.mandate === "writer" ? "a writer's request" : "a bot's review"} · {a.result} · {age(a.at)}
+            {a.mandate === "writer" ? "a writer's request" : "a bot's review"} · {a.result} · <Age since={a.at} />
           </span>
           <ul className="flex flex-col gap-0.5 pl-2 text-xs">
             {(a.fixed ?? []).map((p, j) => (
