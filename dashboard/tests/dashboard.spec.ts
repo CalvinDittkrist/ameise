@@ -11,6 +11,10 @@ import { test as base, expect, type Page } from "@playwright/test"
 const url = (path = "/") => process.env.AMEISE_URL + path
 const sidebar = (page: Page) => page.locator("[data-slot=sidebar]")
 const projects = (page: Page) => page.getByRole("list", { name: "Projects" })
+// The projects' own links, without the processes listed under them.
+const projectLinks = (page: Page) => projects(page).locator(":scope > li > a")
+// The processes the sidebar lists under the project of that name.
+const entries = (page: Page, name: string) => sidebar(page).getByRole("list", { name: `Processes of ${name}` }).getByRole("listitem")
 const main = (page: Page) => page.getByRole("main")
 const sections = (page: Page) => main(page).locator("[data-slot=card]")
 
@@ -38,12 +42,30 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
   const listed = await (await fetch(url("/api/projects"))).json()
   expect(listed.map((p: { name?: string }) => p.name)).toEqual(["edge-sensors", "backtest", undefined])
 
-  await expect(projects(page).getByRole("link")).toHaveText(["edge-sensors", "backtest", "notes"])
+  await expect(projectLinks(page)).toHaveText(["edge-sensors", "backtest", "notes"])
   await expect(projects(page).getByRole("button")).toHaveText(["Add project"])
-  const links = sidebar(page).getByRole("link")
+  const links = sidebar(page).locator("a[data-sidebar=menu-button]")
   await expect(links).toHaveText(["ameise controllerthis machine", "Orchestrator", "edge-sensors", "backtest", "notes"])
   await expect(sidebar(page).getByRole("link", { name: "Orchestrator" })).toHaveAttribute("data-active", "true")
   await expect(sidebar(page).getByText("Quota", { exact: true })).toBeVisible()
+})
+
+test("under each project the sidebar lists its processes in the board's order, and a broken project stands alone", async ({ page }) => {
+  await page.goto(url())
+  const board = await (await fetch(url("/api/board"))).json()
+  for (const name of ["edge-sensors", "backtest"]) {
+    const b = board.projects.find((x: { name?: string }) => x.name === name)
+    const expected = b.processes.map((p: { issue: number | null; branch: string }) => (p.issue === null ? p.branch : `#${p.issue} ${p.branch}`))
+    expect(expected.length).toBeGreaterThan(0)
+    await expect(entries(page, name)).toHaveText(expected)
+  }
+  await expect(entries(page, "edge-sensors").first().locator("[title=approval]")).toHaveCount(1)
+  await expect(sidebar(page).getByRole("list", { name: "Processes of notes" })).toHaveCount(0)
+  await expect(projects(page).locator("li", { has: page.getByRole("link", { name: "notes" }) }).getByRole("listitem")).toHaveCount(0)
+
+  // The tooltip names the full branch and the note.
+  await entries(page, "edge-sensors").first().hover()
+  await expect(page.getByRole("tooltip")).toHaveText("feat/118-refuse-a-project-without-originBash wants to run: git remote set-url origin git@github.com:acme/edge-sensors.git")
 })
 
 test("the sidebar shows the quota of each runtime with its reset, and marks one below the minimum", async ({ page }) => {
@@ -144,11 +166,18 @@ test("a process that turned blocked carries a badge on its row and on the Orches
     await expect(row.getByText("new", { exact: true })).toBeVisible()
     const orchestrator = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Orchestrator" }) })
     await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    const entry = entries(page, "backtest").filter({ hasText: "fix/78-keep-the-order-book" })
+    await expect(entry).toHaveText("#78 fix/78-keep-the-order-booknew")
 
-    await row.getByRole("link", { name: "fix/78-keep-the-order-book" }).click()
+    await entry.getByRole("link").click()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("#78 fix/78-keep-the-order-book")
     await expect(main(page).getByLabel("Note")).toHaveText("Which exchange first?")
     await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0)
+    await expect(entry).toHaveText("#78 fix/78-keep-the-order-book")
+    // On the process's page its entry is active, and its project's entry is not.
+    await expect(entry.getByRole("link")).toHaveAttribute("data-active", "true")
+    await expect(projectLinks(page).filter({ hasText: "backtest" })).toHaveAttribute("data-active", "false")
+    await expect(sidebar(page).locator("a[data-sidebar=menu-sub-button][data-active=true]")).toHaveCount(1)
     const board = await (await fetch(url("/api/board"))).json()
     const p = board.projects.flatMap((b: { processes?: { id: string; unseen: boolean }[] }) => b.processes ?? []).find((x: { id: string }) => x.id === "p78")
     expect(p).toMatchObject({ unseen: false })
@@ -615,8 +644,21 @@ test("while the board is derived the sections wait, and never say they are empty
   await expect(main(page).locator("[aria-busy=true]")).toHaveCount(3)
   await expect(main(page)).not.toContainText("Nothing waits for you")
   await expect(main(page)).not.toContainText("Frontier empty")
+  // The sidebar holds the projects alone until the board answers, without skeletons under them.
+  await expect(projectLinks(page)).toHaveText(["edge-sensors", "backtest", "notes"])
+  await expect(projects(page).locator("[data-sidebar=menu-sub]")).toHaveCount(0)
+  await expect(projects(page).locator("[data-sidebar=menu-skeleton]")).toHaveCount(0)
   release()
   await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you4", "Running3", "Ready to start3"])
+  await expect(entries(page, "edge-sensors")).toHaveCount(4)
+})
+
+test("a board that cannot be read leaves the projects alone in the sidebar", async ({ page }) => {
+  await page.route("**/api/board", (r) => r.abort())
+  await page.goto(url())
+  await expect(main(page).getByRole("alert")).toBeVisible()
+  await expect(projectLinks(page)).toHaveText(["edge-sensors", "backtest", "notes"])
+  await expect(projects(page).locator("[data-sidebar=menu-sub]")).toHaveCount(0)
 })
 
 test("a project opens its page from the sidebar, and the page survives a reload", async ({ page }) => {
@@ -637,7 +679,7 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(page.locator("header")).toHaveText(/Orchestrator3 projects$/)
 })
 
-test("on a phone the sidebar closes on the page it opens, and the project page fits the width", async ({ page }) => {
+test("on a phone the sidebar closes on the page a project or a process opens, and the project page fits the width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(url())
   const sheet = page.getByRole("dialog")
@@ -646,6 +688,10 @@ test("on a phone the sidebar closes on the page it opens, and the project page f
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
   await expect(sheet).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click()
+  await sheet.getByRole("link", { name: "#88 feat/88-reconnect-the-broker-stream" }).click()
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("#88 feat/88-reconnect-the-broker-stream")
+  await expect(sheet).toBeHidden()
 })
 
 test("a project page shows its specs ready for acceptance", async ({ page }) => {
@@ -689,7 +735,7 @@ test("add project refuses a path with the controller's reason and adds a checkou
     await dialog.getByRole("button", { name: "Add" }).click()
     await expect(dialog).toBeHidden()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("firmware")
-    await expect(projects(page).getByRole("link")).toHaveText(["edge-sensors", "backtest", "notes", "firmware"])
+    await expect(projectLinks(page)).toHaveText(["edge-sensors", "backtest", "notes", "firmware"])
 
     // GitHub does not answer the open specs of firmware, and both pages say so above the sections.
     const note = "firmware: could not read the open specs; ready for acceptance is empty, not idle"
@@ -770,6 +816,11 @@ test("a worktree the controller did not start is adopted from its row, and the i
     const waiting = section(page, "Needs you").locator(`[aria-label="${branch}"]`)
     await expect(waiting).toContainText(`backtest#93${branch}not started by this controller; adopt it or remove itimplement`)
     await expect(waiting.locator("[title=foreign]")).toHaveCount(1)
+    // The sidebar names the foreign worktree too, without a link, since it has no page.
+    const entry = entries(page, "backtest").filter({ hasText: branch })
+    await expect(entry).toHaveText(`#93 ${branch}`)
+    await expect(entry.locator("[title=foreign]")).toHaveCount(1)
+    await expect(entry.getByRole("link")).toHaveCount(0)
     await waiting.getByRole("button", { name: "Adopt" }).click()
     await expect(waiting).toContainText("adopted; resume it to start its implement session in the worktree")
     await expect(waiting.locator("[title=interrupted]")).toHaveCount(1)
@@ -1109,13 +1160,15 @@ test("a standardisation's page shows the applied steps and the cleanup pull requ
 
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {
   await page.goto(url())
-  await expect(projects(page).getByRole("link")).toHaveCount(3)
+  await expect(projectLinks(page)).toHaveCount(3)
+  await expect(entries(page, "edge-sensors")).toHaveCount(4)
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click()
   await expect(page.locator("[data-slot=sidebar][data-state=collapsed]")).toHaveCount(1)
   await expect(sidebar(page).getByText("Quota", { exact: true })).toBeHidden()
   await expect(projects(page).getByText("edge-sensors")).toBeHidden()
   const icon = await projects(page).getByRole("link", { name: "edge-sensors" }).boundingBox()
   expect(icon?.width).toBe(32)
+  await expect(sidebar(page).getByRole("list", { name: "Processes of edge-sensors" })).toBeHidden()
 })
 
 for (const scheme of ["light", "dark"] as const) {
@@ -1127,7 +1180,8 @@ for (const scheme of ["light", "dark"] as const) {
         // Tall enough for every section of the board the fake mode serves.
         await page.setViewportSize({ width: 1440, height: 1040 })
         await page.goto(url())
-        await expect(projects(page).getByRole("link")).toHaveCount(3)
+        await expect(projectLinks(page)).toHaveCount(3)
+        await expect(entries(page, "edge-sensors")).toHaveCount(4)
         if (name === "project") await projects(page).getByRole("link", { name: "edge-sensors" }).click()
         await expect(sections(page).first()).toBeVisible()
         if (name === "process") {

@@ -26,7 +26,7 @@ export default function App() {
   return (
     <QuotaContext.Provider value={quota}>
       <SidebarProvider>
-        <AppSidebar route={route} projects={projects} quota={quota} unseen={unseen} reload={reload} />
+        <AppSidebar route={route} projects={projects} board={board} quota={quota} unseen={unseen} reload={reload} />
         {/* The process page scrolls its own log below the header, so it is as tall as the window. */}
         <SidebarInset className={cn(route.page === "process" && "h-svh")}>
           <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
