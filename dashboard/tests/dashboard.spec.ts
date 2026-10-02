@@ -360,6 +360,43 @@ test("a process page that answered a review shows the repair rounds, the address
   }
 })
 
+test("a process page in the gate on CI shows the gate's draft, what it waits for, the checks and the records of each gate run", async ({ page }) => {
+  // The ready process of the fixture waits on the gate's draft for this test, and is as it was after it.
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  const at = new Date().toISOString()
+  const pending = { name: "gate", url: "https://github.com/acme/edge-sensors/actions/runs/8", state: "pending" }
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "gate", state: "waiting", note: "PR #250: waiting for a second reading", updated_at: at,
+    pull: { number: 250, url: "https://github.com/acme/pull/250" },
+    draft: true,
+    wait: "a second reading a poll later that shows the same checks",
+    checks: [pending, { name: "lint", state: "pass" }],
+    history: [
+      { stage: "implement", kind: "session", result: "complete", at, commits: ["a1b2c3d fix: log the drift"] },
+      { stage: "gate", kind: "run", result: "fail", at, gate: "ci", pr: 250, commit: "a1b2c3d4e5", checks: [{ name: "gate", url: "https://github.com/acme/edge-sensors/actions/runs/7", state: "fail" }] },
+      { stage: "gate", kind: "session", result: "complete", at, commits: ["e5f6a7b fix: clamp the drift"] },
+    ],
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    // The draft comes from the record, the checks from the board's pull request once the board has loaded.
+    const pr = main(page).getByLabel("Pull request")
+    await expect(pr).toHaveText("#250 the gate's draft checks pass")
+    await expect(pr.getByRole("link", { name: "#250" })).toHaveAttribute("href", "https://github.com/acme/pull/250")
+    await expect(main(page).getByLabel("Wait")).toHaveText("waiting for a second reading a poll later that shows the same checks")
+    await expect(main(page).getByRole("list", { name: "Checks" }).getByRole("listitem")).toHaveText(["gate pending", "lint pass"])
+    await expect(main(page).getByRole("list", { name: "Checks" }).getByRole("link", { name: "gate" })).toHaveAttribute("href", pending.url)
+    await expect(main(page).getByRole("list", { name: "Records of gate" }).getByRole("listitem")).toContainText(["ci fail at a1b2c3d on PR #250: gate fail", "session complete, 1 commit"])
+    const stages = main(page).getByRole("list", { name: "Stages" })
+    await expect(stages.locator("[aria-current='step']")).toHaveText("gate")
+    await expect(stages.getByText("ci", { exact: true })).not.toHaveAttribute("aria-current", "step")
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
 test("a process page shows the facts, the stages and the session as a conversation with its cards", async ({ page }) => {
   await page.goto(url())
   await section(page, "Needs you").locator("[aria-label='feat/118-refuse-a-project-without-origin']").getByRole("button", { name: "Approve" }).click()
