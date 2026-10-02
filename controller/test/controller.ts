@@ -313,13 +313,20 @@ export function canPull(m: Machine, repository: string, number: number, readings
   const dir = join(m.github, 'repos', repository)
   mkdirSync(join(dir, 'pulls', `${number}.readings`), { recursive: true })
   writeFileSync(join(dir, 'next-pull'), `${number}\n`)
-  readings.forEach((r, i) => writeFileSync(join(dir, 'pulls', `${number}.readings`, `${String(i).padStart(3, '0')}.json`), JSON.stringify(r)))
+  readings.forEach((r, i) => {
+    const file = join(dir, 'pulls', `${number}.readings`, String(i).padStart(3, '0'))
+    // The reactions of a reading are what the GraphQL query answers once gh pr view answered it.
+    const { reactions, ...view } = r as { reactions?: unknown }
+    writeFileSync(`${file}.json`, JSON.stringify(view))
+    if (reactions !== undefined) writeFileSync(`${file}.reactions`, JSON.stringify(reactions))
+  })
 }
 
 // reading is a reading of an open pull request as gh pr view answers it: mergeable, with checks of the
 // given conclusions, and with the reviews given, each with the association of its author when given; its
-// merge state is clean unless it conflicts or is given, and more adds fields. A green one has a check that
-// passed and a bot's review.
+// merge state is clean unless it conflicts or is given, and more adds fields. Its reactions on the pull
+// request, each a login and a content that is THUMBS_UP unless given, are answered by the GraphQL query.
+// A green one has a check that passed and a bot's review.
 export function reading(
   number: number,
   o: {
@@ -327,6 +334,7 @@ export function reading(
     mergeState?: string
     checks?: Record<string, string>
     reviews?: { login: string; state: string; association?: string; body?: string; at?: string }[]
+    reactions?: { login: string; content?: string }[]
     state?: string
     more?: Record<string, unknown>
   } = {},
@@ -350,6 +358,7 @@ export function reading(
       body: r.body ?? 'Looked.',
       submittedAt: r.at ?? `2026-09-30T10:0${i}:00Z`,
     })),
+    ...(o.reactions ? { reactions: o.reactions.map((x) => ({ content: x.content ?? 'THUMBS_UP', user: { login: x.login } })) } : {}),
     ...o.more,
   }
 }

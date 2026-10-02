@@ -204,6 +204,18 @@ test('a yolo process whose panel passed merges itself once green, and removes it
   expect(execFileSync('git', ['-C', dir, 'branch', '--list', branch], { encoding: 'utf8' }).trim()).toBe('')
 })
 
+test("a yolo process whose panel passed merges on the bot's thumbs up with no review, without waiting for one", async () => {
+  play(m, `commit board.txt\nrun git update-ref refs/remotes/origin/${branch} HEAD\ncomplete Implemented the board`)
+  const pr = { title: 'feat: list every project', isDraft: false, headRefName: branch, baseRefName: 'main', isCrossRepository: false, reviewDecision: null, mergeCommit: null }
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [], reactions: [{ login: 'chatgpt-codex-connector[bot]' }], more: pr })])
+  writeFileSync(join(pulls(), '7.json'), JSON.stringify(reading(7, { reviews: [], more: pr })))
+  writeFileSync(join(pulls(), '7.merged.json'), JSON.stringify(reading(7, { state: 'MERGED', reviews: [], more: { ...pr, mergeCommit: { oid: 'beef' } } })))
+  const r = await claim({ mode: 'yolo', env: ['WF_PR_REVIEW_WAIT=600'] })
+  for (let i = 0; i < 400 && existsSync(file(r.id)); i++) await new Promise((d) => setTimeout(d, 50))
+  expect(existsSync(file(r.id))).toBe(false)
+  expect(ghCalls().filter((c) => c.startsWith('pr merge '))).toHaveLength(1)
+})
+
 test('a yolo process whose panel failed stays ready and merges nothing', async () => {
   writeFileSync(join(m.claude, 'reviewer-code'), 'finding S2 src/board.ts:3 The limit is off by one\nverdict fix\n')
   writeFileSync(join(m.claude, 'review'), 'complete Nothing to change\n')

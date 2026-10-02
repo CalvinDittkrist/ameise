@@ -36,6 +36,7 @@ interface Attempt {
   stage: string
   kind: string
   result: string
+  at?: string
   commit?: string
   pr?: number
   url?: string
@@ -267,6 +268,71 @@ test('a bot review that arrives within the review wait ends the wait at once', a
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
   const waits = events(r.id).filter((e) => e.event === 'ci-wait').map((e) => e.wait)
   expect(waits).toEqual([expect.stringMatching(/^a review of chatgpt-codex-connector, until /)])
+})
+
+const codex = 'chatgpt-codex-connector'
+const reviewWaits = (id: string) => events(id).filter((e) => e.event === 'ci-wait' && e.wait?.startsWith('a review of') === true)
+
+test("a bot's thumbs up on the pull request with no review is its review: the process never waits for one and ends ready", async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [], reactions: [{ login: `${codex}[bot]` }] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600'])
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  expect(shape(done).at(-1)).toBe('ci wait green')
+  expect(reviewWaits(r.id)).toEqual([])
+})
+
+for (const login of [codex, `${codex}[bot]`]) {
+  test(`a bot's thumbs up that arrives within the review wait ends it on the next reading, by ${login}`, async () => {
+    const quiet = reading(7, { reviews: [] })
+    canPull(m, 'owner/repo', 7, [quiet, quiet, reading(7, { reviews: [], reactions: [{ login }] })])
+    const r = await claim(['WF_PR_REVIEW_WAIT=600'])
+    const done = await ended(r.id)
+    expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+    expect(reviewWaits(r.id).map((e) => e.wait)).toEqual([expect.stringMatching(/^a review of chatgpt-codex-connector, until /)])
+  })
+}
+
+test("a thumbs up of somebody who is no listed bot and the bot's eyes end no wait: the review wait stands until it passes", async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [], reactions: [{ login: 'mallory' }, { login: `${codex}[bot]`, content: 'EYES' }] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=2'])
+  const waiting = await until(r.id, (x) => x.wait?.startsWith('a review of') === true)
+  expect(waiting).toMatchObject({ state: 'waiting', stage: 'ci', wait: expect.stringMatching(/^a review of chatgpt-codex-connector, until /) })
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  // The ready comes once the wait of two seconds has passed, not before.
+  expect(Date.parse(done.history?.at(-1)?.at ?? '')).toBeGreaterThanOrEqual(Date.parse(waiting.wait!.replace(/^.*, until /, '')))
+})
+
+test('a review of the bot in any state ends the wait', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [{ login: codex, state: 'APPROVED' }] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600'])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  expect(reviewWaits(r.id)).toEqual([])
+})
+
+test('with no bot reviewer no review is waited for', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=600', 'WF_PR_BOT_REVIEWERS='])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  expect(reviewWaits(r.id)).toEqual([])
+})
+
+test('a thumbs up on a ready process starts no follow-up', async () => {
+  canPull(m, 'owner/repo', 7, [reading(7, { reviews: [] })])
+  const r = await claim(['WF_PR_REVIEW_WAIT=0'])
+  const ready = await ended(r.id)
+  expect(ready).toMatchObject({ state: 'ready', stage: 'ci', note: green })
+  // The thumbs up comes after the ready, and the follow-up reads the pull request again a few times.
+  const readings = join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.readings')
+  writeFileSync(join(readings, '001.json'), JSON.stringify(reading(7, { reviews: [] })))
+  writeFileSync(join(readings, '001.reactions'), JSON.stringify([{ content: 'THUMBS_UP', user: { login: `${codex}[bot]` } }]))
+  const views = () => ghCalls().filter((c) => c.startsWith('pr view 7 ')).length
+  const before = views()
+  for (let i = 0; i < 200 && views() < before + 3; i++) await new Promise((d) => setTimeout(d, 50))
+  expect(views()).toBeGreaterThanOrEqual(before + 3)
+  expect(recordOf(r.id)).toMatchObject({ state: 'ready', stage: 'ci', note: green, history: ready.history })
+  expect(events(r.id).filter((e) => e.event === 'ci-start')).toHaveLength(1)
 })
 
 test('an empty rollup in a repository with workflows waits for GitHub to register the checks', async () => {

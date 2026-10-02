@@ -1,8 +1,10 @@
 // The ci stage of a work process, which the controller runs once the pr stage has opened the pull
 // request. It pushes what the branch has, then waits on the pull request itself, with one wait at a time
 // and no session polling: first for GitHub to say whether the branch merges into its base, then for the
-// checks, then for a review of each bot of WF_PR_BOT_REVIEWERS within WF_PR_REVIEW_WAIT seconds of the
-// checks' end, then it reads the standing requests for changes and the unresolved threads.
+// checks, then for a review of a bot of WF_PR_BOT_REVIEWERS within WF_PR_REVIEW_WAIT seconds of the
+// checks' end, then it reads the standing requests for changes and the unresolved threads. A bot's review
+// is a review of it in any state, or its thumbs-up reaction on the pull request, which Codex leaves
+// instead of a review when it finds nothing.
 //
 // A gate's draft the pr stage marked ready waits for the checks its ready starts, as the README's ci
 // stage says. Bot reviewers skip drafts, so their review is waited for from the ready on.
@@ -63,6 +65,13 @@ export interface Reading {
   mergeStateStatus?: string
   statusCheckRollup?: { name?: string; context?: string; conclusion?: string | null; state?: string | null; status?: string | null; completedAt?: string | null; detailsUrl?: string; targetUrl?: string }[]
   reviews?: { id?: string; author?: { login?: string } | null; authorAssociation?: string; body?: string; url?: string; state: string; submittedAt?: string }[]
+}
+
+// A reaction on the pull request as the GraphQL API answers it: its content, such as THUMBS_UP, and the
+// login of its user, which GitHub writes with [bot] for a bot.
+export interface Reaction {
+  content?: string
+  user?: { login?: string } | null
 }
 
 // A review thread as the GraphQL API answers it: its id, whether it is resolved, where it is, and its
@@ -245,7 +254,8 @@ interface Knobs {
 // judge makes the verdict of one reading, in the order of the waits. doneAt is when the checks were first
 // seen done without GitHub saying when, which the review wait counts from; it is the caller's, across
 // readings. points reads the points of the reading, which are asked only once every wait before it has passed.
-async function judge(r: Reading, points: () => Promise<Points>, k: Knobs, now: number, doneAt: { at?: number }): Promise<Verdict> {
+// reactions reads the reactions on the pull request, which are asked only while the review wait stands.
+async function judge(r: Reading, points: () => Promise<Points>, reactions: () => Promise<Reaction[]>, k: Knobs, now: number, doneAt: { at?: number }): Promise<Verdict> {
   if (r.state === 'MERGED') return { kind: 'merged' }
   if (r.state !== 'OPEN') return { kind: 'closed' }
   if (r.mergeable === 'CONFLICTING') return { kind: 'conflicts' }
@@ -263,8 +273,10 @@ async function judge(r: Reading, points: () => Promise<Points>, k: Knobs, now: n
   else doneAt.at ??= now
   // A bot reviews no draft, so its wait starts at the ready at the earliest.
   if (k.readied !== undefined) doneAt.at = Math.max(doneAt.at, k.readied)
-  const reviewed = (r.reviews ?? []).filter((v) => k.bots.includes((v.author?.login ?? '').replace(/\[bot\]$/, ''))).length
-  if (k.bots.length > 0 && reviewed === 0 && now - doneAt.at < k.reviewWait * 1000) {
+  // A bot's review is a review of it in any state, or its thumbs up on the pull request, on whichever commit.
+  const bot = (login?: string) => k.bots.includes((login ?? '').replace(/\[bot\]$/, ''))
+  const reviewed = (r.reviews ?? []).some((v) => bot(v.author?.login))
+  if (k.bots.length > 0 && !reviewed && now - doneAt.at < k.reviewWait * 1000 && !(await reactions()).some((x) => x.content === 'THUMBS_UP' && bot(x.user?.login))) {
     return { kind: 'waiting', wait: `a review of ${k.bots.join(', ')}, until ${new Date(doneAt.at + k.reviewWait * 1000).toISOString()}` }
   }
   const read = await points()
@@ -277,22 +289,24 @@ async function judge(r: Reading, points: () => Promise<Points>, k: Knobs, now: n
 }
 
 // threadsOf reads the review threads of a pull request, by the first hundred threads and the first
-// twenty comments of each.
-export async function threadsOf(gh: string, owner: string, name: string, n: number): Promise<Thread[]> {
-  const query =
-    'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{__typename login} authorAssociation body url}}}}}}}'
+// twenty comments of each, and with reactions its first hundred thumbs-up reactions in the same query.
+export async function threadsOf(gh: string, owner: string, name: string, n: number, reactions = false): Promise<{ threads: Thread[]; reactions: Reaction[] }> {
+  const thumbs = reactions ? ' reactions(first:100,content:THUMBS_UP){nodes{content user{login}}}' : ''
+  const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{__typename login} authorAssociation body url}}}}${thumbs}}}}`
   const out = JSON.parse(await run(gh, ['api', 'graphql', '-F', `owner=${owner}`, '-F', `name=${name}`, '-F', `number=${n}`, '-f', `query=${query}`])) as {
-    data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: Thread[] } } } }
+    data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: Thread[] }; reactions?: { nodes?: Reaction[] } } } }
   }
-  const nodes = out.data?.repository?.pullRequest?.reviewThreads?.nodes
+  const pull = out.data?.repository?.pullRequest
+  const nodes = pull?.reviewThreads?.nodes
   if (!nodes) throw new Error(`GitHub named no review threads of PR #${n}`)
-  return nodes
+  if (reactions && !pull?.reactions?.nodes) throw new Error(`GitHub named no reactions of PR #${n}`)
+  return { threads: nodes, reactions: pull?.reactions?.nodes ?? [] }
 }
 
-// readPoints reads the review threads of a reading of pull request n, and whose authors may push, into
-// its points.
-export async function readPoints(gh: string, owner: string, name: string, n: number, r: Reading): Promise<Points> {
-  const threads = await threadsOf(gh, owner, name, n)
+// readPoints reads the review threads of a reading of pull request n, unless they are given, and whose
+// authors may push, into its points.
+export async function readPoints(gh: string, owner: string, name: string, n: number, r: Reading, given?: Thread[]): Promise<Points> {
+  const threads = given ?? (await threadsOf(gh, owner, name, n)).threads
   return pointsOf(r, threads, await pushersOf(gh, `${owner}/${name}`, r, threads))
 }
 
@@ -517,7 +531,19 @@ async function wait(record: StageRecord, project: Project, rt: Runtime, signal: 
       checks = checksOf(r).map((c) => ({ name: c.name, ...(c.url ? { url: c.url } : {}), state: c.state }))
       // A reading of another head is GitHub's before the push has reached it.
       if (r.headRefOid && r.headRefOid !== head && r.state === 'OPEN') verdict = { kind: 'waiting', wait: `GitHub to show the push of ${head.slice(0, 7)}` }
-      else verdict = await judge(r, () => readPoints(rt.gh, project.owner, project.name, n, r), k, Date.now(), doneAt)
+      else {
+        // The threads and the reactions of a reading are read once, by one query, when it is asked for either.
+        let pulled: ReturnType<typeof threadsOf> | undefined
+        const graph = () => (pulled ??= threadsOf(rt.gh, project.owner, project.name, n, true))
+        verdict = await judge(
+          r,
+          async () => readPoints(rt.gh, project.owner, project.name, n, r, (await graph()).threads),
+          async () => (await graph()).reactions,
+          k,
+          Date.now(),
+          doneAt,
+        )
+      }
     } catch (err) {
       verdict = { kind: 'waiting', wait: `GitHub to answer: ${(err as Error).message.split('\n')[0]}` }
     }
