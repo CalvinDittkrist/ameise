@@ -288,8 +288,8 @@ async function judge(r: Reading, points: () => Promise<Points>, reactions: () =>
   return { kind: 'green' }
 }
 
-// threadsOf reads the review threads of a pull request, by the first hundred threads and the first
-// twenty comments of each, and with reactions its first hundred thumbs-up reactions in the same query.
+// threadsOf reads the first hundred review threads of a pull request, with their first twenty comments.
+// With reactions it also reads the first hundred thumbs-up reactions in the same query.
 export async function threadsOf(gh: string, owner: string, name: string, n: number, reactions = false): Promise<{ threads: Thread[]; reactions: Reaction[] }> {
   const thumbs = reactions ? ' reactions(first:100,content:THUMBS_UP){nodes{content user{login}}}' : ''
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{__typename login} authorAssociation body url}}}}${thumbs}}}}`
@@ -532,13 +532,14 @@ async function wait(record: StageRecord, project: Project, rt: Runtime, signal: 
       // A reading of another head is GitHub's before the push has reached it.
       if (r.headRefOid && r.headRefOid !== head && r.state === 'OPEN') verdict = { kind: 'waiting', wait: `GitHub to show the push of ${head.slice(0, 7)}` }
       else {
-        // The threads and the reactions of a reading are read once, by one query, when it is asked for either.
+        // The reactions are read only when the review wait asks for them, with the threads in one query,
+        // and the threads reuse that query; a reading that asks only for the threads reads no reactions.
         let pulled: ReturnType<typeof threadsOf> | undefined
-        const graph = () => (pulled ??= threadsOf(rt.gh, project.owner, project.name, n, true))
+        const graph = (reactions: boolean) => (pulled ??= threadsOf(rt.gh, project.owner, project.name, n, reactions))
         verdict = await judge(
           r,
-          async () => readPoints(rt.gh, project.owner, project.name, n, r, (await graph()).threads),
-          async () => (await graph()).reactions,
+          async () => readPoints(rt.gh, project.owner, project.name, n, r, (await graph(false)).threads),
+          async () => (await graph(true)).reactions,
           k,
           Date.now(),
           doneAt,
