@@ -1,7 +1,7 @@
 # 0014. Claiming requires ready-for-agent, with --force as the only exception
 
 Date: 2026-09-20
-Status: accepted
+Status: accepted; amended by [0059](0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)
 
 ## Context
 - `/orchestrator:board` lists only `ready-for-agent` issues in its frontier, but `/orchestrator:claim <n>` took any open issue.

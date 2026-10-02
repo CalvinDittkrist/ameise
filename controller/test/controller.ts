@@ -7,11 +7,14 @@ import {
   chmodSync,
   constants,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -219,6 +222,12 @@ export function gated(dir: string, recipe = '@:', base = 'main') {
   git('update-ref', `refs/remotes/origin/${base}`, 'HEAD')
 }
 
+// tools links more of this machine's commands into the machine's PATH, such as the ones a plugin's script
+// calls that the controller does not.
+export function tools(m: Machine, names: string[]) {
+  for (const tool of names) symlinkSync(which(tool), join(m.bin, tool))
+}
+
 // canRepo cans a repository on the fake GitHub with the default branch it names.
 export function canRepo(m: Machine, repository: string, defaultBranch: string) {
   const dir = join(m.github, 'repos', repository)
@@ -238,18 +247,38 @@ export function play(m: Machine, session: string) {
 
 // canApi cans the answer of gh api <endpoint> on the fake GitHub, an endpoint such as
 // repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100.
-export function canApi(m: Machine, endpoint: string, answer: unknown) {
+export function canApi(m: Pick<Machine, 'github'>, endpoint: string, answer: unknown) {
+  writeFileSync(apiFile(m, endpoint), JSON.stringify(answer))
+}
+
+// apiFile is the file of the fake GitHub that answers the endpoint. An endpoint that is also the
+// directory of longer ones keeps its answer in the file @ of that directory, as fake/gh reads it.
+export function apiFile(m: Pick<Machine, 'github'>, endpoint: string): string {
+  let at = join(m.github, 'api')
+  for (const part of endpoint.split('/').slice(0, -1)) {
+    at = join(at, part)
+    if (existsSync(at) && !statSync(at).isDirectory()) {
+      renameSync(at, `${at}.answer`)
+      mkdirSync(at)
+      renameSync(`${at}.answer`, join(at, '@'))
+    }
+  }
+  mkdirSync(at, { recursive: true })
   const file = join(m.github, 'api', endpoint)
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(answer))
+  return existsSync(file) && statSync(file).isDirectory() ? join(file, '@') : file
+}
+
+// failApi makes gh api <endpoint> fail with the message, as a GitHub that answers an error other than
+// not found does.
+export function failApi(m: Machine, endpoint: string, message: string) {
+  apiFile(m, endpoint)
+  writeFileSync(`${join(m.github, 'api', endpoint)}.fails`, message + '\n')
 }
 
 // canPages cans the answer of gh api --paginate <endpoint> as GitHub writes it over several pages: one
 // JSON array per page, one after the other.
 export function canPages(m: Machine, endpoint: string, pages: unknown[][]) {
-  const file = join(m.github, 'api', endpoint)
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, pages.map((p) => JSON.stringify(p)).join('\n'))
+  writeFileSync(apiFile(m, endpoint), pages.map((p) => JSON.stringify(p)).join('\n'))
 }
 
 // canIssue cans an issue of a repository, as gh issue view answers it: its state OPEN or CLOSED and its
@@ -288,10 +317,19 @@ export function canPull(m: Machine, repository: string, number: number, readings
 }
 
 // reading is a reading of an open pull request as gh pr view answers it: mergeable, with checks of the
-// given conclusions, and with the reviews given; its merge state is clean unless it conflicts or is given. A green one has a check that passed and a bot's review.
+// given conclusions, and with the reviews given, each with the association of its author when given; its
+// merge state is clean unless it conflicts or is given, and more adds fields. A green one has a check that
+// passed and a bot's review.
 export function reading(
   number: number,
-  o: { mergeable?: string; mergeState?: string; checks?: Record<string, string>; reviews?: { login: string; state: string }[]; state?: string } = {},
+  o: {
+    mergeable?: string
+    mergeState?: string
+    checks?: Record<string, string>
+    reviews?: { login: string; state: string; association?: string; body?: string; at?: string }[]
+    state?: string
+    more?: Record<string, unknown>
+  } = {},
 ) {
   const checks = o.checks ?? { gate: 'SUCCESS' }
   const mergeable = o.mergeable ?? 'MERGEABLE'
@@ -304,7 +342,15 @@ export function reading(
     statusCheckRollup: Object.entries(checks).map(([name, conclusion]) =>
       conclusion === 'PENDING' ? { name, status: 'IN_PROGRESS', conclusion: null } : { name, status: 'COMPLETED', conclusion, detailsUrl: `https://github.com/owner/repo/actions/runs/7/job/${name}` },
     ),
-    reviews: (o.reviews ?? [{ login: 'chatgpt-codex-connector', state: 'COMMENTED' }]).map((r, i) => ({ author: { login: r.login }, state: r.state, body: 'Looked.', submittedAt: `2026-09-30T10:0${i}:00Z` })),
+    reviews: (o.reviews ?? [{ login: 'chatgpt-codex-connector', state: 'COMMENTED' }]).map((r, i) => ({
+      id: `R-${r.login}-${r.at ?? i}`,
+      author: { login: r.login },
+      ...(r.association ? { authorAssociation: r.association } : {}),
+      state: r.state,
+      body: r.body ?? 'Looked.',
+      submittedAt: r.at ?? `2026-09-30T10:0${i}:00Z`,
+    })),
+    ...o.more,
   }
 }
 

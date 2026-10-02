@@ -1,7 +1,7 @@
 # 0013. Promotions merge with a merge commit, and the release tags it
 
 Date: 2026-09-18
-Status: accepted
+Status: accepted; its scripts superseded by [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)
 
 ## Context
 - [ADR 0012](0012-releases-are-manual-and-close-a-milestone.md) makes releases manual but leaves open how the command finds the promotion, what it tags and how the promotion merges.

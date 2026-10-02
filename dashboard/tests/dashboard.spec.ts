@@ -48,15 +48,42 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
 
 test("the sidebar shows the quota of each runtime with its reset, and marks one below the minimum", async ({ page }) => {
   await page.goto(url())
-  const claude = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Claude" })
-  await expect(claude).toHaveText("Claude8%below 12% · resets in 2h")
+  const list = sidebar(page).getByRole("list", { name: "Quota" })
+  const claude = list.getByRole("listitem", { name: "Claude", exact: true })
+  await expect(claude).toHaveText(/^Claude8%below 12% · resets in 2h/)
   await expect(claude).toHaveAttribute("data-below", "true")
-  const codex = sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem", { name: "Codex" })
-  await expect(codex).toHaveText("Codex64%resets in 3d")
+  const codex = list.getByRole("listitem", { name: "Codex", exact: true })
+  await expect(codex).toHaveText(/^Codex64%resets in 3d/)
   await expect(codex).toHaveAttribute("data-below", "false")
-  await expect(sidebar(page).getByRole("list", { name: "Quota" }).getByRole("listitem")).toHaveText([/^Claude/, /^Codex/])
+  await expect(list.locator(":scope > li")).toHaveText([/^Claude/, /^Codex/])
   const quota = await (await fetch(url("/api/quota"))).json()
   expect(quota).toMatchObject({ minimum: 12, runtimes: [{ runtime: "claude", known: true, remaining: 8, below: true }, { runtime: "codex", known: true, remaining: 64, below: false }] })
+})
+
+test("under each runtime the sidebar shows its five-hour and weekly windows, and under Claude the Fable scope", async ({ page }) => {
+  await page.goto(url())
+  const claude = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
+  await expect(claude).toHaveText(["5-hour8% · resets in 2h", "Weekly60% · resets in 5d", "Fable30% · resets in 4d"])
+  const codex = sidebar(page).getByRole("list", { name: "Codex windows" }).getByRole("listitem")
+  await expect(codex).toHaveText(["5-hour64% · resets in 3d", "Weekly60% · resets in 5d"])
+})
+
+test("a report without Fable shows no Fable row, one whose Fable is unknown says so with the reason, and a window without a percentage shows its reset", async ({ page }) => {
+  const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
+  const reason = "quota-axi does not know how much of Fable is left (status unknown)"
+  const windows = [{ id: "five_hour", remaining: 40, reset }, { id: "seven_day", remaining: null, reset }]
+  const report: { fable?: object } = {}
+  await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
+    { runtime: "claude", known: true, remaining: 40, reset, below: false, windows, ...report },
+  ] } }))
+  await page.goto(url())
+  const rows = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
+  await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h"])
+
+  report.fable = { known: false, reason }
+  await page.reload()
+  await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h", "Fableunknown"])
+  await expect(rows.last().getByText("unknown")).toHaveAttribute("title", reason)
 })
 
 test("a quota check switched off says off in the sidebar and warns no claim", async ({ page }) => {
@@ -73,8 +100,8 @@ test("a quota check switched off says off in the sidebar and warns no claim", as
 test("a Codex below the minimum is marked in the sidebar and warns no claim", async ({ page }) => {
   const reset = new Date(Date.now() + 3.5 * 3_600_000).toISOString()
   await page.route("**/api/quota", (r) => r.fulfill({ json: { minimum: 12, runtimes: [
-    { runtime: "claude", known: true, remaining: 40, reset, below: false },
-    { runtime: "codex", known: true, remaining: 5, reset, below: true },
+    { runtime: "claude", known: true, remaining: 40, reset, below: false, windows: [] },
+    { runtime: "codex", known: true, remaining: 5, reset, below: true, windows: [] },
   ] } }))
   await page.goto(url())
   const codex = sidebar(page).getByRole("listitem", { name: "Codex" })
@@ -300,6 +327,39 @@ test("a process page in ci shows its pull request, what it waits for, the checks
   }
 })
 
+test("a process page that answered a review shows the repair rounds, the address-reviews stage and the follow-up", async ({ page }) => {
+  // The ready process of the fixture answered a review for this test, and is as it was after it.
+  const file = join(process.env.AMEISE_RECORDS!, "p131.json")
+  const fixture = readFileSync(file, "utf8")
+  const at = new Date().toISOString()
+  writeFileSync(file, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "fix/131-log-the-sensor-drift", issue: 131, mode: "manual",
+    stage: "ci", state: "waiting", note: "PR #250: waiting for the checks: 1 of 1 pending", updated_at: at,
+    pull: { number: 250, url: "https://github.com/acme/pull/250" },
+    wait: "the checks: 1 of 1 pending",
+    repairs: { spent: 1, of: 3 },
+    history: [
+      { stage: "pr", kind: "open", result: "opened", at, pr: 250, url: "https://github.com/acme/pull/250" },
+      { stage: "ci", kind: "wait", result: "review-comments", at, pr: 250, reviews: ["1 review thread(s) not resolved"] },
+      { stage: "address-reviews", kind: "session", result: "complete", at, mandate: "bot", fixed: ["T1 Moved the bound"], declined: ["T2 The limit is the spec's"] },
+      { stage: "address-reviews", kind: "answer", result: "posted", at, pr: 250, answered: [], replied: ["T1", "T2"] },
+    ],
+  }))
+  try {
+    await page.goto(url("/#process=p131"))
+    await expect(main(page).getByLabel("Repair rounds")).toHaveText("repair rounds 1 of 3")
+    await expect(main(page).getByRole("list", { name: "Records of address-reviews" }).getByRole("listitem")).toContainText([
+      "session complete on a bot's review, fixed 1, declined 1",
+      "replied to 2 threads",
+    ])
+    const followUp = main(page).getByRole("listitem", { name: "Follow-up 1" })
+    await expect(followUp).toContainText("a bot's review · complete")
+    await expect(followUp.getByRole("listitem")).toHaveText(["fixed: T1 Moved the bound", "declined: T2 The limit is the spec's"])
+  } finally {
+    writeFileSync(file, fixture)
+  }
+})
+
 test("a process page in the gate on CI shows the gate's draft, what it waits for, the checks and the records of each gate run", async ({ page }) => {
   // The ready process of the fixture waits on the gate's draft for this test, and is as it was after it.
   const file = join(process.env.AMEISE_RECORDS!, "p131.json")
@@ -321,8 +381,9 @@ test("a process page in the gate on CI shows the gate's draft, what it waits for
   }))
   try {
     await page.goto(url("/#process=p131"))
+    // The draft comes from the record, the checks from the board's pull request once the board has loaded.
     const pr = main(page).getByLabel("Pull request")
-    await expect(pr).toHaveText("#250 the gate's draft")
+    await expect(pr).toHaveText("#250 the gate's draft checks pass")
     await expect(pr.getByRole("link", { name: "#250" })).toHaveAttribute("href", "https://github.com/acme/pull/250")
     await expect(main(page).getByLabel("Wait")).toHaveText("waiting for a second reading a poll later that shows the same checks")
     await expect(main(page).getByRole("list", { name: "Checks" }).getByRole("listitem")).toHaveText(["gate pending", "lint pass"])
@@ -567,10 +628,7 @@ test("a project opens its page from the sidebar, and the page survives a reload"
   await expect(actions(page, "Processes")).toHaveText(["Open", "Open"])
   await expect(rows(page, "Processes").first()).not.toContainText("backtest")
   await expect(rows(page, "Ready to start")).toHaveText([/^#91Backfill candles after a gapv2\.4\.0ClaimPlan$/])
-  for (const action of ["Standardize", "Hunt tests"]) {
-    await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeDisabled()
-  }
-  for (const action of ["Plan", "Release"]) await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeEnabled()
+  for (const action of ["Plan", "Standardize", "Hunt tests", "Release"]) await expect(page.getByRole("button", { name: action, exact: true }).first()).toBeEnabled()
   await expect(projects(page).getByRole("link", { name: "backtest" })).toHaveAttribute("data-active", "true")
 
   await page.reload()
@@ -759,10 +817,10 @@ test("merge, accept and release each ask once, show the controller's refusal, an
   await expect(merge).toBeHidden()
   expect(sent()).toEqual({ project, pr })
 
-  // Accept on a spec ready for acceptance opens a plan process.
+  // Accept on a spec ready for acceptance starts its acceptance in a plan process.
   await section(page, "Needs you").locator('[aria-label="#100"]').getByRole("button", { name: "Accept" }).click()
   const acceptance = page.getByRole("dialog", { name: "Accept #100" })
-  await expect(acceptance).toContainText("Opens a plan process on Offline mode with the acceptance route.")
+  await expect(acceptance).toContainText("Gathers the facts of Offline mode, runs the spec checker read-only and shows its items in a plan process.")
   sent = await answer(page, "/api/acceptances", 201, { record: { branch: "plan/offline-mode" } })
   await acceptance.getByRole("button", { name: "Start acceptance" }).click()
   await expect(acceptance).toBeHidden()
@@ -854,6 +912,201 @@ test("plan opens a plan process from an idea, nothing or an issue, and a plan's 
   expect(sent()).toEqual({ id, force: true })
 })
 
+test("hunt tests opens a hunt process, whose page shows the hunt record, and a hunt that removed nothing finishes", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "hunt-0123456789ab"
+  const record = {
+    id, project, kind: "hunt", branch: "hunt/tests-2026-09-30", issue: null, mode: "manual",
+    stage: "hunt", state: "done", note: "the hunt removed nothing in 1 round, so no pull request opens; 1 candidate were checked and kept. Finish it to remove its worktree and branch",
+    session_id: "s-1", compact_at: 250000, updated_at: new Date().toISOString(),
+    hunt: {
+      rounds: 1, max_rounds: 3, ended: "round 1 found no new candidate", stale: 0,
+      removed: [],
+      kept: [{ round: 1, path: "tests/test_drift.py", test: "test_drift", category: "mocks-subject", reason: "the clock may be stubbed", confidence: "medium" }],
+    },
+  }
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url())
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+
+  // Hunt tests on the project page: the controller's refusal shows in the dialog; a hunt opens its page.
+  await main(page).getByRole("button", { name: "Hunt tests", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Hunt tests" })
+  const refusal = "the hunt branch hunt/tests-2026-09-29 exists on origin; merge its pull request or delete it before the next hunt"
+  await answer(page, "/api/hunts", 409, { error: refusal })
+  await dialog.getByRole("button", { name: "Start the hunt" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText(refusal)
+  await page.unroute("**/api/hunts")
+  let sent = await answer(page, "/api/hunts", 201, { record: { id, branch: "hunt/tests-2026-09-30" }, warnings: [] })
+  await dialog.getByRole("button", { name: "Start the hunt" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project })
+
+  // The page shows the hunt's stages, why it ended with no pull request, and the candidates it kept.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("hunt/tests-2026-09-30")
+  await expect(page.getByRole("list", { name: "Stages" }).locator("[data-slot=badge]")).toHaveText(["hunt", "gate", "review", "pr", "ci"])
+  await expect(page.getByLabel("Note")).toContainText("so no pull request opens")
+  const hunt = page.getByRole("region", { name: "Hunt record" })
+  await expect(hunt).toContainText("round 1 of at most 3 · ended: round 1 found no new candidate")
+  await expect(hunt.getByRole("list", { name: "Kept candidates" })).toHaveText("kept test_drift in tests/test_drift.py · mocks-subject, medium: the clock may be stubbed")
+
+  // Finish removes it and opens the project's page.
+  await main(page).getByRole("button", { name: "Finish" }).click()
+  sent = await answer(page, "/api/processes/finish", 200, { id, branch: "hunt/tests-2026-09-30", worktree: null })
+  await page.getByRole("dialog", { name: "Finish" }).getByRole("button", { name: "Finish" }).click()
+  await expect(page).toHaveURL(new RegExp(`#${new URLSearchParams({ project })}$`))
+  expect(sent()).toEqual({ id, force: false })
+})
+
+test("an acceptance's page shows every item with its verdict and sends one answer per item not met", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "plan-100-0123abcd"
+  const item = (n: number, verdict: string, statement: string) => ({ id: `item-${n}`, section: "User stories", statement, verdict, evidence: `src/a.ts:${n}`, confidence: "high" })
+  const record = {
+    id, project, kind: "plan", route: "accept", branch: "plan/offline-mode", issue: 100, stage: "accept", state: "input",
+    note: "3 item(s), 2 not met; answer each in the process view", updated_at: new Date().toISOString(),
+    acceptance: {
+      spec: { title: "Offline mode", milestone: "v0.12.0", labels: ["spec"] }, tickets: [{ number: 101, title: "Cache", prs: [12] }], files: 2,
+      deviations: [], notes: [], repeated: 0,
+      items: [item(1, "met", "Work offline"), item(2, "missing", "Sync on reconnect"), item(3, "deviates", "Cache for a day")],
+    },
+  }
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url(`/#process=${id}`))
+  const items = page.getByRole("list", { name: "Items" })
+  await expect(items.getByRole("listitem")).toHaveCount(3)
+  await expect(items.locator('[aria-label="item-1"]')).toContainText("metUser stories · confidence highWork offlinesrc/a.ts:1")
+  // A met item takes no answer, and the answers go once every item not met has one.
+  await expect(items.locator('[aria-label="item-1"]').getByRole("button")).toHaveCount(0)
+  const write = page.getByRole("button", { name: "Write the answers" })
+  await expect(write).toBeDisabled()
+  await items.locator('[aria-label="item-2"]').getByRole("button", { name: "Gap ticket" }).click()
+  await expect(page.getByLabel("Title")).toHaveValue("Sync on reconnect")
+  await items.locator('[aria-label="item-3"]').getByRole("button", { name: "Accepted deviation" }).click()
+  await expect(write).toBeDisabled()
+  await page.getByLabel("Why the code is right").fill("A day is what the devices hold.")
+  const sent = await answer(page, "/api/acceptances/answers", 200, { record })
+  await write.click()
+  await expect.poll(sent).toEqual({
+    id,
+    answers: [
+      { item: "item-2", answer: "gap", title: "Sync on reconnect" },
+      { item: "item-3", answer: "deviation", reason: "A day is what the devices hold." },
+    ],
+  })
+  // An acceptance runs no session of its own, so the chat is closed.
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeDisabled()
+})
+
+// A standardize process waiting for its answers, with findings in every category as the fake auditors
+// report them.
+const standardization = (project: string, id: string) => {
+  const category = (name: string, action: string, target: string, reason: string, confidence: string, report: string[]) => ({
+    name, findings: [{ target, action, reason, confidence }], report,
+  })
+  return {
+    id, project, kind: "standardize", branch: "chore/standardize", issue: null, mode: "manual",
+    stage: "audit", state: "input", note: "findings: 6 in 6 categories; 5 for the run, 1 as issues; approve or reject each category in the process view",
+    updated_at: new Date().toISOString(),
+    standardize: {
+      facts: ["languages: typescript"], workspace: [],
+      auditors: ["files", "agent-config", "docs", "tests-ci", "workspace", "security"].map((c) => ({ category: c, state: "complete", note: "", findings: 1 })),
+      summary: "findings: 6 in 6 categories; 5 for the run, 1 as issues", dropped: [],
+      categories: [
+        category("files", "delete", "NOTES.md", "agent notes left in the repository", "high", ["  deletes: NOTES.md"]),
+        category("agent-config", "delete", ".claude/commands/old.md", "a repository-local command", "medium", ["  deletes: .claude/commands/old.md", "  scaffolds: AGENTS.md, CLAUDE.md"]),
+        category("docs", "create", "docs/glossary.md", "the glossary is missing", "high", ["  creates: docs/glossary.md"]),
+        category("tests-ci", "replace", "Makefile", "the check target runs no test", "medium", ["  replaces: Makefile"]),
+        category("workspace", "configure", "branch protection of main", "main takes force pushes", "high", ["  configures: branch protection of main"]),
+        category("security", "issue", "config/deploy.env", "a token may be committed", "low", ["  opens an issue: config/deploy.env"]),
+      ],
+    },
+  }
+}
+
+test("standardize opens a standardize process, whose page takes one approval per category and applies them together", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "standardize-0123456789ab"
+  const record = standardization(project, id)
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url())
+  await projects(page).getByRole("link", { name: "edge-sensors" }).click()
+
+  // Standardize on the project page: the controller's refusal shows in the dialog; a standardisation opens its page.
+  await main(page).getByRole("button", { name: "Standardize", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Standardize" })
+  const refusal = "the branch chore/standardize exists on origin; merge or close its pull request and delete it before the next standardisation"
+  await answer(page, "/api/standardize", 409, { error: refusal })
+  await dialog.getByRole("button", { name: "Start the audit" }).click()
+  await expect(dialog.getByRole("alert")).toHaveText(refusal)
+  await page.unroute("**/api/standardize")
+  let sent = await answer(page, "/api/standardize", 201, { record: { id, branch: "chore/standardize" } })
+  await dialog.getByRole("button", { name: "Start the audit" }).click()
+  await expect(page).toHaveURL(new RegExp(`#process=${id}$`))
+  expect(sent()).toEqual({ project })
+
+  // The page shows the stages and the findings per category, each with an approval of its own.
+  await expect(page.getByRole("list", { name: "Stages" }).locator("[data-slot=badge]")).toHaveText(["audit", "apply", "finalize"])
+  const categories = page.getByRole("list", { name: "Categories" })
+  await expect(categories.getByRole("listitem").and(page.locator("[aria-label]"))).toHaveCount(6)
+  await expect(categories.locator('[aria-label="files"]')).toContainText("deleteNOTES.md")
+  await expect(categories.locator('[aria-label="files"]')).toContainText("agent notes left in the repository · confidence high")
+  await expect(categories.locator('[aria-label="files"]')).toContainText("deletes: NOTES.md")
+  // The answers go once every category has one, approved or rejected.
+  const apply = page.getByRole("button", { name: "Apply the approved categories" })
+  await expect(apply).toBeDisabled()
+  for (const c of ["files", "agent-config"]) await categories.locator(`[aria-label="${c}"]`).getByRole("button", { name: "Approve" }).click()
+  await expect(apply).toBeDisabled()
+  for (const c of ["docs", "tests-ci", "workspace", "security"]) await categories.locator(`[aria-label="${c}"]`).getByRole("button", { name: "Reject" }).click()
+  await expect(categories.locator('[aria-label="files"]').getByRole("button", { name: "Approve" })).toHaveAttribute("aria-pressed", "true")
+  sent = await answer(page, "/api/standardize/apply", 200, { record })
+  await apply.click()
+  await expect.poll(sent).toEqual({
+    id,
+    answers: { files: "approve", "agent-config": "approve", docs: "reject", "tests-ci": "reject", workspace: "reject", security: "reject" },
+  })
+})
+
+test("a standardisation's page shows the applied steps and the cleanup pull request, and finalizes once it is merged", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const id = "standardize-0123456789ab"
+  const audited = standardization(project, id)
+  const answers: Record<string, string> = { files: "approve", "agent-config": "approve", docs: "reject", "tests-ci": "reject", workspace: "reject", security: "reject" }
+  const record = {
+    ...audited,
+    stage: "apply", state: "ready",
+    note: "the cleanup pull request https://github.com/acme/edge-sensors/pull/9 is open; merge it once its check passes, then finalize",
+    standardize: {
+      ...audited.standardize,
+      categories: audited.standardize.categories.map((c) => ({ ...c, answer: answers[c.name] })),
+      applied: ["approve", "backup", "prepare", "session", "open", "issues"].map((step) => ({ step, ok: true, lines: step === "open" ? ["pr: https://github.com/acme/edge-sensors/pull/9 opened"] : [], at: step })),
+      pull: "https://github.com/acme/edge-sensors/pull/9", catalogue: 5,
+    },
+  }
+  await page.route(`**/api/processes/events?id=${id}`, (r) =>
+    r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+  )
+  await page.goto(url(`/#process=${id}`))
+  const categories = page.getByRole("list", { name: "Categories" })
+  await expect(categories.locator('[aria-label="files"]')).toContainText("approved")
+  await expect(categories.locator('[aria-label="docs"]')).toContainText("rejected")
+  await expect(categories.getByRole("button")).toHaveCount(0)
+  await expect(page.getByRole("list", { name: "Applied" }).getByRole("listitem")).toHaveText([/^okapprove/, /^okbackup/, /^okprepare/, /^oksession/, /^okopenpr: /, /^okissues/])
+  await expect(page.getByRole("link", { name: "cleanup pull request" })).toHaveAttribute("href", "https://github.com/acme/edge-sensors/pull/9")
+  await expect(main(page)).toContainText("catalogue issue #5")
+  const sent = await answer(page, "/api/standardize/finalize", 200, { record })
+  await page.getByRole("button", { name: "Finalize" }).click()
+  await expect.poll(sent).toEqual({ id })
+  // A standardisation runs no session to write to between its stages.
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeDisabled()
+})
+
 test("the sidebar collapses to its icons and hides the quota", async ({ page }) => {
   await page.goto(url())
   await expect(projects(page).getByRole("link")).toHaveCount(3)
@@ -893,5 +1146,31 @@ for (const scheme of ["light", "dark"] as const) {
         })
       })
     }
+
+    // The approval view of a standardisation: the findings of every category, each waiting for its answer.
+    test("the approval of a standardisation holds its layout", async ({ page }) => {
+      const id = "standardize-0123456789ab"
+      const record = standardization(process.env.AMEISE_SENSORS!, id)
+      await page.route(`**/api/processes/events?id=${id}`, (r) =>
+        r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: record\ndata: ${JSON.stringify(record)}\n\nevent: entries\ndata: []\n\n` }),
+      )
+      await page.setViewportSize({ width: 1440, height: 1040 })
+      await page.goto(url(`/#process=${id}`))
+      await expect(page.getByRole("list", { name: "Categories" }).locator("[aria-label]")).toHaveCount(6)
+      await page.evaluate(() => document.fonts.ready)
+      // The scroller follows the end within a tolerance, so on a slow runner it can rest a pixel short
+      // of it; the screenshot is of the page scrolled to its very end.
+      const pane = main(page).getByLabel("Process", { exact: true })
+      await expect.poll(() => pane.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+        return el.scrollHeight - el.clientHeight - el.scrollTop
+      })).toBeLessThan(1)
+      await expect(page).toHaveScreenshot(`standardize-${scheme}.png`, {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixels: 100,
+        threshold: 0.3,
+      })
+    })
   })
 }

@@ -12,8 +12,8 @@ permissions:
 # the versions of what it holds, so a new version never reads an entry of an old one.
 jobs:
   plugins:
-    # The shell scripts, the plugins, the standard and the Python suite. The suite builds the release
-    # binaries with the real scripts/factory-binaries.sh, so it needs Go and the dashboard's build too.
+    # The shell scripts, the plugins and the standard. The tests of the scripts run with the
+    # controller's, in the job local.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,19 +22,6 @@ jobs:
           node-version: 24
           cache: npm # npm's download cache, keyed by the lockfile; Claude Code still installs its latest
           cache-dependency-path: factory/ui/package-lock.json
-      - uses: actions/setup-go@v7
-        id: go
-        with:
-          go-version: '1.26' # factory/go.mod is written for 1.25; staticcheck 2026.2.1 needs 1.26 to build
-          cache: false # its cache is keyed by go.sum, and the factory has no dependencies to have one
-      # Content-addressed, so an entry restored from other sources is reused where it still matches and
-      # ignored where it does not. Each job keeps its own, because each builds the factory differently.
-      - name: Cache the Go build
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('factory/go.mod', 'factory/**/*.go') }}
-          restore-keys: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Install Claude Code (for plugin validation)
         run: npm install -g @anthropic-ai/claude-code
       - name: Install shellcheck 0.11.0 (same as brew, so local and CI findings match)
@@ -43,7 +30,7 @@ jobs:
           curl -sSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz | tar -xJ -C "$RUNNER_TEMP"
           sudo mv "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" /usr/local/bin/shellcheck
       - name: Gate
-        run: make lint validate standard test
+        run: make lint validate standard
 
   factory:
     # The factory's Go service and the lint of the dashboard it embeds.
@@ -58,8 +45,8 @@ jobs:
       - uses: actions/setup-go@v7
         id: go
         with:
-          go-version: '1.26'
-          cache: false
+          go-version: '1.26' # factory/go.mod is written for 1.25; staticcheck 2026.2.1 needs 1.26 to build
+          cache: false # its cache is keyed by go.sum, and the factory has no dependencies to have one
       - name: Cache staticcheck 2026.2.1
         id: staticcheck
         uses: actions/cache@v6
@@ -69,6 +56,8 @@ jobs:
       - name: Install staticcheck 2026.2.1 (same version as local, so local and CI findings match)
         if: steps.staticcheck.outputs.cache-hit != 'true'
         run: go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+      # Content-addressed, so an entry restored from other sources is reused where it still matches and
+      # ignored where it does not. Each job keeps its own, because each builds the factory differently.
       # The race detector's builds among them.
       - name: Cache the Go build
         uses: actions/cache@v6
@@ -131,7 +120,9 @@ jobs:
           retention-days: 7
 
   local:
-    # The local workflow: the controller and the dashboard it serves, read in a real browser.
+    # The local workflow: the controller and the dashboard it serves, read in a real browser. The controller's
+    # tests run the shell scripts too, scripts/factory-binaries.sh among them, which builds the factory with
+    # the dashboard it embeds, so the job needs Go and the factory's dashboard besides.
     runs-on: ubuntu-latest
     # The same image as factory-browser, for the same reason. The tag is the Playwright version in
     # dashboard/package-lock.json (tested).
@@ -147,8 +138,21 @@ jobs:
           cache-dependency-path: |
             controller/package-lock.json
             dashboard/package-lock.json
-      - name: Install make, which the image leaves out
-        run: apt-get update && apt-get install -y --no-install-recommends make
+            factory/ui/package-lock.json
+      - uses: actions/setup-go@v7
+        id: go
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Cache the Go build
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('factory/go.mod', 'factory/**/*.go') }}
+          restore-keys: go-build-${{ github.job }}-go${{ steps.go.outputs.go-version }}-${{ runner.os }}-${{ runner.arch }}-
+      # jq: the repo-standards scripts the standardize and script tests run call it, and so does the claude shim.
+      - name: Install make and jq, which the image leaves out
+        run: apt-get update && apt-get install -y --no-install-recommends make jq
       # The job runs as root in a checkout the runner's user owns, and git refuses to read a repository
       # someone else owns. go build reads it to stamp the binary with its commit.
       - name: Let git read the checkout

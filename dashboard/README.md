@@ -6,6 +6,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
 - Its footer holds the quota of `GET /api/quota`: for Claude, then Codex, the percentage left as a bar and the time to its reset.
   - A runtime below the configured minimum is red and says so. One the controller could not read says unknown, with the reason on hover.
+  - Under each bar a row per window, five-hour and weekly, says what is left and when it resets.
+  - Under Claude a row of Fable does the same. A Fable scope quota-axi does not know says unknown, with the reason on hover.
   - With no `quota_axi` configured it says the check is off.
   - It is read when the page opens, on focus and every minute.
 - The sidebar collapses to its icons, which hides the footer.
@@ -19,12 +21,16 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - A process's page, at `#process=<id>`, follows the process live through `GET /api/processes/events`. Opening it clears the badge.
   - Its branch on the row opens it, and so do the actions Answer, Approve, Continue and Open.
   - Its facts are the repository, the branch, the pull request, the mode, the age and the context the session holds, against where it compacts. The stage pills follow.
-  - A work process has the stages implement, gate, review, pr and ci. Under each pill are its records from the record's `history`, with their age.
+  - A work process has the stages implement, gate, review, pr and ci, and address-reviews once a review of its pull request was answered.
+  - Under each pill are its records from the record's `history`, with their age.
   - A record is a session's end with its commits, a conflicting merge, a gate run or a review round.
   - In pr and ci it is the opening of the pull request or a verdict of the ci stage.
+  - In address-reviews it is a session with what it answered, a writer's request or a bot's review, and the replies and the answer the controller posted.
   - A failed one is red, and hovering shows the output's end.
   - Below the pills are the review's rounds: each reviewer's verdict, its findings by id, and what the fix session after the round did with each.
-  - In ci, what the stage waits for follows, and the checks it read last, each with its state and a link to its run.
+  - The follow-ups follow: each address-reviews session with the points it fixed and declined.
+  - In ci follow what the stage waits for, the repair rounds it spent of its budget, and the checks it read last.
+  - Each check shows its state and a link to its run.
   - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
   - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
   - The page scrolls below the header, with the chat under it. It opens at the end of the conversation and follows the end while the session writes.

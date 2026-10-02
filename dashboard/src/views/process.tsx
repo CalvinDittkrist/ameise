@@ -8,7 +8,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { Acceptance } from "@/components/acceptance"
 import { Capture, Finish } from "@/components/actions"
+import { Standardize } from "@/components/standardize"
 import { Prose } from "@/components/markdown"
 import { dot } from "@/components/rows"
 import {
@@ -21,6 +23,7 @@ import {
   type Entry,
   type Fix,
   hold,
+  type Hunt,
   openTerminal,
   type Process,
   type ProcessRecord,
@@ -34,8 +37,14 @@ import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
 // The stages a process of each kind runs in the controller. A work process runs implement, the gate, the
-// review, pr and ci; the later stages join as the controller drives them.
-const stagesOf: Record<Process["kind"], string[]> = { work: ["implement", "gate", "review", "pr", "ci"], plan: ["plan"], hunt: ["hunt"], standardize: ["audit"] }
+// review, pr and ci, and address-reviews once a review of its pull request asks for an answer. A hunt
+// runs hunt in place of implement. A standardisation audits, applies what was approved and finalizes.
+const stagesOf: Record<Process["kind"], string[]> = {
+  work: ["implement", "gate", "review", "pr", "ci"],
+  plan: ["plan"],
+  hunt: ["hunt", "gate", "review", "pr", "ci"],
+  standardize: ["audit", "apply", "finalize"],
+}
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
 // for the permissions and questions that wait for the maintainer, a chat that writes to the session and
@@ -88,6 +97,8 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
           <MessageScroller.Viewport aria-label="Process" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pb-3 outline-none data-pending-scroll:invisible lg:p-6 lg:pb-3">
             <Header record={record} />
             <Facts record={record} project={found?.b} process={found?.p} reconnecting={followed.state === "reconnecting"} />
+            {record.route === "accept" && <Acceptance record={record} />}
+            {record.kind === "standardize" && <Standardize record={record} />}
             <Separator />
             <Conversation record={record} list={list} settled={settled} />
           </MessageScroller.Viewport>
@@ -151,6 +162,18 @@ function Header({ record }: { record: ProcessRecord }) {
             <Finish id={record.id} project={record.project} />
           </div>
         )}
+        {/* A hunt that removed nothing is done, one that failed cannot go on, and a finish ends either. */}
+        {record.kind === "hunt" && (record.state === "done" || record.state === "failed") && (
+          <div className="ml-auto flex gap-2">
+            <Finish id={record.id} project={record.project} kind="hunt" />
+          </div>
+        )}
+        {/* A standardisation ends by a finish whenever nothing of it runs. */}
+        {record.kind === "standardize" && record.state !== "running" && record.state !== "created" && (
+          <div className="ml-auto flex gap-2">
+            <Finish id={record.id} project={record.project} kind="standardize" />
+          </div>
+        )}
         {holdable && (
           <Button
             size="sm"
@@ -168,9 +191,15 @@ function Header({ record }: { record: ProcessRecord }) {
         <Button
           size="sm"
           variant="outline"
-          className={cn(record.kind !== "plan" && !holdable && "ml-auto")}
-          disabled={!record.session_id || opening}
-          title={record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
+          className={cn(
+            record.kind !== "plan" &&
+              !holdable &&
+              !(record.kind === "hunt" && record.state === "done") &&
+              !(record.kind === "standardize" && record.state !== "running" && record.state !== "created") &&
+              "ml-auto",
+          )}
+          disabled={record.kind === "standardize" || !record.session_id || opening}
+          title={record.kind === "standardize" ? "The apply session of a standardisation runs once and resumes nowhere" : record.session_id ? `claude --resume ${record.session_id}` : "The session has not started"}
           onClick={() => void open()}
         >
           <TerminalIcon />
@@ -186,7 +215,7 @@ function Header({ record }: { record: ProcessRecord }) {
   )
 }
 
-const reported: Process["state"][] = ["blocked", "ready", "failed"]
+const reported: Process["state"][] = ["blocked", "ready", "done", "failed"]
 
 // tokens is a size in tokens as the fact row shows it: in thousands from a thousand on.
 const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`)
@@ -197,7 +226,10 @@ const tokens = (n: number) => (n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 // size at which a work session compacts. Below it are the stages, the current one filled, the ones done struck through.
 function Facts({ record, project, process, reconnecting }: { record: ProcessRecord; project?: ProjectBoard; process?: Process; reconnecting: boolean }) {
   const kind = process?.kind ?? record.kind ?? "work"
-  const stages = stagesOf[kind].includes(record.stage) ? stagesOf[kind] : [...stagesOf[kind], record.stage]
+  // A work process lists address-reviews once a review of its pull request was answered or is.
+  const answering = (kind === "work" || kind === "hunt") && (record.history ?? []).some((a) => a.stage === "address-reviews")
+  const listed = answering ? [...stagesOf[kind], "address-reviews"] : stagesOf[kind]
+  const stages = listed.includes(record.stage) ? listed : [...listed, record.stage]
   const at = stages.indexOf(record.stage)
   const pinned = record.compact_at
   const pr = process?.pr ?? record.pull
@@ -272,9 +304,48 @@ function Facts({ record, project, process, reconnecting }: { record: ProcessReco
           )
         })}
       </ol>
+      {record.hunt && <HuntLog hunt={record.hunt} />}
       <Rounds history={record.history ?? []} />
-      {(record.stage === "ci" || record.stage === "gate") && <Wait record={record} />}
+      <FollowUps history={record.history ?? []} />
+      {(record.stage === "ci" || record.stage === "gate" || record.stage === "address-reviews") && <Wait record={record} />}
     </>
+  )
+}
+
+// HuntLog is the hunt record of a hunt process: its rounds and why it ended, each test it removed with why
+// it proved nothing and whether another still proves its behaviour, and each candidate it checked and kept.
+function HuntLog({ hunt }: { hunt: Hunt }) {
+  return (
+    <section aria-label="Hunt record" className="flex flex-col gap-2 text-sm">
+      <span className="text-xs text-muted-foreground">
+        {hunt.rounds === 0 ? "no round yet" : `round ${hunt.rounds} of at most ${hunt.max_rounds}`}
+        {hunt.ended && ` · ended: ${hunt.ended}`}
+      </span>
+      {hunt.removed.length > 0 && (
+        <ul aria-label="Removed tests" className="flex flex-col gap-1">
+          {hunt.removed.map((r) => (
+            <li key={`${r.path} ${r.test}`} className="flex flex-col gap-0.5">
+              <span>
+                removed <span className="font-mono">{r.test}</span> in <span className="font-mono">{r.path}</span> · {r.category} · round {r.round} at{" "}
+                <span className="font-mono">{r.commit}</span>
+              </span>
+              <span className="pl-2 text-xs text-muted-foreground">
+                {r.why} Still proven: {r.still_proven}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hunt.kept.length > 0 && (
+        <ul aria-label="Kept candidates" className="flex flex-col gap-1 text-xs text-muted-foreground">
+          {hunt.kept.map((k) => (
+            <li key={`${k.path} ${k.test}`}>
+              kept <span className="font-mono">{k.test}</span> in <span className="font-mono">{k.path}</span> · {k.category}, {k.confidence}: {k.reason}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -337,14 +408,48 @@ function Rounds({ history }: { history: Attempt[] }) {
   )
 }
 
-// Wait is what the gate on CI or the ci stage waits for while it waits, and the checks of the pull request
-// it read last, each with its state and a link to where it ran.
+// FollowUps are the answers of the address-reviews stage: what each session answered, and the points it
+// fixed and declined.
+function FollowUps({ history }: { history: Attempt[] }) {
+  const sessions = history.filter((a) => a.stage === "address-reviews" && a.kind === "session")
+  if (sessions.length === 0) return null
+  return (
+    <ol aria-label="Follow-ups" className="flex flex-col gap-2 text-sm">
+      {sessions.map((a, i) => (
+        <li key={i} aria-label={`Follow-up ${i + 1}`} className="flex flex-col gap-0.5">
+          <span className="text-xs text-muted-foreground">
+            {a.mandate === "writer" ? "a writer's request" : "a bot's review"} · {a.result} · {age(a.at)}
+          </span>
+          <ul className="flex flex-col gap-0.5 pl-2 text-xs">
+            {(a.fixed ?? []).map((p, j) => (
+              <li key={`f${j}`}>fixed: {p}</li>
+            ))}
+            {(a.declined ?? []).map((p, j) => (
+              <li key={`d${j}`} className="italic text-muted-foreground">
+                declined: {p}
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+// Wait is what the gate on CI or the ci stage waits for while it waits, the repair rounds the ci stage
+// spent of its budget, and the checks of the pull request it read last, each with its state and a link to
+// where it ran.
 function Wait({ record }: { record: ProcessRecord }) {
   const checks = record.checks ?? []
-  if (!record.wait && checks.length === 0) return null
+  if (!record.wait && checks.length === 0 && !record.repairs) return null
   return (
     <div aria-label="CI" className="flex flex-col gap-1 text-sm">
       {record.wait && <span aria-label="Wait" className="text-muted-foreground">waiting for {record.wait}</span>}
+      {record.repairs && (
+        <span aria-label="Repair rounds" className="text-muted-foreground">
+          repair rounds {record.repairs.spent} of {record.repairs.of}
+        </span>
+      )}
       {checks.length > 0 && (
         <ul aria-label="Checks" className="flex flex-wrap gap-1.5">
           {checks.map((c, i) => (
@@ -369,7 +474,7 @@ function Wait({ record }: { record: ProcessRecord }) {
 
 // failed tells an attempt that did not get its stage through: a failed or blocked session, a conflict, a
 // failing run, a pull request that is not green.
-const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail", "missing", "conflicts", "checks-failed", "review-comments", "closed"].includes(a.result)
+const failed = (a: Attempt) => ["failed", "blocked", "conflict", "fail", "missing", "conflicts", "checks-failed", "review-comments", "closed", "partial"].includes(a.result)
 
 // described is an attempt as the stage rail lists it: what ran and how it ended.
 function described(a: Attempt): string {
@@ -386,8 +491,16 @@ function described(a: Attempt): string {
     case "open":
       return `PR #${a.pr ?? ""} ${a.result}`
     case "wait":
-      return a.result === "review-comments" ? `changes asked: ${(a.reviews ?? []).join("; ")}` : a.result
+      if (a.result === "review-comments") return `changes asked: ${(a.reviews ?? []).join("; ")}`
+      if (a.result === "answered") return `answered, waits for the review again: ${(a.reviews ?? []).join("; ")}`
+      return a.result
+    case "answer":
+      return `replied to ${a.replied?.length ?? 0} thread${a.replied?.length === 1 ? "" : "s"}${a.answered?.length ? ", answered the request" : ""}${a.result === "partial" ? ", not all posted" : ""}`
     default:
+      if (a.stage === "address-reviews") {
+        const mandate = a.mandate === "writer" ? "a writer's request" : "a bot's review"
+        return `session ${a.result} on ${mandate}, fixed ${a.fixed?.length ?? 0}, declined ${a.declined?.length ?? 0}`
+      }
       return `session ${a.result}${a.commits?.length ? `, ${a.commits.length} commit${a.commits.length === 1 ? "" : "s"}` : ""}`
   }
 }
@@ -447,8 +560,11 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
   return { list, settled }
 }
 
-// A process the maintainer can write to: one whose session runs, or has run and can be resumed.
-const writable = (r: ProcessRecord) => r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input"
+// A process the maintainer can write to: one whose session runs, or has run and can be resumed. An
+// acceptance runs no session of its own; its items take its answers. A standardisation takes no writing,
+// since the controller refuses it; its answers go in its categories and its permissions on their cards.
+const writable = (r: ProcessRecord) =>
+  r.kind !== "standardize" && r.route !== "accept" && (r.session_id !== undefined || r.state === "running" || r.state === "approval" || r.state === "input")
 
 // Conversation is the log of the message scroller, one item per turn.
 function Conversation({ record, list, settled }: { record: ProcessRecord; list: Turn[]; settled: Map<string, Settled> }) {

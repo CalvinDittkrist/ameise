@@ -13,7 +13,8 @@
 #     repos/<owner>/<name>/pulls/<n>.readings/
 #                                          the readings gh pr view answers in their order before that,
 #                                          one file each, in the order of their names, such as 000.json;
-#                                          each call takes the next, and the last one stays
+#                                          each call takes the next, and the last one stays; once gh pr
+#                                          merge merged it, merged.json goes before them
 #     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create and gh pr edit --body-file where pulls/
 #                                          exists: the body of the pull request it opened or edited
 #     repos/<owner>/<name>/draft-<n>.json  written by gh pr create --draft: the draft it opened, by the
@@ -25,15 +26,32 @@
 #                                          written by gh pr merge, which holds for a canned pull request
 #     repos/<owner>/<name>/pulls/<n>.threads.json
 #                                          the review threads of it, such as [{"isResolved": false}],
-#                                          which gh api graphql answers; absent, it has none
+#                                          which gh api graphql answers; absent, it has none. A thread
+#                                          written with its id first, as {"id":"T1","isResolved":false,
+#                                          ...}, is resolved by the resolveReviewThread mutation
+#     repos/<owner>/<name>/pulls/<n>.comments
+#                                          written by gh pr comment --body-file: every comment on it
+#     repos/<owner>/<name>/projects.json  the projects linked to it, which the graphql query of workspace.sh
+#                                          answers; absent, it has none
 #     repos/<owner>/<name>/promotions.json the pull requests from dev to main gh pr list answers
 #     repos/<owner>/<name>/next-pull       the number gh pr create gives the pull request it opens
 #                                          (gh issue close, gh release create and gh api --method PATCH
 #                                          always hold)
 #     repos/<owner>/<name>/unreviewable    present: gh pr edit --add-reviewer fails for it, which holds
 #                                          otherwise
-#     api/<endpoint>                       the answer of gh api [--paginate] <endpoint>, such as
-#                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100
+#     api/<endpoint>                       the answer of gh api [--paginate] [--method <m>] [<field>]...
+#                                          <endpoint>, such as
+#                                          api/repos/<owner>/<name>/issues?labels=spec&state=open&per_page=100;
+#                                          an endpoint that is also the directory of longer ones, such as
+#                                          repos/<owner>/<name>/issues/30 beside issues/30/sub_issues, keeps
+#                                          its answer in the file @ of that directory
+#     api/<endpoint>.fails                 present: gh api <endpoint> fails with its content on stderr, as a
+#                                          GitHub that answers an error other than not found does
+#     api/<endpoint>.<METHOD>              written by gh api --method <METHOD> <endpoint> --input -, such as
+#                                          api/repos/<owner>/<name>/issues.POST: every body it was sent, one
+#                                          a line; it answers api/<endpoint> where that is canned, else {}
+#     git/<owner>/<name>.git               the repository origin is in fake mode for the scripts of the
+#                                          standardize process, which push and fetch (standardize.ts)
 #     repos/<owner>/<name>/runs/<id>.log   the failed log gh run view <id> --log-failed answers
 #     login                                the login gh api user answers; fake without it
 #   AMEISE_FAKE_GH_LOG  every call, one request per line
@@ -70,7 +88,8 @@ case "$*" in
     cat "$file" ;;
   'pr view '*' --repo '*' --json '*)
     readings="$canned/repos/$5/pulls/$3.readings"
-    if [ -n "$canned" ] && [ -d "$readings" ]; then
+    merged="$canned/repos/$5/pulls/$3.merged"
+    if [ -n "$canned" ] && [ -d "$readings" ] && ! { [ -e "$merged" ] && [ -f "$merged.json" ]; }; then
       queue=("$readings"/*.json)
       if [ -f "${queue[0]}" ]; then
         # .taken counts the readings answered, as the PATH of a test holds no rm.
@@ -138,8 +157,39 @@ case "$*" in
     printf 'https://github.com/%s/releases/tag/%s\n' "$5" "$3" ;;
   'issue close '*' --repo '*)
     printf 'Closed issue %s#%s\n' "$5" "$3" ;;
+  'api '*' --input -')
+    args=("$@")
+    endpoint=${args[$# - 3]}
+    method=POST
+    for ((i = 1; i < $# - 1; i++)); do
+      if [ "${args[$i]}" = --method ]; then method=${args[$i + 1]}; fi
+    done
+    case "$endpoint" in *..* | '' | -*)
+      printf 'error: the fake gh has no answer to: gh %s\n' "$*" >&2
+      exit 1 ;;
+    esac
+    body=$(cat)
+    if [ -z "$canned" ]; then
+      printf '{}\n'
+      exit 0
+    fi
+    mkdir -p "$(dirname "$canned/api/$endpoint")"
+    printf '%s\n' "$(tr -d '\n' <<<"$body")" >> "$canned/api/$endpoint.$method"
+    file="$canned/api/$endpoint"
+    if [ -d "$file" ]; then file="$file/@"; fi
+    if [ -f "$file" ]; then cat "$file"; else printf '{}\n'; fi ;;
   'api --method PATCH '*)
     printf '{}\n' ;;
+  'repo view --json nameWithOwner -q .nameWithOwner')
+    # The repository of the checkout it runs in, by the origin it was cloned from.
+    origin=$(git config --get remote.origin.url 2>/dev/null || true)
+    nwo=${origin#*github.com[:/]}
+    nwo=${nwo%.git}
+    if [ "$nwo" = "$origin" ] || [ -z "$nwo" ]; then
+      printf 'none of the git remotes configured for this repository point to a known GitHub host\n' >&2
+      exit 1
+    fi
+    printf '%s\n' "$nwo" ;;
   'pr list --repo '*' --state open --limit 100 --json '*)
     file="$canned/repos/$4/pulls.json"
     if [ -z "$canned" ] || [ ! -f "$file" ]; then
@@ -180,6 +230,33 @@ case "$*" in
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
   'issue edit '*' --repo '*' --remove-assignee @me')
     printf 'https://github.com/%s/issues/%s\n' "$5" "$3" ;;
+  'pr comment '*' --repo '*' --body-file '*)
+    if [ -z "$canned" ] || [ ! -d "$canned/repos/$5/pulls" ]; then
+      printf 'GraphQL: Could not resolve to a PullRequest with the number of %s. (repository.pullRequest)\n' "$3" >&2
+      exit 1
+    fi
+    cat "$7" >> "$canned/repos/$5/pulls/$3.comments"
+    printf '\n' >> "$canned/repos/$5/pulls/$3.comments"
+    printf 'https://github.com/%s/pull/%s#issuecomment-1\n' "$5" "$3" ;;
+  'api graphql -f threadId='*' -f body='*' -f query='*)
+    printf '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/fake/reply/%s"}}}}\n' "${4#threadId=}" ;;
+  'api graphql -f threadId='*' -f query='*)
+    id=${4#threadId=}
+    if [ -n "$canned" ]; then
+      for file in "$canned"/repos/*/*/pulls/*.threads.json; do
+        if [ ! -f "$file" ]; then continue; fi
+        threads=$(cat "$file")
+        open="\"id\":\"$id\",\"isResolved\":false"
+        resolved="\"id\":\"$id\",\"isResolved\":true"
+        printf '%s\n' "${threads//"$open"/$resolved}" > "$file"
+      done
+    fi
+    printf '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}\n' ;;
+  'api graphql -f query='*' -f o='*' -f n='*)
+    file="$canned/repos/${6#o=}/${8#n=}/projects.json"
+    projects='[]'
+    if [ -n "$canned" ] && [ -f "$file" ]; then projects=$(cat "$file"); fi
+    printf '{"data":{"repository":{"projectsV2":{"nodes":%s}}}}\n' "$projects" ;;
   'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
     file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
     threads='[]'
@@ -189,6 +266,11 @@ case "$*" in
     endpoint=${!#}
     file="$canned/api/$endpoint"
     case "$endpoint" in *..*) file='' ;; esac
+    if [ -n "$canned" ] && [ -n "$file" ] && [ -f "$file.fails" ]; then
+      cat "$file.fails" >&2
+      exit 1
+    fi
+    if [ -n "$file" ] && [ -d "$file" ]; then file="$file/@"; fi
     if [ -z "$canned" ] || [ -z "$file" ] || [ ! -f "$file" ]; then
       printf 'gh: Not Found (HTTP 404): %s\n' "$endpoint" >&2
       exit 1

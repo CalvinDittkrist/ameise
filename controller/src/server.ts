@@ -7,17 +7,20 @@ import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
+import { check, decide, decideRequest, recheck } from './acceptance.js'
 import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
 import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { type Announce, answer, begin, hold, compactAt, eventsFile, processId, readRecord, recover, type Runtime, say, seen, type SessionRecord, watch } from './session.js'
+import { finishHunt, hunt, resumableHunt } from './hunt.js'
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
+import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
 import { open } from './terminal.js'
 import { gate } from './gate.js'
 import { resumeFix, review } from './review.js'
 import { pr } from './pr.js'
-import { ci } from './ci.js'
+import { ci, followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 
 export interface Options {
@@ -157,15 +160,18 @@ export function serve(o: Options): Server {
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
   // gate again, and one interrupted while its gate on CI waited takes its draft over and reads the head
   // again. One interrupted while its reviewers ran runs the round again, one interrupted in its pr
-  // stage runs that stage again, one interrupted while its ci stage waited waits again, and one
-  // interrupted in a fix session of its gate, its review or its ci stage goes on with that session. A fix
+  // stage runs that stage again, one interrupted while its ci stage waited, or before its address-reviews
+  // session started, waits again, and one interrupted in a fix session of its gate, its review or its
+  // ci stage, or in its address-reviews session, goes on with that session. A fix
   // session of the review that had no id yet starts afresh with the findings of its round.
+  // A hunt, which has no issue, is named by its id.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
-    const { issue } = abandonRequest(body)
-    const project = await known(body)
+    const byId = typeof body.id === 'string'
+    const issue = byId ? null : abandonRequest(body).issue
+    const project = await known(byId ? { project: recorded(body.id).project } : body)
     // The check and the start run in one go, so a second resume finds the process running.
-    const interrupted = await resumable(project, o.stateDir, issue)
+    const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
     const fix = interrupted.fixing === true && interrupted.session_id !== undefined
     // A fix session of the review that never reported its id starts afresh with the round's findings.
     const record =
@@ -177,7 +183,7 @@ export function serve(o: Options): Server {
             ? review(interrupted, project, rt)
             : interrupted.stage === 'pr'
               ? pr(interrupted, project, rt)
-              : interrupted.stage === 'ci' && !fix
+              : (interrupted.stage === 'ci' || interrupted.stage === 'address-reviews') && !fix
                 ? ci(interrupted, project, rt)
                 : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
@@ -218,9 +224,32 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const spec = specRequest(body)
     const project = await known(body)
-    const record = await accept(project, o.stateDir, o.gh, o.fake, spec)
-    log({ event: 'accept', project: project.path, issue: spec, branch: record.branch })
+    const done = await accept(project, o.stateDir, o.gh, o.fake, spec)
+    log({ event: 'accept', project: project.path, issue: spec, branch: done.branch })
+    // The acceptance gathers its facts and runs its checker at once; the answer is its record as it runs.
+    const record = check(done, project, rt)
     send(res, 201, { record })
+  }
+
+  // A check runs a failed acceptance again; the answers to its items write its gap tickets and
+  // deviations, and close the spec once nothing is left open.
+  async function checked(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const r = recorded(body.id)
+    const project = await known({ project: r.project })
+    const record = recheck(project, rt, r.id)
+    log({ event: 'accept again', process: r.id, issue: r.issue })
+    send(res, 200, { record })
+  }
+
+  async function decided(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const r = recorded(body.id)
+    const answers = decideRequest(body)
+    const project = await known({ project: r.project })
+    const record = await decide(project, o.stateDir, o.gh, r.id, answers)
+    log({ event: 'accept answered', process: r.id, issue: r.issue, gaps: record.acceptance?.gaps ?? [], closed: record.acceptance?.closed === true })
+    send(res, 200, { record })
   }
 
   // A plan opens a plan process from an idea, an issue or nothing and starts its planner session at once;
@@ -235,6 +264,39 @@ export function serve(o: Options): Server {
     send(res, 201, { record })
   }
 
+  // A hunt opens a hunt process on a hunt branch and starts its hunt session at once; the answer is its
+  // record as it runs, and what the hunt could not check.
+  async function hunts(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const project = await known(body)
+    const done = await hunt(project, o.stateDir, o.gh, o.fake)
+    log({ event: 'hunted', project: project.path, branch: done.record.branch })
+    const record = begin(done.record, project, rt)
+    send(res, 201, { record, warnings: done.warnings })
+  }
+
+  // A standardize opens a standardize process on chore/standardize and starts its audit at once; the
+  // answer is its record as it runs. Its audit runs again once it failed, its apply takes an answer per
+  // category and applies the approved ones, and its finalize runs once the cleanup pull request is merged.
+  async function standardized(req: IncomingMessage, res: ServerResponse) {
+    const body = (await readJSON(req)) ?? {}
+    const project = await known(body)
+    const done = await standardize(project, o.stateDir, o.gh, o.fake)
+    log({ event: 'standardized', project: project.path, branch: done.branch })
+    const record = audit(done, project, rt)
+    send(res, 201, { record })
+  }
+
+  async function standardizeStep(req: IncomingMessage, res: ServerResponse, step: 'audit' | 'apply' | 'finalize') {
+    const body = (await readJSON(req)) ?? {}
+    const r = recorded(body.id)
+    const answers = step === 'apply' ? applyRequest(body) : undefined
+    const project = await known({ project: r.project })
+    const record = step === 'audit' ? auditAgain(project, rt, r.id) : step === 'apply' ? apply(project, rt, r.id, answers) : finalize(project, rt, r.id)
+    log({ event: `standardize ${step}`, process: r.id, ...(answers ? { answers } : {}) })
+    send(res, 200, { record })
+  }
+
   // A capture moves the prototype in a plan's worktree to a pushed prototype branch; a finish removes
   // the plan's worktree, branch and process.
   async function captured(req: IncomingMessage, res: ServerResponse) {
@@ -247,12 +309,19 @@ export function serve(o: Options): Server {
     send(res, 201, { id: record.id, ...done })
   }
 
+  // A finish of a hunt or a standardize process removes its worktree, branch and process the same way.
   async function finished(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const record = recorded(body.id)
     if (body.force !== undefined && typeof body.force !== 'boolean') throw new Refusal('force is not true or false')
     const project = await known({ project: record.project })
-    const done = await finish(project, o.stateDir, record.id, body.force === true)
+    const force = body.force === true
+    const done =
+      record.kind === 'hunt'
+        ? await finishHunt(project, o.stateDir, record.id, force)
+        : record.kind === 'standardize'
+          ? await finishStandardize(project, o.stateDir, record.id, force)
+          : await finish(project, o.stateDir, record.id, force)
     log({ event: 'finished', process: record.id, branch: done.branch, force: body.force === true })
     send(res, 200, { id: record.id, ...done })
   }
@@ -352,6 +421,8 @@ export function serve(o: Options): Server {
   // Open in terminal resumes the process's session by its id in a terminal window.
   async function terminal(req: IncomingMessage, res: ServerResponse) {
     const record = recorded(((await readJSON(req)) ?? {}).id)
+    // The apply session of a standardize process runs once, within the steps of its apply.
+    if (record.kind === 'standardize') throw new Refusal('the apply session of a standardize process runs once and resumes nowhere; apply again to start it afresh', 409)
     const script = await open(record, o.stateDir, readConfig(o.configPath).terminal, o.runtime)
     log({ event: 'terminal', process: record.id, session: record.session_id })
     send(res, 200, { id: record.id, script })
@@ -428,8 +499,22 @@ export function serve(o: Options): Server {
           return released(req, res)
         case 'POST /api/acceptances':
           return accepted(req, res)
+        case 'POST /api/acceptances/check':
+          return checked(req, res)
+        case 'POST /api/acceptances/answers':
+          return decided(req, res)
         case 'POST /api/plans':
           return planned(req, res)
+        case 'POST /api/hunts':
+          return hunts(req, res)
+        case 'POST /api/standardize':
+          return standardized(req, res)
+        case 'POST /api/standardize/audit':
+          return standardizeStep(req, res, 'audit')
+        case 'POST /api/standardize/apply':
+          return standardizeStep(req, res, 'apply')
+        case 'POST /api/standardize/finalize':
+          return standardizeStep(req, res, 'finalize')
         case 'POST /api/processes/capture':
           return captured(req, res)
         case 'POST /api/processes/finish':
@@ -462,13 +547,29 @@ export function serve(o: Options): Server {
   // The address the server listens on stays until it stops, whatever the file says meanwhile, so
   // the CLI reads it from the state directory rather than from the configuration.
   const record = join(o.stateDir, 'listen')
+  // The follow-up reads the pull requests of the processes the ci stage left ready or blocked on a
+  // review, four polls apart, one reading after the other (ci.ts).
+  let followUp: NodeJS.Timeout | undefined
+  const next = () => {
+    followUp = setTimeout(() => {
+      void followUps(rt, (path) => derive(path, o.gh)).finally(() => {
+        if (followUp !== undefined) next()
+      })
+    }, rt.poll * 4)
+    followUp.unref()
+  }
   server.on('listening', () => {
     // The processes are read before the first request: a session the last run left running is gone.
     recover(o.stateDir)
     writeFileSync(record, o.listen + '\n')
     log({ event: 'started', fake: o.fake })
+    next()
   })
-  server.on('close', () => rmSync(record, { force: true }))
+  server.on('close', () => {
+    clearTimeout(followUp)
+    followUp = undefined
+    rmSync(record, { force: true })
+  })
   return server
 }
 

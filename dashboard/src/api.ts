@@ -44,7 +44,7 @@ export function useProjects(): [Projects, () => Promise<void>] {
 export type Process = {
   id: string | null
   kind: "work" | "plan" | "hunt" | "standardize"
-  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "failed" | "running" | "waiting" | "created"
+  state: "blocked" | "approval" | "ready" | "input" | "interrupted" | "foreign" | "done" | "failed" | "running" | "waiting" | "created"
   stage: string
   issue: number | null
   branch: string
@@ -91,11 +91,19 @@ export function useBoard(): [Board, () => Promise<void>] {
   return [board, reload]
 }
 
+// A window of a runtime's quota: its percentage left where quota-axi reports one, and its reset.
+export type QuotaWindow = { id: string; remaining: number | null; reset: string | null }
+
+// A scope of one model, as Claude's Fable: known with its percentage left and reset, or unknown with the
+// reason.
+export type QuotaScope = { known: true; remaining: number; reset: string | null } | { known: false; reason: string }
+
 // A reading of a runtime's quota as GET /api/quota answers it: the percentage left and when the windows
-// that limit it reset, marked below when it is under the configured minimum, or unknown with the reason.
-// A quota whose check is switched off says off and holds no reading.
+// that limit it reset, marked below when it is under the configured minimum, with its session and weekly
+// windows and, for Claude, the Fable scope where quota-axi reports one; or unknown with the reason. A
+// quota whose check is switched off says off and holds no reading.
 export type Reading =
-  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean }
+  | { runtime: string; known: true; remaining: number; reset: string | null; below: boolean; windows: QuotaWindow[]; fable?: QuotaScope }
   | { runtime: string; known: false; reason: string; below: false }
 export type Quota = { state: "loading" } | { state: "failed"; error: string } | { state: "loaded"; minimum: number; off?: true; runtimes: Reading[] }
 
@@ -195,11 +203,11 @@ export type Fix = { finding: string; outcome: "fixed" | "declined"; note: string
 export type Check = { name: string; url?: string; state: "pass" | "fail" | "pending" }
 
 // An attempt of a stage as the record keeps it: a session of the stage, a merge of the base, a run of
-// the gate command, a round of the review, the opening of the pull request or a verdict of the ci
-// stage's wait, with its result and the time it ended.
+// the gate command, a round of the review, the opening of the pull request, a verdict of the ci
+// stage's wait or the answer the address-reviews stage posted, with its result and the time it ended.
 export type Attempt = {
   stage: string
-  kind: "session" | "merge" | "run" | "round" | "open" | "wait"
+  kind: "session" | "merge" | "run" | "round" | "open" | "wait" | "answer"
   result: string
   at: string
   // gate is the gate form a run ran: the command, or none.
@@ -221,6 +229,83 @@ export type Attempt = {
   url?: string
   checks?: Check[]
   reviews?: string[]
+  // mandate is what an address-reviews session answered, a writer's request or a bot's review, and
+  // fixed and declined the points it reported; answered and replied are what its answer posted.
+  mandate?: "writer" | "bot"
+  fixed?: string[]
+  declined?: string[]
+  answered?: string[]
+  replied?: string[]
+}
+
+// The hunt record of a hunt process as the controller read it last: its rounds of at most max_rounds, why
+// it ended or null while it runs, the tests it removed and the candidates it checked and kept.
+export type Hunt = {
+  rounds: number
+  max_rounds: number
+  ended: string | null
+  removed: { round: number; commit: string; path: string; test: string; category: string; reason: string; why: string; still_proven: string }[]
+  kept: { round: number; path: string; test: string; category: string; reason: string; confidence: string }[]
+  stale: number
+}
+
+// An item the spec checker of an acceptance reported, with the maintainer's answer and what the
+// controller wrote for it once it was answered: the gap ticket as #<n>, deviation or none.
+export type AcceptanceItem = {
+  id: string
+  section: string
+  statement: string
+  verdict: "met" | "missing" | "deviates" | "untested"
+  evidence: string
+  confidence: "high" | "medium" | "low"
+  answer?: ItemAnswer
+  written?: string
+}
+
+// The answers to an item not met: a gap ticket, an accepted deviation, or no finding.
+export type ItemAnswer = { answer: "gap"; title: string; what?: string } | { answer: "deviation"; reason: string } | { answer: "none"; reason?: string }
+
+// What an acceptance keeps on its record: the facts its checker was briefed with, the items, and the gap
+// tickets or the close its answers wrote.
+export type Acceptance = {
+  spec: { title: string; milestone: string | null; labels: string[] }
+  tickets: { number: number; title: string; prs: number[] }[]
+  files: number
+  deviations: string[]
+  notes: string[]
+  items: AcceptanceItem[]
+  repeated: number
+  gaps?: number[]
+  closed?: boolean
+}
+
+// A category of the standardisation and the maintainer's answer to it: approve applies its findings,
+// reject leaves them.
+export type StandardCategory = "files" | "agent-config" | "docs" | "tests-ci" | "workspace" | "security"
+export type StandardAnswer = "approve" | "reject"
+
+// What a standardize process keeps on its record: the facts and the dry run of the workspace its auditors
+// were briefed with, each auditor's end, the findings per category with what report.sh says approving it
+// triggers, the lines report.sh refused, and the steps of the apply with the pull request and the
+// catalogue issue they wrote.
+export type Standardization = {
+  facts: string[]
+  workspace: string[]
+  auditors: { category: StandardCategory; state: string; note: string; findings: number }[]
+  summary: string
+  // The error of workspace.sh when the GitHub workspace could not be audited.
+  unaudited?: string
+  categories: {
+    name: StandardCategory
+    findings: { target: string; action: string; reason: string; confidence: string }[]
+    report: string[]
+    answer?: StandardAnswer
+  }[]
+  dropped: string[]
+  applied?: { step: string; ok: boolean; lines: string[]; at: string }[]
+  pull?: string
+  catalogue?: number
+  result?: "pass" | "fail"
 }
 
 // A process record as the controller keeps it, with the context size at which its session compacts.
@@ -234,6 +319,8 @@ export type ProcessRecord = {
   mode?: "manual" | "yolo"
   route?: "idea" | "issue" | "open" | "accept"
   topic?: string
+  // acceptance is an acceptance's: its facts and items, once its checker reported.
+  acceptance?: Acceptance
   stage: string
   state: Process["state"]
   note: string
@@ -254,6 +341,12 @@ export type ProcessRecord = {
   draft?: boolean
   checks?: Check[]
   wait?: string
+  // repairs are the repair rounds the ci stage spent on the pull request, of its budget.
+  repairs?: { spent: number; of: number }
+  // hunt is a hunt process's hunt record.
+  hunt?: Hunt
+  // standardize is a standardize process's audit and apply.
+  standardize?: Standardization
   updated_at: string
 }
 
@@ -317,6 +410,9 @@ export const openTerminal = (id: string) => call<{ script: string }>("POST", "/a
 // resume goes on with the interrupted session of the issue's process, or throws the controller's reason.
 export const resume = (path: string, issue: number) => call<{ record: unknown }>("POST", "/api/processes/resume", { project: path, issue })
 
+// resumeHunt goes on with an interrupted hunt process, which has no issue and is named by its id.
+export const resumeHunt = (id: string) => call<{ record: unknown }>("POST", "/api/processes/resume", { id })
+
 // adopt takes the issue's worktree on the branch, one the controller did not start, into a process, or
 // throws its reason.
 export const adopt = (path: string, issue: number, branch: string) =>
@@ -343,11 +439,39 @@ export const plan = (path: string, from: { idea: string } | { issue: number } | 
 // capture moves the prototype in a plan's worktree to a pushed prototype branch of its own.
 export const capture = (id: string, name: string) => call<{ branch: string; url: string }>("POST", "/api/processes/capture", { id, name })
 
-// finish removes a plan's worktree, branch and process; force drops what was not captured.
+// hunt opens a hunt process of the project at path and starts its test hunt. It answers the record as it
+// runs and what the hunt could not check, or throws the controller's reason.
+export const hunt = (path: string) => call<{ record: { id: string; branch: string }; warnings: string[] }>("POST", "/api/hunts", { project: path })
+
+// finish removes a plan's, a hunt's or a standardisation's worktree, branch and process; force drops
+// what was not captured or pushed.
 export const finish = (id: string, force: boolean) => call<{ branch: string }>("POST", "/api/processes/finish", { id, force })
 
-// accept opens a plan process with the acceptance route on a spec of the project at path.
-export const accept = (path: string, spec: number) => call<{ record: { branch: string } }>("POST", "/api/acceptances", { project: path, spec })
+// accept starts the acceptance of a spec of the project at path in a plan process: its facts, then its
+// checker, whose items wait in the process view.
+export const accept = (path: string, spec: number) => call<{ record: { id: string; branch: string } }>("POST", "/api/acceptances", { project: path, spec })
+
+// answerItems writes the answers to the items of an acceptance not met: gap tickets and deviations, and
+// the close of the spec once nothing is left open.
+export const answerItems = (id: string, answers: ({ item: string } & ItemAnswer)[]) => call<{ record: unknown }>("POST", "/api/acceptances/answers", { id, answers })
+
+// checkAgain runs a failed acceptance again.
+export const checkAgain = (id: string) => call<{ record: unknown }>("POST", "/api/acceptances/check", { id })
+
+// standardize opens a standardize process of the project at path and starts its read-only audit, whose
+// findings wait per category in the process view.
+export const standardize = (path: string) => call<{ record: { id: string; branch: string } }>("POST", "/api/standardize", { project: path })
+
+// auditAgain runs a failed audit of a standardize process again.
+export const auditAgain = (id: string) => call<{ record: unknown }>("POST", "/api/standardize/audit", { id })
+
+// applyStandard applies the approved categories of a standardize process: with answers once every
+// category has one, without them to apply again after a failure.
+export const applyStandard = (id: string, answers?: Partial<Record<StandardCategory, StandardAnswer>>) =>
+  call<{ record: unknown }>("POST", "/api/standardize/apply", answers ? { id, answers } : { id })
+
+// finalizeStandard checks the standard once the cleanup pull request is merged.
+export const finalizeStandard = (id: string) => call<{ record: unknown }>("POST", "/api/standardize/finalize", { id })
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response

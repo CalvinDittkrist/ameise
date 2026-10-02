@@ -20,10 +20,6 @@ export const knobs = [
   'WF_CI_REPAIR_ROUNDS',
   'WF_PR_BOT_REVIEWERS',
   'WF_PR_REVIEW_WAIT',
-  'WF_HANDOFF_TOKENS',
-  'WF_CONTEXT_MAX_AGE',
-  'WF_HANDOFF_SESSION_MS',
-  'WF_HANDOFF_POLL_SECONDS',
   'WF_DOCS_TIMEOUT',
   'WF_GATE',
   'WF_GATE_ROUNDS',
@@ -35,7 +31,7 @@ export const knobs = [
 export const modes = ['manual', 'yolo'] as const
 export type Mode = (typeof modes)[number]
 
-const envShape = 'an override is NAME=VALUE, such as WF_HANDOFF_TOKENS=5000; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
+const envShape = 'an override is NAME=VALUE, such as WF_REVIEW_ROUNDS=5; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
 
 // overrides reads the knob overrides of a claim, each NAME=VALUE, into the names and values they set.
 // It refuses a malformed override, a name that is no knob and a name given twice, before anything is
@@ -114,8 +110,9 @@ export interface CreatedRecord {
   updated_at: string
 }
 
-// The stages of a work process the controller drives, in their order.
-export const workStages = ['implement', 'gate', 'review', 'pr', 'ci'] as const
+// The stages of a work process the controller drives, in their order. A hunt process runs hunt in place
+// of implement, and the same stages after it.
+export const workStages = ['implement', 'hunt', 'gate', 'review', 'pr', 'ci', 'address-reviews'] as const
 export type WorkStage = (typeof workStages)[number]
 
 // A finding of a reviewer, with the id the controller gives it: <reviewer>-<round>-<n>, such as code-1-2.
@@ -160,16 +157,31 @@ export interface Pull {
   url: string
 }
 
+// A point of a review the address-reviews stage answers: a writer's request for changes, answered by
+// one comment on the pull request, or a review thread nobody resolved, answered by a reply that resolves
+// it. key is the review's id or the thread's, by which a later reading knows it answered.
+export interface Point {
+  kind: 'request' | 'thread'
+  key: string
+  login: string
+  body: string
+  url?: string
+  // where is the file and line of a thread, bot whether a bot opened it.
+  where?: string
+  bot?: boolean
+}
+
 // An attempt of a stage as the process record keeps it: a session of the stage, a merge of the base, a
-// run of the gate command, a round of the review, the opening of the pull request or a verdict of the
-// ci stage's wait, with its result and the time it ended.
+// run of the gate command, a round of the review, the opening of the pull request, a verdict of the
+// ci stage's wait or the answer the address-reviews stage posted, with its result and the time it ended.
 export interface Attempt {
   stage: WorkStage
-  kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait'
+  kind: 'session' | 'merge' | 'run' | 'round' | 'open' | 'wait' | 'answer'
   // result is complete, blocked or failed for a session, conflict for a merge, pass or fail for a run,
   // skipped for a run of the gate form none, missing for a run of the gate on CI that did not find the
   // checks it reads, pass, fix or failed for a round, opened, found or finished for the
-  // opening of the pull request, and green, conflicts, checks-failed, review-comments or closed for a wait.
+  // opening of the pull request, green, conflicts, checks-failed, review-comments, answered, unmergeable,
+  // merged or closed for a wait, and posted or partial for an answer.
   result: string
   at: string
   // gate is the gate form a run ran: the command, or none.
@@ -199,6 +211,18 @@ export interface Attempt {
   // met, one line each.
   checks?: Check[]
   reviews?: string[]
+  // mandate is what an address-reviews session answers: a writer's request for changes, which starts the
+  // repair count afresh, or a bot's review, whose round is a repair round. fixed and declined are the
+  // points it reported as such, one line each.
+  mandate?: 'writer' | 'bot'
+  fixed?: string[]
+  declined?: string[]
+  // answered are the keys of the requests an answer commented on, replied the threads it replied to.
+  answered?: string[]
+  replied?: string[]
+  // asked are the keys of the points a wait gave an address-reviews session to answer. A writer's request
+  // starts the repair count afresh the first time it is asked, and never again.
+  asked?: string[]
 }
 
 // A work process on an issue, as a claim writes it.
@@ -228,9 +252,63 @@ export interface WorkRecord extends CreatedRecord {
   readied?: string
   checks?: Check[]
   wait?: string
+  // repairs are the repair rounds the ci stage spent on the pull request and its budget, as it read them last.
+  repairs?: { spent: number; of: number }
+  // addressing is what the address-reviews session of the stage answers: its mandate and the points its
+  // brief listed, the only ones a reply of its result is posted to. reported is the replies and the answer
+  // the session reported complete with, kept until the ci stage has posted them, so a restart between the
+  // two posts them still.
+  addressing?: { mandate: 'writer' | 'bot'; points: Point[]; reported?: { replies: { thread: string; body: string }[]; answer: string } }
   // history is every attempt of a stage, in the order they ended.
   history?: Attempt[]
 }
+
+// A test removed by a test hunt, as the hunt record holds it: the round and the commit that removed it,
+// the hunter's candidate and the worker's reason.
+export interface Removal {
+  round: number
+  commit: string
+  path: string
+  test: string
+  category: string
+  reason: string
+  why: string
+  still_proven: string
+}
+
+// A candidate a test hunt checked and kept, as the hunt record holds it.
+export interface Kept {
+  round: number
+  path: string
+  test: string
+  category: string
+  reason: string
+  confidence: string
+}
+
+// The hunt record of a test hunt as the worker's hunt.sh json prints it: the rounds it ran of at most
+// max_rounds, why it ended, or null while it runs, the tests it removed and the candidates it kept.
+// stale counts the removals recorded whose commit left the branch or whose test is back.
+export interface HuntLog {
+  rounds: number
+  max_rounds: number
+  ended: string | null
+  removed: Removal[]
+  kept: Kept[]
+  stale: number
+}
+
+// A hunt process: a test hunt on a hunt branch, which works no issue (ADR 0045). The hunt record stands
+// where the issue stands, and after the hunt session it runs the stages of a work process.
+export interface HuntRecord extends Omit<WorkRecord, 'kind' | 'issue'> {
+  kind: 'hunt'
+  issue: null
+  // hunt is the hunt record, as the controller last read it from the worktree.
+  hunt?: HuntLog
+}
+
+// A process that runs the stages after implement: a work process or a hunt process.
+export type StageRecord = WorkRecord | HuntRecord
 
 export interface ClaimRequest {
   issue: number

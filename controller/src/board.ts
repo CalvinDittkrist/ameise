@@ -20,12 +20,13 @@ export const frontierQuery = `issues?labels=${labels.ready}&state=open&per_page=
 
 export type Kind = 'work' | 'plan' | 'hunt' | 'standardize'
 
-// The states of a process. The first six wait for a person, each with the one action that answers it,
+// The states of a process. The first seven wait for a person, each with the one action that answers it,
 // and a failed one waits for a person who opens it to read the reason. A process in any other state runs
 // on its own and is opened to be watched. A claimed process is created until its first session starts.
 // An interrupted one either had its session stopped with the controller and resumes by its session id,
 // or was adopted with no session yet and starts a fresh one. A foreign one is a worktree of an issue the state does not know, which a person adopts or removes.
-export const states = ['blocked', 'approval', 'ready', 'input', 'interrupted', 'foreign', 'failed', 'running', 'waiting', 'created'] as const
+// A done one is a hunt that removed nothing and opens no pull request, which a person finishes.
+export const states = ['blocked', 'approval', 'ready', 'input', 'interrupted', 'foreign', 'done', 'failed', 'running', 'waiting', 'created'] as const
 export type State = (typeof states)[number]
 const actions: Partial<Record<State, string>> = {
   blocked: 'Answer',
@@ -34,8 +35,13 @@ const actions: Partial<Record<State, string>> = {
   input: 'Continue',
   interrupted: 'Resume',
   foreign: 'Adopt',
+  done: 'Finish',
   failed: 'Open',
 }
+
+// A standardize process waits in input for an answer per category, and once ready for its finalize after
+// the cleanup pull request is merged by hand.
+const standardizeActions: Partial<Record<State, string>> = { ...actions, input: 'Approve', ready: 'Finalize' }
 
 export type Checks = 'none' | 'pending' | 'pass' | 'fail'
 
@@ -222,7 +228,7 @@ function derived(branch: string, record: (ProcessRecord & { id: string }) | unde
     since: record?.updated_at ?? since ?? null,
     note,
     needs: actions[state] !== undefined,
-    action: actions[state] ?? 'Open',
+    action: (kind === 'standardize' ? standardizeActions : actions)[state] ?? 'Open',
     unseen: record?.unseen === true,
   }
 }

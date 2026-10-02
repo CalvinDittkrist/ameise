@@ -1,6 +1,6 @@
 // What a published package has to carry beside the controller's build: the dashboard it serves, the
-// plugins its sessions load and the licence. npm pack runs this after the build, so it never writes a
-// package that would answer 404 under /, fail every session or ship without its terms.
+// plugins its sessions load, whose repo-standards scripts the standardize steps run, and the licence.
+// npm pack runs this after the build, so it never writes a package that would answer 404 under /, fail every session or ship without its terms.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 

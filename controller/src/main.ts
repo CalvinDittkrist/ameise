@@ -11,8 +11,10 @@ import { bundledPlugins, stopAll } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
 import { version, type Merged, type Released } from './actions.js'
 import type { PlanRecord } from './plan.js'
+import type { HuntRecord } from './claim.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
+import { contextReport } from './context-report.js'
 
 const usage = `usage:
   ameise [--fake]                    start the server and open the browser
@@ -33,10 +35,15 @@ const usage = `usage:
   ameise release <vX.Y.Z> [--project <path>]
                                      tag the finished milestone, publish its release and close it
   ameise accept <spec> [--project <path>]
-                                     open a plan process on the spec with the acceptance route
+                                     start the acceptance of the spec in a plan process; its
+                                     items are answered in the process view
   ameise plan [<idea>... | <issue>] [--project <path>]
                                      open a plan process from an idea, an issue, or nothing (an open
                                      session) and start its planner session
+  ameise hunt [--project <path>]     open a hunt process on a hunt branch and start its test hunt
+  ameise context-report [<transcript.jsonl> | <directory>]...
+                                     print the peak context and tool mix of finished worker sessions,
+                                     by default those under ~/.claude/projects; needs no server
 
 --project names the checkout of the project; without it the project is the checkout of the current
 directory. --force claims an issue that is not agent-ready, routed, held in a spec run or claimed on
@@ -313,9 +320,30 @@ async function planCommand(args: string[]) {
   process.stdout.write(`plan ${what}  ${r.branch}  from ${r.base}  ${r.state}\n  ${r.worktree}\n`)
 }
 
+// huntCommand opens a hunt process of the project.
+async function huntCommand(args: string[]) {
+  let project = process.cwd()
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string
+    if (a !== '--project') die(`unexpected argument ${a}; ameise help lists the commands`)
+    const v = args[++i]
+    if (v === undefined) die(`${a} needs a value; ameise help lists the commands`)
+    project = resolve(v)
+  }
+  const h = (await call('POST', '/api/hunts', { project })) as { record: HuntRecord; warnings: string[] }
+  for (const w of h.warnings) process.stderr.write(`warning: ${w}\n`)
+  const r = h.record
+  process.stdout.write(`hunt ${r.id}  ${r.branch}  from ${r.base}  ${r.state}\n  ${r.worktree}\n`)
+}
+
 async function main(argv: string[]) {
   const [command, sub, arg, ...rest] = argv
+  if (command === 'context-report') {
+    process.exitCode = contextReport(argv.slice(1), (s) => process.stdout.write(s), (s) => process.stderr.write(s))
+    return
+  }
   if (command === 'plan') return planCommand(argv.slice(1))
+  if (command === 'hunt') return huntCommand(argv.slice(1))
   if (command === 'claim' || command === 'abandon' || command === 'resume' || command === 'adopt') return processCommand(command, argv.slice(1))
   if (command === 'merge' || command === 'release' || command === 'accept') return actionCommand(command, argv.slice(1))
   if (command === undefined || command === '--fake') {

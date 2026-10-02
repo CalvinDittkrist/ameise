@@ -178,8 +178,9 @@ test('the review threads are read only once the checks and the bot review have p
   const calls = ghCalls()
   const views = calls.map((c, i) => (c.startsWith('pr view 7 ') ? i : -1)).filter((i) => i >= 0)
   const threads = calls.map((c, i) => (c.startsWith('api graphql ') ? i : -1)).filter((i) => i >= 0)
-  expect(threads).toHaveLength(1)
-  expect(threads[0]).toBeGreaterThan(views[2] ?? Infinity)
+  // A gh call that fails meanwhile makes the stage read again, so the reads are counted from the third view on.
+  expect(threads.length).toBeGreaterThan(0)
+  expect(Math.min(...threads)).toBeGreaterThan(views[2] ?? Infinity)
 })
 
 test('the ci stage waits for the checks, then for the bot review within the review wait, and shows what it waits for', async () => {
@@ -236,7 +237,7 @@ test('a standing request for changes is never green: the process is blocked with
   ])
   const r = await claim()
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: expect.stringMatching(/^PR #7 is not green: ada requested changes; /) })
+  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: 'PR #7 is not green: ada requested changes and is no writer of the repository; answer the review, or write here to have the session take it on' })
   expect(done.history?.at(-1)).toMatchObject({ stage: 'ci', kind: 'wait', result: 'review-comments', reviews: ['ada requested changes'] })
   expect(await board()).toMatchObject([{ issue: 144, state: 'blocked', action: 'Answer' }])
 })
@@ -296,7 +297,7 @@ test('an unresolved review thread is never green: the process is blocked', async
   writeFileSync(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.threads.json'), JSON.stringify([{ isResolved: true }, { isResolved: false }]))
   const r = await claim()
   const done = await ended(r.id)
-  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: expect.stringMatching(/^PR #7 is not green: 1 review thread\(s\) not resolved; /) })
+  expect(done).toMatchObject({ state: 'blocked', stage: 'ci', note: 'PR #7 is not green: the thread on the pull request was opened by somebody, who is no writer and no bot; answer the review, or write here to have the session take it on' })
   expect(done.history?.at(-1)).toMatchObject({ result: 'review-comments', reviews: ['1 review thread(s) not resolved'] })
 })
 

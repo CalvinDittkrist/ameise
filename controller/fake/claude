@@ -7,10 +7,19 @@
 #     play                     the session to play, one step a line; the first word of a line is the step
 #     <stage>                  the session to play in that stage of a work process, which AMEISE_STAGE
 #                              names, such as gate for a fix session of the gate; without it play
+#                              (address-reviews for the session that answers a review, which
+#                              reports its replies, its answer and the points it fixed and declined)
 #     reviewer-<name>          the session a reviewer of that name plays, such as reviewer-code; without
 #                              it reviewer, and without that it reports verdict pass
 #     author                   the session the author of the pull request plays; without it, it reports
 #                              pull Fake pull request
+#     checker                  the session the spec checker of an acceptance plays; without it, it
+#                              reports one item met, one missing, one deviating and one untested
+#     auditor-<category>       the session the auditor of that category of a standardize process plays,
+#                              such as auditor-files; without it auditor, and without that it reports
+#                              one finding of its category, so the auditors report in every category
+#     apply                    the session that works the todo lines of a standardize process's apply;
+#                              without it, it reports complete
 #     resume                   the session to play when it is resumed with --resume <id>, whose id it
 #                              keeps; without it a resumed session plays its stage's or play
 #     linger                   while it is there, a session that has reported its end has not exited yet
@@ -26,18 +35,34 @@
 #                       then says the answer
 #   wait                it waits for the next message, then says what it read
 #   commit <file>       it writes the file in its directory and commits it
-#   run <command>       it runs the command in its directory with bash, whatever it exits with
+#   run <command>       it runs the command with bash in its directory, whatever it exits with.
+#                       CLAUDE_PLUGIN_ROOT is the first --plugin-dir, as a plugin's script sees it.
+#                       A hunt plays the worker's hunt.sh so, as in run bash "$CLAUDE_PLUGIN_ROOT/scripts/hunt.sh" round
+#   bash <command>      it asks the PreToolUse hook of Bash the SDK registered whether it may run the
+#                       command in Bash, then says whether the hook denied it; it never runs it
+#   tool <name> <json>  it calls the tool of that name of the controller's in-process server github with
+#                       the arguments given as JSON, then says what the tool answered
 #   finding <severity> <where> <claim>
 #                       a reviewer's finding, such as finding S2 src/a.ts:3 The limit is off by one
-#   fixed <id> <note>   a fix session of the review fixed the finding of that id
-#   declined <id> <note>  it declined the finding of that id
+#   fixed <id> <note>   a fix session of the review fixed the finding of that id; an address-reviews
+#                       session reports the whole line as a point it fixed
+#   declined <id> <note>  it declined the finding of that id, or the point
+#   reply <thread> <body>  an address-reviews session replies to the thread of that id
+#   answer <text>       an address-reviews session answers the requests for changes with the text
 #   body <line>         a line of the body of the pull request the author reports
+#   item <section> | <statement> | <verdict> | <evidence> | <confidence>
+#                       an item the spec checker reports, such as
+#                       item Testing | The board is tested | met | test/board.test.ts:1 | high
+#   found <line>        a finding line an auditor reports, such as
+#                       found finding: files | NOTES.md | delete | agent notes | high
 # A line with one of these words ends it:
 #   complete <message>  it reports complete with the message and the commits it made since it started
 #   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   verdict <pass|fix>  a reviewer reports the verdict with its findings
 #   pull <title>        the author reports the pull request with the title and its body lines
+#   items               the spec checker reports its items
+#   findings            an auditor reports its finding lines
 #   silent              it ends without a result
 #   broken <message>    the runtime cannot start: it prints the message on stderr and exits 1
 #   litter <file>       it runs until its input closes, then writes <file> in its directory and leaves
@@ -123,6 +148,33 @@ case "$stage" in
     if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then file=''; steps=('verdict pass'); fi ;;
   author)
     if [ "$file" != author ]; then file=''; steps=('pull Fake pull request'); fi ;;
+  auditor-*)
+    if [ "$file" != "$stage" ]; then file=auditor; fi
+    if [ -z "$canned" ] || [ ! -f "$canned/$file" ]; then
+      file=''
+      case "$stage" in
+        auditor-files) steps=('found finding: files | NOTES.md | delete | agent notes left in the repository | high') ;;
+        auditor-agent-config) steps=('found finding: agent-config | .claude/commands/old.md | delete | a repository-local command | medium') ;;
+        auditor-docs) steps=('found finding: docs | docs/glossary.md | create | the glossary is missing | high') ;;
+        auditor-tests-ci) steps=('found finding: tests-ci | Makefile | replace | the check target runs no test | medium') ;;
+        auditor-workspace) steps=('found finding: workspace | branch protection of main | configure | main takes force pushes | high') ;;
+        auditor-security) steps=('found finding: security | config/deploy.env | issue | a token may be committed | low') ;;
+      esac
+      steps+=('findings')
+    fi ;;
+  apply)
+    if [ -z "$canned" ] || [ ! -f "$canned/apply" ]; then file=''; steps=('complete Worked the todo lines'); fi ;;
+  checker)
+    if [ "$file" != checker ]; then
+      file=''
+      steps=(
+        'item User stories | The board lists the specs ready for acceptance | met | controller/src/board.ts:1 | high'
+        'item User stories | An acceptance starts from the board with one action | missing | searched controller/src for an acceptance start and found none | medium'
+        'item Decisions | The checker runs read-only | deviates | controller/src/session.ts:1 lets it run Bash | low'
+        'item Testing | Fake mode scripts the checker | untested | controller/fake/claude:1 | high'
+        'items'
+      )
+    fi ;;
 esac
 if [ -n "$file" ] && [ -n "$canned" ] && [ -f "$canned/$file" ]; then
   while IFS= read -r step || [ -n "$step" ]; do
@@ -132,7 +184,7 @@ fi
 last=''
 if [ ${#steps[@]} -gt 0 ]; then last=${steps[${#steps[@]}-1]}; fi
 ending=''
-case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull) ending=$last ;; esac
+case "${last%% *}" in complete | ready | blocked | silent | broken | litter | verdict | pull | items | findings) ending=$last ;; esac
 word=${ending%% *}
 message=''
 case "$ending" in *' '*) message=${ending#* } ;; esac
@@ -166,6 +218,15 @@ tokens=1
 findings=''
 fixes=''
 body=''
+# items are the items the spec checker reports, as JSON.
+items=''
+# found are the finding lines an auditor reports, as JSON.
+found=''
+# replies, answer, fixedl and declinedl are what an address-reviews session reports.
+replies=''
+answer=''
+fixedl=''
+declinedl=''
 
 # assistant writes a message of the session with the content blocks given as JSON.
 assistant() {
@@ -181,12 +242,15 @@ field() {
   printf '%s' "${rest%%\"*}"
 }
 
+# hook is the callback id of the PreToolUse hook of Bash the SDK registered in its initialize request.
+hook=''
 # next reads one line of input, answers the SDK's initialize request, and fails once the input closes.
 next() {
   IFS= read -r line || return 1
   printf '< %s\n' "$line" >> "$log"
   case "$line" in
     *'"subtype":"initialize"'*)
+      if [[ $line =~ \"PreToolUse\":\[\{\"matcher\":\"Bash\",\"hookCallbackIds\":\[\"([^\"]*)\" ]]; then hook=${BASH_REMATCH[1]}; fi
       say "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"$(field request_id "$line")\",\"response\":{}}}" ;;
   esac
 }
@@ -213,6 +277,19 @@ ask() {
   answer "ask-$n"
 }
 
+# mcp sends a message of the in-process server github to the SDK and leaves its answer in $line. The
+# first one initializes the server, as Claude Code does before it lists or calls its tools.
+mcpready=''
+mcp() {
+  if [ -z "$mcpready" ]; then
+    mcpready=1
+    mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fake","version":"0"}}}' || return 1
+  fi
+  n=$((n + 1))
+  say "{\"type\":\"control_request\",\"request_id\":\"mcp-$n\",\"request\":{\"subtype\":\"mcp_message\",\"server_name\":\"github\",\"message\":$1}}"
+  answer "mcp-$n"
+}
+
 play() {
   local step rest
   for step in "${steps[@]+"${steps[@]}"}"; do
@@ -237,20 +314,65 @@ play() {
         printf '%s\n' "$rest" > "$rest"
         git add -- "$rest" && git commit -q -m "fix: write $rest" >/dev/null ;;
       run)
-        bash -c "$rest" >/dev/null 2>&1 || true ;;
+        CLAUDE_PLUGIN_ROOT=${plugins[0]:-} bash -c "$rest" >/dev/null 2>&1 || true ;;
+      bash)
+        n=$((n + 1))
+        local input
+        input="{\"command\":$(json "$rest")}"
+        assistant "{\"type\":\"tool_use\",\"id\":\"toolu-$n\",\"name\":\"Bash\",\"input\":$input}"
+        if [ -z "$hook" ]; then
+          text "No hook for $rest."
+        else
+          say "{\"type\":\"control_request\",\"request_id\":\"hook-$n\",\"request\":{\"subtype\":\"hook_callback\",\"callback_id\":\"$hook\",\"input\":{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"$session\",\"transcript_path\":\"\",\"cwd\":$(json "$PWD"),\"tool_name\":\"Bash\",\"tool_input\":$input,\"tool_use_id\":\"toolu-$n\"},\"tool_use_id\":\"toolu-$n\"}}"
+          answer "hook-$n" || return 1
+          case "$line" in
+            *'"permissionDecision":"deny"'*) text "The hook denied $rest." ;;
+            *) text "The hook let $rest through." ;;
+          esac
+        fi ;;
+      tool)
+        local name=${rest%% *} args=${rest#* }
+        n=$((n + 1))
+        assistant "{\"type\":\"tool_use\",\"id\":\"toolu-$n\",\"name\":\"mcp__github__$name\",\"input\":$args}"
+        mcp "{\"jsonrpc\":\"2.0\",\"id\":$n,\"method\":\"tools/call\",\"params\":{\"name\":\"$name\",\"arguments\":$args}}" || return 1
+        case "$line" in
+          *'"isError":true'*) text "The tool $name refused." ;;
+          *'"result"'*) text "The tool $name answered." ;;
+          *) text "The tool $name is not there." ;;
+        esac ;;
       finding)
         local severity=${rest%% *} where claim
         rest=${rest#* }
         where=${rest%% *}
         claim=${rest#* }
         findings="$findings${findings:+,}{\"severity\":$(json "$severity"),\"where\":$(json "$where"),\"claim\":$(json "$claim"),\"fix\":\"Fix it.\"}" ;;
+      item)
+        local f=() part
+        IFS='|' read -r -a f <<<"$rest"
+        local fields=''
+        local names=(section statement verdict evidence confidence)
+        local i
+        for i in 0 1 2 3 4; do
+          part=${f[$i]:-}
+          part=${part#"${part%%[![:space:]]*}"}
+          part=${part%"${part##*[![:space:]]}"}
+          fields="$fields${fields:+,}\"${names[$i]}\":$(json "$part")"
+        done
+        items="$items${items:+,}{$fields}" ;;
+      found)
+        found="$found${found:+,}$(json "$rest")" ;;
       body)
         local line
         line=$(json "$rest")
         line=${line#\"}
         body="$body${body:+\\n}${line%\"}" ;;
       fixed | declined)
-        fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}" ;;
+        fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}"
+        if [ "${step%% *}" = fixed ]; then fixedl="$fixedl${fixedl:+,}$(json "$rest")"; else declinedl="$declinedl${declinedl:+,}$(json "$rest")"; fi ;;
+      reply)
+        replies="$replies${replies:+,}{\"thread\":$(json "${rest%% *}"),\"body\":$(json "${rest#* }")}" ;;
+      answer)
+        answer=$rest ;;
       wait)
         if [ -z "$kept" ]; then
           while next; do
@@ -280,7 +402,11 @@ while next; do
       fi
       case "$word" in
         complete)
-          result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}"
+          if [ "$stage" = address-reviews ]; then
+            result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message"),\"replies\":[$replies],\"answer\":$(json "$answer"),\"fixed\":[$fixedl],\"declined\":[$declinedl]}"
+          else
+            result "{\"outcome\":\"complete\",\"commits\":[$commits],\"message\":$(json "$message")${fixes:+,\"fixes\":[$fixes]}}"
+          fi
           exit 0 ;;
         ready | blocked)
           result "{\"outcome\":\"$word\",\"commits\":[$commits],\"message\":$(json "$message")}"
@@ -290,6 +416,12 @@ while next; do
           exit 0 ;;
         verdict)
           result "{\"verdict\":$(json "$message"),\"findings\":[$findings]}"
+          exit 0 ;;
+        items)
+          result "{\"items\":[$items]}"
+          exit 0 ;;
+        findings)
+          result "{\"findings\":[$found]}"
           exit 0 ;;
         pull)
           say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"

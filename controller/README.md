@@ -28,10 +28,12 @@ The build copies the plugins of the checkout into `dist/plugins`, and every sess
 - `ameise adopt <issue> [--project <path>]` takes the issue's foreign worktree into a process.
 - `ameise merge <pr> [--project <path>]` merges a ready pull request; see [Merge](#merge).
 - `ameise release <vX.Y.Z> [--project <path>]` releases a finished milestone; see [Release](#release).
-- `ameise accept <spec> [--project <path>]` opens a plan process on a spec; see [Acceptance start](#acceptance-start).
+- `ameise accept <spec> [--project <path>]` starts the acceptance of a spec in a plan process; see [Acceptance](#acceptance).
 - `ameise plan [<idea>... | <issue>] [--project <path>]` opens a plan process from an idea, an issue or nothing; see [Plan process](#plan-process).
+- `ameise hunt [--project <path>]` opens a hunt process and starts its test hunt; see [Hunt process](#hunt-process).
   - Without `--project` each acts on the project of the current directory.
-- Every command but the first talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
+- `ameise context-report [<transcript.jsonl> | <directory>]...` prints the peak context and tool mix of finished worker sessions; see [Measuring it](../docs/token-budget.md#measuring-it).
+- Every command but the first and `context-report` talks to the running server. Without one it prints `error:` with the command that starts it and exits non-zero.
 
 ## Start
 The start stops with one `error:` line that names the fix when:
@@ -85,7 +87,9 @@ The board is derived on every request from the state directory, git and GitHub, 
   - `id` names its record, the file `processes/<id>.json`, and is null for a worktree without one.
   - `unseen` says it turned `blocked`, `ready` or `failed` and its page has not been opened since.
   - A claimed process is `created` until its first session starts.
-  - `blocked`, `approval`, `ready`, `input`, `interrupted` and `foreign` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume` or `Adopt`.
+  - `blocked`, `approval`, `ready`, `input`, `interrupted`, `foreign` and `done` wait for a person: `needs` is true and `action` is `Answer`, `Approve`, `Merge`, `Continue`, `Resume`, `Adopt` or `Finish`.
+  - `done` is a hunt that removed nothing and opens no pull request, or a standardisation that is finalized.
+  - A standardize process waiting for its answers (`input`) has the action `Approve`, one whose cleanup pull request is open (`ready`) `Finalize`.
   - `failed` waits for a person as well, with the action `Open`: its note is the reason. Every other process runs, with the action `Open`.
 - `frontier`: the agent-ready issues without assignee, open blocker, routing label or process of this machine.
   - A ticket of a spec run is held unless it carries `ready-for-human`; one whose parent cannot be read is held too.
@@ -105,7 +109,7 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT`, `WF_HANDOFF_TOKENS`, `WF_CONTEXT_MAX_AGE`, `WF_HANDOFF_SESSION_MS`, `WF_HANDOFF_POLL_SECONDS` and `WF_DOCS_TIMEOUT`, the knobs the local claim accepts, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT` and `WF_DOCS_TIMEOUT`, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,
@@ -149,14 +153,24 @@ A session that ends `blocked` or `failed`, a gate, review or pr stage that ends 
 In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` names a directory of plays (see the script):
 - `play` says what the implement session does, `resume` what a resumed session does.
 - `gate`, `review` and `ci` say what a fix session of the gate, of the review and of the ci stage does.
+- `address-reviews` says what the address-reviews session does: `reply <thread> <body>` and `answer <text>` are what it reports for the controller to post, `fixed` and `declined` the points.
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
+- `tool <name> <json>` calls a github tool of a planner session with the arguments.
+- `auditor-<category>` says what the auditor of that category of a [standardize process](#standardize-process) reports, `auditor` what every other one reports.
+  - It plays `found <line>` per finding line, then `findings`. Without either file each auditor reports one finding of its category.
+- `apply` says what the apply session of a standardize process does. Without it, it reports `complete`.
 
 In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see the script):
 - `next-pull` is the number `gh pr create` gives.
 - The files in `pulls/<n>.readings/` are what the gate on CI and the ci stage read of that pull request, in their order, the last one for good.
 - A draft `gh pr create --draft` opens is written to `draft-<n>.json`, which `gh pr list` answers after `pulls.json` and `gh pr ready` marks not a draft.
 - `runs/<id>.log` is a run's failed log, and `login` the login of `gh api user`.
+- `pulls/<n>.threads.json` are the review threads of a pull request. The resolve mutation resolves a thread written with its id first, and `gh pr comment` appends to `pulls/<n>.comments`.
+- Once `gh pr merge` merged a canned pull request, `pulls/<n>.merged.json` answers before its readings.
+- `api/<endpoint>` answers `gh api` of that endpoint, whatever the method. An endpoint that is also the directory of longer ones keeps its answer in the file `@` inside it.
+  - A body `gh api --input -` sends is appended, as one line, to `api/<endpoint>.<METHOD>`, such as `api/repos/o/r/pulls.POST`.
+- `git/<owner>/<name>.git` is the repository the scripts of a standardize process push to and fetch from as origin.
 
 ## Gate stage
 The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
@@ -282,18 +296,59 @@ A gate's draft the pr stage marked ready carries the draft's checks.
   - The workflows are read as text: one that only mentions the event costs the wait of the grace.
 - In every repository the bot review's wait counts from the ready at the earliest.
 
-- Green ends the process `ready`, and the board offers the merge.
+- Green ends a `manual` process `ready`, and the board offers the merge.
+  - A `yolo` process whose panel passed is merged at once, by the rules of the [merge](#merge), which remove its worktree, branch and record.
+  - The notification tells of it as merged. A merge refused, or taken by a merge queue, leaves it `ready` with the reason.
+  - A `yolo` process whose panel failed waits for the merge as a `manual` one does.
 - A conflict or failed checks start a fix session of the ci stage, a fresh session with the stage timeout.
   - Its brief names the conflict or the failed checks. It commits and pushes nothing.
   - On `complete` the controller pushes and waits again. On `blocked` the answer resumes it.
-- `WF_CI_REPAIR_ROUNDS` (3) is the repair budget: the fix sessions since the pull request was opened or found. A failure with it spent ends the process `failed`.
-- A request for changes, an unresolved thread or a merge state such as `BEHIND` or `BLOCKED` is never green: the process turns `blocked` with who asked or the state.
+- A writer's request for changes, or an unresolved thread a writer or a bot opened, that no round has answered starts the [address-reviews stage](#address-reviews-stage).
+- `WF_CI_REPAIR_ROUNDS` (3) is the repair budget of the pull request. It counts the fix sessions and the address-reviews sessions of a bot's review.
+  - The count starts when the pull request was opened or found, and again at each address-reviews session of a writer's request.
+  - A failure with it spent ends the process `failed`.
+  - A bot's review with it spent also ends it `failed`, and the controller comments on the pull request that the points are left to a person.
+  - The comment mentions the writers whose points stand, never a bot.
+  - The record's `repairs` holds `{spent, of}` as the stage read it last.
+- These are never green: a request for changes that is answered and stands, a request or thread of somebody no writer, a merge state such as `BEHIND` or `BLOCKED`.
+  - The process turns `blocked` with who asked or the state.
   - A message resumes its session as a fix session of the ci stage, whose `complete` pushes and waits again.
 - A pull request merged meanwhile turns the process `blocked`, for the maintainer to abandon it. A closed one ends it `failed`.
 
-Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
+Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "wait", result, pr, url, commit, checks, reviews, at}`. The result is `green`, `conflicts`, `checks-failed`, `review-comments`, `answered` (only answered requests stand), `unmergeable`, `merged` or `closed`. The event log carries `ci-start`, a `ci-wait` event each time the wait changes, a `ci` event for each verdict that starts a fix session, a `ci-note` when the base cannot be fetched for a conflict, and `ci-end`.
 
 A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
+
+## Address-reviews stage
+The stage `address-reviews` answers what reviewers ask for on the pull request, as the factory's does ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)).
+- A writer is an author who may push to the repository, as `repos/<owner>/<name>/collaborators/<login>/permission` answers.
+  - Only an author GitHub associates as `OWNER`, `MEMBER` or `COLLABORATOR` is asked, once per review or comment.
+  - Nobody else's review reaches a session, since it becomes the brief of a session that pushes.
+- Its points are the latest request for changes of each writer and every unresolved thread whose first comment is a writer's or a bot's, which no answer in `history` covers.
+- Its mandate is a writer's request when a request no session was asked yet is among them, and a bot's review otherwise.
+  - A writer's request starts the repair count afresh, once: its session counts no round.
+  - A request asked again, as when its answer could not be posted, is a repair round. The wait's `asked` holds the keys it gave the session.
+  - A bot's review is a repair round, refused once the budget is spent.
+
+It runs one fresh session with the stage timeout. Its brief lists the requests and the threads by id, as reviewer text. It fixes or declines each point, commits, and pushes, replies and resolves nothing.
+- It reports `complete` or `blocked` with its commits, a reply per thread in `replies`, one `answer` to the requests, and the points `fixed` and `declined`.
+- On `complete` the record's `addressing.reported` keeps the replies and the answer until they are posted, so a resume after a stop posts them.
+- The ci stage pushes, then posts:
+  - a reply to each thread the brief listed, the first one to each, and resolves that thread,
+  - the answer as one comment on the pull request, when the brief listed a request.
+- A reply to a thread the brief did not list is posted nowhere.
+- What cannot be posted is a `ci-note`, and a thread whose reply failed is asked again by the next round.
+- Then the ci stage waits again. A request stands until its writer reviews again, so the stage then ends `blocked` with the result `answered`.
+- On `blocked` the answer resumes the session.
+
+The session's end is `{stage: "address-reviews", kind: "session", result, mandate, commits, fixed, declined, at}` in `history`. What was posted is `{stage: "address-reviews", kind: "answer", result: "posted"|"partial", answered, replied, pr, url, at}`: the keys of the requests it commented on and the ids of the threads it replied to.
+
+### Follow-up
+The controller reads the pull request of each process the ci stage left `ready`, or `blocked` on a review, every four polls (two minutes, less in fake mode).
+- It starts the ci stage again when a review asks for an answer no round gave, such as a new request for changes of a writer on a ready process.
+- It starts it again for a ready one when any review stands, even one no session may answer.
+- It starts it again for a blocked one when the reviews say something other than what it was blocked on, such as an approval of the writer it answered.
+- A pull request that cannot be read is read again next time, and told once on stderr.
 
 ## Conversation
 The session takes its input as a stream, so the maintainer talks to it from the process page while it runs.
@@ -320,12 +375,15 @@ While the headless session still runs, the terminal is a second runtime on the s
 Stopping and starting the controller loses no process.
 - A stop (`SIGINT` or `SIGTERM`) stops every running session, waits for its runtime to exit and marks its process `interrupted`.
 - The start reads every record before it answers a request.
-- A work process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill, and is marked `interrupted` too.
+- A work or hunt process still `running`, `waiting`, `created`, `approval` or `input` lost its session or its wait with the last run, as after a kill.
+  - It is marked `interrupted` too.
   - Its note says so, or that its worktree is gone, in which case only an abandon helps.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
+  - An acceptance whose checker ran turns `failed`, and a check runs it again.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: its implement session, its gate, the round its reviewers ran, its pr stage or its wait on the pull request.
+- A resume goes on with an interrupted process: its implement or hunt session, gate, review round, pr stage, wait on the pull request or address-reviews session.
+  - One interrupted before its address-reviews session started waits on the pull request again.
   - It uses the runtime's resume by that session id, and a short brief to go on.
   - A process without a session id starts a fresh session with the usual brief.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
@@ -337,7 +395,7 @@ Stopping and starting the controller loses no process.
 In fake mode the scripted claude plays a resumed session under the id it resumes.
 
 ## Merge
-A merge takes a ready pull request of a project into its base, by the rules of the orchestrator's merge. It refuses, with the reason and `409`, a pull request that is:
+A merge takes a ready pull request of a project into its base. It refuses, with the reason and `409`, a pull request that is:
 - not open, a draft, or in conflict, or whose conflicts GitHub has not computed yet,
 - not green: a check failed or pending, or a merge state other than `CLEAN`,
 - asked for changes.
@@ -358,13 +416,29 @@ A release takes a milestone named as `v1.2.3`. It refuses, with `409`, a milesto
 
 Then it publishes the release with generated notes and closes the milestone.
 
-## Acceptance start
-An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the state `created`. It refuses, with `409`:
+## Acceptance
+An acceptance start opens a plan process on a spec ready for acceptance. It creates the branch `plan/<slug of the title>` from `origin/<base>` and its worktree. Its record has the route `accept` and the stage `accept`. It refuses, with `409`:
 - an issue that is not an open spec,
 - a spec without tickets or with a ticket open,
 - a spec that has a process.
 
-The spec then leaves `acceptance`. No session starts yet.
+The spec then leaves `acceptance`, and the acceptance runs at once:
+1. It gathers the facts: the spec, its tickets, the merged pull requests of this repository that referenced each ticket, the files those changed, and the deviations accepted earlier.
+   - An accepted deviation is a comment on the spec whose first line is `> Accepted deviation (spec acceptance).`, by someone with write access.
+   - What it cannot read becomes a note on the record.
+2. It runs the spec checker: a read-only session in the default mode beside the process, briefed with the facts and the spec's body, without Edit, Write or Agent.
+   - It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
+3. It keeps the items on the record, in the state `input`. An item whose `<section>: <statement>` an earlier deviation names is left out and counted in `repeated`.
+
+A checker that reports no item fails the process; a check runs it again. A controller stopped while the acceptance runs leaves it failed.
+
+Each item not met takes one answer in the process view:
+- A gap ticket: an issue with `ready-for-agent`, and `factory:spec-run` when the spec carries it.
+  - It is created as a sub-issue of the spec on its `vX.Y.Z` milestone through the github tools of the [plan process](#plan-process), under their rules.
+- An accepted deviation: the comment above, with the item's `<section>: <statement>` on its second line and the reason below.
+- No finding: nothing is written; the closing comment names the item as overruled.
+
+With a gap ticket the spec stays open, and its acceptance runs again once the gap tickets are closed. With nothing left open the spec closes as completed. Its closing comment counts the items per section, lists the tickets with their pull requests and names the deviations and the overruled items. A write that is refused keeps what was written before it; the same answers sent again go on from there. A finish then ends the process.
 
 ## Plan process
 A plan opens a plan process from an idea, an issue or nothing, an open session. It creates the branch `plan/<slug>` from `origin/<base>` and its worktree:
@@ -372,7 +446,7 @@ A plan opens a plan process from an idea, an issue or nothing, an open session. 
 - the slug of the issue's title,
 - or `open-<local time to the second>` for an open session.
 
-The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`, as the planner's scripts read it. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
+The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`. It refuses, with `409`, an issue that is not open, an issue with a process, and a plan branch that exists; with `400`, an idea and an issue at once, and an idea without letters or digits.
 
 `WF_PLANNER_LANGUAGE` names the language the planner talks in, such as `german`. The [planner's readme](../plugins/planner/README.md#configuration) documents it.
 - The controller reads it from the env block of the checkout's `.claude/settings.json`, and the plan records the value when it opens.
@@ -382,12 +456,22 @@ The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`,
 
 The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
-- session settings: `WF_PLAN`, `WF_PLAN_ISSUE` for an issue, `WF_BASE_BRANCH` and foreground subagents,
-  - and `WF_PLAN_CONTROLLER=1`, which silences the planner's start hook,
+- session settings: `WF_CONTROLLER=1`, `WF_BASE_BRANCH` and foreground subagents,
   - and the runtime's `language` setting from `WF_PLANNER_LANGUAGE`, when the repository sets it,
-- a brief that runs `/planner:plan` and carries the start context the hook gives in a pane.
+- a brief that runs `/planner:plan` and carries the session's context.
   - That is the plan, the branch, the role, the glossary, and the topic, the open session or the issue with the `gh` read of it.
   - It carries no text of the issue.
+
+The session writes GitHub only through the controller's github tools, an in-process MCP server registered in it and allowed without a card ([ADR 0059](../docs/adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)):
+- `create_issue` with labels, a parent it becomes a sub-issue of, and an open milestone `vX.Y.Z`, which the parent joins when it has none;
+- `set_labels`, `block`, `comment`, `close`, `attach_milestone` and `create_milestone`.
+
+The tools own the label vocabulary of the [contract fixture](../contract/fixture.json). A vocabulary label the repository lacks is created on first use, and a label outside it must exist in the repository.
+- They refuse `factory` without `ready-for-agent` or beside `ready-for-human`, judged on the labels the issue ends up with.
+- They refuse `factory:spec-run` beside either, and on an issue that is no spec and whose parent does not carry it.
+- A ticket of a spec run that cannot become a sub-issue loses the label and is refused.
+- `close` refuses a spec as completed without its closing comment, and while a ticket is open or cannot be read.
+- Every write is a `github` event in the process's log with what it changed, and every refusal a `github-refused` event with its reason.
 
 A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
 
@@ -396,10 +480,64 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 - A push that fails keeps the commit on the local branch and the worktree as it was.
 - In fake mode it pushes nothing.
 
-A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat checks the same and leaves the removal to the finish.
+A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat lists what the session wrote and leaves the removal to the finish. `/planner:prototype` asks the maintainer for the capture.
+
+## Hunt process
+A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
+- a hunt process, a `hunt/` worktree or a local `hunt/` branch,
+- a `hunt/` branch on origin; a list of origin's branches that cannot be read is a warning instead,
+- a base without a test file by the hunt's rule:
+  - `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*` and `*.spec.*` of JavaScript and TypeScript,
+  - code files in a `tests` or `spec` directory, leaving out fixtures, testdata, `__snapshots__`, `node_modules` and `vendor`.
+
+Its hunt session starts at once, in the stage `hunt`, as the implement session does, without `WF_ISSUE`. Its brief starts with `/worker:hunt-tests`, so the worker runs its rounds with the `test-hunter` agents and removes and commits only.
+- The record's `hunt` is the hunt record as the worker's `hunt.sh json` prints it: `rounds`, `max_rounds`, `ended`, `removed`, `kept` and `stale`.
+  - The controller reads it again after each tool result of the session and once the session reports `complete`.
+- A hunt that removed a test goes on to the [gate](#gate-stage), the [review](#review-stage), the [pr](#pr-stage) and the [ci](#ci-stage) stages of a work process.
+  - Each brief names the hunt record, which its session reads with `hunt.sh print`, in place of the issue.
+  - The review checks each removal against its reason.
+  - The pull request, and the gate's draft on CI, close no issue.
+  - A merge removes it as it removes a work process.
+- A hunt that removed nothing opens no pull request. It turns `done`, and its note says so with its rounds and the candidates it kept.
+  - A finish stops its session, then removes the worktree, the hunt branch and the process. It refuses, unless forced, changes not committed and commits not on origin.
+
+## Standardize process
+Standardize opens a standardize process: the standardisation to the [repository standard](../docs/repo-standard.md). The process view asks for an approval per category. It creates the branch `chore/standardize` from `origin/<base>` and its worktree at `.claude/worktrees/chore-standardize`, which its steps use. It refuses with `409` while a standardize process runs, or a worktree, a local branch or a branch on origin has that name. It refuses with `502` when origin's branches cannot be read.
+- The steps work the default branch GitHub names, so a project whose base differs is refused with `409`.
+  - So is a project that is a linked worktree, since the steps find the cleanup worktree from the main checkout.
+- A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content.
+  - An empty repository is refused with the first commit it needs.
+
+The process runs its own steps, controller code in `src/standard/`. They run git and gh as argument lists, and the templates, `scaffold.sh` and `check.sh` of the bundled repo-standards plugin. Each keeps the name of the script it replaced, such as `report.sh`, in what it says and in the record. The process runs in three stages:
+1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
+   - Each is one session with the agent `repo-standards:<category>-auditor`, read-only in the default mode with no tool that writes.
+   - Each reports its `finding:` lines in its structured result. `report.sh` merges them per category; a line it refuses is dropped and named in `dropped`.
+   - The process turns `input`: the record's `standardize` holds the facts, each auditor's end, and per category its findings and what `report.sh` says approving it triggers.
+   - A `workspace.sh` that cannot read the workspace leaves it unaudited: its error goes into `unaudited` and the note, and a later `done` does not call the workspace configured.
+   - An auditor that fails, or a restart while the audit runs or a session of it asks a question, fails the audit, which runs again on request.
+2. `apply` takes an answer, `approve` or `reject`, for every category in the report.
+   - It runs `approve.sh`, `backup.sh`, `cleanup.sh prepare`, the apply session for the todo lines, `cleanup.sh open` and `issues.sh`, in that order.
+   - It keeps each step in `applied`.
+   - An `approve.sh` that refuses the answers, as when its stored report is gone, fails the audit, which runs again on request.
+   - The backup comes before any deletion: a backup that fails stops the apply and deletes nothing.
+   - The apply session works in the worktree in auto mode; one that ends `blocked` turns the process `blocked`. It runs once: no chat or terminal resumes it.
+   - It turns `ready` with the cleanup pull request in `pull` and the catalogue issue in `catalogue`. A failed or blocked apply applies again with the answers it has.
+3. `finalize`, once the cleanup pull request is merged, runs `finalize.sh`: the workspace for an approved `configure` finding and the standard check.
+   - A pass turns the process `done`, a failing check `failed` with the failing lines, and a refusal, as for a pull request not merged yet, `ready` again with the reason.
+
+A finish removes the worktree, the local branch and the process, as for a hunt. The tag `pre-standard`, the pull request and the catalogue issue stay.
+
+In fake mode the steps push to the canned `git/<owner>/<name>.git` and call the scripted gh.
 
 ## Quota
-The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
+The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
+
+Beside that headline a reading gives:
+- `windows`: the five-hour window `five_hour` and the weekly window, `seven_day` on Claude and `weekly` on Codex.
+  - Each has its `reset` and its `remaining`, null where quota-axi reports no percentage of its own.
+- On Claude `fable`: the scope `model:fable` with its percentage left and reset, or unknown with the reason. A report without that scope gives no `fable`.
+
+The headline, `below` and a claim's warning come from `all_models` alone. Only Claude below the minimum warns a [claim](#claim-and-abandon), since every stage session of a work process runs on Claude.
 
 A reading is unknown, with the reason, when quota-axi is not installed or fails. So is one that answers no such provider, takes longer than 30 seconds or prints a report it cannot read. An unknown reading warns of nothing and holds no claim. With `quota_axi` empty the check is off: the quota answers `off: true` and no runtime.
 
@@ -454,6 +592,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
+  - `{"id": "<id>"}` resumes an interrupted hunt process, which has no issue.
   - `404` says the issue has no process.
   - `409` refuses one that is not interrupted, or whose worktree is gone or no longer on its branch.
 - `POST /api/processes/adopt` with `{"project": "<path>", "issue": <n>, "branch": "<branch>"}`: adopts the issue's foreign worktree on the branch and answers `201` with `{record}`.
@@ -466,10 +605,19 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - `409` refuses a pull request that is not ready or work not on origin, `502` a GitHub that does not answer.
 - `POST /api/releases` with `{"project": "<path>", "milestone": "v1.2.3"}`: releases the milestone and answers `201` with `{status: "released", milestone, model, target, release, promotion}`.
   - `202` with `{status: "waiting", milestone, model, promotion, reason}` says the promotion is not green yet. `409` refuses the milestone.
-- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances` with `{"project": "<path>", "spec": <n>}`: opens the plan process, starts its [acceptance](#acceptance) and answers `201` with `{record}`; `409` refuses the spec.
+- `POST /api/acceptances/answers` with `{"id": "<id>", "answers": [{"item": "item-2", "answer": "gap", "title": "...", "what": "..."}, {"item": "item-3", "answer": "deviation", "reason": "..."}, {"item": "item-4", "answer": "none", "reason": "..."}]}`: writes the answers and answers `200` with `{record}`.
+  - `400` refuses an item not met without an answer, `409` an acceptance without items or answered already, `502` a write GitHub refused.
+- `POST /api/acceptances/check` with `{"id": "<id>"}`: runs a failed acceptance again and answers `200` with `{record}`.
 - `POST /api/plans` with `{"project": "<path>", "idea": "..."}`, `{"project": "<path>", "issue": <n>}` or `{"project": "<path>"}`: opens a [plan process](#plan-process), starts its session and answers `201` with `{record}`.
+- `POST /api/hunts` with `{"project": "<path>"}`: opens a [hunt process](#hunt-process), starts its session and answers `201` with `{record, warnings}`; `409` refuses the hunt.
+- `POST /api/standardize` with `{"project": "<path>"}`: opens a [standardize process](#standardize-process), starts its audit and answers `201` with `{record}`; `409` refuses it.
+- `POST /api/standardize/audit` with `{"id": "<id>"}`: runs a failed audit again and answers `200` with `{record}`.
+- `POST /api/standardize/apply` with `{"id": "<id>", "answers": {"files": "approve", "docs": "reject", ...}}`: applies the approved categories and answers `200` with `{record}`.
+  - `400` refuses a category without an answer, `409` a process whose audit does not wait for its answers. Without `answers` it applies a failed or blocked apply again.
+- `POST /api/standardize/finalize` with `{"id": "<id>"}`: runs `finalize.sh` once the cleanup pull request is open and answers `200` with `{record}`.
 - `POST /api/processes/capture` with `{"id": "<id>", "name": "..."}`: captures the plan's prototype and answers `201` with `{id, branch, url}`.
-- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan and answers `200` with `{id, branch, worktree}`.
+- `POST /api/processes/finish` with `{"id": "<id>", "force": false}`: finishes the plan, the hunt or the standardisation and answers `200` with `{id, branch, worktree}`.
 - A body larger than 64 KiB is refused with `413`.
 
 The server answers only a `Host` that names it, and takes a write only as `application/json`, so a page of another site cannot write through the browser. It answers any other `Host` with `403` and a write of another type with `415`. Every refusal carries `{error}` with the reason.
