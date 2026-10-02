@@ -284,7 +284,8 @@ The controller waits on the pull request itself, in the stage `ci`, with the sta
 1. GitHub's answer whether the branch merges into its base. A conflict comes first, because GitHub runs no check on such a branch.
 2. The checks. An empty rollup in a repository with workflows waits up to 600 seconds for GitHub to register them.
 3. A review of a bot of `WF_PR_BOT_REVIEWERS` (`chatgpt-codex-connector`; empty for none), within `WF_PR_REVIEW_WAIT` seconds (1200) of the checks' end.
-   - A bot's review is a review of it in any state, or its thumbs-up reaction on the pull request, on whichever commit. Codex reacts with a thumbs up when it finds nothing.
+   - A bot's review is a review of it in any state, or its thumbs-up reaction on the pull request, on whichever commit.
+   - Codex reacts with a thumbs up when it finds nothing.
    - The bot's login matches with or without `[bot]`. Its eyes, and every other reaction, count for nothing.
    - The reactions are read with the review threads in one GraphQL query, on every reading while this wait stands.
    - The follow-up reads none.
