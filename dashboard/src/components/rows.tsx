@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Abandon, Claim, ProcessAction } from "@/components/process-actions"
 import { Accept, Merge, PlanIssue } from "@/components/actions"
-import { age, type Issue, type Process, type ProjectBoard } from "@/api"
+import { Age } from "@/components/span"
+import { type Issue, type Process, type ProjectBoard } from "@/api"
 import { cn } from "@/lib/utils"
 import { href } from "@/route"
 
@@ -55,7 +56,7 @@ export function ProcessRow({ p, project, path, reload }: { p: Process; project?:
       <ItemActions className="gap-3">
         <Badge variant={p.state === "running" ? "default" : "secondary"}>{p.stage}</Badge>
         <span data-slot="age" className="w-8 text-right text-xs tabular-nums text-muted-foreground">
-          {age(p.since)}
+          <Age since={p.since} />
         </span>
         {p.action === "Merge" && p.pr ? (
           <Merge p={{ ...p, pr: p.pr }} path={path} reload={reload} />
