@@ -117,10 +117,9 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        {/* The footer pads the group already, so its label stands where the other labels stand. */}
+        {/* The footer pads the group already, so its content stands where the other groups' content stands. */}
         <SidebarGroup className="p-0">
-          <SidebarGroupLabel>Quota</SidebarGroupLabel>
-          <SidebarGroupContent className="px-2 pt-1 text-xs text-muted-foreground">
+          <SidebarGroupContent className="px-2 py-1 text-xs text-muted-foreground">
             <QuotaBars quota={quota} />
           </SidebarGroupContent>
         </SidebarGroup>

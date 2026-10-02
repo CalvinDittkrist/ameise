@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { test as base, expect, type Page } from "@playwright/test"
+import { test as base, expect, type Locator, type Page } from "@playwright/test"
 
 // The dashboard read the way the maintainer reads it: in a browser, against the real controller in fake
 // mode (tests/controller.ts). Its projects are edge-sensors (base main) and backtest (base dev), both
@@ -43,29 +43,40 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
   const links = sidebar(page).getByRole("link")
   await expect(links).toHaveText(["ameise controllerthis machine", "Orchestrator", "edge-sensors", "backtest", "notes"])
   await expect(sidebar(page).getByRole("link", { name: "Orchestrator" })).toHaveAttribute("data-active", "true")
-  await expect(sidebar(page).getByText("Quota", { exact: true })).toBeVisible()
+  // The footer carries no label: the list of the quota names itself.
+  await expect(sidebar(page).getByText("Quota", { exact: true })).toHaveCount(0)
+  await expect(sidebar(page).getByRole("list", { name: "Quota" })).toBeVisible()
 })
 
-test("the sidebar shows the quota of each runtime with its reset, and marks one below the minimum", async ({ page }) => {
+test("the sidebar names each runtime, and marks one below the minimum", async ({ page }) => {
   await page.goto(url())
   const list = sidebar(page).getByRole("list", { name: "Quota" })
   const claude = list.getByRole("listitem", { name: "Claude", exact: true })
-  await expect(claude).toHaveText(/^Claude8%below 12% · resets in 2h/)
+  await expect(claude).toHaveText(/^Claudebelow 12%5-hour/)
   await expect(claude).toHaveAttribute("data-below", "true")
   const codex = list.getByRole("listitem", { name: "Codex", exact: true })
-  await expect(codex).toHaveText(/^Codex64%resets in 3d/)
+  await expect(codex).toHaveText(/^Codex5-hour/)
   await expect(codex).toHaveAttribute("data-below", "false")
   await expect(list.locator(":scope > li")).toHaveText([/^Claude/, /^Codex/])
   const quota = await (await fetch(url("/api/quota"))).json()
   expect(quota).toMatchObject({ minimum: 12, runtimes: [{ runtime: "claude", known: true, remaining: 8, below: true }, { runtime: "codex", known: true, remaining: 64, below: false }] })
 })
 
-test("under each runtime the sidebar shows its five-hour and weekly windows, and under Claude the Fable scope", async ({ page }) => {
+test("under each runtime the sidebar shows a bar of its five-hour and weekly windows, and under Claude of the Fable scope", async ({ page }) => {
   await page.goto(url())
   const claude = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
   await expect(claude).toHaveText(["5-hour8% · resets in 2h", "Weekly60% · resets in 5d", "Fable30% · resets in 4d"])
   const codex = sidebar(page).getByRole("list", { name: "Codex windows" }).getByRole("listitem")
   await expect(codex).toHaveText(["5-hour64% · resets in 3d", "Weekly60% · resets in 5d"])
+  // Each bar is as wide as what is left of its window, and a runtime below the minimum has red bars.
+  const fill = (row: Locator) => row.getByRole("meter").locator("div")
+  await expect(fill(claude.first())).toHaveAttribute("style", "width: 8%;")
+  await expect(fill(claude.last())).toHaveAttribute("style", "width: 30%;")
+  await expect(fill(codex.first())).toHaveAttribute("style", "width: 64%;")
+  await expect(fill(claude.first())).toHaveClass(/bg-destructive/)
+  await expect(fill(codex.first())).toHaveClass(/bg-primary/)
+  // Every number shows once: no headline repeats the window that limits the runtime.
+  await expect(sidebar(page).getByRole("listitem", { name: "Claude", exact: true }).getByText("8%")).toHaveCount(1)
 })
 
 test("a report without Fable shows no Fable row, one whose Fable is unknown says so with the reason, and a window without a percentage shows its reset", async ({ page }) => {
@@ -79,11 +90,14 @@ test("a report without Fable shows no Fable row, one whose Fable is unknown says
   await page.goto(url())
   const rows = sidebar(page).getByRole("list", { name: "Claude windows" }).getByRole("listitem")
   await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h"])
+  await expect(rows.first().getByRole("meter")).toHaveCount(1)
+  await expect(rows.last().getByRole("meter")).toHaveCount(0)
 
   report.fable = { known: false, reason }
   await page.reload()
   await expect(rows).toHaveText(["5-hour40% · resets in 3h", "Weeklyresets in 3h", "Fableunknown"])
   await expect(rows.last().getByText("unknown")).toHaveAttribute("title", reason)
+  await expect(rows.last().getByRole("meter")).toHaveCount(0)
 })
 
 test("a quota check switched off says off in the sidebar and warns no claim", async ({ page }) => {
@@ -105,7 +119,7 @@ test("a Codex below the minimum is marked in the sidebar and warns no claim", as
   ] } }))
   await page.goto(url())
   const codex = sidebar(page).getByRole("listitem", { name: "Codex" })
-  await expect(codex).toHaveText("Codex5%below 12% · resets in 3h")
+  await expect(codex).toHaveText("Codexbelow 12%")
   await expect(codex).toHaveAttribute("data-below", "true")
   await section(page, "Ready to start").locator('[aria-label="#144"]').getByRole("button", { name: "Claim" }).click()
   const dialog = page.getByRole("dialog", { name: "Claim #144" })
@@ -1112,7 +1126,7 @@ test("the sidebar collapses to its icons and hides the quota", async ({ page }) 
   await expect(projects(page).getByRole("link")).toHaveCount(3)
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click()
   await expect(page.locator("[data-slot=sidebar][data-state=collapsed]")).toHaveCount(1)
-  await expect(sidebar(page).getByText("Quota", { exact: true })).toBeHidden()
+  await expect(sidebar(page).getByRole("list", { name: "Quota" })).toBeHidden()
   await expect(projects(page).getByText("edge-sensors")).toBeHidden()
   const icon = await projects(page).getByRole("link", { name: "edge-sensors" }).boundingBox()
   expect(icon?.width).toBe(32)
