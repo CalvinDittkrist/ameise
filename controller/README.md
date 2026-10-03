@@ -370,7 +370,8 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A call that asks several questions takes the one message as the answer to each.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
-- A message to a process whose session has ended is an event on its node of the delivery graph, read from its stage and its `fixing` flag. Its edge resumes the session by its id, with the message as its first turn, in the next node:
+- A message to a process whose session has ended is an event on its node of the delivery graph, read from its stage and its `fixing` flag.
+  - Its edge resumes the session by its id in the next node, with the message as its first turn:
 
   | park | next node | record change |
   | --- | --- | --- |
