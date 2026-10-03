@@ -550,7 +550,11 @@ Standardize opens a standardize process: the standardisation to the [repository 
 - A base that cannot be fetched from origin refuses with `502`, since a stale tracking ref would audit old content.
   - An empty repository is refused with the first commit it needs.
 
-The process runs its own steps, controller code in `src/standard/`. They run git and gh as argument lists, and the templates, `scaffold.sh` and `check.sh` of the bundled repo-standards plugin. Each keeps the name of the script it replaced, such as `report.sh`, in what it says and in the record. The process runs on the standardize graph of the engine, in three nodes, each its own stage. Every wait keeps the process on its node, and the routes below send their request to the engine. A message moves no standardize process. A record of an earlier release without `workflow` is on the node its stage names.
+The process runs its own steps, controller code in `src/standard/`. They run git and gh as argument lists, and the templates, `scaffold.sh` and `check.sh` of the bundled repo-standards plugin. Each keeps the name of the script it replaced, such as `report.sh`, in what it says and in the record.
+- The process runs on the standardize graph of the engine, in three nodes, each its own stage.
+  - Every wait keeps the process on its node, and the routes below send their request to the engine. A message moves no standardize process.
+  - A record of an earlier release without `workflow` is on the node its stage names.
+
 1. `audit` runs `facts.sh` and `workspace.sh`, then the six auditors at once.
    - Each is one session with the agent `repo-standards:<category>-auditor`, read-only in the default mode with no tool that writes.
    - Each reports its `finding:` lines in its structured result. `report.sh` merges them per category; a line it refuses is dropped and named in `dropped`.
