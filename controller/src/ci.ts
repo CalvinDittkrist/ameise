@@ -28,9 +28,10 @@
 //
 // Green parks the process ready, where the board offers the merge.
 // A yolo process whose panel passed is merged at once, by the merge action's rules, and is done.
-// Some verdicts are never green and block the process until the maintainer answers:
-// a request that stands once answered, a request or thread of somebody who is no writer, or a merge
-// state other than clean.
+// Three verdicts are never green and block the process until the maintainer answers:
+// - a request that stands once answered,
+// - a request or thread of somebody who is no writer,
+// - a merge state other than clean.
 // A pull request merged meanwhile blocks the process too, for the maintainer to abandon.
 // A spent repair budget parks the process failed, and so does a closed pull request.
 // A bot's points with the budget spent get a comment that names the writers first.

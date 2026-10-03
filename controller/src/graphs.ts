@@ -3,10 +3,10 @@
 // function and the mapping of an old record where its graph needs them. The engine (engine.ts) is given
 // a registration as data.
 //
-// The delivery graph (delivery.ts) is registered for a work process. Its pr and ci nodes run as nodes,
-// and its ci fix and address-reviews nodes start their session through an adapter; a state whose stage
-// is not a node yet calls today's stage function through an adapter. Until the hunt has a
-// graph of its own, a hunt that reaches the pr stage runs the nodes of the delivery graph.
+// The delivery graph (delivery.ts) is registered for a work process. Its pr, ci, ci fix and
+// address-reviews stages are nodes. The ci fix and address-reviews nodes start their session through
+// an adapter, as does each stage not yet a node.
+// Until the hunt has a graph of its own, a hunt that reaches the pr stage runs the delivery graph's nodes.
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext } from './delivery.js'
 import type { Registration } from './engine.js'
