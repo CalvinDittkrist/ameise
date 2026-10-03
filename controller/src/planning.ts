@@ -3,13 +3,13 @@
 // paths.
 //
 // The idea, issue and open routes enter the planner node, which runs the planner session. Each turn it
-// ends parks the process on input, and a message is an event on the node that enters it again, resuming
-// the session by its id.
+// ends parks the process on input. A message is an event on the node that enters it again. It resumes the
+// session by its id.
 //
-// The accept route enters the acceptance: gather fetches the base and reads the facts, checker runs the
-// spec checker, and decision parks the process on input for the maintainer's answers. Each batch of
-// answers is an event on decision, which parks it on input again. A failed acceptance checks again on the
-// event check, which enters gather.
+// The accept route enters the acceptance. Its node gather fetches the base and reads the facts. Its node
+// checker runs the spec checker. Its node decision parks the process on input for the maintainer's
+// answers. Each batch of answers is an event on decision, which parks it on input again. A failed
+// acceptance checks again on the event check, which enters gather.
 //
 // A park is the action park on an edge, as in the delivery graph (delivery.ts). Its param seen marks the
 // process seen, as the maintainer's own answer does. The engine (engine.ts) runs the machine through its
@@ -87,8 +87,9 @@ export function planResume(stage: StageRecord): string | undefined {
   return undefined
 }
 
-// planAt is the node a plan process stands on, which an event to it is taken from: its node, or for a
-// record of an older release without one, the node of the restart's mapping, else the entry of its route.
+// planAt is the node a plan process stands on, which an event to it is taken from. That is the record's
+// node. A record of an older release has none; it takes the node of the restart's mapping, else the entry
+// of its route.
 export function planAt(record: PlanRecord): string {
   const states = planGraph.config.states ?? {}
   if (record.workflow === 'plan' && record.node !== undefined && record.node in states) return record.node

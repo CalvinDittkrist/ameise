@@ -2,21 +2,22 @@
 // edges. A graph reaches it as data, a registration of the registry (graphs.ts). It imports no graph and
 // no node. It runs a graph's XState machine through its pure functions only. These are the resolved state
 // of a stored node, the check whether an event has an edge, and the transition. No actor runs and no
-// snapshot is kept. The process record is the source of truth: workflow holds the graph's id, node its node.
+// snapshot is kept. The process record is the source of truth: workflow holds the graph's id, node its
+// node.
 //
 // Entering a node writes its entry fields, stage, workflow and node, and its start event. The engine
-// tracks the run. A stop ends the run, and a throw parks it failed with the node's
-// prefix. A stop takes the process over, so what the node returns after it starts nothing. The engine
-// checks that the outcome has an edge before it transitions, since a transition without an edge answers
-// the same state. An outcome without an edge parks the process failed, with a note naming the node and
-// the outcome. A park writes the node's end event, the state and the note. A park in blocked, ready or
-// failed is announced; one in input waits on the board alone. An edge's write action changes the record
-// before the next node is entered. The next node is entered before the run settles, so the process is
-// never untracked between two nodes. advance follows an event into a node from outside a run. Such an
-// event is a message to a parked process, the follow-up of the ci stage, or an acceptance's check or
-// answers. A session node runs the process's own session (session.ts), which takes messages while it runs. Its run is tracked until its runtime has exited, and
-// the next node runs only then, so two sessions never work the worktree at once. Until then a stop of the
-// next node stops that runtime too.
+// tracks the run. A stop ends the run, and a throw parks it failed with the node's prefix. A stop takes
+// the process over, so what the node returns after it starts nothing. The engine checks that the outcome
+// has an edge before it transitions, since a transition without an edge answers the same state. An outcome
+// without an edge parks the process failed, with a note naming the node and the outcome. A park writes the
+// node's end event, the state and the note. A park in blocked, ready or failed is announced; one in input
+// waits on the board alone. An edge's write action changes the record before the next node is entered. The
+// next node is entered before the run settles, so the process is never untracked between two nodes.
+// advance follows an event into a node from outside a run. Such an event is a message to a parked process,
+// the follow-up of the ci stage, or an acceptance's check or answers. A session node runs the process's
+// own session (session.ts), which takes messages while it runs. Its run is tracked until its runtime has
+// exited, and the next node runs only then, so two sessions never work the worktree at once. Until then a
+// stop of the next node stops that runtime too.
 import type { AnyStateMachine } from 'xstate'
 import { transition } from 'xstate'
 import type { Project } from './project.js'

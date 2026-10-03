@@ -225,8 +225,8 @@ function waiting(items: Item[]): string {
   return open > 0 ? `${items.length} item(s), ${open} not met; answer each in the process view` : `${items.length} item(s), all met; close the spec in the process view`
 }
 
-// gatherNode is the gather node of the plan graph: it moves the worktree to the base as origin has it now
-// and reads the facts of the spec, which it hands the checker node. A throw fails the acceptance.
+// gatherNode is the gather node of the plan graph. It moves the worktree to the base as origin has it now
+// and reads the facts of the spec. It hands the facts to the checker node. A throw fails the acceptance.
 export const gatherNode: Node = {
   run: async (ctx) => {
     const record = ctx.record as unknown as PlanRecord
