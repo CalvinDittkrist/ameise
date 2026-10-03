@@ -9,7 +9,7 @@
 // the spec, a deviation the comment the glossary defines. With a gap ticket the spec stays open, and its
 // acceptance runs again once the gap tickets are closed. With nothing left open the spec closes with its
 // closing comment. An item the maintainer accepted as a deviation earlier is not reported again.
-import { checker, type Ended } from './agents.js'
+import { checker } from './agents.js'
 import { pages } from './board.js'
 import { confidences, sections, verdicts } from './checkitems.js'
 import { held } from './claim.js'
@@ -243,7 +243,7 @@ export function check(record: PlanRecord, project: Project, rt: Runtime): PlanRe
       if (!own() || s.abort.signal.aborted) return
       event(rt.stateDir, id, { event: 'acceptance-facts', tickets: facts.tickets.map((t) => ({ issue: t.number, prs: t.prs })), files: facts.files.length, deviations: facts.deviations.length, notes: facts.notes })
       update(rt.stateDir, id, { note: 'the spec checker runs' })
-      const [ended] = (await agents(started, rt, s, own, [{ run: checker, brief: checkerBrief(started, repo, facts) }])) as [Ended]
+      const [ended] = await agents(started, rt, s, own, [{ run: checker, brief: checkerBrief(started, repo, facts) }])
       if (!own()) return
       if (ended.state !== 'complete' || !ended.items) return fail(`the acceptance failed: ${ended.note}`)
       const all = itemsOf(ended.items)

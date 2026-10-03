@@ -374,7 +374,7 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
     if (todo.length > 0) {
       update(rt.stateDir, id, { note: `the apply session works ${todo.length} todo line(s)` })
       event(rt.stateDir, id, { event: 'session-start', stage: 'apply' })
-      const [ended] = (await agents(started, rt, s, own, [{ run: applier, brief: applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo) }])) as [Ended]
+      const [ended] = await agents(started, rt, s, own, [{ run: applier, brief: applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo) }])
       if (!own()) return
       event(rt.stateDir, id, { event: 'session-end', stage: 'apply', state: ended.state, note: ended.note })
       keep('session', ended.state === 'complete', [ended.note])

@@ -16,7 +16,7 @@ import { botsOf, ci } from './ci.js'
 import { run } from './exec.js'
 import { defaultGate } from './gate.js'
 import type { Project } from './project.js'
-import { author, type Ended } from './agents.js'
+import { author } from './agents.js'
 import { authorBrief } from './briefs.js'
 import { type Running, track } from './running.js'
 import { agents, type Runtime } from './session.js'
@@ -97,7 +97,7 @@ async function open(record: StageRecord, project: Project, rt: Runtime, s: Runni
     return
   }
 
-  const [ended] = (await agents(record, rt, s, own, [{ run: author, brief: authorBrief(record, repo) }])) as [Ended]
+  const [ended] = await agents(record, rt, s, own, [{ run: author, brief: authorBrief(record, repo) }])
   if (!own()) return
   if (ended.state !== 'complete' || !ended.pull) return fail(`the author session wrote no pull request: ${ended.note}`)
   const title = ended.pull.title
