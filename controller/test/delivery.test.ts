@@ -121,3 +121,34 @@ test('a work and a hunt process run on the delivery graph, and an unknown kind i
   expect(graphOf(recordOf({ kind: 'hunt' } as Partial<StageRecord>))).toBe(graphOf(recordOf({})))
   expect(() => graphOf(recordOf({ kind: 'plan' } as unknown as Partial<StageRecord>))).toThrow('no process graph is registered for a plan process')
 })
+
+test('the repair guard parks failed on both edges once the rounds are spent, and a writer starts afresh', () => {
+  const last = { ...remain, repairs: 2 }
+  for (const outcome of ['checks-failed', 'conflicts']) {
+    expect(step('ci', last, outcome)).toBe('ci-fix')
+    expect(step('ci', spent, outcome)).toBe('parked failed')
+  }
+  expect(step('ci', last, 'comments', 'bot')).toBe('address-reviews')
+  expect(step('ci', spent, 'comments', 'bot')).toBe('parked failed')
+  expect(step('ci', spent, 'comments', 'writer')).toBe('address-reviews')
+})
+
+test('the ci fix and address-reviews sessions return to ci, and a follow-up waits on ci again', () => {
+  expect(step('ci-fix', remain, 'complete')).toBe('ci')
+  expect(step('address-reviews', spent, 'complete')).toBe('ci')
+  expect(step('ci', spent, 'follow-up')).toBe('ci')
+})
+
+test('a green pull request whose yolo merge did not happen parks ready', () => {
+  const snapshot = delivery.resolveState({ value: 'ci', context: { ...remain, yolo: true, panelPassed: true } })
+  const [next, actions] = transition(delivery, snapshot, { type: 'green', unmerged: true })
+  expect(String(next.value)).toBe('ci')
+  expect(actions).toContainEqual(expect.objectContaining({ type: 'park', params: { state: 'ready' } }))
+})
+
+test('the ci, ci fix and address-reviews nodes are registered on the delivery graph', () => {
+  const nodes = graphOf(recordOf({})).nodes
+  expect(nodes.ci && 'run' in nodes.ci).toBe(true)
+  expect(nodes['ci-fix'] && 'adapt' in nodes['ci-fix']).toBe(true)
+  expect(nodes['address-reviews'] && 'adapt' in nodes['address-reviews']).toBe(true)
+})
