@@ -6,9 +6,9 @@
 // The gate and its fix are two nodes of the delivery graph (delivery.ts), which start no stage
 // themselves. The gate node returns pass, skipped, fail or failed, and the engine (engine.ts) follows it:
 // a pass or a skip goes on to the review node. A merge that conflicts and a gate command that fails are
-// a fail, which goes to the gate fix node while the graph's guard gateRoundsRemain finds a round of
-// WF_GATE_ROUNDS left, and otherwise parks the process failed with the end of the last output. Failed
-// parks the process with the reason and spends no round. The gate fix node starts a fresh session with
+// a fail. A fail goes to the gate fix node while the graph's guard gateRoundsRemain finds a round of
+// WF_GATE_ROUNDS left. Once the rounds are spent, it parks the process failed with the end of the last
+// output. Failed parks the process with the reason and spends no round. The gate fix node starts a fresh session with
 // the stage timeout, whose complete runs the gate again on what it leaves. Every merge that conflicts,
 // every run and every fix session is an attempt in the record's history. The gate runs again after every
 // fix session of the review.
@@ -185,12 +185,9 @@ function whatOf(record: StageRecord, failure: Attempt, command: string): string 
       : `${command} failed at ${short(failure.commit)} with ${failure.note ?? `exit ${failure.exit ?? 'none'}`}`
 }
 
-// fail writes the failure of the gate, a merge of the base that conflicts or a run that failed, and
-// returns the outcome fail. The fix sessions this gate has spent are those since the last session of
-// another stage, the implement session or a fix session of the review, whose work this gate checks. The
-// graph's guard gateRoundsRemain counts them the same way. While a round remains, the failure is written
-// with the note of the fix session the gate fix node starts. Once the rounds are spent, its note is the
-// one the process parks failed with, with the end of the last output.
+// fail writes the failure of the gate and returns the outcome fail, with the note to park on once the
+// rounds are spent. It counts the fix sessions since the last session of another stage, whose work this
+// gate checks. The guard gateRoundsRemain counts them the same way, so the two agree on the last round.
 export function fail(record: StageRecord, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): Outcome {
   if (!own()) return stopped
   const id = record.id

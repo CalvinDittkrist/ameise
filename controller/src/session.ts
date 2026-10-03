@@ -5,15 +5,15 @@
 // open. A fix session of the gate, of the review or of the ci stage is a fresh session with a stage
 // timeout that reports the same way. The complete of a fix session of the gate, of the review, of the ci
 // stage or of an address-reviews session is an outcome of its node of the delivery graph. The engine
-// (engine.ts) follows that outcome, from the gate fix and the review fix to the gate and from the others
-// back to the ci node (ci.ts). Every other complete enters the gate node. Every subagent of a stage is an agent run (agents.ts): a
-// reviewer, the author session, the spec checker, an auditor or the apply session. The one runner,
-// agents, starts each here beside the process's own session, side by side where there are several. The
-// streams of the read-only ones stay out of the event log. Every session's end is an attempt in the
-// record's history. Its stream goes into the process's event log and its session id into the record. A
-// session that ends without a result, or a runtime that cannot start, ends the process as failed with
-// the reason. A session the controller's stop cuts off ends the process as interrupted. A resume goes on
-// with it by its session id when it has one, and starts a fresh session otherwise.
+// (engine.ts) follows that outcome. The gate fix and the review fix go to the gate, the others back to
+// the ci node (ci.ts). Every other complete enters the gate node. Every subagent of a stage is an agent
+// run (agents.ts): a reviewer, the author session, the spec checker, an auditor or the apply session.
+// The one runner, agents, starts each here beside the process's own session, side by side where there
+// are several. The streams of the read-only ones stay out of the event log. Every session's end is an
+// attempt in the record's history. Its stream goes into the process's event log and its session id into
+// the record. A session that ends without a result, or a runtime that cannot start, ends the process as
+// failed with the reason. A session the controller's stop cuts off ends the process as interrupted. A
+// resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
