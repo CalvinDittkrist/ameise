@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { applier, auditor, type Ended } from './agents.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
@@ -21,7 +22,7 @@ import { run } from './exec.js'
 import { removal } from './hunt.js'
 import { type Project, Refusal } from './project.js'
 import { type Running, track } from './running.js'
-import { applier, auditors, type Ended, type Runtime } from './session.js'
+import { agents, type Runtime } from './session.js'
 import { settingOf } from './settings.js'
 import { backup as backupStep } from './standard/backup.js'
 import { cleanupOpen, cleanupPrepare } from './standard/cleanup.js'
@@ -222,7 +223,8 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
     const unaudited = ws.code === 0 ? undefined : firstError(ws, 'workspace.sh')
     event(rt.stateDir, id, { event: 'audit-facts', facts: f.lines.length, workspace: unaudited ?? 'read' })
     update(rt.stateDir, id, { note: 'the six auditors run' })
-    const ends = await auditors(started, rt, s, own, categories.map((c) => ({ category: c, brief: auditorBrief(started, repo, c, f.lines, ws.lines) })))
+    const ended = await agents(started, rt, s, own, categories.map((c) => ({ run: auditor(c), brief: auditorBrief(started, repo, c, f.lines, ws.lines) })))
+    const ends = categories.map((category, i) => ({ category, ended: ended[i] as Ended }))
     if (!own()) return
     const ran = ends.map(({ category, ended }) => ({ category, state: ended.state, note: ended.note, findings: ended.findings?.length ?? 0 }))
     event(rt.stateDir, id, { event: 'audit-auditors', auditors: ran })
@@ -372,7 +374,7 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
     if (todo.length > 0) {
       update(rt.stateDir, id, { note: `the apply session works ${todo.length} todo line(s)` })
       event(rt.stateDir, id, { event: 'session-start', stage: 'apply' })
-      const ended: Ended = await applier(started, rt, s, own, applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo))
+      const [ended] = (await agents(started, rt, s, own, [{ run: applier, brief: applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo) }])) as [Ended]
       if (!own()) return
       event(rt.stateDir, id, { event: 'session-end', stage: 'apply', state: ended.state, note: ended.note })
       keep('session', ended.state === 'complete', [ended.note])

@@ -4,11 +4,11 @@
 // controller starts the gate stage (gate.ts), unless the maintainer holds the session open. A fix session
 // of the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
 // same way; the complete of a fix session of the ci stage goes back to its wait (ci.ts), every other to
-// the gate. The reviewers of the review stage (review.ts) run here too, in parallel and read-only, each
-// reporting its verdict and findings, and so does the author session of the pr stage (pr.ts), which
-// reports the pull request's title and body; their streams stay out of the event log. Every session's end is
-// an attempt in the record's history. Its stream goes into the process's event log and its session id
-// into the record. A session that ends without a result, or a runtime that cannot start, ends the
+// the gate. Every subagent of a stage, a reviewer, the author session, the spec checker, an auditor or
+// the apply session, is an agent run (agents.ts) that the one runner, agents, starts here beside the
+// process's own session, side by side where there are several; the streams of the read-only ones stay
+// out of the event log. Every session's end is an attempt in the record's history. Its stream goes
+// into the process's event log and its session id into the record. A session that ends without a result, or a runtime that cannot start, ends the
 // process as failed with the reason. A session the controller's stop cuts off ends the process as
 // interrupted. A resume goes on with it by its session id when it has one, and starts a fresh session
 // otherwise.
@@ -30,23 +30,23 @@
 // (bundle.ts).
 //
 // This module holds begin, say, hold and answer, the session loop with its permission callback, the
-// report schemas, the subagent runners, and the plugins and agent of a session. The registry of the
-// running processes, with stop, stop all and recover, is running.ts; the settings of a session, its
-// runtime environment, the knobs, the rules an allowance grants and the hook against a direct GitHub
-// write are settings.ts.
+// report schemas of its own session, the one runner of the agent runs, and the plugins and agent of a
+// session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
+// settings of a session, its runtime environment, the knobs, the rules an allowance grants and the hook
+// against a direct GitHub write are settings.ts.
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import { type Addressed, type AgentRun, type Ended, report } from './agents.js'
 import { brief, planBrief, safeRef } from './briefs.js'
-import { confidences, sections, verdicts } from './checkitems.js'
 import { ci } from './ci.js'
 import { gate } from './gate.js'
 import { githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
-import type { Attempt, CreatedRecord, Finding, Fix, PlanRecord, SessionRecord, StageRecord, StandardizeRecord } from './records.js'
+import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from './records.js'
 import { busy, firstStage, Input, register, release, type Request, type Running, runningOf } from './running.js'
 import { allowance, guard, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
 import { attempt, event, readRecord, update, warn } from './store.js'
@@ -86,18 +86,6 @@ export const sessionAgent = (record: SessionRecord): 'planner' | 'worker' | unde
 // plugin of its agent first, then repo-standards, whose skills every session may call. The marketplace
 // copies are switched off (see workSettings), so these are the only copies it loads.
 export const sessionPlugins = (dir: string, record: SessionRecord): string[] => [join(dir, agentOf(record)), join(dir, 'repo-standards')]
-
-// The result a session of a work process reports through, as a JSON schema.
-const report = {
-  type: 'object',
-  properties: {
-    outcome: { type: 'string', enum: ['complete', 'blocked'], description: 'complete when the task of the brief is done and committed, blocked when it cannot be done without a person' },
-    commits: { type: 'array', items: { type: 'string' }, description: 'the commits of the session, each a short hash and a subject; empty when it committed nothing' },
-    message: { type: 'string', description: 'for complete, one line on what was done; for blocked, the question a person has to answer' },
-  },
-  required: ['outcome', 'commits', 'message'],
-  additionalProperties: false,
-}
 
 // The result a fix session of the review reports through: the report, and what it did with each finding.
 const fixReport = {
@@ -148,75 +136,11 @@ const addressReport = {
   required: [...report.required, 'replies', 'answer', 'fixed', 'declined'],
 }
 
-// The result a reviewer reports through: its verdict and its findings.
-const verdictReport = {
-  type: 'object',
-  properties: {
-    verdict: { type: 'string', enum: ['pass', 'fix'], description: 'fix when any finding is S1 or S2, else pass' },
-    findings: {
-      type: 'array',
-      description: 'what you verified is wrong; empty with pass is a good result',
-      items: {
-        type: 'object',
-        properties: {
-          severity: { type: 'string', enum: ['S1', 'S2', 'S3'], description: 'S1 must be fixed (bug, vulnerability, data loss, broken contract), S2 should be fixed, S3 is a nit' },
-          where: { type: 'string', description: 'the file and line, such as src/a.ts:12' },
-          claim: { type: 'string', description: 'what is wrong and why' },
-          fix: { type: 'string', description: 'one line on how to verify or fix it' },
-        },
-        required: ['severity', 'where', 'claim', 'fix'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['verdict', 'findings'],
-  additionalProperties: false,
-}
-
-// The result the author session of the pr stage reports through: the pull request's title and body.
-const pullReport = {
-  type: 'object',
-  properties: {
-    title: { type: 'string', description: 'the title of the pull request, in conventional-commit style, under 70 characters' },
-    body: { type: 'string', description: 'the body of the pull request in Markdown, without the verification section the controller appends' },
-  },
-  required: ['title', 'body'],
-  additionalProperties: false,
-}
-
-// The tools a reviewer and the author session never have: they read and report, and change nothing.
+// The tools a read-only agent run never has: it reads and reports, and changes nothing.
 const readOnly = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Agent']
 
 // The stage timeout of a session after implement, in seconds, unless WF_STAGE_TIMEOUT says otherwise.
 const stageTimeout = 1800
-
-// Ended is how a session ended: the state and the note its process ends with. A planner session that
-// ends its turn waits for input. A work session that reports complete names its commits, and the
-// controller decides the next stage.
-// A fix session of the review names what it did with each finding. A reviewer that reported has a
-// verdict with its findings, which the review numbers. The author session reports the pull request.
-export interface Ended {
-  state: 'complete' | 'blocked' | 'failed' | 'input'
-  note: string
-  commits?: string[]
-  session_id?: string
-  fixes?: Fix[]
-  verdict?: { verdict: 'pass' | 'fix'; findings: Omit<Finding, 'id'>[] }
-  pull?: { title: string; body: string }
-  addressed?: Addressed
-  // items are what the spec checker of an acceptance reported, as acceptance.ts reads them.
-  items?: unknown[]
-  // findings are the finding lines an auditor of a standardize process reported.
-  findings?: string[]
-}
-
-// What an address-reviews session reported for the controller to post, and what it fixed and declined.
-export interface Addressed {
-  replies: { thread: string; body: string }[]
-  answer: string
-  fixed: string[]
-  declined: string[]
-}
 
 // sessionOf names a process's session in its notes, and stageOf is the stage the session runs.
 const sessionOf = (record: SessionRecord) =>
@@ -401,7 +325,7 @@ export function answer(id: string, request: string, a: Answer) {
 }
 
 // A run of a session: its input and abort, and how it runs and reports. The process's own session is
-// one; a reviewer is another, which runs beside the others of its round and leaves the record alone.
+// one; an agent run is another, which runs beside it and, unless it writes, leaves the record alone.
 interface Run {
   input: Input
   abort: AbortController
@@ -483,51 +407,28 @@ function addressedOf(raw: unknown): Addressed {
   return { replies, answer: typeof out.answer === 'string' ? out.answer : '', fixed: lines(out.fixed), declined: lines(out.declined) }
 }
 
-// verdictOf reads the verdict a reviewer reported. A finding of S1 or S2 makes it fix, whatever it said.
-function verdictOf(raw: unknown, sessionId: string | undefined, name: string): Ended {
-  const out = raw as { verdict?: unknown; findings?: unknown } | undefined
-  if (!out || (out.verdict !== 'pass' && out.verdict !== 'fix') || !Array.isArray(out.findings)) {
-    return { state: 'failed', note: `the reviewer ${name} ended without a verdict`, session_id: sessionId }
-  }
-  const findings = out.findings.flatMap((f: unknown) => {
-    const x = f as Partial<Finding> | null
-    if (!x || !['S1', 'S2', 'S3'].includes(x.severity as string)) return []
-    const text = (v: unknown) => (typeof v === 'string' ? v : '')
-    return [{ severity: x.severity as Finding['severity'], where: text(x.where), claim: text(x.claim), fix: text(x.fix) }]
-  })
-  // A fix verdict without a finding leaves the fix session nothing to act on.
-  if (out.verdict === 'fix' && findings.length === 0) {
-    return { state: 'failed', note: `the reviewer ${name} said fix without a finding`, session_id: sessionId }
-  }
-  const verdict = out.verdict === 'fix' || findings.some((f) => f.severity !== 'S3') ? 'fix' : 'pass'
-  return { state: 'complete', note: verdict, session_id: sessionId, verdict: { verdict, findings } }
-}
-
-// A reviewer of a round: its name in the panel, the agent it runs as and its brief.
-export interface Reviewer {
-  name: string
-  agent: string
+// A start of an agent run: the run and the brief the caller passes it.
+export interface Start {
+  run: AgentRun
   brief: string
 }
 
-// A read-only session beside the process's own: a reviewer, or the author session of the pr stage. name
-// names it in notes, stage is what the scripted claude of fake mode plays by, and read reads its result.
-interface Aside {
-  name: string
-  stage: string
-  agent?: string
-  brief: string
-  schema: Record<string, unknown>
-  read: (out: unknown, sessionId: string | undefined) => Ended
-  // writes says it writes the worktree as the process's own session, whose stream the event log follows,
-  // in the auto mode and with every tool; the apply session of a standardize process is one.
-  writes?: boolean
+// agents is the one runner of the subagents (agents.ts): it starts each agent run of starts side by side
+// beside the process's own session, a fresh session with the stage timeout, and answers how each ended,
+// in the order given, once every runtime has exited. A read-only run runs in the default mode with the
+// read-only tools denied; a writing run runs as the process's own session, in the auto mode with every
+// tool. s is the process's entry of the stage, whose abort stops them all and which holds their requests;
+// own tells them apart from a stop.
+export async function agents(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, starts: Start[]): Promise<Ended[]> {
+  const exits: Promise<void>[] = []
+  const ends = await Promise.all(starts.map((start) => aside(record, rt, s, own, start, exits)))
+  await Promise.all(exits)
+  return ends
 }
 
-// aside runs a read-only session beside the process's own, a fresh one in the default mode with the stage
-// timeout, and answers how it ended. s is the process's entry of the stage, whose abort stops it and which
-// holds its requests; own tells it apart from a stop. exits is told of its runtime's exit.
-async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, a: Aside, exits: Promise<void>[]): Promise<Ended> {
+// aside runs one agent run beside the process's own session and answers how it ended. exits is told of
+// its runtime's exit.
+async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, { run: a, brief }: Start, exits: Promise<void>[]): Promise<Ended> {
   const abort = new AbortController()
   const all = () => abort.abort()
   // A parent stopped already ends the session at once; the forwarding stays until its runtime exits.
@@ -535,7 +436,7 @@ async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => 
   else s.abort.signal.addEventListener('abort', all, { once: true })
   let exited: Promise<void> = Promise.resolve()
   const input = new Input()
-  input.push(a.brief)
+  input.push(brief)
   const run: Run = {
     input,
     abort,
@@ -543,7 +444,7 @@ async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => 
     stage: a.stage,
     ...(a.agent ? { agent: a.agent } : {}),
     later: true,
-    own: a.writes === true,
+    own: a.writes,
     schema: a.schema,
     ...(a.writes ? {} : { disallowed: readOnly }),
     read: a.read,
@@ -559,153 +460,6 @@ async function aside(record: SessionRecord, rt: Runtime, s: Running, own: () => 
     input.close()
     void exited.finally(() => s.abort.signal.removeEventListener('abort', all))
   }
-}
-
-// panel runs the reviewers of a round of the review in parallel, each a read-only session beside the
-// process's own, and answers how each ended once every runtime has exited. s is the process's entry of
-// the review, whose abort stops them all and which holds their requests; own tells them apart from a stop.
-export async function panel(record: StageRecord, rt: Runtime, s: Running, own: () => boolean, reviewers: Reviewer[]): Promise<{ reviewer: string; ended: Ended }[]> {
-  const exits: Promise<void>[] = []
-  const ends = await Promise.all(
-    reviewers.map(async (r) => ({
-      reviewer: r.name,
-      ended: await aside(record, rt, s, own, {
-        name: `reviewer ${r.name}`,
-        stage: `reviewer-${r.name}`,
-        agent: r.agent,
-        brief: r.brief,
-        schema: verdictReport,
-        read: (out, sessionId) => verdictOf(out, sessionId, r.name),
-      }, exits),
-    })),
-  )
-  await Promise.all(exits)
-  return ends
-}
-
-// author runs the author session of the pr stage, read-only beside the process's own, and answers how it
-// ended once its runtime has exited: complete with the pull request's title and body, or failed.
-export async function author(record: StageRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
-  const exits: Promise<void>[] = []
-  const ended = await aside(record, rt, s, own, { name: 'author session', stage: 'author', brief, schema: pullReport, read: pullOf }, exits)
-  await Promise.all(exits)
-  return ended
-}
-
-// The result the spec checker of an acceptance reports through: one item per checkable statement.
-const checkerReport = {
-  type: 'object',
-  properties: {
-    items: {
-      type: 'array',
-      description: 'one item per checkable statement of the spec',
-      items: {
-        type: 'object',
-        properties: {
-          section: { type: 'string', enum: [...sections] },
-          statement: { type: 'string', description: "the spec's statement in one line of your own words, specific enough to find it again" },
-          verdict: { type: 'string', enum: [...verdicts] },
-          evidence: { type: 'string', description: 'path:line for met, deviates and untested; for missing what you searched and found nothing' },
-          confidence: { type: 'string', enum: [...confidences] },
-        },
-        required: ['section', 'statement', 'verdict', 'evidence', 'confidence'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['items'],
-  additionalProperties: false,
-}
-
-// checker runs the spec checker of an acceptance, read-only beside the plan process, and answers how it
-// ended once its runtime has exited: complete with the items it reported, or failed. It runs without
-// the planner's agent, on its brief alone, as the author session does.
-export async function checker(record: PlanRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
-  const exits: Promise<void>[] = []
-  const ended = await aside(record, rt, s, own, {
-    name: 'spec checker',
-    stage: 'checker',
-    brief,
-    schema: checkerReport,
-    read: (raw, sessionId) => {
-      const items = (raw as { items?: unknown } | undefined)?.items
-      if (!Array.isArray(items)) return { state: 'failed', note: 'the spec checker ended without its items', session_id: sessionId }
-      return { state: 'complete', note: `${items.length} item(s)`, session_id: sessionId, items }
-    },
-  }, exits)
-  await Promise.all(exits)
-  return ended
-}
-
-// The result an auditor of a standardize process reports through: its finding lines.
-const auditorReport = {
-  type: 'object',
-  properties: {
-    findings: {
-      type: 'array',
-      description: 'one finding line each, in the format of your instructions: finding: <category> | <target> | <action> | <reason> | <confidence>; empty when nothing in your area differs from the standard',
-      items: { type: 'string' },
-    },
-  },
-  required: ['findings'],
-  additionalProperties: false,
-}
-
-// auditors runs the auditors of a standardize process in parallel, each a read-only session as the agent
-// of its category, and answers how each ended once every runtime has exited: complete with its finding
-// lines, or failed.
-export async function auditors<C extends string>(record: StandardizeRecord, rt: Runtime, s: Running, own: () => boolean, briefs: { category: C; brief: string }[]): Promise<{ category: C; ended: Ended }[]> {
-  const exits: Promise<void>[] = []
-  const ends = await Promise.all(
-    briefs.map(async (b) => ({
-      category: b.category,
-      ended: await aside(record, rt, s, own, {
-        name: `${b.category} auditor`,
-        stage: `auditor-${b.category}`,
-        agent: `repo-standards:${b.category}-auditor`,
-        brief: b.brief,
-        schema: auditorReport,
-        read: (raw, sessionId) => {
-          const findings = (raw as { findings?: unknown } | undefined)?.findings
-          if (!Array.isArray(findings)) return { state: 'failed', note: `the ${b.category} auditor ended without its findings`, session_id: sessionId }
-          const lines = findings.filter((f): f is string => typeof f === 'string')
-          return { state: 'complete', note: `${lines.length} finding line(s)`, session_id: sessionId, findings: lines }
-        },
-      }, exits),
-    })),
-  )
-  await Promise.all(exits)
-  return ends
-}
-
-// applier runs the apply session of a standardize process, which works the todo lines of the cleanup in
-// its worktree as the process's own session, and answers how it ended once its runtime has exited:
-// complete, blocked with its question, or failed.
-export async function applier(record: StandardizeRecord, rt: Runtime, s: Running, own: () => boolean, brief: string): Promise<Ended> {
-  const exits: Promise<void>[] = []
-  const ended = await aside(record, rt, s, own, {
-    name: 'apply session',
-    stage: 'apply',
-    brief,
-    schema: report,
-    writes: true,
-    read: (raw, sessionId) => {
-      const out = raw as { outcome?: unknown; message?: unknown } | undefined
-      if (out && (out.outcome === 'complete' || out.outcome === 'blocked') && typeof out.message === 'string') return { state: out.outcome, note: out.message, session_id: sessionId }
-      return { state: 'failed', note: 'the apply session ended without a report of complete or blocked', session_id: sessionId }
-    },
-  }, exits)
-  await Promise.all(exits)
-  return ended
-}
-
-// pullOf reads the title and the body the author session reported. A title that is empty after trimming
-// is no report.
-function pullOf(raw: unknown, sessionId: string | undefined): Ended {
-  const out = raw as { title?: unknown; body?: unknown } | undefined
-  const title = typeof out?.title === 'string' ? out.title.replace(/\s+/g, ' ').trim() : ''
-  if (title === '' || typeof out?.body !== 'string') return { state: 'failed', note: 'the author session ended without a title and a body', session_id: sessionId }
-  return { state: 'complete', note: title, session_id: sessionId, pull: { title, body: out.body.trim() } }
 }
 
 async function session(
