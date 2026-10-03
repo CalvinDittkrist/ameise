@@ -119,7 +119,7 @@ test('a knob that is no whole number reads as a budget of 0', () => {
 test('a work and a hunt process run on the delivery graph, and an unknown kind is refused', () => {
   expect(graphOf(recordOf({})).machine).toBe(delivery)
   expect(graphOf(recordOf({ kind: 'hunt' } as Partial<StageRecord>))).toBe(graphOf(recordOf({})))
-  expect(() => graphOf(recordOf({ kind: 'plan' } as unknown as Partial<StageRecord>))).toThrow('no process graph is registered for a plan process')
+  expect(() => graphOf(recordOf({ kind: 'standardize' } as unknown as Partial<StageRecord>))).toThrow('no process graph is registered for a standardize process')
 })
 
 test('the repair guard parks failed on both edges once the rounds are spent, and a writer starts afresh', () => {

@@ -9,12 +9,19 @@
 // session through the session runner (session.ts). Its mapping of an old record names the node a resume
 // of an interrupted process enters (deliveryResume). Until the hunt has a graph of its own, a hunt that
 // reaches the gate runs the delivery graph's nodes.
+//
+// The plan graph (planning.ts) is registered for a plan process: the planner node runs the planner
+// session, and the gather, checker and decision nodes run the acceptance of a spec. Its request reader
+// and open function start a plan or, with a spec, an acceptance (plan.ts), and its mapping names the node
+// a plan process goes on at after a restart (planResume).
+import { checkerNode, decisionNode, gatherNode } from './acceptance.js'
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume } from './delivery.js'
 import type { Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
+import { openPlan, plannerNode, planStart } from './plan.js'
+import { planContext, planGraph, planResume } from './planning.js'
 import { prNode } from './pr.js'
-import type { StageRecord } from './records.js'
 import { reviewFixNode, reviewNode } from './review.js'
 import { implementNode } from './session.js'
 
@@ -42,10 +49,21 @@ const registrations = (): Map<string, Registration> =>
         },
       },
     ],
+    [
+      'plan',
+      {
+        machine: planGraph,
+        context: planContext,
+        old: planResume,
+        request: planStart,
+        open: openPlan,
+        nodes: { planner: plannerNode, gather: gatherNode, checker: checkerNode, decision: decisionNode },
+      },
+    ],
   ]))
 
 // graphOf is the registration of the graph a process of the record's kind runs on.
-export function graphOf(record: StageRecord): Registration {
+export function graphOf(record: { kind: string }): Registration {
   const g = registrations().get(record.kind) ?? (record.kind === 'hunt' ? registrations().get('work') : undefined)
   if (!g) throw new Error(`no process graph is registered for a ${record.kind} process`)
   return g

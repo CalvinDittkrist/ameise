@@ -385,7 +385,8 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   | address reviews | address reviews | none |
 
   - A record without a session id refuses the message with `409`.
-  - A planner session, and a hunt that goes back to its hunt session, are resumed directly.
+  - A message to a plan is an event on the planner node of the plan graph, which resumes the planner session by its id.
+  - A hunt that goes back to its hunt session is resumed directly.
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
@@ -403,6 +404,8 @@ Stopping and starting the controller loses no process.
 - A plan process `running` or `approval` lost its session the same way.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
   - An acceptance whose checker ran turns `failed`, and a check runs it again.
+  - An acceptance with items waits on the decision node of the plan graph, as it was.
+  - A plan record without `workflow` maps to the plan graph by its route, state and items.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
 - A resume enters the node of the delivery graph that the record names, and a hunt session goes on as before.
   - A record whose `workflow` is `delivery` and whose `node` names its `stage` resumes at that node.
@@ -472,6 +475,8 @@ The spec then leaves `acceptance`, and the acceptance runs at once:
    - It reports one item per checkable statement with its section, verdict (`met`, `missing`, `deviates`, `untested`), evidence and confidence.
 3. It keeps the items on the record, in the state `input`. An item whose `<section>: <statement>` an earlier deviation names is left out and counted in `repeated`.
 
+These are the nodes gather, checker and decision of the plan graph, which the acceptance route enters. No edge joins them to the planner node. Each batch of answers is an event on the decision node, which parks the process on `input` again. A refused answer is no event and leaves the record as it was.
+
 A checker that reports no item fails the process; a check runs it again. A controller stopped while the acceptance runs leaves it failed.
 
 Each item not met takes one answer in the process view:
@@ -496,7 +501,7 @@ The branch's description holds `topic: <idea>`, `issue: #<n>` or `open: <time>`.
 - A value that is not text, is longer than 32 characters or holds a control or format character is refused with `400`.
   - The refusal names the reason and comes before the plan branch is created.
 
-The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. Its planner session starts at once, as the implement session does, with:
+The record has the route `idea`, `issue` or `open`, the topic, and the stage `plan`. It enters the planner node of the plan graph, and its planner session starts at once, as the implement session does, with:
 - the bundled planner and repo-standards plugins and the `planner` agent,
 - session settings: `WF_CONTROLLER=1`, `WF_BASE_BRANCH` and foreground subagents,
   - and the runtime's `language` setting from `WF_PLANNER_LANGUAGE`, when the repository sets it,
@@ -515,7 +520,7 @@ The tools own the label vocabulary of the [contract fixture](../contract/fixture
 - `close` refuses a spec as completed without its closing comment, and while a ticket is open or cannot be read.
 - Every write is a `github` event in the process's log with what it changed, and every refusal a `github-refused` event with its reason.
 
-A planner reports no structured result. When it ends a turn, the process turns `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
+A planner reports no structured result and keeps no history. When it ends a turn, the process parks `input` with the last line it said as the note, and the board's action is `Continue`. The next message resumes the session by its id, and a slash command such as `/planner:grill` reaches it as written.
 
 A capture moves the prototype the session left in the worktree to the branch `prototype/<plan slug>-<name>`: every change, untracked files included, as one commit on the plan branch's start. It pushes the branch and cleans the worktree, so the plan branch carries no commit.
 - It refuses, with `409`, a clean worktree, a session at work (`created`, `running` or `approval`) and a prototype branch that exists.
