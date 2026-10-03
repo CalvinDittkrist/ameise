@@ -4,7 +4,8 @@
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from './project.js'
-import { sessionAgent, sessionPlugins, settings } from './session.js'
+import { sessionAgent, sessionPlugins } from './session.js'
+import { settings } from './settings.js'
 import type { SessionRecord } from './records.js'
 import { commandFile } from './store.js'
 

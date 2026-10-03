@@ -28,20 +28,28 @@
 //
 // The first prompt of each session is its brief (briefs.ts), and the plugins it loads are the bundle's
 // (bundle.ts).
+//
+// This module holds begin, say, hold and answer, the session loop with its permission callback, the
+// report schemas, the subagent runners, and the plugins and agent of a session. The registry of the
+// running processes, with stop, stop all and recover, is running.ts; the settings of a session, its
+// runtime environment, the knobs, the rules an allowance grants and the hook against a direct GitHub
+// write are settings.ts.
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { brief, planBrief, safeRef } from './briefs.js'
 import { confidences, sections, verdicts } from './checkitems.js'
 import { ci } from './ci.js'
-import { gate, knob } from './gate.js'
-import { directWrite, githubServer, githubTools } from './github.js'
+import { gate } from './gate.js'
+import { githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
 import type { Attempt, CreatedRecord, Finding, Fix, PlanRecord, SessionRecord, StageRecord, StandardizeRecord } from './records.js'
-import { attempt, event, readRecord, recordFile, update } from './store.js'
+import { busy, firstStage, Input, register, release, type Request, type Running, runningOf } from './running.js'
+import { allowance, guard, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
+import { attempt, event, readRecord, update, warn } from './store.js'
 
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
@@ -69,10 +77,6 @@ export type Announce = (record: SessionRecord) => void
 // process, the worker's for a work process.
 export const agentOf = (record: SessionRecord): 'planner' | 'worker' => (record.kind === 'plan' ? 'planner' : 'worker')
 
-// firstStage is the stage whose session a process of the record's kind starts with: implement for a
-// work process, hunt for a hunt process.
-export const firstStage = (record: { kind: string }): 'implement' | 'hunt' => (record.kind === 'hunt' ? 'hunt' : 'implement')
-
 // sessionAgent is the agent a session of the record runs with, or undefined for a stage after implement
 // or hunt, whose fresh session runs its own brief without the worker's agent and its pipeline.
 export const sessionAgent = (record: SessionRecord): 'planner' | 'worker' | undefined =>
@@ -82,17 +86,6 @@ export const sessionAgent = (record: SessionRecord): 'planner' | 'worker' | unde
 // plugin of its agent first, then repo-standards, whose skills every session may call. The marketplace
 // copies are switched off (see workSettings), so these are the only copies it loads.
 export const sessionPlugins = (dir: string, record: SessionRecord): string[] => [join(dir, agentOf(record)), join(dir, 'repo-standards')]
-
-// The local workflow's compact pin (ADR 0031, ADR 0034): the session compacts at 80% of a window of
-// 312 500 tokens, which is 250 000. Implement has no hand-over, so compaction is its safety net.
-const compactWindow = 312500
-const compactPercentage = '80'
-// compactAt is the context size at which the session compacts, which the process page measures against.
-export const compactAt = (compactWindow * Number(compactPercentage)) / 100
-
-// The marketplace the workflow's plugins are installed from. Its copies are switched off, so the
-// bundled plugins are the ones the session loads and the orchestrator stays out of its context.
-const marketplace = 'ameise'
 
 // The result a session of a work process reports through, as a JSON schema.
 const report = {
@@ -197,263 +190,6 @@ const readOnly = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Agent']
 // The stage timeout of a session after implement, in seconds, unless WF_STAGE_TIMEOUT says otherwise.
 const stageTimeout = 1800
 
-// Input is the stream of the session's user messages: the brief or the message that resumes it first,
-// then every message the maintainer writes while it runs. Closing it ends the session's input.
-class Input implements AsyncIterable<SDKUserMessage> {
-  private queue: SDKUserMessage[] = []
-  private wake: (() => void) | undefined
-  closed = false
-
-  push(text: string) {
-    this.queue.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null })
-    this.wake?.()
-  }
-
-  close() {
-    this.closed = true
-    this.wake?.()
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-    for (;;) {
-      const next = this.queue.shift()
-      if (next) yield next
-      else if (this.closed) return
-      else await new Promise<void>((wake) => (this.wake = wake))
-    }
-  }
-}
-
-// A request of the session that waits for the maintainer: a permission, answered by one of the answers,
-// or a question, answered by the text of a message.
-interface Request {
-  kind: 'permission' | 'question'
-  note: string
-  answer: (a: Answer | { text: string }) => void
-  // close settles the request without an answer, as its session ends.
-  close: () => void
-}
-
-// A session running: the abort that stops it, its end, its input and the requests that wait for an
-// answer. Its end settles once the session has written its last and its runtime has exited. It is over
-// once it has reported its end or been stopped, while its runtime may still be exiting.
-export interface Running {
-  abort: AbortController
-  done: Promise<void>
-  input: Input
-  requests: Map<string, Request>
-  over: boolean
-  // busy says what runs in place of a session that takes messages, the gate command or the reviewers, so
-  // nothing can be written to it.
-  busy?: string
-}
-
-// The sessions running, by process id, so an abandon can stop its process's session and a message or an
-// answer reaches it. A session stays here until its runtime has exited, so a resume waits for it and two
-// runtimes never share a worktree.
-const running = new Map<string, Running>()
-
-// track keeps the gate command or the reviewers of a process as running, so a stop ends them as it ends a
-// session, and answers whether they are still the process's own: false once a stop has asked them to
-// end. busy says what runs, as a refused message names it. The entry holds the reviewers' requests.
-export function track(id: string, abort: AbortController, done: Promise<void>, busy = 'the gate runs'): { own: () => boolean; s: Running } {
-  const s: Running = { abort, done, input: new Input(), requests: new Map(), over: false, busy }
-  running.set(id, s)
-  void done.finally(() => {
-    if (running.get(id) === s) running.delete(id)
-  })
-  return { own: () => running.get(id) === s && !s.over, s }
-}
-
-// busy says the process runs a session, its gate, its reviewers or a wait of its ci stage.
-export const busy = (id: string): boolean => running.has(id)
-
-// stop ends the session of a process, if one runs, and settles once its runtime process has exited, so
-// the session writes nothing more into the worktree or the record. It answers whether a session ran.
-export async function stop(id: string): Promise<boolean> {
-  const s = running.get(id)
-  if (!s) return false
-  s.over = true
-  s.abort.abort()
-  await s.done
-  return true
-}
-
-// interruptedNote is the note of a work or hunt process whose session or stage the controller's stop cut off.
-function interruptedNote(record: StageRecord): string {
-  const first = `${firstStage(record)} session`
-  const what =
-    record.stage === 'gate'
-      ? 'its gate'
-      : record.stage === 'review'
-        ? 'its review'
-        : record.stage === 'pr'
-          ? 'its pr stage'
-          : record.stage === 'ci'
-            ? 'its ci stage'
-            : record.stage === 'address-reviews'
-              ? 'its address-reviews stage'
-              : `its ${first}`
-  if (record.worktree && !existsSync(record.worktree)) return `the controller stopped while ${what} ran, and its worktree ${record.worktree} is gone; abandon it`
-  if (record.stage !== firstStage(record) && record.fixing && record.session_id) return `the controller stopped while the fix session of ${what} ran; resume it to go on`
-  if (record.stage === 'gate') return 'the controller stopped while its gate ran; resume it to run the gate again'
-  if (record.stage === 'review' && record.fixing) return 'the controller stopped before the fix session of its review started; resume it to start the session'
-  if (record.stage === 'review') return 'the controller stopped while its reviewers ran; resume it to run the round again'
-  if (record.stage === 'pr') return 'the controller stopped while its pr stage ran; resume it to open the pull request'
-  if (record.stage === 'ci') return 'the controller stopped while its ci stage waited on the pull request; resume it to wait again'
-  if (record.stage === 'address-reviews') return 'the controller stopped before its address-reviews session started; resume it to read the review again'
-  if (!record.session_id) return `the controller stopped before its ${first} started; resume it to start the session`
-  return `the controller stopped while its ${first} ran; resume it to go on`
-}
-
-// interrupt marks a work process interrupted and keeps its session id, so a resume goes on with it. A
-// plan process whose session had started waits for the maintainer instead, whose message resumes it by
-// its id; one whose session never started has failed, and so has an acceptance, which checks again.
-function interrupt(stateDir: string, id: string) {
-  const file = recordFile(stateDir, id)
-  if (!existsSync(file)) return
-  const record = JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
-  // A standardize process runs scripts that are safe to run again: its stage fails, and runs again on request.
-  if (record.kind === 'standardize') {
-    const again = record.stage === 'audit' ? 'audit again' : record.stage === 'apply' ? 'apply again' : 'finalize again'
-    const note = `the controller stopped while its ${record.stage} ran; ${again} in the process view`
-    event(stateDir, id, { event: `${record.stage}-end`, stage: record.stage, state: 'failed', note })
-    update(stateDir, id, { state: 'failed', note, unseen: true })
-    return
-  }
-  if (record.kind === 'plan' && record.route === 'accept') {
-    const note = 'the controller stopped while the acceptance ran; check again in the process view'
-    event(stateDir, id, { event: 'acceptance-end', stage: record.stage, state: 'failed', note })
-    update(stateDir, id, { state: 'failed', note, unseen: true })
-    return
-  }
-  if (record.kind === 'plan') {
-    const state = record.session_id ? 'input' : 'failed'
-    const note = record.session_id
-      ? 'the controller stopped while the planner session ran; write to it to go on'
-      : 'the controller stopped before the planner session started; finish it and plan again'
-    event(stateDir, id, { event: 'session-end', stage: record.stage, state, note })
-    update(stateDir, id, { state, note, unseen: true })
-    return
-  }
-  const note = interruptedNote(record)
-  event(stateDir, id, { event: 'session-end', stage: record.stage, state: 'interrupted', note })
-  update(stateDir, id, { state: 'interrupted', note })
-}
-
-// stopAll stops every session the controller runs, as it stops, and marks each process interrupted.
-export async function stopAll(stateDir: string) {
-  const ids = [...running.keys()]
-  await Promise.all(ids.map((id) => stop(id)))
-  for (const id of ids) {
-    try {
-      interrupt(stateDir, id)
-    } catch (err) {
-      warn(id, 'could not mark it interrupted', err)
-    }
-  }
-}
-
-// recover reads the records as the controller starts, when no session of its own runs yet. A work
-// process whose record says its session runs, is about to, or waits for an answer or on its pull request, lost it when the
-// controller last stopped without stopping it. Such a process is marked interrupted. One held open after
-// its implement session completed runs no session and waits for the maintainer's message as it was. A plan process
-// whose session ran or waited for a permission lost it the same way, and is marked as interrupt does.
-// A running acceptance fails, and so does one whose checker asked a question; it checks again on request.
-// A standardize process whose audit, apply or finalize ran fails, and runs that stage again on request.
-// A plan that waits for input waits for a message or for its answers either way. Every other record
-// stays as it was.
-export function recover(stateDir: string) {
-  let names: string[]
-  try {
-    names = readdirSync(join(stateDir, 'processes')).filter((n) => n.endsWith('.json'))
-  } catch {
-    return
-  }
-  for (const name of names) {
-    const id = name.slice(0, -'.json'.length)
-    try {
-      const r = JSON.parse(readFileSync(recordFile(stateDir, id), 'utf8')) as SessionRecord
-      if ((r.kind === 'work' || r.kind === 'hunt') && ['running', 'waiting', 'created', 'approval', 'input'].includes(r.state) && !(r.state === 'input' && r.held)) interrupt(stateDir, id)
-      // A checker that asked a question waits in input with no items yet, and it is gone as well.
-      const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
-      if ((r.kind === 'plan' && ['running', 'approval'].includes(r.state)) || asking) interrupt(stateDir, id)
-      // A standardize process waits for its answers or its finalize with nothing running, and lost its stage otherwise.
-      // It waits in input for its answers once its audit reported; in input before, a session of it asked a question.
-      const answering = r.kind === 'standardize' && r.state === 'input' && r.stage === 'audit' && (r as StandardizeRecord).standardize !== undefined
-      if (r.kind === 'standardize' && ['running', 'created', 'approval', 'input'].includes(r.state) && !answering) interrupt(stateDir, id)
-    } catch (err) {
-      warn(id, 'could not read its record as the controller started', err)
-    }
-  }
-}
-
-// Settings are a session's own settings, over the repository's.
-export type Settings = {
-  env: Record<string, string>
-  enabledPlugins: Record<string, boolean>
-  autoCompactWindow?: number
-  language?: string
-}
-
-// settings are the session's own settings: the worker's for a work process, the planner's for a plan.
-export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
-
-// planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
-// WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
-// The marketplace copies of the plugins are switched off, so the bundled planner is the one the session
-// loads. The repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the
-// planner talks in.
-export function planSettings(record: PlanRecord): Settings {
-  return {
-    ...(record.language !== undefined ? { language: record.language } : {}),
-    env: {
-      WF_CONTROLLER: '1',
-      WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
-      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-    },
-    enabledPlugins: {
-      [`worker@${marketplace}`]: false,
-      [`planner@${marketplace}`]: false,
-      [`orchestrator@${marketplace}`]: false,
-      [`repo-standards@${marketplace}`]: false,
-    },
-  }
-}
-
-// workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
-// has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
-// needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
-export function workSettings(record: StageRecord | StandardizeRecord): Settings {
-  return {
-    env: {
-      ...record.env,
-      WF_MODE: record.mode,
-      ...(record.kind === 'work' ? { WF_ISSUE: String(record.issue) } : {}),
-      WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
-      WF_CONTROLLER: '1',
-      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: compactPercentage,
-    },
-    enabledPlugins: { [`worker@${marketplace}`]: false, [`planner@${marketplace}`]: false, [`orchestrator@${marketplace}`]: false, [`repo-standards@${marketplace}`]: false },
-    autoCompactWindow: compactWindow,
-  }
-}
-
-// runtimeEnv is the environment the runtime runs in: the controller's own without the workflow's
-// variables and Herdr's. A WF_MODE left in the shell that started the controller so reaches no session.
-export function runtimeEnv(): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value === undefined || name.startsWith('WF_') || name.startsWith('HERDR_')) continue
-    out[name] = value
-  }
-  return out
-}
-
-// warn tells the controller's own stderr what a process could not write, as the record cannot hold it.
-const warn = (id: string, what: string, err: unknown) => process.stderr.write(`warning: ${id}: ${what}: ${(err as Error).message}\n`)
-
 // Ended is how a session ended: the state and the note its process ends with. A planner session that
 // ends its turn waits for input. A work session that reports complete names its commits, and the
 // controller decides the next stage.
@@ -516,7 +252,7 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
   let exited: Promise<void> = Promise.resolve()
   const spawned = (p: Promise<void>) => (exited = p)
   const s: Running = { abort, done: Promise.resolve(), input, requests, over: false }
-  const live = () => running.get(id) === s && !s.over
+  const live = () => runningOf(id) === s && !s.over
   const end = ({ state, note, commits, session_id, fixes, addressed }: Ended) => {
     if (!live()) return
     s.over = true
@@ -593,13 +329,13 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
   if (message !== undefined) input.push(message)
   else if (record.kind === 'plan') input.push(planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
   else input.push(brief(record, repo))
-  running.set(id, s)
+  register(id, s)
   s.done = session(record, rt, s, live, spawned, ownRun(record, s, rt, repo))
     .then(settle, (err: Error) => settle({ state: 'failed', note: `the ${what} failed: ${err.message}` }))
     .catch((err: unknown) => warn(id, 'its session ended unexpectedly', err))
     .then(() => exited)
     .finally(() => {
-      if (running.get(id) === s) running.delete(id)
+      release(id, s)
     })
   return started
 }
@@ -609,7 +345,7 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
 // A session that has ended is resumed by its id with the message.
 export async function say(record: SessionRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
-  const s = running.get(id)
+  const s = runningOf(id)
   if (s?.busy && !s.over) throw new Refusal(`${s.busy} and no session runs to write to; write once they have ended`, 409)
   if (s && !s.over) {
     const question = [...s.requests.values()].find((r) => r.kind === 'question')
@@ -625,7 +361,7 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   if (s) await s.done
   const p = await project()
   // Another message may have resumed the session meanwhile; this one is then its next turn.
-  if (running.has(id)) return say(record, text, rt, project)
+  if (busy(id)) return say(record, text, rt, project)
   const now = readRecord(rt.stateDir, id)
   if (!now) throw new Refusal(`${id} is not a process of this machine`, 404)
   if (!now.session_id) throw new Refusal('the process has no session to write to yet; wait until its session has started', 409)
@@ -659,30 +395,10 @@ export function hold(stateDir: string, record: SessionRecord, on: boolean): Stag
 
 // answer answers a permission request of the process's session.
 export function answer(id: string, request: string, a: Answer) {
-  const r = running.get(id)?.requests.get(request)
+  const r = runningOf(id)?.requests.get(request)
   if (!r || r.kind !== 'permission') throw new Refusal(`no permission request ${request} waits in ${id}; it was answered, or its session has ended`, 409)
   r.answer(a)
 }
-
-// allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the
-// call, or the call itself when it suggests none.
-function allowance(tool: string, input: Record<string, unknown>, suggestions: PermissionUpdate[] | undefined): string[] {
-  const keys = (suggestions ?? []).flatMap((u) => {
-    if (u.type === 'addRules' && u.behavior === 'allow') return u.rules.map((r) => `rule ${r.toolName}(${r.ruleContent ?? ''})`)
-    if (u.type === 'addDirectories') return u.directories.map((d) => `directory ${d}`)
-    return []
-  })
-  return keys.length > 0 ? keys : [`call ${tool} ${JSON.stringify(input)}`]
-}
-
-// sessionScoped are the suggested updates that allow more, held to this session.
-// An allowance so never reaches a settings file and never changes the permission mode.
-const sessionScoped = (suggestions: PermissionUpdate[] | undefined): PermissionUpdate[] =>
-  (suggestions ?? []).flatMap((u): PermissionUpdate[] => {
-    if (u.type === 'addRules' && u.behavior === 'allow') return [{ ...u, destination: 'session' }]
-    if (u.type === 'addDirectories') return [{ ...u, destination: 'session' }]
-    return []
-  })
 
 // A run of a session: its input and abort, and how it runs and reports. The process's own session is
 // one; a reviewer is another, which runs beside the others of its round and leaves the record alone.
@@ -1106,17 +822,6 @@ async function session(
   timer?.unref()
   const late = (): Ended => ({ state: 'failed', note: `the ${what} ran past its stage timeout of ${timeout} s` })
 
-  // A session with the tools writes GitHub through them alone: a hook denies every Bash call that writes
-  // GitHub with gh past them, before auto mode's classifier could allow it, in the session and its subagents.
-  const guard: HookCallback = (input) => {
-    const command = input.hook_event_name === 'PreToolUse' ? (input.tool_input as { command?: unknown } | undefined)?.command : undefined
-    const why = typeof command === 'string' ? directWrite(command) : undefined
-    if (why === undefined) return Promise.resolve({})
-    const reason = `${why}; write GitHub only through the github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone)`
-    event(rt.stateDir, id, { event: 'github-refused', tool: 'Bash', reason })
-    return Promise.resolve({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: reason } })
-  }
-
   let stderr = ''
   const q = query({
     prompt: run.input,
@@ -1132,7 +837,7 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
-      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard] }] } } : {}),
+      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard(rt.stateDir, id)] }] } } : {}),
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

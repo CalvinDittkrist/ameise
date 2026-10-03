@@ -10,11 +10,12 @@
 // verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
 // panel. A reviewer that reports no verdict ends the process failed with the reason.
 import { git } from './git.js'
-import { knob, setting } from './gate.js'
 import { pr } from './pr.js'
 import type { Project } from './project.js'
 import { reviewBrief, reviewFixBrief } from './briefs.js'
-import { begin, panel, type Runtime, type Running, track } from './session.js'
+import { type Running, track } from './running.js'
+import { begin, panel, type Runtime } from './session.js'
+import { knob, setting } from './settings.js'
 import type { Attempt, StageRecord, Verdict } from './records.js'
 import { attempt, event, update } from './store.js'
 
