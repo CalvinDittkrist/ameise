@@ -3,15 +3,14 @@
 // function and the mapping of an old record where its graph needs them. The engine (engine.ts) is given
 // a registration as data.
 //
-// The delivery graph (delivery.ts) is registered for a work process. Its review, review fix, pr, ci, ci
-// fix and address-reviews stages are nodes. The review fix, ci fix and address-reviews nodes start their
-// session through an adapter. The gate is not a node yet: its adapter calls today's gate function once
-// the fix session before it has exited.
+// The delivery graph (delivery.ts) is registered for a work process. Its gate, gate fix, review, review
+// fix, pr, ci, ci fix and address-reviews stages are nodes. The gate fix, review fix, ci fix and
+// address-reviews nodes start their session through an adapter.
 // Until the hunt has a graph of its own, a hunt that reaches the pr stage runs the delivery graph's nodes.
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext } from './delivery.js'
 import type { Registration } from './engine.js'
-import { gate } from './gate.js'
+import { gateFixNode, gateNode } from './gate.js'
 import { prNode } from './pr.js'
 import type { StageRecord } from './records.js'
 import { reviewFixNode, reviewNode } from './review.js'
@@ -27,7 +26,8 @@ const registrations = (): Map<string, Registration> =>
         machine: delivery,
         context: deliveryContext,
         nodes: {
-          gate: { adapt: gate },
+          gate: gateNode,
+          'gate-fix': gateFixNode,
           review: reviewNode,
           'review-fix': reviewFixNode,
           pr: prNode,

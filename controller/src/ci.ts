@@ -44,6 +44,7 @@ import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { merge } from './actions.js'
 import { fetch, git, push } from './git.js'
+import { checksOf, pause, type Reading } from './checks.js'
 import { run } from './exec.js'
 import { defaultGrace } from './gate.js'
 import type { Project } from './project.js'
@@ -73,18 +74,6 @@ export function botsOf(record: StageRecord): string[] {
   if (value === undefined) return [defaultBots]
   if (typeof value !== 'string') throw new Error(`WF_PR_BOT_REVIEWERS=${String(value)} is not a list of logins; set it as such, such as ${defaultBots}, or empty for no bot`)
   return [...new Set(value.split(',').map((l) => l.trim().replace(/\[bot\]$/, '')).filter((l) => l !== ''))]
-}
-
-// A reading of the pull request as gh pr view answers it: the fields the verdict is made of.
-export interface Reading {
-  number: number
-  url: string
-  state: string
-  headRefOid?: string
-  mergeable: string
-  mergeStateStatus?: string
-  statusCheckRollup?: { name?: string; context?: string; conclusion?: string | null; state?: string | null; status?: string | null; completedAt?: string | null; detailsUrl?: string; targetUrl?: string }[]
-  reviews?: { id?: string; author?: { login?: string } | null; authorAssociation?: string; body?: string; url?: string; state: string; submittedAt?: string }[]
 }
 
 // A reaction on the pull request: its content, such as THUMBS_UP, and the login of who reacted. The
@@ -235,21 +224,6 @@ export const askedOf = (history: Attempt[]): Set<string> => new Set(history.flat
 
 const readingFields = 'number,url,state,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,reviews'
 
-const failures = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE']
-const pendings = ['PENDING', 'EXPECTED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED']
-
-// checksOf are the checks of a reading, each pass, fail or pending, with when it completed.
-export function checksOf(r: Reading): (Check & { completed?: number })[] {
-  return (r.statusCheckRollup ?? []).map((c) => {
-    const s = c.conclusion || c.state || 'PENDING'
-    const pending = pendings.includes(s) || (c.status != null && c.status !== 'COMPLETED')
-    const state: Check['state'] = failures.includes(s) ? 'fail' : pending ? 'pending' : 'pass'
-    const url = c.detailsUrl || c.targetUrl
-    const completed = c.completedAt ? Date.parse(c.completedAt) : NaN
-    return { name: c.name || c.context || 'check', ...(url ? { url } : {}), state, ...(Number.isFinite(completed) ? { completed } : {}) }
-  })
-}
-
 // The verdict of one reading: a wait with what it waits for, or an end of the wait.
 type Verdict =
   | { kind: 'waiting'; wait: string }
@@ -352,20 +326,6 @@ function readyIn(wt: string): boolean {
   } catch {
     return false
   }
-}
-
-// pause lets ms pass, or less once the signal aborts.
-export function pause(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve()
-    const done = () => {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', done)
-      resolve()
-    }
-    const timer = setTimeout(done, ms)
-    signal.addEventListener('abort', done, { once: true })
-  })
 }
 
 type Reported = NonNullable<NonNullable<StageRecord['addressing']>['reported']>

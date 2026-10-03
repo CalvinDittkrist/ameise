@@ -171,3 +171,40 @@ test('the review fix session goes to the gate and parks on input, blocked and fa
   expect(step('review-fix', spent, 'complete')).toBe('gate')
   for (const state of ['input', 'blocked', 'failed']) expect(step('review-fix', remain, state)).toBe(`parked ${state}`)
 })
+
+test('the gate goes to the review on pass and skipped, to its fix on fail while rounds remain, and parks failed', () => {
+  for (const outcome of ['pass', 'skipped']) {
+    expect(step('gate', remain, outcome)).toBe('review')
+    expect(step('gate', spent, outcome)).toBe('review')
+  }
+  expect(step('gate', { ...remain, gateFixes: 2 }, 'fail')).toBe('gate-fix')
+  expect(step('gate', remain, 'failed')).toBe('parked failed')
+  expect(step('gate', spent, 'failed')).toBe('parked failed')
+  expect(step('gate', remain, 'complete')).toBe('no edge')
+})
+
+test('the gate guard parks failed once WF_GATE_ROUNDS is spent, and on the first fail when it is 0', () => {
+  const at = '2026-01-01T00:00:00Z'
+  const history = [
+    { stage: 'implement', kind: 'session', result: 'complete', at, session_id: 'i' },
+    { stage: 'gate', kind: 'run', result: 'fail', at },
+    { stage: 'gate', kind: 'session', result: 'complete', at, session_id: 'g1' },
+    { stage: 'gate', kind: 'run', result: 'fail', at },
+    // A fix session resumed after a block is the same session, counted once.
+    { stage: 'gate', kind: 'session', result: 'blocked', at, session_id: 'g2' },
+    { stage: 'gate', kind: 'session', result: 'complete', at, session_id: 'g2' },
+    { stage: 'gate', kind: 'run', result: 'fail', at },
+  ]
+  const of = (rounds: string, h: typeof history) => deliveryContext(recordOf({ stage: 'gate', env: { WF_GATE_ROUNDS: rounds }, history: h } as Partial<StageRecord>))
+  expect(step('gate', of('3', history), 'fail')).toBe('gate-fix')
+  expect(step('gate', of('2', history), 'fail')).toBe('parked failed')
+  expect(step('gate', of('0', history.slice(0, 2)), 'fail')).toBe('parked failed')
+  // A session of another stage starts the count afresh.
+  const after = [...history, { stage: 'review', kind: 'session', result: 'complete', at, session_id: 'r1' }, { stage: 'gate', kind: 'run', result: 'fail', at }]
+  expect(step('gate', of('1', after), 'fail')).toBe('gate-fix')
+})
+
+test('the gate fix session goes to the gate and parks on input, blocked and failed', () => {
+  expect(step('gate-fix', spent, 'complete')).toBe('gate')
+  for (const state of ['input', 'blocked', 'failed']) expect(step('gate-fix', remain, state)).toBe(`parked ${state}`)
+})

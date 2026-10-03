@@ -2,20 +2,22 @@
 // reported complete (ADR 0058). It merges the base into the branch and runs the repository's gate
 // command in the worktree. WF_GATE names the form of that command, and the form none runs no gate.
 // The gate on CI pushes the branch and reads the checks of the gate's draft instead (cigate.ts).
-// A merge that conflicts and a gate command that fails each start a fix session of the gate. That is
-// a fresh session with the stage timeout, within the gate's budget, and the gate runs again on what it
-// leaves. Every merge that conflicts, every run and every fix session is an attempt in the record's
-// history. A pass enters the review node (review.ts) through the engine; a budget spent ends the process failed with the
-// end of the last output. The gate runs again after every fix session of the review.
+//
+// The gate and its fix are two nodes of the delivery graph (delivery.ts), which start no stage
+// themselves. The gate node returns pass, skipped, fail or failed, and the engine (engine.ts) follows it:
+// a pass or a skip goes on to the review node. A merge that conflicts and a gate command that fails are
+// a fail, which goes to the gate fix node while the graph's guard gateRoundsRemain finds a round of
+// WF_GATE_ROUNDS left, and otherwise parks the process failed with the end of the last output. Failed
+// parks the process with the reason and spends no round. The gate fix node starts a fresh session with
+// the stage timeout, whose complete runs the gate again on what it leaves. Every merge that conflicts,
+// every run and every fix session is an attempt in the record's history. The gate runs again after every
+// fix session of the review.
 import { spawn } from 'node:child_process'
 import { fetch, git } from './git.js'
-import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
-import { advance } from './engine.js'
-import { graphOf } from './graphs.js'
+import type { Node, NodeContext, Outcome } from './engine.js'
 import { fixBrief } from './briefs.js'
 import { gateFixesSpent } from './budgets.js'
-import { track } from './running.js'
 import { begin, type Runtime } from './session.js'
 import { knob, runtimeEnv, setting } from './settings.js'
 import type { Attempt, StageRecord } from './records.js'
@@ -67,47 +69,22 @@ export const defaultGrace = 600
 const tailLines = 20
 const tailChars = 4000
 
-// gate starts the gate stage of a process once after has settled, as the runtime of the session before
-// it has exited, and answers the record as it runs. A stop ends it and its gate command; the process's
-// history counts the fix sessions it spent since the session before it that was no fix of the gate.
-// before is the abort of that session, which a stop of the gate aborts too while its runtime exits.
-export function gate(record: StageRecord, project: Project, rt: Runtime, after: Promise<void> = Promise.resolve(), before?: AbortController): StageRecord {
-  const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'gate', state: 'running', note: 'the gate starts', fixing: false } as Partial<StageRecord>) as StageRecord | undefined) ?? record
-  event(rt.stateDir, id, { event: 'gate-start', stage: 'gate' })
-  const abort = new AbortController()
-  if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
-  let own = () => true
-  const done = after
-    .then(() => (own() ? stage(started, project, rt, abort.signal, () => own()) : undefined))
-    .catch((err: unknown) => {
-      if (!own()) return
-      const note = `the gate failed: ${(err as Error).message}`
-      event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'failed', note })
-      const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-      if (failed) rt.announce(failed)
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`warning: ${id}: its gate ended unexpectedly: ${(err as Error).message}\n`)
-    })
-  own = track(id, abort, done).own
-  return started
-}
+// gateNode is the gate node of the delivery graph (delivery.ts). It runs the gate of the form WF_GATE
+// names and returns pass, skipped, fail or failed. It starts no stage and no session itself; the engine
+// (engine.ts) follows its outcome. A stop ends it and its gate command; a resume enters it again.
+export const gateNode: Node = { run: (ctx) => stage(ctx) }
 
 export const short = (commit: string | undefined) => (commit ?? '').slice(0, 7)
 
-async function stage(record: StageRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean): Promise<void> {
+// stopped is what the node returns once a stop has taken the process over, which the engine discards.
+export const stopped: Outcome = { outcome: 'stopped' }
+
+async function stage(ctx: NodeContext): Promise<Outcome> {
+  const { record, rt, signal, own } = ctx
   const id = record.id
   const wt = record.worktree
   const now = () => new Date().toISOString()
-  // end ends the process failed with the note, unless a stop has taken it over.
-  const end = (state: 'failed', note: string, a?: Attempt) => {
-    if (!own()) return
-    event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state, note })
-    const change = { state, note, unseen: true }
-    const ended = a ? attempt(rt.stateDir, id, a, change) : update(rt.stateDir, id, change)
-    if (ended) rt.announce(ended)
-  }
+  ctx.running.busy = 'the gate runs'
   let rounds: number
   let limit: number
   let form: GateForm
@@ -116,23 +93,22 @@ async function stage(record: StageRecord, project: Project, rt: Runtime, signal:
     rounds = knob(record, 'WF_GATE_ROUNDS', defaultRounds)
     limit = knob(record, 'WF_GATE_TIMEOUT', defaultTimeout, 1)
   } catch (err) {
-    return end('failed', (err as Error).message)
+    return { outcome: 'failed', note: (err as Error).message }
   }
   const command = form.name
-  if (!own()) return
+  if (!own()) return stopped
   // The gate on CI reads the checks of the gate's draft instead of running a command here.
-  if (form.form === 'ci') return ciGate(record, project, rt, signal, own, form, rounds, limit)
+  if (form.form === 'ci') return ciGate(ctx, form, rounds, limit)
   update(rt.stateDir, id, { note: form.form === 'none' ? 'the gate form is none, so the review follows without a gate' : `the gate merges ${record.base} and runs ${command}` })
 
   // The form none runs no gate: its attempt names the form, and the review follows.
   if (form.form === 'none') {
     const a: Attempt = { stage: 'gate', kind: 'run', result: 'skipped', at: now(), commit: await git(wt, 'rev-parse', 'HEAD'), gate: command }
-    if (!own()) return
+    if (!own()) return stopped
     event(rt.stateDir, id, { event: 'gate', ...a })
     event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'skipped', note: 'the gate form is none; no gate ran' })
-    const next = attempt(rt.stateDir, id, a)
-    if (next && own()) advance(graphOf(next), 'gate', { outcome: 'skipped' }, next, project, rt)
-    return
+    attempt(rt.stateDir, id, a)
+    return { outcome: 'skipped' }
   }
 
   let failure: Attempt | undefined
@@ -140,17 +116,17 @@ async function stage(record: StageRecord, project: Project, rt: Runtime, signal:
     const files = await mergeBase(record, rt)
     if (files.length > 0) failure = { stage: 'gate', kind: 'merge', result: 'conflict', at: now(), commit: await git(wt, 'rev-parse', 'HEAD'), files }
   } catch (err) {
-    return end('failed', (err as Error).message)
+    return { outcome: 'failed', note: (err as Error).message }
   }
-  if (!own()) return
+  if (!own()) return stopped
 
   if (!failure) {
     const commit = await git(wt, 'rev-parse', 'HEAD')
     const ran = await runGate(wt, form.argv, limit, signal)
-    if (!own()) return
+    if (!own()) return stopped
     // The worktree is read after the run, so a gate command that formats or generates files counts as dirty.
     const dirty = (await git(wt, 'status', '--porcelain')) !== ''
-    if (!own()) return
+    if (!own()) return stopped
     const a: Attempt = {
       stage: 'gate',
       kind: 'run',
@@ -167,16 +143,15 @@ async function stage(record: StageRecord, project: Project, rt: Runtime, signal:
     if (a.result === 'pass') {
       const passed = `the gate passed at ${short(commit)}${dirty ? ', with changes not committed' : ''}`
       event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: passed })
-      const next = attempt(rt.stateDir, id, a)
-      if (next && own()) advance(graphOf(next), 'gate', { outcome: 'pass' }, next, project, rt)
-      return
+      attempt(rt.stateDir, id, a)
+      return { outcome: 'pass' }
     }
     failure = a
   } else {
     event(rt.stateDir, id, { event: 'gate', ...failure })
   }
 
-  repair(record, project, rt, own, failure, command, rounds)
+  return fail(record, rt, own, failure, command, rounds)
 }
 
 // mergeBase merges the base into the branch in the worktree and answers the files it left in conflict,
@@ -199,34 +174,55 @@ export async function mergeBase(record: StageRecord, rt: Runtime): Promise<strin
   }
 }
 
-// repair starts a fix session of the gate on its failure, a merge of the base that conflicts or a run
-// that failed, or ends the process failed once the gate has spent its rounds. The fix sessions this gate
-// has spent are those since the last session of another stage, the implement session or a fix session
-// of the review, whose work this gate checks.
-export function repair(record: StageRecord, project: Project, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): void {
-  const id = record.id
-  const history = record.history ?? []
-  const fixes = gateFixesSpent(history)
+// whatOf names a failure of the gate: a merge of the base that conflicts, checks of the gate on CI that
+// failed, or a run of the gate command that failed.
+function whatOf(record: StageRecord, failure: Attempt, command: string): string {
   const failing = (failure.checks ?? []).filter((c) => c.state === 'fail').map((c) => c.name)
-  const what =
-    failure.kind === 'merge'
-      ? `merging ${record.base} conflicts in ${(failure.files ?? []).join(', ')}`
-      : failure.checks
-        ? `${command} failed at ${short(failure.commit)} on PR #${failure.pr ?? '?'}: ${failing.join(', ')}`
-        : `${command} failed at ${short(failure.commit)} with ${failure.note ?? `exit ${failure.exit ?? 'none'}`}`
+  return failure.kind === 'merge'
+    ? `merging ${record.base} conflicts in ${(failure.files ?? []).join(', ')}`
+    : failure.checks
+      ? `${command} failed at ${short(failure.commit)} on PR #${failure.pr ?? '?'}: ${failing.join(', ')}`
+      : `${command} failed at ${short(failure.commit)} with ${failure.note ?? `exit ${failure.exit ?? 'none'}`}`
+}
+
+// fail writes the failure of the gate, a merge of the base that conflicts or a run that failed, and
+// returns the outcome fail. The fix sessions this gate has spent are those since the last session of
+// another stage, the implement session or a fix session of the review, whose work this gate checks. The
+// graph's guard gateRoundsRemain counts them the same way. While a round remains, the failure is written
+// with the note of the fix session the gate fix node starts. Once the rounds are spent, its note is the
+// one the process parks failed with, with the end of the last output.
+export function fail(record: StageRecord, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): Outcome {
+  if (!own()) return stopped
+  const id = record.id
+  const fixes = gateFixesSpent(record.history ?? [])
+  const what = whatOf(record, failure, command)
   if (fixes >= rounds) {
-    if (!own()) return
     const tail = failure.kind === 'run' && failure.tail ? `; the end of its output:\n${failure.tail}` : ''
-    const note = `the gate spent its ${rounds} fix session(s): ${what}${tail}`
-    event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'failed', note })
-    const ended = attempt(rt.stateDir, id, failure, { state: 'failed', note, wait: undefined, unseen: true } as Partial<StageRecord>)
-    if (ended) rt.announce(ended)
-    return
+    attempt(rt.stateDir, id, failure, { wait: undefined } as Partial<StageRecord>)
+    return { outcome: 'fail', note: `the gate spent its ${rounds} fix session(s): ${what}${tail}` }
   }
   // A fix session is a fresh session: the one before it is in the history, not in its resume.
-  const fixing = attempt(rt.stateDir, id, failure, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; fix session ${fixes + 1} of ${rounds}` } as Partial<StageRecord>)
-  if (!fixing || !own()) return
-  begin(fixing, project, rt, fixBrief(fixing, `${project.owner}/${project.name}`, failure, command))
+  attempt(rt.stateDir, id, failure, { session_id: undefined, fixing: true, wait: undefined, note: `${what}; fix session ${fixes + 1} of ${rounds}` } as Partial<StageRecord>)
+  return { outcome: 'fail' }
+}
+
+// gateFixNode is the fix-session node of the gate. A record that still has the id of its fix session, as
+// on a resume, goes on with that session. Any other starts a fresh session briefed with the last failure
+// of the gate in the history and the name of the gate form. Its complete goes to the gate through the
+// engine.
+export const gateFixNode: Node = {
+  adapt: (record, project, rt) => {
+    if (record.session_id !== undefined) return begin(record, project, rt)
+    const failure = [...(record.history ?? [])].reverse().find((h) => h.stage === 'gate' && (h.kind === 'merge' || h.kind === 'run') && h.result !== 'pass' && h.result !== 'skipped')
+    let command = defaultGate
+    try {
+      command = gateForm(setting(record, 'WF_GATE')).name
+    } catch {
+      // the gate node refused the form before it failed; the brief names the default
+    }
+    if (!failure) return begin(record, project, rt)
+    return begin(record, project, rt, fixBrief(record, `${project.owner}/${project.name}`, failure, command))
+  },
 }
 
 // runGate runs the gate command, an argument list without a shell, in the worktree in a process group of
