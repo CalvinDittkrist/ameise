@@ -11,7 +11,8 @@
 // closing comment. An item the maintainer accepted as a deviation earlier is not reported again.
 import { pages } from './board.js'
 import { confidences, sections, verdicts } from './checkitems.js'
-import { fetch, git, held } from './claim.js'
+import { held } from './claim.js'
+import { fetch, git } from './git.js'
 import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
 import { type Project, Refusal } from './project.js'

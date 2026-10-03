@@ -15,7 +15,7 @@
 // files goes to a fix session, as a failed check does.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { git, push } from './claim.js'
+import { git, push } from './git.js'
 import { checksOf, pause, type Reading } from './ci.js'
 import { run } from './exec.js'
 import { defaultGrace, type GateForm, knob, mergeBase, repair, short, tailOf } from './gate.js'

@@ -4,9 +4,10 @@
 // and its event log; the server then starts its implement session. An abandon removes the worktree
 // and the process and leaves the branch and the issue as they are.
 import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { basename, isAbsolute, join } from 'node:path'
 import { run } from './exec.js'
+import { addWorktree, exists, fetch, git } from './git.js'
 import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
 import { gateForm, settingOf } from './gate.js'
 import { type Project, Refusal } from './project.js'
@@ -124,34 +125,6 @@ function recordsOf(stateDir: string, project: string, issue: number) {
 // and the number spelled as the branch spells it, so feat/0104-x is no branch of #104.
 const ofIssue = (branch: string, issue: number) => issueFromBranch(branch) === String(issue)
 
-export async function git(top: string, ...args: string[]): Promise<string> {
-  return run('git', ['-C', top, ...args])
-}
-
-export async function exists(top: string, ref: string): Promise<boolean> {
-  return git(top, 'rev-parse', '-q', '--verify', ref + '^{commit}').then(
-    () => true,
-    () => false,
-  )
-}
-
-// fetch updates a remote-tracking branch from origin. It may fail, as offline: the caller decides what
-// the ref it has left is worth.
-export async function fetch(top: string, branch: string, fake: boolean): Promise<boolean> {
-  if (fake) return true
-  return git(top, 'fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`).then(
-    () => true,
-    () => false,
-  )
-}
-
-// push pushes the head of a worktree to its branch on origin, never forced. In fake mode it pushes
-// nothing, as there is no origin behind the checkout.
-export async function push(wt: string, branch: string, fake: boolean): Promise<void> {
-  if (fake) return
-  await git(wt, 'push', '-q', '-u', 'origin', `HEAD:refs/heads/${branch}`)
-}
-
 // refOf is the ref of a base branch: origin's where the checkout has it, else the local branch.
 async function refOf(top: string, base: string): Promise<string> {
   return (await exists(top, `origin/${base}`)) ? `origin/${base}` : (await exists(top, base)) ? base : `origin/${base}`
@@ -159,30 +132,6 @@ async function refOf(top: string, base: string): Promise<string> {
 
 // processId is the id of the work process of an issue of a project, the name of its record.
 const processId = (top: string, issue: number) => `work-${issue}-${createHash('sha256').update(top).digest('hex').slice(0, 8)}`
-
-// addWorktree creates the worktree of a branch inside the checkout, where the local workflow keeps them
-// and git ignores them. It creates the branch from start unless it exists, and says whether it did.
-export async function addWorktree(top: string, branch: string, start: string): Promise<{ path: string; created: boolean }> {
-  const dir = join(top, '.claude', 'worktrees')
-  const path = join(dir, branch.replace(/\//g, '-'))
-  if (existsSync(path)) throw new Refusal(`${path} exists already; remove it and try again`, 409)
-  mkdirSync(dir, { recursive: true })
-  const common = resolve(top, await git(top, 'rev-parse', '--git-common-dir'))
-  const exclude = join(common, 'info', 'exclude')
-  const excluded = existsSync(exclude) ? readFileSync(exclude, 'utf8') : ''
-  if (!excluded.split('\n').includes('.claude/worktrees/')) {
-    mkdirSync(join(common, 'info'), { recursive: true })
-    appendFileSync(exclude, (excluded && !excluded.endsWith('\n') ? '\n' : '') + '.claude/worktrees/\n')
-  }
-  const created = !(await exists(top, `refs/heads/${branch}`))
-  try {
-    if (created) await git(top, 'worktree', 'add', '-q', '--no-track', '-b', branch, path, start)
-    else await git(top, 'worktree', 'add', '-q', path, branch)
-  } catch (err) {
-    throw new Refusal(`could not create the worktree ${path}: ${(err as Error).message}`, 500)
-  }
-  return { path, created }
-}
 
 export interface Claimed {
   record: WorkRecord
