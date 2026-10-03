@@ -388,3 +388,27 @@ test('the pull requests of a ticket count whatever the case GitHub spells the re
   const r = await started()
   expect(r.acceptance).toMatchObject({ tickets: [{ number: 101, prs: [12] }], files: 1 })
 })
+
+test('an acceptance record of the previous release, without a workflow, waits for its answers on its decision node after a restart', async () => {
+  canSpec()
+  checker('item User stories | Work offline | met | src/cache.ts:3 | high', 'item Testing | The cache is tested | untested | src/cache.ts:9 | medium')
+  const r = await started()
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGKILL')
+  await exited
+  // The previous release wrote no workflow and no node.
+  const old = JSON.parse(read(file(r.id))) as { [k: string]: unknown }
+  delete old.workflow
+  delete old.node
+  writeFileSync(file(r.id), JSON.stringify(old))
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  server = s.process
+  expect(now(r.id)).toMatchObject({ state: 'input', note: '2 item(s), 1 not met; answer each in the process view' })
+
+  canApi(m, 'repos/owner/repo/issues/100/comments', {})
+  const done = await answer(r.id, [{ item: 'item-2', answer: 'none', reason: 'Covered by the browser test.' }])
+  expect(done.status, JSON.stringify(done.body)).toBe(200)
+  expect(now(r.id)).toMatchObject({ state: 'input', note: '#100 closed: nothing is left open; finish this process', acceptance: { closed: true } })
+  expect(events(r.id).filter((e) => e.event === 'acceptance-answered')).toMatchObject([{ gaps: [], closed: true }])
+})

@@ -13,7 +13,7 @@
 // failed is announced; one in input waits on the board alone. An edge's write action changes the record
 // before the next node is entered. The next node is entered before the run settles, so the process is
 // never untracked between two nodes. advance follows an event into a node from outside a run: a message
-// to a parked process, or the follow-up of the ci stage. A session node runs the process's own session
+// to a parked process, the follow-up of the ci stage, or a check or the answers of an acceptance. A session node runs the process's own session
 // (session.ts), which takes messages while it runs. Its run is tracked until its runtime has exited, and
 // the next node runs only then, so two sessions never work the worktree at once. Until then a stop of the
 // next node stops that runtime too.
@@ -28,7 +28,8 @@ import { attempt, event, readRecord, update } from './store.js'
 // The outcome a node returns, or an event to a parked process, with the note of a park and what an
 // edge's guard reads of it: mandate on the comments of the ci stage, unmerged on a green pull request
 // whose yolo merge did not happen, and ready on a message to a process parked ready. message is the text
-// of a message, the first turn of the session the next node resumes.
+// of a message, the first turn of the session the next node resumes. data is what a node hands the next
+// one, such as the facts the gather node of an acceptance read for its checker.
 export interface Outcome {
   outcome: string
   note?: string
@@ -36,6 +37,7 @@ export interface Outcome {
   unmerged?: boolean
   ready?: boolean
   message?: string
+  data?: unknown
 }
 
 // How a node is entered: fresh from an edge, by the resume route of an interrupted process (resume), or
@@ -44,6 +46,7 @@ export interface Outcome {
 export interface Entry {
   resume?: boolean
   message?: string
+  data?: unknown
 }
 
 // What a node runs with: the record as it entered, how it was entered, the project, the runtime and the
@@ -76,6 +79,7 @@ export interface Node {
 
 // The meta of a state the engine reads: its stage, its entry fields and note, its start and end events,
 // and the prefix of a throw's note. what names the node in the warning of a run that ends unexpectedly.
+// busy is what a message to the process is refused with while the node runs, its note where it has none.
 // A graph declares the meta of its states with this type.
 export interface StateMeta {
   stage: string
@@ -85,6 +89,7 @@ export interface StateMeta {
   end?: string
   failure?: string
   what?: string
+  busy?: string
 }
 
 // A registration of a process graph: its machine, the context its guards read, built from the record,
@@ -171,40 +176,47 @@ export function enter(g: Registration, node: string, record: StageRecord, projec
       process.stderr.write(`warning: ${id}: ${meta.what ?? `its ${node} node`} ended unexpectedly: ${(err as Error).message}\n`)
     })
     .then(() => exit)
-  Object.assign(tracked, track(id, abort, done, meta.note ?? `${meta.what ?? `its ${node} node`} runs`))
+  Object.assign(tracked, track(id, abort, done, meta.busy ?? meta.note ?? `${meta.what ?? `its ${node} node`} runs`))
   if (impl.talks && tracked.s) tracked.s.busy = undefined
   return started
 }
 
-// advance follows the edge of an event from a node of the graph for the process, as its record stands.
-export function advance(g: Registration, node: string, o: Outcome, record: StageRecord, project: Project, rt: Runtime) {
-  follow(g, record.id, node, metaOf(g, node, record), o, project, rt)
+// advance follows the edge of an event from a node of the graph for the process, as its record stands,
+// and answers the record as it parked or entered the next node.
+export function advance(g: Registration, node: string, o: Outcome, record: StageRecord, project: Project, rt: Runtime): SessionRecord | undefined {
+  return follow(g, record.id, node, metaOf(g, node, record), o, project, rt)
 }
 
 // follow takes the edge of the node's outcome from the record as it stands: a park keeps the process on
 // the node, a final state ends the graph, any other state is entered, after the edge's write action has
-// changed the record. A message enters the next node with its text.
-function follow(g: Registration, id: string, node: string, meta: StateMeta, o: Outcome, project: Project, rt: Runtime, after?: Promise<void>, before?: AbortController) {
+// changed the record. A message enters the next node with its text, and data enters it with the outcome's.
+function follow(g: Registration, id: string, node: string, meta: StateMeta, o: Outcome, project: Project, rt: Runtime, after?: Promise<void>, before?: AbortController): SessionRecord | undefined {
   const record = readRecord(rt.stateDir, id) as StageRecord | undefined
   if (!record) return
-  const { outcome, note, ...fields } = o
+  const { outcome, note, data, ...fields } = o
   const snapshot = g.machine.resolveState({ value: node, context: g.context(record) })
   const e = { type: outcome, ...fields }
   if (!snapshot.can(e)) return park(rt, id, meta, 'failed', `the ${node} node of the ${g.machine.id} graph returned the outcome ${outcome}, which has no edge`)
   const [next, actions] = transition(g.machine, snapshot, e)
   const parked = (actions as { type: string; params?: unknown }[]).find((a) => a.type === 'park')
-  if (parked) return park(rt, id, meta, (parked.params as { state: string }).state, note ?? record.note)
-  if (next.status === 'done') return
+  if (parked) {
+    const { state, seen } = parked.params as { state: string; seen?: boolean }
+    return park(rt, id, meta, state, note ?? record.note, seen)
+  }
+  if (next.status === 'done') return record
   const writes = (actions as { type: string; params?: unknown }[]).filter((a) => a.type === 'write')
   let now = record
   for (const w of writes) now = (update(rt.stateDir, id, w.params as Partial<StageRecord>) as StageRecord | undefined) ?? now
-  enter(g, String(next.value), now, project, rt, o.message !== undefined ? { message: o.message } : {}, after, before)
+  const how = { ...(o.message !== undefined ? { message: o.message } : {}), ...(data !== undefined ? { data } : {}) }
+  return enter(g, String(next.value), now, project, rt, how, after, before)
 }
 
 // park ends the run of a node with the process waiting on it: its end event, then its state and note,
-// and the announce, unless it waits for input.
-function park(rt: Runtime, id: string, meta: StateMeta, state: string, note: string) {
+// and the announce, unless it waits for input. A park the maintainer's own request takes is seen, so it
+// marks nothing new on the board.
+function park(rt: Runtime, id: string, meta: StateMeta, state: string, note: string, seen = false): SessionRecord | undefined {
   if (meta.end) event(rt.stateDir, id, { event: meta.end, stage: meta.stage, state, note })
-  const parked = update(rt.stateDir, id, { state, note, unseen: true })
+  const parked = update(rt.stateDir, id, { state, note, unseen: !seen })
   if (parked && state !== 'input') rt.announce(parked)
+  return parked
 }

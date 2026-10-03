@@ -1,23 +1,59 @@
 // The plan process: a planning session in a worktree on a plan branch. A plan opens from an idea, an
-// issue or nothing, an open session, and the server then starts its planner session. A capture moves
+// issue or nothing, an open session, and enters the planner node of the plan graph (planning.ts), which
+// runs its planner session. An acceptance opens the same way on a spec and enters the graph's gather node
+// (acceptance.ts). A capture moves
 // the prototype code the session left in the worktree to a prototype branch of its own and pushes it,
 // so the plan branch stays clean. A finish removes the worktree, the plan branch and the process. A
 // plan branch never carries a commit.
 import { createHash } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { run } from './exec.js'
+import { accept, specRequest } from './actions.js'
 import { issueFromBranch, recordFiles, worktrees } from './board.js'
+import { planBrief } from './briefs.js'
 import { held, slug } from './claim.js'
+import { enter, type Node } from './engine.js'
+import { graphOf } from './graphs.js'
+import { planEntry } from './planning.js'
+import { type Runtime, sessionEntry, talk } from './session.js'
 import { addWorktree, exists, fetch, git } from './git.js'
 import { settingOf } from './settings.js'
 import { type Project, Refusal } from './project.js'
 import { stop } from './running.js'
 import { resumed } from './terminal.js'
-import type { PlanRecord } from './records.js'
+import type { PlanRecord, StageRecord } from './records.js'
 import { event, forget, readRecord, update, writeProcess } from './store.js'
 
 export type PlanRequest = { route: 'idea'; idea: string } | { route: 'issue'; issue: number } | { route: 'open' }
+
+// A start of the plan graph: a plan, or with a spec the acceptance of that spec.
+export type PlanStart = PlanRequest | { route: 'accept'; spec: number }
+
+// planStart reads the body of a start of the plan graph: the spec of an acceptance, or a plan's body.
+export function planStart(body: Record<string, unknown>): PlanStart {
+  return body.spec !== undefined ? { route: 'accept', spec: specRequest(body) } : planRequest(body)
+}
+
+// openPlan opens a plan process for the start and enters the node of its route, and answers its record
+// as it runs: the planner session of a plan, the facts of an acceptance.
+export async function openPlan(project: Project, rt: Runtime, req: PlanStart): Promise<PlanRecord> {
+  const done = req.route === 'accept' ? await accept(project, rt.stateDir, rt.gh, rt.fake, req.spec) : await plan(project, rt.stateDir, rt.gh, rt.fake, req)
+  const stage = done as unknown as StageRecord
+  return enter(graphOf(stage), planEntry(done.route), stage, project, rt) as PlanRecord
+}
+
+// plannerNode is the planner node of the plan graph: the planner session, which a plan enters fresh with
+// the planner's brief, and a message resumes by its session id.
+export const plannerNode: Node = {
+  talks: true,
+  entry: (record, how) => sessionEntry(record, how),
+  run: (ctx) =>
+    talk(ctx, () => {
+      const record = ctx.record as unknown as PlanRecord
+      return planBrief(record, `${ctx.project.owner}/${ctx.project.name}`, existsSync(join(record.worktree, 'docs', 'glossary.md')))
+    }),
+}
 
 // planRequest reads the body of a plan: an idea, an issue, or neither for an open session. It refuses
 // both at once and either in a shape it cannot use, before anything is created.
