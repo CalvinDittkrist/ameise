@@ -293,7 +293,6 @@ export interface Acceptance {
   closed?: boolean
 }
 
-
 // The answer to a category of the standardize report.
 export type Answer = 'approve' | 'reject'
 
@@ -347,8 +346,6 @@ export interface StandardizeRecord extends CreatedRecord {
   env: Record<string, string>
   standardize?: Standardization
 }
-
-// standardize opens a standardize process: the branch chore/standardize from the base, its worktree and a
 
 // A process that runs sessions: a work process, a plan process or a standardize process.
 export type SessionRecord = StageRecord | PlanRecord | StandardizeRecord

@@ -38,6 +38,8 @@ export const standardizeBranch = 'chore/standardize'
 // The six finding categories, one per auditor, in the order of the report.
 export { type Category, categories }
 
+// standardize opens a standardize process: the branch chore/standardize from the base, its worktree and a
+// record in the state created. It refuses while a standardize process runs, or the branch exists here or
 // on origin, since a run of the plugin may own it. In fake mode it fetches nothing from origin.
 export function standardize(project: Project, stateDir: string, gh: string, fake: boolean): Promise<StandardizeRecord> {
   return held(project, 'standardize', () => standardizeHeld(project, stateDir, gh, fake))
