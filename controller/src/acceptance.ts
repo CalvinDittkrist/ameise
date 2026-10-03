@@ -242,8 +242,8 @@ export const gatherNode: Node = {
 
 // checkerNode is the checker node of the plan graph: the spec checker's agent run, read-only, on the facts
 // the gather node read. It keeps the items it reported on the record, without the deviations accepted
-// earlier, and writes the end of the acceptance; a checker that ended otherwise, or reported no item in
-// its format, fails it.
+// earlier, and writes the end of the acceptance. A checker that ended otherwise, or reported no item in
+// its format, fails the acceptance.
 export const checkerNode: Node = {
   run: async (ctx) => {
     const record = ctx.record as unknown as PlanRecord

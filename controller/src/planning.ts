@@ -78,8 +78,8 @@ export const planEntry = (route: Route): 'planner' | 'gather' => (route === 'acc
 // planResume is the node a plan process goes on at after a restart, or undefined where the restart fails
 // it. It reads the process's route, state, items and session id. An acceptance that ran, or whose
 // checker asked a question before it reported items, fails; one with items waits for its answers on
-// decision. A planner session that ran or waited for a permission waits for a message on planner when it
-// has a session id, and fails without one.
+// decision. A planner session that ran or waited for a permission waits on planner with a session id,
+// and fails without one.
 export function planResume(stage: StageRecord): string | undefined {
   const record = stage as unknown as PlanRecord
   if (record.route === 'accept') return record.state === 'input' && record.acceptance ? 'decision' : undefined
