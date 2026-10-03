@@ -11,13 +11,13 @@
 // the same state. An outcome without an edge parks the process failed, with a note naming the node and
 // the outcome. A park writes the node's end event, the state and the note. A park in blocked, ready or
 // failed is announced; one in input waits on the board alone, unless the park says otherwise. A park
-// whose edge names another node moves the process there and parks it on that node, entering nothing. An edge's write action changes the record
-// before the next node is entered. The next node is entered before the run settles, so the process is
-// never untracked between two nodes. advance follows an event into a node from outside a run: a message
-// to a parked process, or the follow-up of the ci stage. A session node runs the process's own session
-// (session.ts), which takes messages while it runs. Its run is tracked until its runtime has exited, and
-// the next node runs only then, so two sessions never work the worktree at once. Until then a stop of the
-// next node stops that runtime too.
+// whose edge names another node moves the process there and parks it on that node, entering nothing. An
+// edge's write action changes the record before the next node is entered. The next node is entered
+// before the run settles, so the process is never untracked between two nodes. advance follows an event
+// into a node from outside a run: a message to a parked process, or the follow-up of the ci stage. A
+// session node runs the process's own session (session.ts), which takes messages while it runs. Its run
+// is tracked until its runtime has exited, and the next node runs only then, so two sessions never work
+// the worktree at once. Until then a stop of the next node stops that runtime too.
 import type { AnyStateMachine } from 'xstate'
 import { transition } from 'xstate'
 import type { Project } from './project.js'
@@ -216,8 +216,8 @@ function follow(g: Registration, id: string, node: string, meta: StateMeta, o: O
   return enter(g, String(next.value), now, project, rt, how, after, before)
 }
 
-// The params of the action park: the state it parks in, and whether it is announced, which by default
-// every park is but one in input.
+// The params of the action park: the state it parks in, and whether it is announced:
+// announced by default, except a park in input.
 export interface Park {
   state: string
   announce?: boolean

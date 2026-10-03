@@ -5,22 +5,23 @@
 // (agents.ts, session.ts), and merges their finding lines per category with the report. The process then waits for
 // one answer per category, approve or reject.
 //
-// The apply records the answers and applies the approved categories in this order: the backup (the tag
-// pre-standard and the catalogue issue) before anything is deleted, the cleanup's prepare, a session for the
-// todo lines that need judgement, the cleanup's open for the cleanup pull request, and the issues. After the
-// merge, the finalize configures the workspace and runs the standard check. Every step is safe to run again,
-// so a failed step is applied again from the start. The steps keep the names of the scripts they were in the
-// lines they report (approve.sh, cleanup.sh open), which the process view and its notes show.
+// The apply records the answers and applies the approved categories in a fixed order. The backup (the tag
+// pre-standard and the catalogue issue) comes before anything is deleted. Then come the cleanup's prepare,
+// a session for the todo lines that need judgement, the cleanup's open for the cleanup pull request, and
+// the issues. After the merge, the finalize configures the workspace and runs the standard check. Every
+// step is safe to run again, so a failed step is applied again from the start. In the lines they report,
+// the steps keep the names of the scripts they were in (approve.sh, cleanup.sh open). The process view
+// and its notes show these names.
 //
 // A standardize process runs on the standardize graph through the engine (engine.ts). Its nodes are
 // audit, apply and finalize, each with the stage of its name, and every park keeps the process on its
 // node. The audit parks in input while its report waits for the answers, and failed. The apply parks
-// ready once the cleanup pull request is open, and blocked or failed; answers its approval step refuses
+// ready once the cleanup pull request is open, and blocked or failed. Answers its approval step refuses
 // move the process back to the audit node, parked failed. The finalize ends the graph once the check
-// passes, parks failed when it fails, and parks ready without an announce while its step refuses, as
-// before the merge. The routes send a request to the engine: audit again from a failed audit, apply
-// with the answers from the audit's input or again from a blocked or failed apply, and finalize from a
-// ready apply or a ready or failed finalize. A message moves no standardize process.
+// passes and parks failed when it fails. While its step refuses, as before the merge, it parks ready
+// without an announce. The routes send a request to the engine. Audit runs again from a failed audit.
+// Apply runs with the answers from the audit's input, or again from a blocked or failed apply. Finalize
+// runs from a ready apply, or from a ready or failed finalize. A message moves no standardize process.
 import { createHash } from 'node:crypto'
 import { setup } from 'xstate'
 import { readFileSync, realpathSync } from 'node:fs'
