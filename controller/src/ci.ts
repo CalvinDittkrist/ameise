@@ -36,6 +36,7 @@ import { run } from './exec.js'
 import { defaultGrace } from './gate.js'
 import type { Project } from './project.js'
 import { addressBrief, ciFixBrief } from './briefs.js'
+import { repairsSpent } from './budgets.js'
 import { busy, track } from './running.js'
 import { begin, type Runtime } from './session.js'
 import { knob, setting } from './settings.js'
@@ -217,15 +218,6 @@ export const answeredOf = (history: Attempt[]): Set<string> => new Set(history.f
 
 // askedOf are the keys of the points an address-reviews session of the history was given to answer.
 export const askedOf = (history: Attempt[]): Set<string> => new Set(history.flatMap((h) => (h.stage === 'ci' && h.kind === 'wait' ? (h.asked ?? []) : [])))
-
-// repairsSpent are the repair rounds of the pull request: the fix sessions of the ci stage and the
-// address-reviews sessions of a bot's review since the pull request was opened or found, or since the
-// last address-reviews session of a writer's request, which starts the count afresh.
-export function repairsSpent(history: Attempt[]): number {
-  const since = history.map((h) => (h.stage === 'pr' && h.kind === 'open') || (h.stage === 'address-reviews' && h.kind === 'session' && h.mandate === 'writer')).lastIndexOf(true)
-  const counted = history.slice(since + 1).flatMap((h, i) => (h.kind === 'session' && (h.stage === 'ci' || (h.stage === 'address-reviews' && h.mandate === 'bot')) ? [h.session_id ?? `#${i}`] : []))
-  return new Set(counted).size
-}
 
 const readingFields = 'number,url,state,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,reviews'
 

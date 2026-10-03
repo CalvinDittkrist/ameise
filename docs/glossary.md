@@ -65,7 +65,7 @@ Terms the code, the issues and the docs use, one row each.
 | merge | The factory's stage after validate in a ticket run: a pull request with green ci, a `ready` panel and a passed validation is squash-merged into the spec branch. |
 | change class | An ordered rule of a connected repository: name, path patterns, gate command, optional reviewers. `full` is built in ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)). |
 | review finding | One structured finding of a reviewer session: severity, path, line, claim, why, fix. `finding` stays the auditor's line. |
-| outcome | How a factory run ended: `ready`, `merged`, `blocked`, `failed`, `timeout`, `lost`, `interrupted`, `cancelled`, `quota`. |
+| outcome | How a factory run ended: `ready`, `merged`, `blocked`, `failed`, `timeout`, `lost`, `interrupted`, `cancelled`, `quota`. In the controller, the result a node returns, such as pass, fail, complete or input; the process graph maps it to the next node. |
 | remote claim | Creating the issue's branch through the GitHub API, which exactly one claimer wins ([ADR 0024](adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md)). |
 | local claim | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the orchestrator plugin's claim of an issue into a worktree (`/orchestrator:claim`). A claim through the controller replaces it. |
 | release signal | Removing the assignee from an issue the factory holds, which queues a resumed run. |
@@ -99,5 +99,10 @@ Terms the code, the issues and the docs use, one row each.
 | hunter | The read-only subagent `test-hunter` of a test hunt, with no shell, that reads one share of at most 1500 lines and replies with candidates. |
 | candidate | One hunter line: `candidate: <path> \| <test> \| <category> \| <reason> \| <confidence>` ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)). |
 | hunt record | The rounds, removals and kept candidates of a test hunt, kept by `hunt.sh` in the worktree's git directory and copied into the hunt process's record; it stands in for the issue. |
+| process graph | The XState machine a process kind of the controller runs on: its nodes, the outcomes of each node and the edge each outcome or event takes ([ADR 0070](adr/0070-processes-run-on-process-graphs.md)). |
+| node | One state of a process graph. It runs controller code or one agent, and returns an outcome. |
+| park | The state of a process kept on its node, ready, blocked, input or failed, until a message, a follow-up or a request moves it. It is an action on an edge, not a node of its own. |
+| agent run | The controller's settings for running one agent session and reading its result: name, stage label, the plugin agent it names, output schema, reader, write access. Not the Agent SDK's agent definition, which the plugin's agent file holds. |
+| engine | The controller code that enters the nodes of a process graph, runs them and follows their edges. |
 
 A retired term names a part of the local workflow that the controller replaces. The factory keeps the same facts in its run record.

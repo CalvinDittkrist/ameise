@@ -21,7 +21,8 @@ import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, st
 import { open } from './terminal.js'
 import { gate } from './gate.js'
 import { resumeFix, review } from './review.js'
-import { pr } from './pr.js'
+import { enter } from './engine.js'
+import { graphOf } from './graphs.js'
 import { ci, followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 import type { SessionRecord } from './records.js'
@@ -186,7 +187,7 @@ export function serve(o: Options): Server {
           : interrupted.stage === 'review' && !fix
             ? review(interrupted, project, rt)
             : interrupted.stage === 'pr'
-              ? pr(interrupted, project, rt)
+              ? enter(graphOf(interrupted), 'pr', interrupted, project, rt)
               : (interrupted.stage === 'ci' || interrupted.stage === 'address-reviews') && !fix
                 ? ci(interrupted, project, rt)
                 : begin(interrupted, project, rt)

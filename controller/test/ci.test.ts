@@ -118,6 +118,14 @@ test('the pr stage opens the pull request with the author title and body, the ga
   expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'ci', action: 'Merge' }])
 })
 
+test('after the pr stage the record holds the delivery graph and its ci node', async () => {
+  playAuthor('body Lists every project on the board.\npull feat: list every project on the board')
+  canPull(m, 'owner/repo', 7, [reading(7)])
+  const r = await claim()
+  await ended(r.id)
+  expect(JSON.parse(read(join(m.state, 'processes', `${r.id}.json`)))).toMatchObject({ workflow: 'delivery', node: 'ci', stage: 'ci' })
+})
+
 test('a failed panel is named in the pull request, which is opened all the same', async () => {
   playReviewer('finding S1 test/board.test.ts:1 Nothing tests the limit\nverdict fix')
   canPull(m, 'owner/repo', 7, [reading(7)])

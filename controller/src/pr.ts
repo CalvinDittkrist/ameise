@@ -7,69 +7,44 @@
 // to, asked of the bots and kept. The gate's draft the gate on CI opened, while it is open, gets the
 // author's title and body with the verification section, is marked ready for review and is asked of the
 // bots, and the record notes when it was readied and drops its draft flag.
-// The opening is an attempt in the record's history, and the ci stage (ci.ts) follows. A push, an author
-// session, or a gh pr create or edit that fails ends the process failed with the reason.
+// The stage is the pr node of the delivery graph, which the engine (engine.ts) runs. The opening is an
+// attempt in the record's history, and its outcome takes the process to the ci stage (ci.ts). A push, an
+// author session, or a gh pr create or edit that fails returns failed with the reason, which parks the
+// process failed.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, push } from './git.js'
-import { botsOf, ci } from './ci.js'
+import { botsOf } from './ci.js'
 import { run } from './exec.js'
 import { defaultGate } from './gate.js'
-import type { Project } from './project.js'
 import { author } from './agents.js'
 import { authorBrief } from './briefs.js'
-import { type Running, track } from './running.js'
+import type { Node, NodeContext, Outcome } from './engine.js'
 import { agents, type Runtime } from './session.js'
 import type { Attempt, Pull, StageRecord } from './records.js'
-import { attempt, event, update } from './store.js'
+import { event } from './store.js'
 
-// pr starts the pr stage of a process and answers the record as it runs. A stop ends its author session;
-// a resume runs the stage again.
-export function pr(record: StageRecord, project: Project, rt: Runtime): StageRecord {
-  const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'pr', state: 'running', note: 'the author session writes the pull request', fixing: false, wait: undefined } as Partial<StageRecord>) as StageRecord | undefined) ?? record
-  event(rt.stateDir, id, { event: 'pr-start', stage: 'pr' })
-  const abort = new AbortController()
-  // The stage starts on the next turn, once it is tracked, so a stop meanwhile ends it.
-  const tracked: { own: () => boolean; s?: Running } = { own: () => false }
-  const own = () => tracked.own()
-  const done = Promise.resolve()
-    .then(() => (tracked.s ? open(started, project, rt, tracked.s, own) : undefined))
-    .catch((err: unknown) => {
-      if (!own()) return
-      const note = `the pr stage failed: ${(err as Error).message}`
-      event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'failed', note })
-      const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-      if (failed) rt.announce(failed)
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`warning: ${id}: its pr stage ended unexpectedly: ${(err as Error).message}\n`)
-    })
-  Object.assign(tracked, track(id, abort, done, 'the author session writes the pull request'))
-  return started
-}
+// prNode is the pr node of the delivery graph (delivery.ts): it opens, finds or finishes the pull
+// request and returns opened, found or finished, or failed with the reason. It starts no stage itself; the
+// engine follows its outcome. A stop ends its author session; a resume enters the node again.
+export const prNode: Node = { run: open }
 
-async function open(record: StageRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
+async function open({ record, project, rt, running: s, own, attempt, event }: NodeContext): Promise<Outcome> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
-  const fail = (note: string) => {
-    if (!own()) return
-    event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'failed', note })
-    const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-    if (failed) rt.announce(failed)
-  }
+  const failed = (note: string): Outcome => ({ outcome: 'failed', note })
   let bots: string[]
   try {
     bots = botsOf(record)
   } catch (err) {
-    return fail((err as Error).message)
+    return failed((err as Error).message)
   }
   try {
     await push(record.worktree, record.branch, rt.fake)
   } catch (err) {
-    return fail(`could not push ${record.branch} to origin: ${(err as Error).message}`)
+    return failed(`could not push ${record.branch} to origin: ${(err as Error).message}`)
   }
-  if (!own()) return
+  if (!own()) return stopped
   const commit = await git(record.worktree, 'rev-parse', 'HEAD')
   const now = () => new Date().toISOString()
 
@@ -77,29 +52,28 @@ async function open(record: StageRecord, project: Project, rt: Runtime, s: Runni
   // The gate's draft the gate on CI opened is the process's pull request while it is open: the stage
   // finishes it rather than opening a second one. A draft closed or merged meanwhile is left.
   const draft = record.draft && record.pull ? await openDraft(rt, id, repo, record.pull) : undefined
-  if (!own()) return
+  if (!own()) return stopped
   // A pull request of the branch into its base that is open already takes the push, and a new one is not
   // opened. The bot reviewers are asked of it as of a new one.
   const found = draft
     ? undefined
     : await openPull(rt.gh, repo, record.branch, base).catch((err: Error) => {
-        event(rt.stateDir, id, { event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
+        event({ event: 'pr-note', note: `could not read the open pull requests of ${repo}: ${err.message}; opening one` })
         return undefined
       })
-  if (!own()) return
+  if (!own()) return stopped
   if (found) {
     await askBots(rt, id, repo, found.number, bots)
-    if (!own()) return
+    if (!own()) return stopped
     const a: Attempt = { stage: 'pr', kind: 'open', result: 'found', at: now(), commit, pr: found.number, url: found.url }
-    event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: 'found', pr: found.number, url: found.url })
-    const next = attempt(rt.stateDir, id, a, { pull: found })
-    if (next && own()) ci(next, project, rt)
-    return
+    event({ event: 'pr-end', stage: 'pr', state: 'found', pr: found.number, url: found.url })
+    attempt(a, { pull: found })
+    return { outcome: 'found' }
   }
 
   const [ended] = await agents(record, rt, s, own, [{ run: author, brief: authorBrief(record, repo) }])
-  if (!own()) return
-  if (ended.state !== 'complete' || !ended.pull) return fail(`the author session wrote no pull request: ${ended.note}`)
+  if (!own()) return stopped
+  if (ended.state !== 'complete' || !ended.pull) return failed(`the author session wrote no pull request: ${ended.note}`)
   const title = ended.pull.title
   // A hunt closes no issue, so its body is the author's as it is.
   const body = [record.issue === null ? ended.pull.body : closing(ended.pull.body, record.issue), '', verification(record, commit)].join('\n')
@@ -120,20 +94,23 @@ async function open(record: StageRecord, project: Project, rt: Runtime, s: Runni
       pull = { number, url: url.trim() }
     }
   } catch (err) {
-    return fail(`could not ${draft ? `finish the gate's draft PR #${draft.number}` : 'open the pull request'} of ${record.branch}: ${(err as Error).message}`)
+    return failed(`could not ${draft ? `finish the gate's draft PR #${draft.number}` : 'open the pull request'} of ${record.branch}: ${(err as Error).message}`)
   } finally {
     rmSync(file, { force: true })
   }
-  if (!own()) return
+  if (!own()) return stopped
 
   await askBots(rt, id, repo, pull.number, bots)
-  if (!own()) return
+  if (!own()) return stopped
   const result = draft ? 'finished' : 'opened'
   const a: Attempt = { stage: 'pr', kind: 'open', result, at: now(), commit, pr: pull.number, url: pull.url, note: title }
-  event(rt.stateDir, id, { event: 'pr-end', stage: 'pr', state: result, pr: pull.number, url: pull.url })
-  const next = attempt(rt.stateDir, id, a, draft ? { pull, draft: false, readied: a.at } : { pull })
-  if (next && own()) ci(next, project, rt)
+  event({ event: 'pr-end', stage: 'pr', state: result, pr: pull.number, url: pull.url })
+  attempt(a, draft ? { pull, draft: false, readied: a.at } : { pull })
+  return { outcome: result }
 }
+
+// stopped is what the node returns once a stop has taken the process over, which the engine discards.
+const stopped: Outcome = { outcome: 'stopped' }
 
 // openDraft is the gate's draft the record names while GitHub reads it open, or undefined, with a note,
 // once it is closed or merged or cannot be read.
