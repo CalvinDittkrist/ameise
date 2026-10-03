@@ -5,13 +5,14 @@
 // A merge that conflicts and a gate command that fails each start a fix session of the gate. That is
 // a fresh session with the stage timeout, within the gate's budget, and the gate runs again on what it
 // leaves. Every merge that conflicts, every run and every fix session is an attempt in the record's
-// history. A pass starts the review stage (review.ts); a budget spent ends the process failed with the
+// history. A pass enters the review node (review.ts) through the engine; a budget spent ends the process failed with the
 // end of the last output. The gate runs again after every fix session of the review.
 import { spawn } from 'node:child_process'
 import { fetch, git } from './git.js'
 import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
-import { review } from './review.js'
+import { advance } from './engine.js'
+import { graphOf } from './graphs.js'
 import { fixBrief } from './briefs.js'
 import { gateFixesSpent } from './budgets.js'
 import { track } from './running.js'
@@ -130,7 +131,7 @@ async function stage(record: StageRecord, project: Project, rt: Runtime, signal:
     event(rt.stateDir, id, { event: 'gate', ...a })
     event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'skipped', note: 'the gate form is none; no gate ran' })
     const next = attempt(rt.stateDir, id, a)
-    if (next && own()) review(next, project, rt)
+    if (next && own()) advance(graphOf(next), 'gate', { outcome: 'skipped' }, next, project, rt)
     return
   }
 
@@ -167,7 +168,7 @@ async function stage(record: StageRecord, project: Project, rt: Runtime, signal:
       const passed = `the gate passed at ${short(commit)}${dirty ? ', with changes not committed' : ''}`
       event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: passed })
       const next = attempt(rt.stateDir, id, a)
-      if (next && own()) review(next, project, rt)
+      if (next && own()) advance(graphOf(next), 'gate', { outcome: 'pass' }, next, project, rt)
       return
     }
     failure = a

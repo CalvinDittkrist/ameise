@@ -114,7 +114,8 @@ export const delivery = setup({
       on: { complete: 'gate', ...sessionParks },
     },
     review: {
-      meta: { stage: 'review', entry: { state: 'running', fixing: false }, note: 'the reviewers run', end: 'review-end', start: 'review-start', failure: 'the review failed', what: 'its review' } satisfies StateMeta,
+      // The review node writes its own start event, which names the round and its reviewers.
+      meta: { stage: 'review', entry: { state: 'running', fixing: false }, note: 'the reviewers run', end: 'review-end', failure: 'the review failed', what: 'its review' } satisfies StateMeta,
       on: {
         pass: 'pr',
         findings: [{ guard: 'reviewRoundsRemain', target: 'review-fix' }, { target: 'pr' }],

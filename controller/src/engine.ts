@@ -48,8 +48,11 @@ export interface NodeContext {
 }
 
 // A node of a graph: a run that returns an outcome, or the adapter of a stage that is not a node yet,
-// which starts today's stage function and answers the record as it runs.
-export type Node = { run: (ctx: NodeContext) => Promise<Outcome> } | { adapt: (record: StageRecord, project: Project, rt: Runtime) => SessionRecord }
+// which starts today's stage function and answers the record as it runs. An adapter is given the after
+// and the before of its entry, the exit and the abort of a session whose runtime still exits.
+export type Node =
+  | { run: (ctx: NodeContext) => Promise<Outcome> }
+  | { adapt: (record: StageRecord, project: Project, rt: Runtime, after?: Promise<void>, before?: AbortController) => SessionRecord }
 
 // The meta of a state the engine reads: its stage, its entry fields and note, its start and end events,
 // and the prefix of a throw's note. what names the node in the warning of a run that ends unexpectedly.
@@ -95,7 +98,7 @@ export function enter(g: Registration, node: string, record: StageRecord, projec
   if (!impl) throw new Error(`the ${g.machine.id} graph has no implementation of its node ${node}`)
   if ('adapt' in impl) {
     const adapted = (update(rt.stateDir, id, at) as StageRecord | undefined) ?? record
-    return impl.adapt(adapted, project, rt)
+    return impl.adapt(adapted, project, rt, after, before)
   }
   const note = meta.note !== undefined ? { note: meta.note } : {}
   const started = (update(rt.stateDir, id, { stage: meta.stage, ...meta.entry, ...note, ...at } as Partial<StageRecord>) as StageRecord | undefined) ?? record

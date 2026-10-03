@@ -3,9 +3,10 @@
 // ends by reporting complete with its commits or blocked through a structured result. On complete the
 // controller starts the gate stage (gate.ts), unless the maintainer holds the session open. A fix session
 // of the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
-// same way. The complete of a fix session of the ci stage or of an address-reviews session is an outcome
-// of its node of the delivery graph. The engine (engine.ts) follows that outcome back to the ci node
-// (ci.ts). Every other complete goes to the gate. Every subagent of a stage is an agent run (agents.ts): a
+// same way. The complete of a fix session of the review, of the ci stage or of an address-reviews session
+// is an outcome of its node of the delivery graph. The engine (engine.ts) follows that outcome, from the
+// review fix to the gate and from the others back to the ci node (ci.ts). Every other complete goes to
+// the gate. Every subagent of a stage is an agent run (agents.ts): a
 // reviewer, the author session, the spec checker, an auditor or the apply session. The one runner,
 // agents, starts each here beside the process's own session, side by side where there are several. The
 // streams of the read-only ones stay out of the event log. Every session's end is an attempt in the
@@ -212,8 +213,8 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
           return
         }
         // The gate starts once this session's runtime has exited, so two never work the worktree at once.
-        // A fix session of the review goes to the gate too, whose pass starts the next round. A fix
-        // session of the ci stage goes back to its wait, which pushes what it committed, and so does an
+        // The complete of a fix session of the review is an outcome of the review fix node, whose edge runs
+        // the gate, and the gate's pass enters the next round. A fix session of the ci stage goes back to its wait, which pushes what it committed, and so does an
         // address-reviews session, whose replies and answer the wait posts once it has pushed.
         // Until then a stop of the next stage also stops this runtime, whose forced kill still applies.
         // What an address-reviews session reported is written with its end, so a restart before the ci
@@ -222,7 +223,8 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
         const reported = { replies: addressed?.replies ?? [], answer: addressed?.answer ?? '' }
         const done = attempt(rt.stateDir, id, a, { fixing: false, ...(addressing ? { addressing: { ...addressing, reported } } : {}) } as Partial<StageRecord>)
         // A hunt session's complete reads the hunt record, which decides between the gate and the end.
-        if (done && (stage === 'ci' || stage === 'address-reviews')) advance(graphOf(done), stage === 'ci' ? 'ci-fix' : 'address-reviews', { outcome: 'complete' }, done, project, rt, exited, abort)
+        const node = stage === 'ci' ? 'ci-fix' : stage === 'review' ? 'review-fix' : stage === 'address-reviews' ? 'address-reviews' : undefined
+        if (done && node) advance(graphOf(done), node, { outcome: 'complete' }, done, project, rt, exited, abort)
         else if (done && done.kind === 'hunt' && stage === 'hunt') hunted(done, project, rt, exited, abort)
         else if (done) gate(done, project, rt, exited, abort)
         return
