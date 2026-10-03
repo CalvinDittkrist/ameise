@@ -27,6 +27,10 @@ export interface CreatedRecord {
   stage: string
   state: string
   note: string
+  // workflow is the id of the process graph the process runs on, and node the node it is on or parks
+  // on (engine.ts), once the engine has entered one.
+  workflow?: string
+  node?: string
   // session_id is the id of the implement session, once it has started.
   session_id?: string
   // context is the size of the session's context in tokens, from the usage of its latest message.

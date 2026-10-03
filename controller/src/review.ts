@@ -6,12 +6,15 @@
 //
 // A fix verdict starts one fix session of the review with every finding of the round by its id; its
 // complete runs the gate again, whose pass starts the next round. Once every reviewer passes, the panel
-// passes and the pr stage (pr.ts) opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
+// passes and the engine (engine.ts) enters the pr node of the process's graph, whose pr stage (pr.ts)
+// opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
 // verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
 // panel. A reviewer that reports no verdict ends the process failed with the reason.
 import { type AgentRun, type Ended, reviewers } from './agents.js'
+import { reviewRounds } from './budgets.js'
 import { git } from './git.js'
-import { pr } from './pr.js'
+import { enter } from './engine.js'
+import { graphOf } from './graphs.js'
 import type { Project } from './project.js'
 import { reviewBrief, reviewFixBrief } from './briefs.js'
 import { type Running, track } from './running.js'
@@ -71,7 +74,7 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
     if (state === 'ready') {
       const full = { ...change, note }
       const next = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
-      if (next && own()) pr(next as StageRecord, project, rt)
+      if (next && own()) enter(graphOf(next as StageRecord), 'pr', next as StageRecord, project, rt)
       return
     }
     const full = { ...change, state, note, unseen: true }
@@ -89,8 +92,7 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
 
   // The rounds of this review: those since the implement session last ended, whose work it reviews.
   const history = record.history ?? []
-  const since = history.map((h) => h.stage === 'implement' || h.stage === 'hunt').lastIndexOf(true)
-  const past = history.slice(since + 1).filter((h) => h.stage === 'review' && h.kind === 'round')
+  const past = reviewRounds(history)
   const n = past.length + 1
   const last = new Map<string, string>()
   for (const r of past) for (const v of r.verdicts ?? []) last.set(v.reviewer, v.verdict)

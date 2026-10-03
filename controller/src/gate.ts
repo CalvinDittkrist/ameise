@@ -13,6 +13,7 @@ import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
 import { review } from './review.js'
 import { fixBrief } from './briefs.js'
+import { gateFixesSpent } from './budgets.js'
 import { track } from './running.js'
 import { begin, type Runtime } from './session.js'
 import { knob, runtimeEnv, setting } from './settings.js'
@@ -204,9 +205,7 @@ export async function mergeBase(record: StageRecord, rt: Runtime): Promise<strin
 export function repair(record: StageRecord, project: Project, rt: Runtime, own: () => boolean, failure: Attempt, command: string, rounds: number): void {
   const id = record.id
   const history = record.history ?? []
-  const since = history.map((h) => h.stage !== 'gate' && h.kind === 'session').lastIndexOf(true)
-  // A fix session resumed after a block is the same session, counted once.
-  const fixes = new Set(history.slice(since + 1).flatMap((h, i) => (h.stage === 'gate' && h.kind === 'session' ? [h.session_id ?? `#${i}`] : []))).size
+  const fixes = gateFixesSpent(history)
   const failing = (failure.checks ?? []).filter((c) => c.state === 'fail').map((c) => c.name)
   const what =
     failure.kind === 'merge'
