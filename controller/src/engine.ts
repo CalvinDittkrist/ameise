@@ -89,14 +89,15 @@ export interface StateMeta {
 
 // A registration of a process graph: its machine, the context its guards read, built from the record,
 // and its node implementations. The request reader, the open function and the mapping of an old record
-// to a node are filled by the graphs that need them.
+// to a node are filled by the graphs that need them. old maps the stage, the fixing flag and the session
+// id of an interrupted record to the node a resume enters, or to none for a record the graph does not run.
 export interface Registration {
   machine: AnyStateMachine
   context: (record: StageRecord) => Record<string, unknown>
   nodes: Record<string, Node>
   request?: (body: Record<string, unknown>) => unknown
   open?: (...args: never[]) => unknown
-  old?: (record: SessionRecord) => string
+  old?: (record: StageRecord) => string | undefined
 }
 
 // metaOf is the meta of a node of the graph, from its resolved state.
@@ -105,6 +106,20 @@ function metaOf(g: Registration, node: string, record: StageRecord): StateMeta {
   const meta = (state.getMeta() as Record<string, StateMeta | undefined>)[`${g.machine.id}.${node}`]
   if (!meta) throw new Error(`the ${g.machine.id} graph has no node ${node}`)
   return meta
+}
+
+// resumeAt is the node of the graph a resume of the interrupted process enters, or undefined when the
+// graph has none for it. A record of the graph whose node names its stage is read as that node has it:
+// its fixing flag is the one the node enters with. Any other record, of an older release without a
+// node or one whose node disagrees with its stage, is read as it stands. Either goes through the
+// graph's mapping, which applies the rules of the session id.
+export function resumeAt(g: Registration, record: StageRecord): string | undefined {
+  if (!g.old) return undefined
+  const node = record.workflow === g.machine.id ? record.node : undefined
+  if (node === undefined || !g.nodes[node]) return g.old(record)
+  const meta = metaOf(g, node, record)
+  if (meta.stage !== record.stage) return g.old(record)
+  return g.old({ ...record, fixing: meta.entry?.fixing === true })
 }
 
 // enter enters a node of the graph for the process, the way how says, and answers the record as it runs.

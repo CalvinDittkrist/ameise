@@ -19,11 +19,11 @@ import { finishHunt, hunt, resumableHunt } from './hunt.js'
 import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
 import { open } from './terminal.js'
-import { enter } from './engine.js'
+import { enter, resumeAt } from './engine.js'
 import { graphOf } from './graphs.js'
 import { followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
-import type { SessionRecord, StageRecord } from './records.js'
+import type { SessionRecord } from './records.js'
 import { eventsFile, processId, readRecord, seen, watch } from './store.js'
 
 export interface Options {
@@ -51,29 +51,6 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
     timer.unref()
   })
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
-}
-
-// nodeOf is the node of the delivery graph a resume enters for an interrupted process. It is undefined
-// for a hunt session, which begin goes on with or starts afresh. It reads the stage, the fixing flag and
-// the session id, and never the node the record names. A fix session with an id, of the gate, the
-// review or the ci stage, or an address-reviews session, enters its node, which goes on with that
-// session, and so does the implement session. Any other gate enters the gate node, which runs again. A
-// fix session of the review without an id is entered afresh with the findings of the last round. If that
-// round was no fix, the review runs again.
-function nodeOf(record: StageRecord): string | undefined {
-  const fix = record.fixing === true && record.session_id !== undefined
-  if (record.stage === 'gate') return fix ? 'gate-fix' : 'gate'
-  if (fix && (record.stage === 'review' || record.stage === 'ci')) return `${record.stage}-fix`
-  if (fix && record.stage === 'address-reviews') return 'address-reviews'
-  if (record.stage === 'implement') return 'implement'
-  if (fix) return undefined
-  if (record.stage === 'review' && record.fixing === true) {
-    const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
-    return last?.result === 'fix' ? 'review-fix' : 'review'
-  }
-  if (record.stage === 'review' || record.stage === 'pr') return record.stage
-  if (record.stage === 'ci' || record.stage === 'address-reviews') return 'ci'
-  return undefined
 }
 
 export function serve(o: Options): Server {
@@ -182,15 +159,10 @@ export function serve(o: Options): Server {
     send(res, 200, done)
   }
 
-  // A resume goes on with the session of an interrupted process in its worktree by its session id when
-  // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
-  // gate again, and one interrupted while its gate on CI waited takes its draft over and reads the head
-  // again. One interrupted in a node of its graph enters that node again: its review runs the round
-  // again, its pr stage runs again, and its ci stage waits again, as it does before its address-reviews
-  // session started. One interrupted in a fix session of its gate, its review or its ci stage, or in its
-  // address-reviews session, goes on with that session. A fix session of the review that had no id yet
-  // starts afresh with the findings of its last round, or runs the review again if that round was no fix.
-  // A hunt, which has no issue, is named by its id.
+  // A resume is one lookup: the graph of the interrupted process names the node it enters (resumeAt),
+  // and the engine enters it. A node with a session goes on with it by its id when the record has one,
+  // and starts it afresh otherwise. A hunt is read by its stage and fixing flag alone. A hunt session, which the graph has no node of, goes on by its id or
+  // starts afresh, and a hunt, which has no issue, is named by its id.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const byId = typeof body.id === 'string'
@@ -198,8 +170,10 @@ export function serve(o: Options): Server {
     const project = await known(byId ? { project: recorded(body.id).project } : body)
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
-    const node = nodeOf(interrupted)
-    const record = node ? enter(graphOf(interrupted), node, interrupted, project, rt, { resume: true }) : begin(interrupted, project, rt)
+    const graph = graphOf(interrupted)
+    // A hunt keeps the resume of its stage and fixing flag until it has a graph of its own.
+    const node = interrupted.kind === 'hunt' ? graph.old?.(interrupted) : resumeAt(graph, interrupted)
+    const record = node ? enter(graph, node, interrupted, project, rt, { resume: true }) : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

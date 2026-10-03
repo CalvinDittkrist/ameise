@@ -185,3 +185,28 @@ export const delivery = setup({
     done: { type: 'final' },
   },
 })
+
+// fixNodes are the node of a fix session by its stage: the fix session of the gate, the review and the ci
+// stage, and the address-reviews session.
+const fixNodes: Record<string, string> = { gate: 'gate-fix', review: 'review-fix', ci: 'ci-fix', 'address-reviews': 'address-reviews' }
+
+// deliveryResume is the node of the delivery graph a resume enters for an interrupted record, read by its
+// stage, its fixing flag and its session id. It is undefined for a stage the graph has no node of, such as
+// a hunt session, which the resume route goes on with or starts afresh. The implement session goes on by
+// its id, or starts afresh with the brief. A fix session with an id goes on with that session. Without an
+// id, the gate runs again for the fix of the gate, and the ci stage waits again for its fix and for
+// address reviews, which reads the review again. The fix of the review without an id starts afresh with
+// the findings of its last round, or the round runs again if that round was no fix. The gate, the review,
+// the pr and the ci stage that fixed nothing run again, and so does the pr stage whatever its flag.
+export function deliveryResume(record: StageRecord): string | undefined {
+  const stage = record.stage
+  if (stage === 'implement' || stage === 'pr') return stage
+  if (!(stage in fixNodes)) return undefined
+  if (record.fixing !== true) return stage === 'address-reviews' ? 'ci' : stage
+  if (record.session_id !== undefined) return fixNodes[stage]
+  if (stage === 'review') {
+    const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
+    return last?.result === 'fix' ? 'review-fix' : 'review'
+  }
+  return stage === 'gate' ? 'gate' : 'ci'
+}

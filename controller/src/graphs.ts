@@ -6,10 +6,11 @@
 // The delivery graph (delivery.ts) is registered for a work process. Each of its stages is a node: the
 // implement session, the gate, the review, the pr and the ci stage, and the fix sessions of the gate, the
 // review and the ci stage, and the address-reviews session. The session nodes run the process's own
-// session through the session runner (session.ts). Until the hunt has a graph of its own, a hunt that
+// session through the session runner (session.ts). Its mapping of an old record names the node a resume
+// of an interrupted process enters (deliveryResume). Until the hunt has a graph of its own, a hunt that
 // reaches the gate runs the delivery graph's nodes.
 import { addressNode, ciFixNode, ciNode } from './ci.js'
-import { delivery, deliveryContext } from './delivery.js'
+import { delivery, deliveryContext, deliveryResume } from './delivery.js'
 import type { Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
 import { prNode } from './pr.js'
@@ -27,6 +28,7 @@ const registrations = (): Map<string, Registration> =>
       {
         machine: delivery,
         context: deliveryContext,
+        old: deliveryResume,
         nodes: {
           implement: implementNode,
           gate: gateNode,
