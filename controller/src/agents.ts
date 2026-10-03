@@ -1,7 +1,5 @@
-// The agent runs: every subagent a stage starts beside the process's own session, which the one runner
-// of session.ts starts with a brief of the caller's. An agent run holds its name in notes, the stage label
-// the scripted claude of fake mode plays by, the plugin agent it runs as, the schema of its result, the
-// reader of that result and whether it writes the worktree.
+// The agent runs: every subagent a stage starts beside the process's own session. The one runner of
+// session.ts starts each with a brief of the caller's.
 //
 // The five reviewers of the review stage, the author session of the pr stage, the spec checker of an
 // acceptance, the six auditors and the apply session of a standardize process are agent runs. The author,

@@ -4,14 +4,14 @@
 // controller starts the gate stage (gate.ts), unless the maintainer holds the session open. A fix session
 // of the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
 // same way; the complete of a fix session of the ci stage goes back to its wait (ci.ts), every other to
-// the gate. Every subagent of a stage, a reviewer, the author session, the spec checker, an auditor or
-// the apply session, is an agent run (agents.ts) that the one runner, agents, starts here beside the
-// process's own session, side by side where there are several; the streams of the read-only ones stay
-// out of the event log. Every session's end is an attempt in the record's history. Its stream goes
-// into the process's event log and its session id into the record. A session that ends without a result, or a runtime that cannot start, ends the
-// process as failed with the reason. A session the controller's stop cuts off ends the process as
-// interrupted. A resume goes on with it by its session id when it has one, and starts a fresh session
-// otherwise.
+// the gate. Every subagent of a stage is an agent run (agents.ts): a reviewer, the author session, the
+// spec checker, an auditor or the apply session. The one runner, agents, starts each here beside the
+// process's own session, side by side where there are several. The streams of the read-only ones stay
+// out of the event log. Every session's end is an attempt in the record's history. Its stream goes into
+// the process's event log and its session id into the record. A session that ends without a result, or
+// a runtime that cannot start, ends the process as failed with the reason. A session the controller's
+// stop cuts off ends the process as interrupted. A resume goes on with it by its session id when it has
+// one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
@@ -419,11 +419,11 @@ export interface Start {
 // read-only tools denied; a writing run runs as the process's own session, in the auto mode with every
 // tool. s is the process's entry of the stage, whose abort stops them all and which holds their requests;
 // own tells them apart from a stop.
-export async function agents(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, starts: Start[]): Promise<Ended[]> {
+export async function agents<T extends Start[]>(record: SessionRecord, rt: Runtime, s: Running, own: () => boolean, starts: [...T]): Promise<{ [K in keyof T]: Ended }> {
   const exits: Promise<void>[] = []
   const ends = await Promise.all(starts.map((start) => aside(record, rt, s, own, start, exits)))
   await Promise.all(exits)
-  return ends
+  return ends as { [K in keyof T]: Ended }
 }
 
 // aside runs one agent run beside the process's own session and answers how it ended. exits is told of
