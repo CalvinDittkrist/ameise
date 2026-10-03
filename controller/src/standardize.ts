@@ -2,7 +2,7 @@
 // no issue. A standardize opens the branch from the base and its worktree, which is the cleanup worktree
 // of the standardize steps (standard/), and the server then starts its audit. The audit gathers the facts
 // (the facts and the dry run of the workspace step), runs the six auditors as read-only sessions in parallel
-// (session.ts), and merges their finding lines per category with the report. The process then waits for
+// (agents.ts, session.ts), and merges their finding lines per category with the report. The process then waits for
 // one answer per category, approve or reject.
 //
 // The apply records the answers and applies the approved categories in this order: the backup (the tag

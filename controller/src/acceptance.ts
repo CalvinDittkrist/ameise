@@ -1,7 +1,7 @@
 // The acceptance of a spec, which runs in a plan process with the acceptance route. The controller
 // gathers the facts: the spec, its tickets, the merged pull requests that referenced each ticket, the
 // files those changed and the deviations accepted earlier. It runs the spec checker as a read-only
-// session (session.ts), which reports one item per checkable statement with its verdict, evidence and
+// session (agents.ts), which reports one item per checkable statement with its verdict, evidence and
 // confidence, and keeps the items on the process's record, where the process view shows them.
 //
 // The maintainer answers each item not met with a gap ticket, an accepted deviation or no finding. The

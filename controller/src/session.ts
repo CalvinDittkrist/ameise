@@ -413,9 +413,9 @@ export interface Start {
   brief: string
 }
 
-// agents is the one runner of the subagents (agents.ts): it starts each agent run of starts side by side
-// beside the process's own session, a fresh session with the stage timeout, and answers how each ended,
-// in the order given, once every runtime has exited. A read-only run runs in the default mode with the
+// agents is the one runner of the subagents (agents.ts). It starts each run in starts as a fresh session
+// with the stage timeout, in parallel with the process's own session. Once every runtime has exited, it
+// answers how each ended, in the order given. A read-only run runs in the default mode with the
 // read-only tools denied; a writing run runs as the process's own session, in the auto mode with every
 // tool. s is the process's entry of the stage, whose abort stops them all and which holds their requests;
 // own tells them apart from a stop.
