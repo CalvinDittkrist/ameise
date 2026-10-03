@@ -9,11 +9,13 @@
 // passes and the pr stage (pr.ts) opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
 // verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
 // panel. A reviewer that reports no verdict ends the process failed with the reason.
-import { type Attempt, git, type Verdict, type StageRecord } from './claim.js'
+import { git } from './claim.js'
 import { knob, setting } from './gate.js'
 import { pr } from './pr.js'
 import type { Project } from './project.js'
-import { attempt, begin, event, panel, reviewBrief, reviewFixBrief, type Runtime, type Running, track, update } from './session.js'
+import { begin, panel, reviewBrief, reviewFixBrief, type Runtime, type Running, track } from './session.js'
+import type { Attempt, StageRecord, Verdict } from './records.js'
+import { attempt, event, update } from './store.js'
 
 // The reviewers a repository may name in WF_REVIEWERS, each with the worker's agent it runs as.
 export const reviewerAgents: Record<string, string> = {

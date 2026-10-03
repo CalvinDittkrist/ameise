@@ -9,11 +9,13 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
-import { addWorktree, type CreatedRecord, exists, fetch, git, held, writeProcess, type HuntLog, type HuntRecord } from './claim.js'
+import { addWorktree, exists, fetch, git, held } from './claim.js'
 import { gate } from './gate.js'
 import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
-import { event, forget, huntScript, readRecord, type Runtime, stop, track, update } from './session.js'
+import { huntScript, type Runtime, stop, track } from './session.js'
+import type { CreatedRecord, HuntLog, HuntRecord } from './records.js'
+import { event, forget, readRecord, update, writeProcess } from './store.js'
 
 // The rule a test file of a hunt follows, the worker's own (wf_test_paths in its lib.sh), which names it.
 export const testFileRule =

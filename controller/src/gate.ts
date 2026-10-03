@@ -10,11 +10,13 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, fetch, git, type StageRecord } from './claim.js'
+import { fetch, git } from './claim.js'
 import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
 import { review } from './review.js'
-import { attempt, begin, event, fixBrief, runtimeEnv, type Runtime, track, update } from './session.js'
+import { begin, fixBrief, runtimeEnv, type Runtime, track } from './session.js'
+import type { Attempt, StageRecord } from './records.js'
+import { attempt, event, update } from './store.js'
 
 // The gate command of a repository that sets no WF_GATE, the single gate of a repository that follows
 // the standard (ADR 0008).

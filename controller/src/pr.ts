@@ -11,12 +11,14 @@
 // session, or a gh pr create or edit that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, git, type Pull, push, type StageRecord } from './claim.js'
+import { git, push } from './claim.js'
 import { botsOf, ci } from './ci.js'
 import { run } from './exec.js'
 import { defaultGate } from './gate.js'
 import type { Project } from './project.js'
-import { attempt, author, authorBrief, event, type Runtime, type Running, track, update } from './session.js'
+import { author, authorBrief, type Runtime, type Running, track } from './session.js'
+import type { Attempt, Pull, StageRecord } from './records.js'
+import { attempt, event, update } from './store.js'
 
 // pr starts the pr stage of a process and answers the record as it runs. A stop ends its author session;
 // a resume runs the stage again.

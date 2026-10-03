@@ -31,11 +31,13 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { merge } from './actions.js'
-import { type Attempt, type Check, fetch, git, type Point, push, recordsDir, type StageRecord } from './claim.js'
+import { fetch, git, push } from './claim.js'
 import { run } from './exec.js'
 import { defaultGrace, knob, setting } from './gate.js'
 import type { Project } from './project.js'
-import { addressBrief, attempt, begin, busy, ciFixBrief, event, readRecord, type Runtime, track, update } from './session.js'
+import { addressBrief, begin, busy, ciFixBrief, type Runtime, track } from './session.js'
+import type { Attempt, Check, Point, StageRecord } from './records.js'
+import { attempt, event, readRecord, recordsDir, update } from './store.js'
 
 // The ci stage's knobs, the worker's own defaults: the repair rounds of one pull request, the bots whose
 // review is waited for, and how many seconds after the checks' end a bot's review is waited for.
