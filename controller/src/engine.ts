@@ -12,9 +12,9 @@
 // the outcome. A park writes the node's end event, the state and the note. A park in blocked, ready or
 // failed is announced; one in input waits on the board alone. An edge's write action changes the record
 // before the next node is entered. The next node is entered before the run settles, so the process is
-// never untracked between two nodes. advance follows an event into a node from outside a run: a message
-// to a parked process, the follow-up of the ci stage, or a check or the answers of an acceptance. A session node runs the process's own session
-// (session.ts), which takes messages while it runs. Its run is tracked until its runtime has exited, and
+// never untracked between two nodes. advance follows an event into a node from outside a run. Such an
+// event is a message to a parked process, the follow-up of the ci stage, or an acceptance's check or
+// answers. A session node runs the process's own session (session.ts), which takes messages while it runs. Its run is tracked until its runtime has exited, and
 // the next node runs only then, so two sessions never work the worktree at once. Until then a stop of the
 // next node stops that runtime too.
 import type { AnyStateMachine } from 'xstate'

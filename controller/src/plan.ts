@@ -1,9 +1,8 @@
 // The plan process: a planning session in a worktree on a plan branch. A plan opens from an idea, an
-// issue or nothing, an open session, and enters the planner node of the plan graph (planning.ts), which
-// runs its planner session. An acceptance opens the same way on a spec and enters the graph's gather node
-// (acceptance.ts). A capture moves
-// the prototype code the session left in the worktree to a prototype branch of its own and pushes it,
-// so the plan branch stays clean. A finish removes the worktree, the plan branch and the process. A
+// issue or nothing. It enters the planner node of the plan graph (planning.ts), which runs its planner
+// session. An acceptance opens the same way on a spec and enters the graph's gather node (acceptance.ts).
+// A capture moves the prototype code the session left in the worktree to a prototype branch of its own
+// and pushes it, so the plan branch stays clean. A finish removes the worktree, the plan branch and the process. A
 // plan branch never carries a commit.
 import { createHash } from 'node:crypto'
 import { existsSync, rmSync } from 'node:fs'

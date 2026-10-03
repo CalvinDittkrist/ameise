@@ -386,8 +386,7 @@ function closing(spec: number, a: Acceptance): string {
 // deviation is posted on the spec. With a gap ticket the spec stays open; with nothing left open it
 // closes with its closing comment. The answers may come in batches: the items left wait for the next. A
 // write that is refused keeps what was written before it, and the same answers sent again go on from there.
-// A refusal is no outcome and leaves the process where it stands. Each batch written is an event on the
-// decision node, left, gaps or closed, whose edge parks the process on input again with its note.
+// Each batch written is an event on the decision node: left, gaps or closed.
 export function decide(project: Project, rt: Runtime, id: string, decisions: Decision[]): Promise<PlanRecord> {
   const r = acceptanceOf(rt.stateDir, id)
   return held(project, `#${r.issue}`, async () => {

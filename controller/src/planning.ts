@@ -75,8 +75,8 @@ export const planContext = (): Record<string, never> => ({})
 // planEntry is the node a plan process of the route enters as it opens.
 export const planEntry = (route: Route): 'planner' | 'gather' => (route === 'accept' ? 'gather' : 'planner')
 
-// planResume is the node a plan process goes on at after a restart, read from its route, its state, its
-// items and its session id, or undefined where the restart fails it. An acceptance that ran, or whose
+// planResume is the node a plan process goes on at after a restart, or undefined where the restart fails
+// it. It reads the process's route, state, items and session id. An acceptance that ran, or whose
 // checker asked a question before it reported items, fails; one with items waits for its answers on
 // decision. A planner session that ran or waited for a permission waits for a message on planner when it
 // has a session id, and fails without one.
