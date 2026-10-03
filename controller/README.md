@@ -404,13 +404,33 @@ Stopping and starting the controller loses no process.
   - It turns `input` when its session had started, so a message resumes it, and `failed` when it had not.
   - An acceptance whose checker ran turns `failed`, and a check runs it again.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume goes on with an interrupted process: its implement or hunt session, gate, review round, pr stage, wait on the pull request or address-reviews session.
-  - One interrupted before its address-reviews session started waits on the pull request again.
-  - It uses the runtime's resume by that session id, and a short brief to go on.
-  - A process without a session id starts a fresh session with the usual brief.
+- A resume enters the node of the delivery graph that the record names, and a hunt session goes on as before.
+  - A record whose `workflow` is `delivery` and whose `node` names its `stage` resumes at that node.
+  - Any other record, such as one of an older release without `workflow`, resumes by its `stage`, `fixing` and session id:
+
+    | stage | `fixing` | session id | node | what runs |
+    | --- | --- | --- | --- | --- |
+    | implement | any | yes | implement | the session goes on by its id |
+    | implement | any | no | implement | a fresh session with the brief |
+    | gate | not set | any | gate | the gate runs again |
+    | gate | set | yes | gate fix | the fix session goes on by its id |
+    | gate | set | no | gate | the gate runs again |
+    | review | not set | any | review | the round runs again |
+    | review | set | yes | review fix | the fix session goes on by its id |
+    | review | set | no | review fix | a fresh fix session with the last round's findings |
+    | review | set | no, last round not fix | review | the round runs again |
+    | pr | any | any | pr | the pr stage runs again |
+    | ci | not set | any | ci | the wait runs again |
+    | ci | set | yes | ci fix | the fix session goes on by its id |
+    | ci | set | no | ci | the wait runs again |
+    | address-reviews | set | yes | address reviews | the session goes on by its id |
+    | address-reviews | not set, or no id | any | ci | the wait reads the review again and posts what was reported |
+
+  - A node named by the record keeps the same rules of the session id: a fix node without one enters the node of that row.
+  - A session that goes on uses the runtime's resume by its session id, and a short brief to go on.
   - It refuses with `409` a process that is not interrupted and one whose worktree is gone.
 - An adopt takes a `foreign` work worktree into a process: a record in `manual` mode on the base of the project.
-  - The record is `interrupted` without a session, and a resume starts its session.
+  - The record is `interrupted` on the implement node of the delivery graph without a session, and a resume starts its session.
   - It refuses an issue that has a process already and one without a work worktree.
   - A foreign worktree is removed by an abandon, as any other.
 

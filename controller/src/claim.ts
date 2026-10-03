@@ -366,8 +366,8 @@ async function abandonHeld(project: Project, stateDir: string, n: number, force:
 }
 
 // adopt makes a foreign worktree of the issue, one this controller did not start, a work process of the
-// project. The process is interrupted with no session yet, so a resume starts its implement session in
-// the worktree. It refuses an issue without a worktree and one that has a process already. A branch
+// project. The process is interrupted on the implement node of the delivery graph with no session yet,
+// so a resume starts its implement session in the worktree. It refuses an issue without a worktree and one that has a process already. A branch
 // names the worktree to adopt; without one, an issue with more than one worktree is refused.
 export function adopt(project: Project, stateDir: string, issue: number, branch?: string): Promise<WorkRecord> {
   return held(project, `#${issue}`, () => adoptHeld(project, stateDir, issue, branch))
@@ -397,6 +397,8 @@ async function adoptHeld(project: Project, stateDir: string, n: number, branch?:
     mode: 'manual',
     env: {},
     stage: 'implement',
+    workflow: 'delivery',
+    node: 'implement',
     state: 'interrupted',
     note: 'adopted; resume it to start its implement session in the worktree',
     created_at: now,
