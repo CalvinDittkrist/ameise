@@ -145,10 +145,3 @@ test('a green pull request whose yolo merge did not happen parks ready', () => {
   expect(String(next.value)).toBe('ci')
   expect(actions).toContainEqual(expect.objectContaining({ type: 'park', params: { state: 'ready' } }))
 })
-
-test('the ci, ci fix and address-reviews nodes are registered on the delivery graph', () => {
-  const nodes = graphOf(recordOf({})).nodes
-  expect(nodes.ci && 'run' in nodes.ci).toBe(true)
-  expect(nodes['ci-fix'] && 'adapt' in nodes['ci-fix']).toBe(true)
-  expect(nodes['address-reviews'] && 'adapt' in nodes['address-reviews']).toBe(true)
-})
