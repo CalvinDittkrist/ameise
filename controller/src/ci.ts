@@ -1,37 +1,44 @@
 // The ci stage of a work process, which the controller runs once the pr stage has opened the pull
-// request. It pushes what the branch has, then waits on the pull request itself, with one wait at a time
-// and no session polling: first for GitHub to say whether the branch merges into its base, then for the
-// checks, then for a review of a bot of WF_PR_BOT_REVIEWERS within WF_PR_REVIEW_WAIT seconds of the
-// checks' end, then it reads the standing requests for changes and the unresolved threads. A bot's review
-// is a review of it in any state, or its thumbs-up reaction on the pull request, which Codex leaves
-// instead of a review when it finds nothing.
+// request. It pushes what the branch has, then waits on the pull request, one wait at a time and with no
+// session polling.
+// It waits first for GitHub to say whether the branch merges into its base, then for the checks.
+// Then it waits for a review of a bot of WF_PR_BOT_REVIEWERS, within WF_PR_REVIEW_WAIT seconds of the
+// checks' end. Last it reads the standing requests for changes and the unresolved threads.
+// A bot's review is a review of it in any state, or its thumbs-up reaction on the pull request.
+// Codex leaves that reaction instead of a review when it finds nothing.
 //
 // A gate's draft the pr stage marked ready waits for the checks its ready starts, as the README's ci
 // stage says. Bot reviewers skip drafts, so their review is waited for from the ready on.
 //
 // The stage runs as three nodes of the delivery graph (delivery.ts), and the engine (engine.ts) follows
-// their outcomes; none starts a stage or names its successor. The ci node pushes, posts what an
-// address-reviews session reported, waits, and returns the verdict as its outcome. A conflict or failed
-// checks go to the ci fix node, a fresh fix session, while WF_CI_REPAIR_ROUNDS remain; its complete
-// comes back to the ci node, which pushes and waits again. A writer's request for changes, or an
-// unresolved thread a writer or a bot opened, that no round has answered yet goes to the address-reviews
-// node, a session which fixes or declines each point and reports its replies; its complete comes back to
-// the ci node too, which pushes, posts the replies, resolves their threads and answers the requests with
-// one comment, then waits again. A writer's request starts the repair count afresh, once; a bot's review
-// is a repair round of its own, and so is a request asked again, as when its answer could not be posted,
-// so no request is answered by sessions without end. The repair guard of the graph reads the same count.
+// their outcomes. No node starts a stage or names its successor.
 //
-// Green parks the process ready, where the board offers the merge; a yolo process whose panel passed is
-// merged at once, by the merge action's rules, and is done. A request that stands once it is answered, a
-// request or a thread of somebody who is no writer, or a merge state other than clean is never green: the
-// process is blocked until the maintainer answers it. A pull request merged meanwhile blocks it too, for
-// the maintainer to abandon. A spent repair budget parks the process failed, and so does a pull request
-// that is closed; a bot's points with the budget spent get a comment that names the writers first. Every
-// verdict other than a wait is an attempt in the record's history.
+// The ci node pushes, posts what an address-reviews session reported, and waits. It returns the verdict
+// as its outcome.
+// A conflict or failed checks go to the ci fix node while WF_CI_REPAIR_ROUNDS remain.
+// The ci fix node runs a fresh fix session. Its complete comes back to the ci node.
+// Review points no round has answered yet go to the address-reviews node. Such a point is a writer's
+// request for changes, or an unresolved thread a writer or a bot opened.
+// The address-reviews session fixes or declines each point and reports its replies. Its complete comes
+// back to the ci node.
+// The ci node then posts the replies, resolves their threads and answers the requests in one comment.
+// A writer's request starts the repair count afresh, once. A bot's review costs a repair round.
+// A request asked again costs one too, so sessions never answer a request without end.
+// The repair guard of the graph reads the same count.
 //
-// followUps reads the pull request of each process the stage left ready or blocked on a review, and waits
-// on it again once a new request for changes or thread asks for an answer, a review stands on one ready,
-// or a review it was blocked on has changed: the follow-up, an event on the ci node.
+// Green parks the process ready, where the board offers the merge.
+// A yolo process whose panel passed is merged at once, by the merge action's rules, and is done.
+// Some verdicts are never green and block the process until the maintainer answers:
+// a request that stands once answered, a request or thread of somebody who is no writer, or a merge
+// state other than clean.
+// A pull request merged meanwhile blocks the process too, for the maintainer to abandon.
+// A spent repair budget parks the process failed, and so does a closed pull request.
+// A bot's points with the budget spent get a comment that names the writers first.
+// Every verdict other than a wait is an attempt in the record's history.
+//
+// followUps reads the pull request of each process the stage left ready or blocked on a review.
+// It waits on it again once a new request for changes or thread asks for an answer, a review stands on
+// a ready one, or a review it was blocked on has changed. That follow-up is an event on the ci node.
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { merge } from './actions.js'
@@ -479,24 +486,25 @@ function repairRounds(record: StageRecord): number {
   }
 }
 
-async function wait({ record, project, rt, signal, running, own, attempt, event }: NodeContext): Promise<Outcome> {
+async function wait({ record, project, rt, signal, running, own, attempt: nodeAttempt, event: nodeEvent }: NodeContext): Promise<Outcome> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const wt = record.worktree
-  const n = record.pull?.number
-  running.busy = `the ci stage waits on PR #${n ?? '?'}`
-  update(rt.stateDir, id, { note: `waiting on PR #${n ?? '?'}` })
-  event({ event: 'ci-start', stage: 'ci', pr: n })
+  const first = record.pull?.number
+  running.busy = `the ci stage waits on PR #${first ?? '?'}`
+  update(rt.stateDir, id, { note: `waiting on PR #${first ?? '?'}` })
+  nodeEvent({ event: 'ci-start', stage: 'ci', pr: first })
   // end is an outcome that ends the wait, with the attempt of its verdict.
   const end = (outcome: string, note?: string, a?: Attempt, fields: Partial<Outcome> = {}): Outcome => {
     if (!own()) return stopped
     const change = { wait: undefined } as Partial<StageRecord>
-    if (a) attempt(a, change)
+    if (a) nodeAttempt(a, change)
     else update(rt.stateDir, id, change)
     return { outcome, ...(note !== undefined ? { note } : {}), ...fields }
   }
   const pull = record.pull
   if (!pull) return end('failed', 'the ci stage has no pull request to wait on; resume it to open one')
+  const n = pull.number
   let repairs: number
   let k: Knobs
   try {
@@ -525,9 +533,9 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
   // The replies and the answer of an address-reviews session go to GitHub once what it fixed is pushed.
   const reported = record.addressing?.reported
   if (reported) {
-    const posted = await post(record, project, rt, n!, pull.url, reported)
+    const posted = await post(record, project, rt, n, pull.url, reported)
     if (!own()) return stopped
-    attempt(posted, { addressing: undefined } as Partial<StageRecord>)
+    nodeAttempt(posted, { addressing: undefined } as Partial<StageRecord>)
   }
   const head = await git(wt, 'rev-parse', 'HEAD')
   const now = () => new Date().toISOString()
@@ -549,10 +557,10 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
         // The reactions are read only when the review wait asks for them, with the threads in one query,
         // and the threads reuse that query; a reading that asks only for the threads reads no reactions.
         let pulled: ReturnType<typeof threadsOf> | undefined
-        const graph = (reactions: boolean) => (pulled ??= threadsOf(rt.gh, project.owner, project.name, n!, reactions))
+        const graph = (reactions: boolean) => (pulled ??= threadsOf(rt.gh, project.owner, project.name, n, reactions))
         verdict = await judge(
           r,
-          async () => readPoints(rt.gh, project.owner, project.name, n!, r, (await graph(false)).threads),
+          async () => readPoints(rt.gh, project.owner, project.name, n, r, (await graph(false)).threads),
           async () => (await graph(true)).reactions,
           k,
           Date.now(),
@@ -568,7 +576,7 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
       if (verdict.wait !== shown || said !== seen) {
         shown = verdict.wait
         seen = said
-        event({ event: 'ci-wait', stage: 'ci', pr: n, wait: verdict.wait })
+        nodeEvent({ event: 'ci-wait', stage: 'ci', pr: n, wait: verdict.wait })
         update(rt.stateDir, id, { state: 'waiting', note: `PR #${n}: waiting for ${verdict.wait}`, wait: verdict.wait, checks } as Partial<StageRecord>)
       }
       await pause(rt.poll, signal)
@@ -576,7 +584,7 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
     }
     update(rt.stateDir, id, { checks } as Partial<StageRecord>)
     const a: Attempt = { stage: 'ci', kind: 'wait', result: verdict.kind, at: now(), commit: head, pr: n, url: pull.url, checks }
-    if (verdict.kind === 'green') return green(record, project, rt, n!, a, own, attempt)
+    if (verdict.kind === 'green') return green(record, project, rt, n, a, own, nodeAttempt)
     if (verdict.kind === 'merged') return end('merged', `PR #${n} is merged already on GitHub; abandon the process to remove its worktree and branch`, a)
     if (verdict.kind === 'unmergeable') return end('unmergeable', `PR #${n} is not green: its merge state is ${verdict.status}, not CLEAN; meet the base's rules on GitHub, or write here to have the session bring the branch up to date`, a)
     if (verdict.kind === 'closed') return end('closed', `PR #${n} is closed, so there is nothing to wait on; open it again and resume, or abandon the process`, a)
@@ -600,14 +608,15 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
       const fresh = asks.filter((p) => p.kind === 'request' && !asked.has(p.key))
       const again = asks.filter((p) => p.kind === 'request' && asked.has(p.key))
       const mandate = fresh.length > 0 ? 'writer' : 'bot'
-      event({ event: 'ci', ...a })
+      nodeEvent({ event: 'ci', ...a })
       // A bot's points with the budget spent are left to a person, whom the spent comment names.
       if (mandate === 'bot' && spent >= repairs) {
-        await mention(record, project, rt, n!, repairs, asks)
+        await mention(record, project, rt, n, repairs, asks)
         return end('comments', `the ci stage spent its ${repairs} repair round(s): ${asks.length} review point(s) on PR #${n} are left to a person`, a, { mandate })
       }
       if (!own()) return stopped
-      // The address-reviews node answers the points the wait gives it, which a later wait answers no more.
+      // a.asked records the points the address-reviews node answers,
+      // so a later wait does not treat them as unanswered.
       a.asked = asks.map((p) => p.key)
       const note =
         mandate === 'writer'
@@ -615,11 +624,11 @@ async function wait({ record, project, rt, signal, running, own, attempt, event 
           : again.length > 0
             ? `answering the request for changes of ${[...new Set(again.map((p) => p.login))].join(', ')} again, and ${asks.length - again.length} review thread(s); repair round ${spent + 1} of ${repairs}`
             : `answering ${asks.length} review thread(s); repair round ${spent + 1} of ${repairs}`
-      if (!attempt(a, { wait: undefined, note, addressing: { mandate, points: asks } } as Partial<StageRecord>)) return stopped
+      if (!nodeAttempt(a, { wait: undefined, note, addressing: { mandate, points: asks } } as Partial<StageRecord>)) return stopped
       return { outcome: 'comments', mandate }
     }
-    const what = whatFailed(record, n!, verdict.kind, checks)
-    event({ event: 'ci', ...a })
+    const what = whatFailed(record, n, verdict.kind, checks)
+    nodeEvent({ event: 'ci', ...a })
     return end(verdict.kind, `the ci stage spent its ${repairs} repair round(s): ${what}`, a)
   }
 }
