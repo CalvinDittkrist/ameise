@@ -1,18 +1,17 @@
 // The engine: the controller code that enters the nodes of a process graph, runs them and follows their
-// edges. A graph reaches it as data, a registration of the registry (graphs.ts); it imports no graph and
-// no node. It runs a graph's XState machine through its pure functions only: the resolved state of a
-// stored node, the check whether an event has an edge, and the transition. No actor runs and no snapshot
-// is kept: the process record is the source of truth and holds the graph's id in workflow and its node
-// in node.
+// edges. A graph reaches it as data, a registration of the registry (graphs.ts). It imports no graph and
+// no node. It runs a graph's XState machine through its pure functions only. These are the resolved state
+// of a stored node, the check whether an event has an edge, and the transition. No actor runs and no
+// snapshot is kept. The process record is the source of truth: workflow holds the graph's id, node its node.
 //
 // Entering a node writes its entry fields, stage, workflow and node, and its start event. The engine
-// tracks the run, so a stop ends it, chains its abort, and turns a throw into failed with the node's
-// prefix. A stop takes the process over: what the node returns after it starts nothing. The outcome
-// takes its edge, which the engine checks before it transitions, since a transition without an edge
-// answers the same state: an outcome without one parks the process failed with a note naming the node
-// and the outcome. A park writes the node's end event, the state and the note, and is announced. The
-// next node is entered before the run settles, so the process is never untracked between two nodes. A
-// state whose stage is not a node yet calls today's stage function through an adapter.
+// tracks the run. A stop ends the run and chains its abort, and a throw parks it failed with the node's
+// prefix. A stop takes the process over, so what the node returns after it starts nothing. The engine
+// checks that the outcome has an edge before it transitions, since a transition without an edge answers
+// the same state. An outcome without an edge parks the process failed, with a note naming the node and
+// the outcome. A park writes the node's end event, the state and the note, and is announced. The next
+// node is entered before the run settles, so the process is never untracked between two nodes. A state
+// whose stage is not a node yet calls today's stage function through an adapter.
 import type { AnyStateMachine } from 'xstate'
 import { transition } from 'xstate'
 import type { Project } from './project.js'
@@ -48,8 +47,9 @@ export interface NodeContext {
 export type Node = { run: (ctx: NodeContext) => Promise<Outcome> } | { adapt: (record: StageRecord, project: Project, rt: Runtime) => SessionRecord }
 
 // The meta of a state the engine reads: its stage, its entry fields and note, its start and end events,
-// and the prefix of a throw's note and the name of the warning of a run that ends unexpectedly.
-interface Meta {
+// and the prefix of a throw's note. what names the node in the warning of a run that ends unexpectedly.
+// A graph declares the meta of its states with this type.
+export interface StateMeta {
   stage: string
   entry?: Record<string, unknown>
   note?: string
@@ -72,9 +72,9 @@ export interface Registration {
 }
 
 // metaOf is the meta of a node of the graph, from its resolved state.
-function metaOf(g: Registration, node: string, record: StageRecord): Meta {
+function metaOf(g: Registration, node: string, record: StageRecord): StateMeta {
   const state = g.machine.resolveState({ value: node, context: g.context(record) })
-  const meta = (state.getMeta() as Record<string, Meta | undefined>)[`${g.machine.id}.${node}`]
+  const meta = (state.getMeta() as Record<string, StateMeta | undefined>)[`${g.machine.id}.${node}`]
   if (!meta) throw new Error(`the ${g.machine.id} graph has no node ${node}`)
   return meta
 }
@@ -128,7 +128,7 @@ export function enter(g: Registration, node: string, record: StageRecord, projec
 
 // follow takes the edge of the node's outcome from the record as it stands: a park keeps the process on
 // the node, a final state ends the graph, any other state is entered.
-function follow(g: Registration, id: string, node: string, meta: Meta, o: Outcome, project: Project, rt: Runtime) {
+function follow(g: Registration, id: string, node: string, meta: StateMeta, o: Outcome, project: Project, rt: Runtime) {
   const record = readRecord(rt.stateDir, id) as StageRecord | undefined
   if (!record) return
   const { outcome, note, ...fields } = o
@@ -144,7 +144,7 @@ function follow(g: Registration, id: string, node: string, meta: Meta, o: Outcom
 
 // park ends the run of a node with the process waiting on it: its end event, then its state and note,
 // and the announce.
-function park(rt: Runtime, id: string, meta: Meta, state: string, note: string) {
+function park(rt: Runtime, id: string, meta: StateMeta, state: string, note: string) {
   if (meta.end) event(rt.stateDir, id, { event: meta.end, stage: meta.stage, state, note })
   const parked = update(rt.stateDir, id, { state, note, unseen: true })
   if (parked) rt.announce(parked)

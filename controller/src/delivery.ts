@@ -1,16 +1,18 @@
 // The delivery graph: the process graph of a work process, an XState machine of its nodes and the edges
-// their outcomes take. A node runs one stage, or one fix session of a stage, and returns an outcome; the
-// graph names where it goes. A park (ready, blocked, input, failed) is no state of its own: it is the
-// action park on an edge that keeps the process on its node, and a later event takes an edge from there.
-// Only done is final.
+// their outcomes take. A node runs one stage, or one fix session of a stage, and returns an outcome. The
+// graph names where the outcome goes. A park (ready, blocked, input, failed) is no state of its own. It is
+// the action park on an edge, which keeps the process on its node until a later event takes an edge from
+// there. Only done is final.
 //
-// The guards are named and read the budgets of today (budgets.ts) from a context the engine builds from
-// the record at every transition (deliveryContext), so no budget is kept a second time. A state's meta
-// carries its stage, the fields and the note the engine writes as it enters it, and its start and end
-// event names. The engine (engine.ts) runs the machine through its pure functions only; the registry
-// (graphs.ts) pairs it with its nodes. This module imports the budgets and the settings, and no stage.
+// The guards are named and read the budgets of today (budgets.ts). They read them from a context that the
+// engine builds from the record at every transition (deliveryContext), so no budget is kept a second time.
+// A state's meta carries its stage, the fields and the note the engine writes as it enters it, and its
+// start and end event names. The engine (engine.ts) runs the machine through its pure functions only, and
+// the registry (graphs.ts) pairs it with its nodes. This module imports the budgets and the settings, and
+// no stage.
 import { setup } from 'xstate'
 import { gateFixesSpent, repairsSpent, reviewRounds } from './budgets.js'
+import type { StateMeta } from './engine.js'
 import type { StageRecord } from './records.js'
 import { knob } from './settings.js'
 
@@ -20,7 +22,7 @@ const defaultReviewRounds = 3
 const defaultRepairRounds = 3
 
 // What the guards of the delivery graph read, built from the record at every transition.
-export interface DeliveryContext {
+export type DeliveryContext = {
   // gateFixes are the fix sessions the gate spent, of gateRounds (WF_GATE_ROUNDS).
   gateFixes: number
   gateRounds: number
@@ -62,21 +64,9 @@ export function deliveryContext(record: StageRecord): DeliveryContext {
 }
 
 // An event of the delivery graph: the outcome of a node, or a message or a follow-up to a parked
-// process. The comments of the ci stage name whose they are, a writer's or a bot's.
+// process. mandate is writer or bot on a comments event of the ci stage: a writer's comments are always
+// addressed, a bot's only while a repair round remains.
 export type DeliveryEvent = { type: string; mandate?: 'writer' | 'bot' }
-
-// The meta of a state: its stage, the fields and the note the engine writes as it enters it, its start
-// and end event names, and the prefix of the note a throw in it ends the process failed with. what names
-// it in the controller's own warnings.
-export interface StateMeta {
-  stage: string
-  entry?: Record<string, unknown>
-  note?: string
-  start?: string
-  end?: string
-  failure?: string
-  what?: string
-}
 
 // park keeps the process on its node in one of the park states.
 const park = (state: 'ready' | 'blocked' | 'input' | 'failed') => ({ type: 'park', params: { state } }) as const
