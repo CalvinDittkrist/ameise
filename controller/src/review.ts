@@ -7,9 +7,9 @@
 // A fix verdict starts one fix session of the review with every finding of the round by its id; its
 // complete runs the gate again, whose pass starts the next round. Once every reviewer passes, the panel
 // passes and the engine (engine.ts) enters the pr node of the process's graph, whose pr stage (pr.ts)
-// opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
-// verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
-// panel. A reviewer that reports no verdict ends the process failed with the reason.
+// opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix verdict still standing, the panel
+// fails: the pull request is opened all the same, and names the failed panel. A reviewer that reports no
+// verdict ends the process failed with the reason.
 import { type AgentRun, type Ended, reviewers } from './agents.js'
 import { reviewRounds } from './budgets.js'
 import { git } from './git.js'

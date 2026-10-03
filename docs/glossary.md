@@ -101,7 +101,7 @@ Terms the code, the issues and the docs use, one row each.
 | hunt record | The rounds, removals and kept candidates of a test hunt, kept by `hunt.sh` in the worktree's git directory and copied into the hunt process's record; it stands in for the issue. |
 | process graph | The XState machine a process kind of the controller runs on: its nodes, the outcomes of each node and the edge each outcome or event takes ([ADR 0070](adr/0070-processes-run-on-process-graphs.md)). |
 | node | One state of a process graph. It runs controller code or one agent, and returns an outcome. |
-| park | A node a process waits on, ready, blocked, input or failed, until a message, a follow-up or a request moves it. |
+| park | The state of a process kept on its node, ready, blocked, input or failed, until a message, a follow-up or a request moves it. It is an action on an edge, not a node of its own. |
 | agent run | The controller's settings for running one agent session and reading its result: name, stage label, the plugin agent it names, output schema, reader, write access. Not the Agent SDK's agent definition, which the plugin's agent file holds. |
 | engine | The controller code that enters the nodes of a process graph, runs them and follows their edges. |
 
