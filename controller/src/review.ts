@@ -9,36 +9,29 @@
 // passes and the pr stage (pr.ts) opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix
 // verdict still standing, the panel fails: the pull request is opened all the same, and names the failed
 // panel. A reviewer that reports no verdict ends the process failed with the reason.
+import { type AgentRun, type Ended, reviewers } from './agents.js'
 import { git } from './git.js'
 import { pr } from './pr.js'
 import type { Project } from './project.js'
 import { reviewBrief, reviewFixBrief } from './briefs.js'
 import { type Running, track } from './running.js'
-import { begin, panel, type Runtime } from './session.js'
+import { agents, begin, type Runtime } from './session.js'
 import { knob, setting } from './settings.js'
 import type { Attempt, StageRecord, Verdict } from './records.js'
 import { attempt, event, update } from './store.js'
 
-// The reviewers a repository may name in WF_REVIEWERS, each with the worker's agent it runs as.
-export const reviewerAgents: Record<string, string> = {
-  code: 'worker:code-reviewer',
-  security: 'worker:security-reviewer',
-  docs: 'worker:docs-reviewer',
-  tests: 'worker:test-reviewer',
-  senior: 'worker:senior-reviewer',
-}
 const defaultReviewers = ['code', 'security', 'docs', 'tests', 'senior']
 const defaultRounds = 3
 
-// reviewersOf reads WF_REVIEWERS of the process: a comma-separated list of the reviewers above, the five
+// reviewersOf reads WF_REVIEWERS of the process: a comma-separated list of the reviewers (agents.ts), the five
 // where it is not set. A name that is no reviewer is refused with the reason.
 export function reviewersOf(record: StageRecord): string[] {
   const value = setting(record, 'WF_REVIEWERS')
   if (value === undefined || value === '') return defaultReviewers
   if (typeof value !== 'string') throw new Error(`WF_REVIEWERS=${String(value)} is not a list of reviewers; set it as such, such as code,security, or leave it out for ${defaultReviewers.join(',')}`)
   const names = [...new Set(value.split(',').map((n) => n.trim()).filter((n) => n !== ''))]
-  const unknown = names.find((n) => !Object.hasOwn(reviewerAgents, n))
-  if (unknown !== undefined) throw new Error(`WF_REVIEWERS names ${unknown}, which is no reviewer; the reviewers are ${Object.keys(reviewerAgents).join(', ')}`)
+  const unknown = names.find((n) => !Object.hasOwn(reviewers, n))
+  if (unknown !== undefined) throw new Error(`WF_REVIEWERS names ${unknown}, which is no reviewer; the reviewers are ${Object.keys(reviewers).join(', ')}`)
   return names.length > 0 ? names : defaultReviewers
 }
 
@@ -111,7 +104,8 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
   // A stop while git ran has taken the process over; no reviewer starts after it.
   if (!own() || s.abort.signal.aborted) return
   const brief = reviewBrief(record, repo, gated)
-  const ends = await panel(record, rt, s, own, due.map((name) => ({ name, agent: reviewerAgents[name] as string, brief })))
+  const ended = await agents(record, rt, s, own, due.map((name) => ({ run: reviewers[name] as AgentRun, brief })))
+  const ends = due.map((reviewer, i) => ({ reviewer, ended: ended[i] as Ended }))
   if (!own()) return
 
   const verdicts: Verdict[] = ends.map(({ reviewer, ended }) => {

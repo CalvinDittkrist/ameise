@@ -1,7 +1,7 @@
 // The acceptance of a spec, which runs in a plan process with the acceptance route. The controller
 // gathers the facts: the spec, its tickets, the merged pull requests that referenced each ticket, the
 // files those changed and the deviations accepted earlier. It runs the spec checker as a read-only
-// session (session.ts), which reports one item per checkable statement with its verdict, evidence and
+// session (agents.ts), which reports one item per checkable statement with its verdict, evidence and
 // confidence, and keeps the items on the process's record, where the process view shows them.
 //
 // The maintainer answers each item not met with a gap ticket, an accepted deviation or no finding. The
@@ -9,6 +9,7 @@
 // the spec, a deviation the comment the glossary defines. With a gap ticket the spec stays open, and its
 // acceptance runs again once the gap tickets are closed. With nothing left open the spec closes with its
 // closing comment. An item the maintainer accepted as a deviation earlier is not reported again.
+import { checker } from './agents.js'
 import { pages } from './board.js'
 import { confidences, sections, verdicts } from './checkitems.js'
 import { held } from './claim.js'
@@ -17,7 +18,7 @@ import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
 import { type Project, Refusal } from './project.js'
 import { track } from './running.js'
-import { checker, type Runtime } from './session.js'
+import { agents, type Runtime } from './session.js'
 import type { Acceptance, Item, ItemAnswer, PlanRecord } from './records.js'
 import { event, readRecord, update } from './store.js'
 
@@ -242,7 +243,7 @@ export function check(record: PlanRecord, project: Project, rt: Runtime): PlanRe
       if (!own() || s.abort.signal.aborted) return
       event(rt.stateDir, id, { event: 'acceptance-facts', tickets: facts.tickets.map((t) => ({ issue: t.number, prs: t.prs })), files: facts.files.length, deviations: facts.deviations.length, notes: facts.notes })
       update(rt.stateDir, id, { note: 'the spec checker runs' })
-      const ended = await checker(started, rt, s, own, checkerBrief(started, repo, facts))
+      const [ended] = await agents(started, rt, s, own, [{ run: checker, brief: checkerBrief(started, repo, facts) }])
       if (!own()) return
       if (ended.state !== 'complete' || !ended.items) return fail(`the acceptance failed: ${ended.note}`)
       const all = itemsOf(ended.items)
