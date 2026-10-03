@@ -8,11 +8,11 @@
 // and every other complete goes to the gate. Every subagent of a stage is an agent run (agents.ts): a
 // reviewer, the author session, the spec checker, an auditor or the apply session. The one runner,
 // agents, starts each here beside the process's own session, side by side where there are several. The
-// streams of the read-only ones stay out of the event log. Every session's end is an attempt in the record's history. Its stream goes into
-// the process's event log and its session id into the record. A session that ends without a result, or
-// a runtime that cannot start, ends the process as failed with the reason. A session the controller's
-// stop cuts off ends the process as interrupted. A resume goes on with it by its session id when it has
-// one, and starts a fresh session otherwise.
+// streams of the read-only ones stay out of the event log. Every session's end is an attempt in the
+// record's history. Its stream goes into the process's event log and its session id into the record. A
+// session that ends without a result, or a runtime that cannot start, ends the process as failed with
+// the reason. A session the controller's stop cuts off ends the process as interrupted. A resume goes on
+// with it by its session id when it has one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
