@@ -2,24 +2,25 @@
 // branch hunt/tests-<date> from the base and its worktree, and the server then starts its hunt session:
 // the worker on its hunt skill, whose hunters propose tests that prove nothing and whose worker removes
 // them. The hunt record the worker's hunt.sh keeps in the worktree is read into the process record as
-// the session works. A hunt that removed a test runs the gate, the review, the pr and the ci stages of a
-// work process with the hunt record in place of the issue; one that removed nothing ends done with no
-// pull request, and a finish removes its worktree, branch and process.
+// the session works. A hunt runs on the hunt graph (delivery.ts): its hunt node runs the hunt session,
+// and its hunt-record node reads the hunt record once the session reported complete. The graph, not this
+// module, starts the gate after a hunt that removed a test, which then runs the gate, the review, the pr
+// and the ci stages of a work process with the hunt record in place of the issue. One that removed
+// nothing ends done with no pull request, and a finish removes its worktree, branch and process.
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
-import { enter } from './engine.js'
-import { graphOf } from './graphs.js'
+import type { Node, Outcome } from './engine.js'
 import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
 import { huntScript } from './bundle.js'
-import { stop, track } from './running.js'
-import { type Runtime } from './session.js'
-import type { CreatedRecord, HuntLog, HuntRecord } from './records.js'
-import { event, forget, readRecord, update, writeProcess } from './store.js'
+import { stop } from './running.js'
+import { type Runtime, sessionEntry, talk } from './session.js'
+import type { CreatedRecord, HuntLog, HuntRecord, StageRecord } from './records.js'
+import { forget, readRecord, update, writeProcess } from './store.js'
 
 // The rule a test file of a hunt follows, the worker's own (wf_test_paths in its lib.sh), which names it.
 export const testFileRule =
@@ -140,49 +141,51 @@ export function refresh(record: HuntRecord, rt: Runtime): void {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
-// hunted goes on from a hunt session that reported complete, once its runtime has exited: it reads the
-// hunt record into the process record, starts the gate when the hunt removed a test, and otherwise ends
-// the process done with no pull request.
-export function hunted(record: HuntRecord, project: Project, rt: Runtime, after: Promise<void>, before?: AbortController): void {
-  const id = record.id
-  const abort = new AbortController()
-  if (before) abort.signal.addEventListener('abort', () => before.abort(), { once: true })
-  let own = () => true
-  const done = after
-    .then(async () => {
-      if (!own()) return
-      const hunt = await huntLog(record.worktree)
-      if (!own()) return
-      const now = update(rt.stateDir, id, { hunt } as Partial<HuntRecord>) as HuntRecord | undefined
-      if (!now) return
-      // hunt.sh ends the hunt, never the session's report: a complete before it waits for the session.
-      if (hunt.ended === null) {
-        const note = `the hunt session reported complete after ${plural(hunt.rounds, 'round')}, before hunt.sh ended the hunt; write to it to run its rounds until hunt.sh round answers none`
-        event(rt.stateDir, id, { event: 'hunt-unended', stage: 'hunt', state: 'input', note, rounds: hunt.rounds })
-        const waiting = update(rt.stateDir, id, { state: 'input', note, unseen: true })
-        if (waiting) rt.announce(waiting)
-        return
-      }
-      // hunt.sh lists only the removals that still stand, and counts the stale ones apart.
-      if (hunt.removed.length > 0) {
-        // The gate node of the delivery graph takes the process's place among the running ones from this
-        // reading.
-        enter(graphOf(now), 'gate', now, project, rt)
-        return
-      }
-      const note = `the hunt removed nothing in ${plural(hunt.rounds, 'round')}, so no pull request opens; ${plural(hunt.kept.length, 'candidate')} were checked and kept. Finish it to remove its worktree and branch`
-      event(rt.stateDir, id, { event: 'hunt-end', stage: 'hunt', state: 'done', note, rounds: hunt.rounds, kept: hunt.kept.length })
-      const ended = update(rt.stateDir, id, { state: 'done', note, unseen: true })
-      if (ended) rt.announce(ended)
-    })
-    .catch((err: unknown) => {
-      if (!own()) return
+// huntRequest reads the request of a hunt, which names nothing but its project.
+export const huntRequest = (): Record<string, never> => ({})
+
+// huntNode is the hunt node of the hunt graph: the hunt session, which a hunt enters fresh, the resume
+// route goes on with by its id, and a message resumes. The process page follows its hunt record, which
+// changes with the session's tool results, so each user message of the session refreshes it.
+export const huntNode: Node = {
+  talks: true,
+  entry: (record, how) => sessionEntry(record, how),
+  run: (ctx) => talk(ctx, undefined, () => refresh(ctx.record as HuntRecord, ctx.rt)),
+}
+
+// huntRecordNode is the hunt-record node of the hunt graph: it reads the hunt record into the process
+// record once the hunt session reported complete. It answers removed when the hunt removed a test,
+// unended when the session reported complete before hunt.sh ended the hunt, nothing when it removed
+// nothing, which ends the process done with no pull request, and failed when the record cannot be read.
+export const huntRecordNode: Node = {
+  run: async (ctx): Promise<Outcome> => {
+    const { record, rt } = ctx
+    const id = record.id
+    let hunt: HuntLog
+    try {
+      hunt = await huntLog(record.worktree)
+    } catch (err) {
       const note = `could not read the hunt record: ${(err as Error).message}`
-      event(rt.stateDir, id, { event: 'hunt-end', stage: 'hunt', state: 'failed', note })
-      const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-      if (failed) rt.announce(failed)
-    })
-  own = track(id, abort, done, 'the hunt record is read').own
+      if (ctx.own()) ctx.event({ event: 'hunt-end', stage: 'hunt', state: 'failed', note })
+      return { outcome: 'failed', note }
+    }
+    if (!ctx.own()) return { outcome: 'stopped' }
+    update(rt.stateDir, id, { hunt } as Partial<StageRecord>)
+    // hunt.sh ends the hunt, never the session's report: a complete before it waits for the session.
+    if (hunt.ended === null) {
+      const note = `the hunt session reported complete after ${plural(hunt.rounds, 'round')}, before hunt.sh ended the hunt; write to it to run its rounds until hunt.sh round answers none`
+      ctx.event({ event: 'hunt-unended', stage: 'hunt', state: 'input', note, rounds: hunt.rounds })
+      return { outcome: 'unended', note }
+    }
+    // hunt.sh lists only the removals that still stand, and counts the stale ones apart.
+    if (hunt.removed.length > 0) return { outcome: 'removed' }
+    // done is final, so the engine writes nothing on it: the node writes the end itself.
+    const note = `the hunt removed nothing in ${plural(hunt.rounds, 'round')}, so no pull request opens; ${plural(hunt.kept.length, 'candidate')} were checked and kept. Finish it to remove its worktree and branch`
+    ctx.event({ event: 'hunt-end', stage: 'hunt', state: 'done', note, rounds: hunt.rounds, kept: hunt.kept.length })
+    const ended = update(rt.stateDir, id, { state: 'done', note, unseen: true })
+    if (ended) rt.announce(ended)
+    return { outcome: 'nothing', note }
+  },
 }
 
 // huntOf is the record of a hunt process by its id, or the refusal that says why there is none.

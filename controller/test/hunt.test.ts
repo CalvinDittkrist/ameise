@@ -1,9 +1,9 @@
 import { type ChildProcess, execFileSync } from 'node:child_process'
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { testPaths } from '../src/hunt.js'
-import { api, canApi, canPages, canPull, canPulls, checkout, cleanup, cli, gated, type Machine, machine, read, reading, record, start, tools } from './controller.js'
+import { api, canApi, canPages, canPull, canPulls, checkout, cleanup, cli, gated, type Machine, machine, read, reading, record, start, tools, worktree } from './controller.js'
 
 afterEach(cleanup)
 
@@ -39,6 +39,8 @@ interface Record {
   hunt?: { rounds: number; ended: string | null; removed: { test: string; path: string; why: string }[]; kept: { test: string }[] }
   history?: { stage: string; kind: string; result: string }[]
   session_id?: string
+  workflow?: string
+  node?: string
 }
 
 // up starts the controller again on the same machine.
@@ -238,6 +240,89 @@ test('a resume by id refuses a process that is not a hunt', async () => {
   const refused = await api(m, 'POST', '/api/processes/resume', { id: 'work-1' })
   expect(refused.status).toBe(409)
   expect((refused.body as { error: string }).error).toBe('work-1 is a work process, not a hunt')
+})
+
+const file = (path: string) => (existsSync(path) ? read(path) : '')
+const events = (id: string) =>
+  file(join(m.state, 'processes', `${id}.events.jsonl`))
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l) as { event: string; stage?: string; state?: string; resume?: string })
+
+test('a message to a hunt waiting on input resumes its hunt session by its id, whose next complete reads the hunt record again', async () => {
+  tested()
+  playHunt('no candidates', 'complete hunt: nothing removed')
+  const r = await hunted()
+  const waiting = await ended(r.id)
+  expect(waiting).toMatchObject({ state: 'input', workflow: 'hunt', node: 'hunt-record', hunt: { rounds: 1, ended: null } })
+  expect(events(r.id).map((e) => e.event)).toContain('hunt-unended')
+
+  writeFileSync(join(m.claude, 'resume'), [`run bash ${script} round`, 'complete hunt: nothing removed'].join('\n') + '\n')
+  const sent = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Run the rounds until hunt.sh ends the hunt' })
+  expect(sent.body).toMatchObject({ delivered: 'resumed' })
+  const done = await until(r.id, (x) => x.state === 'done')
+  expect(done).toMatchObject({ stage: 'hunt', node: 'hunt-record', session_id: waiting.session_id, hunt: { rounds: 1, ended: 'round 1 found no new candidate' } })
+  expect(done.note).toMatch(/^the hunt removed nothing in 1 round, so no pull request opens/)
+  const log = events(r.id)
+  const from = log.findIndex((e) => e.event === 'message')
+  expect(log.slice(from).find((e) => e.event === 'session-start')).toMatchObject({ stage: 'hunt', resume: waiting.session_id })
+  expect(log.slice(from).find((e) => e.event === 'hunt-end')).toMatchObject({ state: 'done' })
+  expect(read(m.claudeLog).split('\n')).toContain(`--resume=${waiting.session_id}`)
+})
+
+test('a message to a ready hunt runs its hunt session again, whose complete goes through the gate once more', async () => {
+  tested()
+  playHunt(
+    'candidate: tests/test_login.py | test_constant | cannot-fail | asserts the constant 1 | high',
+    'run git rm -q tests/test_login.py && git commit -q -m "test: remove test_constant"',
+    `run printf 'remove: tests/test_login.py | test_constant | cannot-fail | asserts the constant 1\\nwhy: it cannot fail\\nstill_proven: no, it touched no behaviour\\n' | bash ${script} removed`,
+    `run bash ${script} round`,
+    'complete Removed test_constant',
+  )
+  canPull(m, 'owner/repo', 7, [reading(7)])
+  const r = await hunted()
+  const ready = await ended(r.id)
+  expect(ready).toMatchObject({ state: 'ready', stage: 'ci', workflow: 'hunt' })
+  const before = shape(ready).length
+
+  writeFileSync(join(m.claude, 'resume'), 'complete Looked again\n')
+  const sent = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Look again' })
+  expect(sent.body).toMatchObject({ delivered: 'resumed' })
+  const again = await until(r.id, (x) => x.state === 'ready' && shape(x).length > before + 1)
+  expect(shape(again).slice(before, before + 2)).toEqual(['hunt session complete', 'gate run pass'])
+  const log = events(r.id)
+  const from = log.findIndex((e) => e.event === 'message')
+  expect(log.slice(from).find((e) => e.event === 'session-start')).toMatchObject({ stage: 'hunt', resume: ready.session_id })
+})
+
+// interruptedHunt writes a hunt record on a worktree of its branch, as a stop leaves it.
+function interruptedHunt(fields: { [key: string]: unknown }): string {
+  const branch = 'hunt/tests-2026-10-01'
+  const id = 'hunt-000000000001'
+  const now = new Date().toISOString()
+  record(m, id, { id, project: dir, kind: 'hunt', branch, issue: null, worktree: worktree(dir, branch), base: 'origin/main', mode: 'manual', env: {}, state: 'interrupted', note: 'the controller stopped', history: [], created_at: now, updated_at: now, ...fields })
+  return id
+}
+
+test('a hunt record with the delivery workflow, interrupted in ci, resumes at the ci node of the hunt graph', async () => {
+  const id = interruptedHunt({ stage: 'ci', workflow: 'delivery', node: 'ci', session_id: '0b5c3a6e-1111-4222-8333-444455556666' })
+  const resumed = await api(m, 'POST', '/api/processes/resume', { id })
+  expect(resumed.status, JSON.stringify(resumed.body)).toBe(200)
+  expect((resumed.body as { record: Record }).record).toMatchObject({ workflow: 'hunt', node: 'ci', stage: 'ci' })
+  for (let i = 0; i < 200 && !events(id).some((e) => e.event === 'ci-start'); i++) await new Promise((d) => setTimeout(d, 50))
+  expect(events(id).some((e) => e.event === 'ci-start')).toBe(true)
+})
+
+test('a hunt record without workflow, interrupted in its hunt session, resumes that session by its id', async () => {
+  const session = '0b5c3a6e-1111-4222-8333-444455556666'
+  const id = interruptedHunt({ stage: 'hunt', session_id: session })
+  writeFileSync(join(m.claude, 'resume'), 'wait\n')
+  const resumed = await api(m, 'POST', '/api/processes/resume', { id })
+  expect(resumed.status, JSON.stringify(resumed.body)).toBe(200)
+  expect((resumed.body as { record: Record }).record).toMatchObject({ workflow: 'hunt', node: 'hunt', stage: 'hunt', state: 'running', note: 'hunt session resumed' })
+  for (let i = 0; i < 200 && !file(m.claudeLog).includes(`--resume=${session}`); i++) await new Promise((d) => setTimeout(d, 50))
+  expect(read(m.claudeLog).split('\n')).toContain(`--resume=${session}`)
+  expect(events(id).find((e) => e.event === 'session-start')).toMatchObject({ stage: 'hunt', resume: session })
 })
 
 test.each([

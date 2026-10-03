@@ -1,13 +1,16 @@
 // The delivery graph: the process graph of a work process, an XState machine of its nodes and the edges
-// their outcomes take. A node runs one stage, or one fix session of a stage, and returns an outcome. The
-// graph names where the outcome goes. A park (ready, blocked, input, failed) is no state of its own. It is
+// their outcomes take. The hunt graph of a hunt process is built from the same setup: its own hunt and
+// hunt-record nodes, then the nodes of the delivery graph from the gate on, with the same named guards.
+// A node runs one stage, or one fix session of a stage, and returns an outcome. The graph names where
+// the outcome goes. A park (ready, blocked, input, failed) is no state of its own. It is
 // the action park on an edge, which keeps the process on its node until a later event takes an edge from
 // there. Only done is final.
 //
 // A message to a parked process is the event message on its node. Its edge goes on with the session of
 // the stage: the implement session, or the fix session of the gate, the review or the ci stage, or the
-// address-reviews session. A message to a process parked ready is new work, which goes to implement
-// first, with the action write, which clears the fix and the panel of the review that passed.
+// address-reviews session. A message to a process parked ready is new work, which goes to the graph's
+// first session, implement or hunt, with the action write, which clears the fix and the panel of the
+// review that passed.
 //
 // The guards are named and read the budgets of today (budgets.ts). They read them from a context that the
 // engine builds from the record at every transition (deliveryContext), so no budget is kept a second time.
@@ -81,9 +84,9 @@ const park = (state: 'ready' | 'blocked' | 'input' | 'failed') => ({ type: 'park
 // write changes the record as the edge is taken, before the next node is entered.
 const write = (change: Record<string, unknown>) => ({ type: 'write', params: change }) as const
 
-// message is the edge of a message to a process parked on a node: implement for one parked ready, with
-// its fix and its panel cleared, and the node's session otherwise.
-const message = (target: string) => [{ guard: 'ready' as const, target: 'implement', actions: write({ fixing: false, panel: undefined }) }, { target }]
+// message is the edge of a message to a process parked on a node: the graph's first session for one
+// parked ready, with its fix and its panel cleared, and the node's session otherwise.
+const message = (first: string, target: string) => [{ guard: 'ready' as const, target: first, actions: write({ fixing: false, panel: undefined }) }, { target }]
 
 // The parks every session node has: a session that asks, is blocked or failed waits on its node.
 const sessionParks = { input: { actions: park('input') }, blocked: { actions: park('blocked') }, failed: { actions: park('failed') } }
@@ -92,7 +95,8 @@ const sessionParks = { input: { actions: park('input') }, blocked: { actions: pa
 // end events, which name the session it resumes and the commits it reported.
 const session = (stage: string, entry: Record<string, unknown> = {}): StateMeta => ({ stage, entry, what: `its ${stage} session` })
 
-export const delivery = setup({
+// graph is the setup both graphs share: the named guards and the actions the engine reads.
+const graph = setup({
   types: { context: {} as DeliveryContext, events: {} as DeliveryEvent },
   guards: {
     gateRoundsRemain: ({ context }) => context.gateFixes < context.gateRounds,
@@ -107,82 +111,115 @@ export const delivery = setup({
     park: () => {},
     write: () => {},
   },
-}).createMachine({
+})
+
+const initialContext: DeliveryContext = { gateFixes: 0, gateRounds: defaultGateRounds, reviewRound: 0, reviewRounds: defaultReviewRounds, repairs: 0, repairRounds: defaultRepairRounds, yolo: false, panelPassed: false }
+
+// tail are the nodes from the gate on, which the delivery and the hunt graph share. first is the node of
+// the graph's first session, where a message to a process parked ready and to its pr stage goes.
+const tail = (first: string) => ({
+  gate: {
+    meta: { stage: 'gate', entry: { state: 'running', fixing: false }, note: 'the gate starts', start: 'gate-start', end: 'gate-end', failure: 'the gate failed', what: 'its gate' } satisfies StateMeta,
+    on: {
+      pass: 'review',
+      skipped: 'review',
+      fail: [{ guard: 'gateRoundsRemain' as const, target: 'gate-fix' }, { actions: park('failed') }],
+      failed: { actions: park('failed') },
+      message: message(first, 'gate-fix'),
+    },
+  },
+  'gate-fix': {
+    meta: session('gate', { fixing: true }),
+    on: { complete: 'gate', ...sessionParks, message: message(first, 'gate-fix') },
+  },
+  review: {
+    // The review node writes its own start event, which names the round and its reviewers.
+    meta: { stage: 'review', entry: { state: 'running', fixing: false }, note: 'the reviewers run', end: 'review-end', failure: 'the review failed', what: 'its review' } satisfies StateMeta,
+    on: {
+      pass: 'pr',
+      findings: [{ guard: 'reviewRoundsRemain' as const, target: 'review-fix' }, { target: 'pr' }],
+      failed: { actions: park('failed') },
+      message: message(first, 'review-fix'),
+    },
+  },
+  'review-fix': {
+    meta: session('review', { fixing: true }),
+    on: { complete: 'gate', ...sessionParks, message: message(first, 'review-fix') },
+  },
+  pr: {
+    meta: {
+      stage: 'pr',
+      entry: { state: 'running', fixing: false, wait: undefined },
+      note: 'the author session writes the pull request',
+      start: 'pr-start',
+      end: 'pr-end',
+      failure: 'the pr stage failed',
+      what: 'its pr stage',
+    } satisfies StateMeta,
+    on: { opened: 'ci', found: 'ci', finished: 'ci', failed: { actions: park('failed') }, message: message(first, first) },
+  },
+  ci: {
+    // The ci node writes its own note and its start event, which name the pull request it waits on.
+    meta: { stage: 'ci', entry: { state: 'waiting', fixing: false }, end: 'ci-end', failure: 'the ci stage failed', what: 'its ci stage' } satisfies StateMeta,
+    on: {
+      green: [{ guard: 'yoloPanelPassed' as const, target: 'done' }, { actions: park('ready') }],
+      merged: { actions: park('blocked') },
+      unmergeable: { actions: park('blocked') },
+      answered: { actions: park('blocked') },
+      closed: { actions: park('failed') },
+      failed: { actions: park('failed') },
+      'checks-failed': [{ guard: 'repairRoundsRemain' as const, target: 'ci-fix' }, { actions: park('failed') }],
+      conflicts: [{ guard: 'repairRoundsRemain' as const, target: 'ci-fix' }, { actions: park('failed') }],
+      comments: [{ guard: 'writerOrRepairRoundsRemain' as const, target: 'address-reviews' }, { actions: park('failed') }],
+      'follow-up': 'ci',
+      message: message(first, 'ci-fix'),
+    },
+  },
+  'ci-fix': {
+    meta: session('ci', { fixing: true }),
+    on: { complete: 'ci', ...sessionParks, message: message(first, 'ci-fix') },
+  },
+  'address-reviews': {
+    meta: session('address-reviews', { fixing: true }),
+    on: { complete: 'ci', ...sessionParks, message: message(first, 'address-reviews') },
+  },
+  done: { type: 'final' as const },
+})
+
+export const delivery = graph.createMachine({
   id: 'delivery',
   initial: 'implement',
-  context: { gateFixes: 0, gateRounds: defaultGateRounds, reviewRound: 0, reviewRounds: defaultReviewRounds, repairs: 0, repairRounds: defaultRepairRounds, yolo: false, panelPassed: false },
+  context: initialContext,
   states: {
     implement: {
       // Entering implement clears the hold that was spent.
       meta: session('implement', { fixing: false, held: undefined }),
-      on: { complete: 'gate', ...sessionParks, message: message('implement') },
+      on: { complete: 'gate', ...sessionParks, message: message('implement', 'implement') },
     },
-    gate: {
-      meta: { stage: 'gate', entry: { state: 'running', fixing: false }, note: 'the gate starts', start: 'gate-start', end: 'gate-end', failure: 'the gate failed', what: 'its gate' } satisfies StateMeta,
-      on: {
-        pass: 'review',
-        skipped: 'review',
-        fail: [{ guard: 'gateRoundsRemain', target: 'gate-fix' }, { actions: park('failed') }],
-        failed: { actions: park('failed') },
-        message: message('gate-fix'),
-      },
+    ...tail('implement'),
+  },
+})
+
+// The hunt graph: the process graph of a hunt process. Its hunt node runs the hunt session, whose
+// complete goes to the hunt-record node, which reads the hunt record. A hunt that removed a test goes to
+// the gate, one that ended before its rounds waits on input, and one that removed nothing is done. A hunt
+// record that cannot be read parks failed. From the gate on it runs the nodes of the delivery graph, with
+// the same guards, and a message to a hunt parked ready goes back to the hunt session.
+export const huntGraph = graph.createMachine({
+  id: 'hunt',
+  initial: 'hunt',
+  context: initialContext,
+  states: {
+    hunt: {
+      meta: session('hunt', { fixing: false }),
+      on: { complete: 'hunt-record', ...sessionParks, message: message('hunt', 'hunt') },
     },
-    'gate-fix': {
-      meta: session('gate', { fixing: true }),
-      on: { complete: 'gate', ...sessionParks, message: message('gate-fix') },
+    'hunt-record': {
+      // The hunt-record node writes its own events and notes, which name the rounds and the removals.
+      meta: { stage: 'hunt', note: 'the hunt record is read', failure: 'could not read the hunt record', what: 'its hunt record' } satisfies StateMeta,
+      on: { removed: 'gate', unended: { actions: park('input') }, nothing: 'done', failed: { actions: park('failed') }, message: message('hunt', 'hunt') },
     },
-    review: {
-      // The review node writes its own start event, which names the round and its reviewers.
-      meta: { stage: 'review', entry: { state: 'running', fixing: false }, note: 'the reviewers run', end: 'review-end', failure: 'the review failed', what: 'its review' } satisfies StateMeta,
-      on: {
-        pass: 'pr',
-        findings: [{ guard: 'reviewRoundsRemain', target: 'review-fix' }, { target: 'pr' }],
-        failed: { actions: park('failed') },
-        message: message('review-fix'),
-      },
-    },
-    'review-fix': {
-      meta: session('review', { fixing: true }),
-      on: { complete: 'gate', ...sessionParks, message: message('review-fix') },
-    },
-    pr: {
-      meta: {
-        stage: 'pr',
-        entry: { state: 'running', fixing: false, wait: undefined },
-        note: 'the author session writes the pull request',
-        start: 'pr-start',
-        end: 'pr-end',
-        failure: 'the pr stage failed',
-        what: 'its pr stage',
-      } satisfies StateMeta,
-      on: { opened: 'ci', found: 'ci', finished: 'ci', failed: { actions: park('failed') }, message: message('implement') },
-    },
-    ci: {
-      // The ci node writes its own note and its start event, which name the pull request it waits on.
-      meta: { stage: 'ci', entry: { state: 'waiting', fixing: false }, end: 'ci-end', failure: 'the ci stage failed', what: 'its ci stage' } satisfies StateMeta,
-      on: {
-        green: [{ guard: 'yoloPanelPassed', target: 'done' }, { actions: park('ready') }],
-        merged: { actions: park('blocked') },
-        unmergeable: { actions: park('blocked') },
-        answered: { actions: park('blocked') },
-        closed: { actions: park('failed') },
-        failed: { actions: park('failed') },
-        'checks-failed': [{ guard: 'repairRoundsRemain', target: 'ci-fix' }, { actions: park('failed') }],
-        conflicts: [{ guard: 'repairRoundsRemain', target: 'ci-fix' }, { actions: park('failed') }],
-        comments: [{ guard: 'writerOrRepairRoundsRemain', target: 'address-reviews' }, { actions: park('failed') }],
-        'follow-up': 'ci',
-        message: message('ci-fix'),
-      },
-    },
-    'ci-fix': {
-      meta: session('ci', { fixing: true }),
-      on: { complete: 'ci', ...sessionParks, message: message('ci-fix') },
-    },
-    'address-reviews': {
-      meta: session('address-reviews', { fixing: true }),
-      on: { complete: 'ci', ...sessionParks, message: message('address-reviews') },
-    },
-    done: { type: 'final' },
+    ...tail('hunt'),
   },
 })
 
@@ -191,9 +228,8 @@ export const delivery = setup({
 const fixNodes: Record<string, string> = { gate: 'gate-fix', review: 'review-fix', ci: 'ci-fix', 'address-reviews': 'address-reviews' }
 
 // deliveryResume is the node of the delivery graph a resume enters for an interrupted record, read by its
-// stage, its fixing flag and its session id. It is undefined for a stage the graph has no node of, such as
-// a hunt session, which the resume route goes on with or starts afresh. The implement session goes on by
-// its id, or starts afresh with the brief. A fix session with an id goes on with that session. Without an
+// stage, its fixing flag and its session id. It is undefined for a stage the graph has no node of. The
+// implement session goes on by its id, or starts afresh with the brief. A fix session with an id goes on with that session. Without an
 // id, the gate runs again for the fix of the gate, and the ci stage waits again for its fix and for
 // address reviews, which reads the review again. The fix of the review without an id starts afresh with
 // the findings of its last round, or the round runs again if that round was no fix. The gate, the review,
@@ -209,4 +245,12 @@ export function deliveryResume(record: StageRecord): string | undefined {
     return last?.result === 'fix' ? 'review-fix' : 'review'
   }
   return stage === 'gate' ? 'gate' : 'ci'
+}
+
+// huntResume is the node of the hunt graph a resume enters for an interrupted hunt record: the hunt node
+// for a record in its hunt stage, which goes on with the hunt session by its id or starts it afresh, and
+// the node of the delivery graph's mapping from the gate on. A record without workflow, or one a release
+// of the migration wrote with the delivery workflow, is read by its stage the same way.
+export function huntResume(record: StageRecord): string | undefined {
+  return record.stage === 'hunt' ? 'hunt' : deliveryResume(record)
 }
