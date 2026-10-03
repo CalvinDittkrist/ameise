@@ -270,6 +270,18 @@ test('a message to a hunt waiting on input resumes its hunt session by its id, w
   expect(read(m.claudeLog).split('\n')).toContain(`--resume=${waiting.session_id}`)
 })
 
+test('a hunt whose hunt record cannot be read after its session reported complete parks failed with an event and opens no pull request', async () => {
+  tested()
+  // The session points the worktree's .git at nothing, so hunt.sh json finds no git directory to read.
+  playHunt('no candidates', `run bash ${script} round`, "run printf 'gitdir: /nonexistent\\n' > .git", 'complete hunt: nothing removed')
+  const r = await hunted()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'hunt' })
+  expect(done.note).toMatch(/^could not read the hunt record: /)
+  expect(events(r.id).find((e) => e.event === 'hunt-end')).toMatchObject({ stage: 'hunt', state: 'failed' })
+  expect(read(m.ghLog)).not.toMatch(/^pr create/m)
+})
+
 test('a message to a ready hunt runs its hunt session again, whose complete goes through the gate once more', async () => {
   tested()
   playHunt(
