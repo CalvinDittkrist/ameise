@@ -14,7 +14,15 @@
 #                                          the readings gh pr view answers in their order before that,
 #                                          one file each, in the order of their names, such as 000.json;
 #                                          each call takes the next, and the last one stays; once gh pr
-#                                          merge merged it, merged.json goes before them
+#                                          merge merged it, merged.json goes before them; a reading's
+#                                          <name>.reactions beside it, such as 000.reactions holding
+#                                          [{"content":"THUMBS_UP","reactors":{"nodes":[{"__typename":
+#                                          "Bot","login":"chatgpt-codex-connector"}]}}], is what gh api
+#                                          graphql answers as the reaction groups on it once gh pr view
+#                                          answered that reading
+#     repos/<owner>/<name>/pulls/<n>.reactions
+#                                          the reaction groups on the pull request of pulls/<n>.json; absent,
+#                                          it has none
 #     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create and gh pr edit --body-file where pulls/
 #                                          exists: the body of the pull request it opened or edited
 #     repos/<owner>/<name>/draft-<n>.json  written by gh pr create --draft: the draft it opened, by the
@@ -258,10 +266,22 @@ case "$*" in
     if [ -n "$canned" ] && [ -f "$file" ]; then projects=$(cat "$file"); fi
     printf '{"data":{"repository":{"projectsV2":{"nodes":%s}}}}\n' "$projects" ;;
   'api graphql -F owner='*' -F name='*' -F number='*' -f query='*)
-    file="$canned/repos/${4#owner=}/${6#name=}/pulls/${8#number=}.threads.json"
+    pulls="$canned/repos/${4#owner=}/${6#name=}/pulls"
+    file="$pulls/${8#number=}.threads.json"
     threads='[]'
     if [ -n "$canned" ] && [ -f "$file" ]; then threads=$(cat "$file"); fi
-    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s}}}}}\n' "$threads" ;;
+    # The reactions are those of the reading gh pr view answered last, or of the pull request itself.
+    shown="$pulls/${8#number=}.json"
+    readings="$pulls/${8#number=}.readings"
+    if [ -n "$canned" ] && [ -f "$readings/.taken" ]; then
+      queue=("$readings"/*.json)
+      taken=$(< "$readings/.taken")
+      if [ "$taken" -gt ${#queue[@]} ]; then taken=${#queue[@]}; fi
+      shown="${queue[$((taken - 1))]}"
+    fi
+    reactions='[]'
+    if [ -n "$canned" ] && [ -f "${shown%.json}.reactions" ]; then reactions=$(cat "${shown%.json}.reactions"); fi
+    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s},"reactionGroups":%s}}}}\n' "$threads" "$reactions" ;;
   'api '*)
     endpoint=${!#}
     file="$canned/api/$endpoint"
