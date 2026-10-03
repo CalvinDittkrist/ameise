@@ -15,12 +15,12 @@ import { createHash } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
-import { addWorktree, type CreatedRecord, exists, fetch, git, held, type Mode, writeProcess } from './claim.js'
+import { addWorktree, exists, fetch, git, held } from './claim.js'
 import { run } from './exec.js'
 import { settingOf } from './gate.js'
 import { removal } from './hunt.js'
 import { type Project, Refusal } from './project.js'
-import { applier, auditors, type Ended, event, readRecord, type Running, type Runtime, track, update } from './session.js'
+import { applier, auditors, type Ended, type Running, type Runtime, track } from './session.js'
 import { backup as backupStep } from './standard/backup.js'
 import { cleanupOpen, cleanupPrepare } from './standard/cleanup.js'
 import { facts } from './standard/facts.js'
@@ -29,65 +29,14 @@ import { issues as issuesStep } from './standard/issues.js'
 import { type Category, categories, type Ctx, step } from './standard/lib.js'
 import { approve, report as reportStep } from './standard/report.js'
 import { workspace } from './standard/workspace.js'
+import type { Answer, CategoryReport, Standardization, StandardizeRecord, Step } from './records.js'
+import { event, readRecord, update, writeProcess } from './store.js'
 
 // The branch of a standardize process, the cleanup branch of the standardize steps.
 export const standardizeBranch = 'chore/standardize'
 
 // The six finding categories, one per auditor, in the order of the report.
 export { type Category, categories }
-
-export type Answer = 'approve' | 'reject'
-
-// A finding of the report, as the report stores it.
-export interface StandardFinding {
-  target: string
-  action: string
-  reason: string
-  confidence: string
-}
-
-// A category the report asks about: its findings and the report's lines on it, which say what approving
-// it triggers, and the maintainer's answer once given.
-export interface CategoryReport {
-  name: Category
-  findings: StandardFinding[]
-  report: string[]
-  answer?: Answer
-}
-
-// A step of the apply or the finalize: the step or the session, what it printed, and whether it held.
-export interface Step {
-  step: string
-  ok: boolean
-  lines: string[]
-  at: string
-}
-
-// What a standardize process keeps on its record: the facts the auditors were briefed with, how each
-// auditor ended, the report per category, the finding lines the report refused, the error of the workspace step
-// when the workspace could not be audited, and what the apply and the finalize did.
-export interface Standardization {
-  facts: string[]
-  workspace: string[]
-  auditors: { category: Category; state: string; note: string; findings: number }[]
-  summary: string
-  categories: CategoryReport[]
-  dropped: string[]
-  applied?: Step[]
-  unaudited?: string
-  pull?: string
-  catalogue?: number
-  result?: 'pass' | 'fail'
-}
-
-// A standardize process, as the state directory holds it in processes/<id>.json.
-export interface StandardizeRecord extends CreatedRecord {
-  kind: 'standardize'
-  issue: null
-  mode: Mode
-  env: Record<string, string>
-  standardize?: Standardization
-}
 
 // standardize opens a standardize process: the branch chore/standardize from the base, its worktree and a
 // record in the state created. It refuses while a standardize process runs, or the branch exists here or

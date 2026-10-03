@@ -10,11 +10,10 @@ import { run, which } from './exec.js'
 import { bundledPlugins, stopAll } from './session.js'
 import type { Process, ProjectBoard } from './board.js'
 import { version, type Merged, type Released } from './actions.js'
-import type { PlanRecord } from './plan.js'
-import type { HuntRecord } from './claim.js'
 import type { Listed } from './project.js'
 import { identity, serve } from './server.js'
 import { contextReport } from './context-report.js'
+import type { HuntRecord, PlanRecord } from './records.js'
 
 const usage = `usage:
   ameise [--fake]                    start the server and open the browser

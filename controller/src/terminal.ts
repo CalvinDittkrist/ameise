@@ -4,7 +4,9 @@
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from './project.js'
-import { commandFile, type SessionRecord, sessionAgent, sessionPlugins, settings } from './session.js'
+import { sessionAgent, sessionPlugins, settings } from './session.js'
+import type { SessionRecord } from './records.js'
+import { commandFile } from './store.js'
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 

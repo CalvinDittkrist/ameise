@@ -26,20 +26,19 @@
 // A hunt process runs its hunt session in place of the implement session, the worker on the hunt skill,
 // and the hunt record stands where the issue stands in every brief after it (hunt.ts).
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type HookCallback, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { confidences, sections, verdicts } from './checkitems.js'
-import { type Attempt, type Check, type CreatedRecord, type Finding, type Fix, type HuntRecord, type Point, writeAtomic, type StageRecord } from './claim.js'
 import { ci } from './ci.js'
 import { gate, knob } from './gate.js'
 import { directWrite, githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
-import type { PlanRecord } from './plan.js'
-import type { StandardizeRecord } from './standardize.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
+import type { Attempt, Check, CreatedRecord, Finding, Fix, HuntRecord, PlanRecord, Point, SessionRecord, StageRecord, StandardizeRecord } from './records.js'
+import { attempt, event, readRecord, recordFile, update } from './store.js'
 
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
@@ -58,9 +57,6 @@ export interface Runtime {
   // announce tells the maintainer that a process turned blocked, ready or failed (notify.ts).
   announce: Announce
 }
-
-// A process that runs sessions: a work process, a plan process or a standardize process.
-export type SessionRecord = StageRecord | PlanRecord | StandardizeRecord
 
 // Announce is told of a process once it has turned blocked, ready or failed, with its record as it
 // ended. A yolo process that ended ready is told of although its record is gone.
@@ -283,33 +279,6 @@ export async function stop(id: string): Promise<boolean> {
   s.abort.abort()
   await s.done
   return true
-}
-
-// A change of a process that the process page follows: a line written to its event log, its record
-// written anew, or its record gone.
-export type Change = { event: Record<string, unknown> } | { record: SessionRecord } | { gone: true }
-
-const watchers = new Map<string, Set<(c: Change) => void>>()
-
-// watch calls back with every change of the process from now on, and answers the call that ends it.
-export function watch(id: string, fn: (c: Change) => void): () => void {
-  const set = watchers.get(id) ?? new Set()
-  watchers.set(id, set)
-  set.add(fn)
-  return () => {
-    set.delete(fn)
-    if (set.size === 0) watchers.delete(id)
-  }
-}
-
-function tell(id: string, c: Change) {
-  for (const fn of watchers.get(id) ?? []) {
-    try {
-      fn(c)
-    } catch (err) {
-      warn(id, 'a watcher of the process failed', err)
-    }
-  }
 }
 
 // interruptedNote is the note of a work or hunt process whose session or stage the controller's stop cut off.
@@ -753,67 +722,6 @@ export function runtimeEnv(): Record<string, string> {
   return out
 }
 
-const recordFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.json`)
-export const eventsFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.events.jsonl`)
-export const commandFile = (stateDir: string, id: string) => join(stateDir, 'processes', `${id}.command`)
-
-// processId checks that an id has the shape of a process id, so no id names a file outside the
-// processes.
-export function processId(id: unknown): string {
-  if (typeof id !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id)) throw new Refusal('id is not the id of a process; send the id the board names')
-  return id
-}
-
-// readRecord answers the record of a process, or undefined when it has none. Its id is the name of its
-// file, as the board reads it.
-export function readRecord(stateDir: string, id: string): SessionRecord | undefined {
-  const file = recordFile(stateDir, processId(id))
-  if (!existsSync(file)) return undefined
-  return { ...(JSON.parse(readFileSync(file, 'utf8')) as SessionRecord), id }
-}
-
-// update writes a change to a process's record and answers the record, or undefined when the process
-// is gone, as after an abandon.
-export function update(stateDir: string, id: string, change: Partial<CreatedRecord>): SessionRecord | undefined {
-  const file = recordFile(stateDir, id)
-  if (!existsSync(file)) return undefined
-  const record = { ...(JSON.parse(readFileSync(file, 'utf8')) as SessionRecord), ...change, updated_at: new Date().toISOString() } as SessionRecord
-  writeAtomic(file, JSON.stringify(record, null, 2) + '\n')
-  tell(id, { record })
-  return record
-}
-
-// forget removes a process's record, its event log and its terminal script.
-export function forget(stateDir: string, id: string) {
-  rmSync(eventsFile(stateDir, id), { force: true })
-  rmSync(commandFile(stateDir, id), { force: true })
-  rmSync(recordFile(stateDir, id), { force: true })
-  tell(id, { gone: true })
-}
-
-// seen marks a process as seen, once its page is opened, and answers whether it has a record. It leaves
-// the time of the record's last change alone, since the process itself did not change.
-export function seen(stateDir: string, id: string): boolean {
-  const file = recordFile(stateDir, processId(id))
-  if (!existsSync(file)) return false
-  const record = JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
-  if (record.unseen) {
-    const marked = { ...record, unseen: false }
-    writeAtomic(file, JSON.stringify(marked, null, 2) + '\n')
-    tell(id, { record: marked })
-  }
-  return true
-}
-
-// An end is written into the log before the record takes the state it ends in, and a record goes after
-// its log: whoever reads a record's state, as the board does, then finds the log that led to it complete.
-export function event(stateDir: string, id: string, e: Record<string, unknown>) {
-  if (!existsSync(recordFile(stateDir, id))) return
-  const line = { at: new Date().toISOString(), ...e }
-  appendFileSync(eventsFile(stateDir, id), JSON.stringify(line) + '\n')
-  tell(id, { event: line })
-}
-
 // warn tells the controller's own stderr what a process could not write, as the record cannot hold it.
 const warn = (id: string, what: string, err: unknown) => process.stderr.write(`warning: ${id}: ${what}: ${(err as Error).message}\n`)
 
@@ -859,14 +767,6 @@ const sessionOf = (record: SessionRecord) =>
             ? 'address-reviews session'
             : `${firstStage(record)} session`
 const stageOf = (record: SessionRecord) => (record.kind === 'plan' ? record.stage : ['gate', 'review', 'ci', 'address-reviews'].includes(record.stage) ? record.stage : firstStage(record))
-
-// attempt adds an attempt to a work or hunt process's history and answers the record, or undefined when
-// the process is gone.
-export function attempt(stateDir: string, id: string, a: Attempt, change: Partial<StageRecord> = {}): StageRecord | undefined {
-  const now = readRecord(stateDir, id)
-  if (!now || now.kind === 'plan' || now.kind === 'standardize') return undefined
-  return update(stateDir, id, { ...change, history: [...(now.history ?? []), a] } as unknown as Partial<CreatedRecord>) as StageRecord | undefined
-}
 
 // begin starts the session of a process, the implement session of a claimed work process or the planner
 // session of a plan, and answers its record as it runs. A process with a session id resumes that session

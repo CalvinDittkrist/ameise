@@ -15,13 +15,15 @@
 // files goes to a fix session, as a failed check does.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Attempt, type Check, git, type Pull, push, type StageRecord } from './claim.js'
+import { git, push } from './claim.js'
 import { checksOf, pause, type Reading } from './ci.js'
 import { run } from './exec.js'
 import { defaultGrace, type GateForm, knob, mergeBase, repair, short, tailOf } from './gate.js'
 import type { Project } from './project.js'
 import { review } from './review.js'
-import { attempt, event, type Runtime, update } from './session.js'
+import { type Runtime } from './session.js'
+import type { Attempt, Check, Pull, StageRecord } from './records.js'
+import { attempt, event, update } from './store.js'
 
 // The failed logs a fix session is briefed with: those of at most this many runs of GitHub Actions.
 const maxLogRuns = 4

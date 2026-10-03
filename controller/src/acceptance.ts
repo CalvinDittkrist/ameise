@@ -14,49 +14,13 @@ import { confidences, sections, verdicts } from './checkitems.js'
 import { fetch, git, held } from './claim.js'
 import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
-import type { PlanRecord } from './plan.js'
 import { type Project, Refusal } from './project.js'
-import { checker, event, readRecord, type Runtime, track, update } from './session.js'
+import { checker, type Runtime, track } from './session.js'
+import type { Acceptance, Item, ItemAnswer, PlanRecord } from './records.js'
+import { event, readRecord, update } from './store.js'
 
 // The first line of a comment that accepts a deviation, as the glossary defines it.
 export const deviationMarker = '> Accepted deviation (spec acceptance).'
-
-// The answers to an item not met: a gap ticket with its title and what it builds, an accepted deviation
-// with the reason the code is right, or no finding with the reason it is overruled.
-export type ItemAnswer = { answer: 'gap'; title: string; what?: string } | { answer: 'deviation'; reason: string } | { answer: 'none'; reason?: string }
-
-export interface Item {
-  id: string
-  section: (typeof sections)[number]
-  statement: string
-  verdict: (typeof verdicts)[number]
-  evidence: string
-  confidence: (typeof confidences)[number]
-  // answer is the maintainer's, and written what the controller wrote for it: the gap ticket as #<n>,
-  // deviation or none. An item written is not written again when the answers are sent once more.
-  answer?: ItemAnswer
-  written?: string
-  // unlinked marks a gap ticket created that did not become a sub-issue of the spec. The next acceptance
-  // reads the tickets from the sub-issues, so the answers go on only once it is one.
-  unlinked?: boolean
-}
-
-// What the acceptance keeps on the process's record: the facts the checker was briefed with, its items,
-// and what the answers wrote.
-export interface Acceptance {
-  spec: { title: string; milestone: string | null; labels: string[] }
-  tickets: { number: number; title: string; prs: number[] }[]
-  files: number
-  // deviations are the deviations accepted earlier, each @<login>: <text>.
-  deviations: string[]
-  // notes say what could not be read, so a short list of facts reads as unknown and not as none.
-  notes: string[]
-  items: Item[]
-  // repeated counts the items the checker reported again although they were accepted as deviations.
-  repeated: number
-  gaps?: number[]
-  closed?: boolean
-}
 
 interface Facts extends Omit<Acceptance, 'files' | 'items' | 'repeated'> {
   body: string
