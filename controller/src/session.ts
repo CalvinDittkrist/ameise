@@ -1,39 +1,39 @@
 // The sessions of a work process: Claude Code run headless through the Agent SDK in the process's
 // worktree. The implement session implements the issue and commits, with the bundled worker plugin, and
-// ends by reporting complete with its commits or blocked through a structured result. On complete the
-// controller enters the gate node (gate.ts) through the engine, unless the maintainer holds the session
-// open. A fix session of the gate, of the review or of the ci stage is a fresh session with a stage
-// timeout that reports the same way. The complete of a fix session of the gate, of the review, of the ci
-// stage or of an address-reviews session is an outcome of its node of the delivery graph. The engine
-// (engine.ts) follows that outcome. The gate fix and the review fix go to the gate, the others back to
-// the ci node (ci.ts). Every other complete enters the gate node. Every subagent of a stage is an agent
-// run (agents.ts): a reviewer, the author session, the spec checker, an auditor or the apply session.
-// The one runner, agents, starts each here beside the process's own session, side by side where there
-// are several. The streams of the read-only ones stay out of the event log. Every session's end is an
-// attempt in the record's history. Its stream goes into the process's event log and its session id into
-// the record. A session that ends without a result, or a runtime that cannot start, ends the process as
-// failed with the reason. A session the controller's stop cuts off ends the process as interrupted. A
-// resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
+// ends by reporting complete with its commits or blocked through a structured result. A fix session of
+// the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
+// same way, and so is an address-reviews session. Each runs as the run of its node of the delivery graph
+// (talk), and its end reports an outcome to the engine (engine.ts) and starts no stage: the engine
+// follows the outcome's edge. A held implement session reports input in place of complete. Every subagent
+// of a stage is an agent run (agents.ts): a reviewer, the author session, the spec checker, an auditor or
+// the apply session. The one runner, agents, starts each here beside the process's own session, side by
+// side where there are several. The streams of the read-only ones stay out of the event log. Every
+// session's end is an attempt in the record's history. Its stream goes into the process's event log and
+// its session id into the record. A session that ends without a result, or a runtime that cannot start,
+// ends failed with the reason. A session the controller's stop cuts off ends the process as interrupted.
+// A resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
 // A permission the classifier does not settle and a question of the session reach the controller
 // through the SDK's permission callback. The session waits until the process page answers them.
-// A message to a process whose session has ended resumes that session by its id.
+// A message to a work process whose session has ended is an event on its node, whose edge resumes a
+// session by its id.
 //
 // A plan process runs a planner session the same way, with the bundled planner plugin and the planner's
 // start context in its brief. It reports no result: each turn it ends waits for the maintainer, whose
 // next message resumes it.
 //
 // A hunt process runs its hunt session in place of the implement session, the worker on the hunt skill,
-// and the hunt record stands where the issue stands in every brief after it (hunt.ts).
+// and the hunt record stands where the issue stands in every brief after it (hunt.ts). Its session runs
+// on no node: begin starts it, and its complete reads the hunt record.
 //
 // The first prompt of each session is its brief (briefs.ts), and the plugins it loads are the bundle's
 // (bundle.ts).
 //
-// This module holds begin, say, hold and answer, the session loop with its permission callback, the
-// report schemas of its own session, the one runner of the agent runs, and the plugins and agent of a
-// session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
+// This module holds begin, talk, the implement node, say, hold and answer, the session loop with its
+// permission callback, the report schemas of its own session, the one runner of the agent runs, and the
+// plugins and agent of a session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
 // settings of a session, its runtime environment, the knobs, the rules an allowance grants and the hook
 // against a direct GitHub write are settings.ts.
 import { spawn } from 'node:child_process'
