@@ -1,10 +1,10 @@
 // The delivery graph: the process graph of a work process, an XState machine of its nodes and the edges
-// their outcomes take. The hunt graph of a hunt process is built from the same setup: its own hunt and
-// hunt-record nodes, then the nodes of the delivery graph from the gate on, with the same named guards.
+// their outcomes take. The hunt graph of a hunt process is built from the same setup. It has its own hunt
+// and hunt-record nodes. From the gate on it has the nodes of the delivery graph, with the same guards.
 // A node runs one stage, or one fix session of a stage, and returns an outcome. The graph names where
-// the outcome goes. A park (ready, blocked, input, failed) is no state of its own. It is
-// the action park on an edge, which keeps the process on its node until a later event takes an edge from
-// there. Only done is final.
+// the outcome goes. A park (ready, blocked, input, failed) is no state of its own. It is the action park
+// on an edge, which keeps the process on its node until a later event takes an edge from there. Only done
+// is final.
 //
 // A message to a parked process is the event message on its node. Its edge goes on with the session of
 // the stage: the implement session, or the fix session of the gate, the review or the ci stage, or the
@@ -200,11 +200,11 @@ export const delivery = graph.createMachine({
   },
 })
 
-// The hunt graph: the process graph of a hunt process. Its hunt node runs the hunt session, whose
+// The hunt graph: the process graph of a hunt process. Its hunt node runs the hunt session. The session's
 // complete goes to the hunt-record node, which reads the hunt record. A hunt that removed a test goes to
-// the gate, one that ended before its rounds waits on input, and one that removed nothing is done. A hunt
-// record that cannot be read parks failed. From the gate on it runs the nodes of the delivery graph, with
-// the same guards, and a message to a hunt parked ready goes back to the hunt session.
+// the gate. One that ended before its rounds waits on input, and one that removed nothing is done. A hunt
+// record that cannot be read parks failed. From the gate on the graph runs the nodes of the delivery
+// graph, with the same guards. A message to a hunt parked ready goes back to the hunt session.
 export const huntGraph = graph.createMachine({
   id: 'hunt',
   initial: 'hunt',
@@ -229,11 +229,12 @@ const fixNodes: Record<string, string> = { gate: 'gate-fix', review: 'review-fix
 
 // deliveryResume is the node of the delivery graph a resume enters for an interrupted record, read by its
 // stage, its fixing flag and its session id. It is undefined for a stage the graph has no node of. The
-// implement session goes on by its id, or starts afresh with the brief. A fix session with an id goes on with that session. Without an
-// id, the gate runs again for the fix of the gate, and the ci stage waits again for its fix and for
-// address reviews, which reads the review again. The fix of the review without an id starts afresh with
-// the findings of its last round, or the round runs again if that round was no fix. The gate, the review,
-// the pr and the ci stage that fixed nothing run again, and so does the pr stage whatever its flag.
+// implement session goes on by its id, or starts afresh with the brief. A fix session with an id goes on
+// with that session. Without an id, the gate runs again for the fix of the gate, and the ci stage waits
+// again for its fix and for address reviews, which reads the review again. The fix of the review without
+// an id starts afresh with the findings of its last round, or the round runs again if that round was no
+// fix. The gate, the review, the pr and the ci stage that fixed nothing run again, and so does the pr
+// stage whatever its flag.
 export function deliveryResume(record: StageRecord): string | undefined {
   const stage = record.stage
   if (stage === 'implement' || stage === 'pr') return stage
@@ -247,10 +248,10 @@ export function deliveryResume(record: StageRecord): string | undefined {
   return stage === 'gate' ? 'gate' : 'ci'
 }
 
-// huntResume is the node of the hunt graph a resume enters for an interrupted hunt record: the hunt node
-// for a record in its hunt stage, which goes on with the hunt session by its id or starts it afresh, and
-// the node of the delivery graph's mapping from the gate on. A record without workflow, or one a release
-// of the migration wrote with the delivery workflow, is read by its stage the same way.
+// huntResume is the node of the hunt graph a resume enters for an interrupted hunt record. A record in
+// its hunt stage enters the hunt node, which goes on with the hunt session by its id or starts it afresh.
+// A record in a later stage enters the node that deliveryResume names for it. A record without workflow,
+// or one a release of the migration wrote with the delivery workflow, is read by its stage the same way.
 export function huntResume(record: StageRecord): string | undefined {
   return record.stage === 'hunt' ? 'hunt' : deliveryResume(record)
 }
