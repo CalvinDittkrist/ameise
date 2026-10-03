@@ -16,9 +16,9 @@ import { spawn } from 'node:child_process'
 import { fetch, git } from './git.js'
 import { ciGate } from './cigate.js'
 import type { Node, NodeContext, Outcome } from './engine.js'
-import { fixBrief } from './briefs.js'
+import { brief, fixBrief } from './briefs.js'
 import { gateFixesSpent } from './budgets.js'
-import { begin, type Runtime } from './session.js'
+import { type Runtime, sessionEntry, talk } from './session.js'
 import { knob, runtimeEnv, setting } from './settings.js'
 import type { Attempt, StageRecord } from './records.js'
 import { attempt, event, update } from './store.js'
@@ -203,23 +203,24 @@ export function fail(record: StageRecord, rt: Runtime, own: () => boolean, failu
   return { outcome: 'fail' }
 }
 
-// gateFixNode is the fix-session node of the gate. A record that still has the id of its fix session, as
-// on a resume, goes on with that session. Any other starts a fresh session briefed with the last failure
-// of the gate in the history and the name of the gate form. Its complete goes to the gate through the
-// engine.
+// gateFixNode is the fix-session node of the gate. It goes on with the record's session on a resume or
+// a message. Entered fresh, it starts a session briefed with the last failure of the gate in the history
+// and the name of the gate form. Its complete goes to the gate through the engine.
 export const gateFixNode: Node = {
-  adapt: (record, project, rt) => {
-    if (record.session_id !== undefined) return begin(record, project, rt)
-    const failure = [...(record.history ?? [])].reverse().find((h) => h.stage === 'gate' && (h.kind === 'merge' || h.kind === 'run') && h.result !== 'pass' && h.result !== 'skipped')
-    let command = defaultGate
-    try {
-      command = gateForm(setting(record, 'WF_GATE')).name
-    } catch {
-      // the gate node refused the form before it failed; the brief names the default
-    }
-    if (!failure) return begin(record, project, rt)
-    return begin(record, project, rt, fixBrief(record, `${project.owner}/${project.name}`, failure, command))
-  },
+  talks: true,
+  entry: (record, how) => sessionEntry(record, how),
+  run: (ctx) =>
+    talk(ctx, () => {
+      const { record, project } = ctx
+      const failure = [...(record.history ?? [])].reverse().find((h) => h.stage === 'gate' && (h.kind === 'merge' || h.kind === 'run') && h.result !== 'pass' && h.result !== 'skipped')
+      let command = defaultGate
+      try {
+        command = gateForm(setting(record, 'WF_GATE')).name
+      } catch {
+        // the gate node refused the form before it failed; the brief names the default
+      }
+      return failure ? fixBrief(record, `${project.owner}/${project.name}`, failure, command) : brief(record, `${project.owner}/${project.name}`)
+    }),
 }
 
 // runGate runs the gate command, an argument list without a shell, in the worktree in a process group of

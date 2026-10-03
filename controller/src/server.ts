@@ -54,14 +54,18 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 }
 
 // nodeOf is the node of the delivery graph a resume enters for an interrupted process. It is undefined
-// where begin goes on with its session or starts it afresh. It reads the stage, the fixing flag and the
-// session id, and never the node the record names. A gate with a fix session that has an id enters the
-// gate fix node, which goes on with that session. Any other gate enters the gate node, which runs again.
-// A fix session of the review is entered afresh with the findings of the last round. If that round was no
-// fix, the review runs again.
+// for a hunt session, which begin goes on with or starts afresh. It reads the stage, the fixing flag and
+// the session id, and never the node the record names. A fix session with an id, of the gate, the
+// review or the ci stage, or an address-reviews session, enters its node, which goes on with that
+// session, and so does the implement session. Any other gate enters the gate node, which runs again. A
+// fix session of the review without an id is entered afresh with the findings of the last round. If that
+// round was no fix, the review runs again.
 function nodeOf(record: StageRecord): string | undefined {
   const fix = record.fixing === true && record.session_id !== undefined
   if (record.stage === 'gate') return fix ? 'gate-fix' : 'gate'
+  if (fix && (record.stage === 'review' || record.stage === 'ci')) return `${record.stage}-fix`
+  if (fix && record.stage === 'address-reviews') return 'address-reviews'
+  if (record.stage === 'implement') return 'implement'
   if (fix) return undefined
   if (record.stage === 'review' && record.fixing === true) {
     const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
@@ -163,8 +167,8 @@ export function serve(o: Options): Server {
     const reading = quota([claimRuntime])
     const done = await claim(project, o.stateDir, o.gh, o.fake, request)
     log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
-    // The claimed process starts its implement session at once; the answer is its record as it runs.
-    const record = begin(done.record, project, rt)
+    // The claimed process enters the implement node at once; the answer is its record as it runs.
+    const record = enter(graphOf(done.record), 'implement', done.record, project, rt)
     const q = await within(reading, quotaShare)
     send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
   }
@@ -195,7 +199,7 @@ export function serve(o: Options): Server {
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
     const node = nodeOf(interrupted)
-    const record = node ? enter(graphOf(interrupted), node, interrupted, project, rt) : begin(interrupted, project, rt)
+    const record = node ? enter(graphOf(interrupted), node, interrupted, project, rt, { resume: true }) : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

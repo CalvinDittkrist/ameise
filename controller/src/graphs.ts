@@ -3,10 +3,11 @@
 // function and the mapping of an old record where its graph needs them. The engine (engine.ts) is given
 // a registration as data.
 //
-// The delivery graph (delivery.ts) is registered for a work process. Its gate, gate fix, review, review
-// fix, pr, ci, ci fix and address-reviews stages are nodes. The gate fix, review fix, ci fix and
-// address-reviews nodes start their session through an adapter.
-// Until the hunt has a graph of its own, a hunt that reaches the pr stage runs the delivery graph's nodes.
+// The delivery graph (delivery.ts) is registered for a work process. Each of its stages is a node: the
+// implement session, the gate, the review, the pr and the ci stage, and the fix sessions of the gate, the
+// review and the ci stage, and the address-reviews session. The session nodes run the process's own
+// session through the session runner (session.ts). Until the hunt has a graph of its own, a hunt that
+// reaches the gate runs the delivery graph's nodes.
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext } from './delivery.js'
 import type { Registration } from './engine.js'
@@ -14,6 +15,7 @@ import { gateFixNode, gateNode } from './gate.js'
 import { prNode } from './pr.js'
 import type { StageRecord } from './records.js'
 import { reviewFixNode, reviewNode } from './review.js'
+import { implementNode } from './session.js'
 
 // registrations builds the registry on its first read. The graphs' modules import this one through a
 // cycle, so a registry built as this module loads could hold a machine or a node not loaded yet.
@@ -26,6 +28,7 @@ const registrations = (): Map<string, Registration> =>
         machine: delivery,
         context: deliveryContext,
         nodes: {
+          implement: implementNode,
           gate: gateNode,
           'gate-fix': gateFixNode,
           review: reviewNode,
