@@ -16,11 +16,12 @@
 #                                          each call takes the next, and the last one stays; once gh pr
 #                                          merge merged it, merged.json goes before them; a reading's
 #                                          <name>.reactions beside it, such as 000.reactions holding
-#                                          [{"content":"THUMBS_UP","user":{"login":"chatgpt-codex-
-#                                          connector[bot]"}}], is what gh api graphql answers as the
-#                                          reactions on it once gh pr view answered that reading
+#                                          [{"content":"THUMBS_UP","reactors":{"nodes":[{"__typename":
+#                                          "Bot","login":"chatgpt-codex-connector"}]}}], is what gh api
+#                                          graphql answers as the reaction groups on it once gh pr view
+#                                          answered that reading
 #     repos/<owner>/<name>/pulls/<n>.reactions
-#                                          the reactions on the pull request of pulls/<n>.json; absent,
+#                                          the reaction groups on the pull request of pulls/<n>.json; absent,
 #                                          it has none
 #     repos/<owner>/<name>/pulls/<n>.body  written by gh pr create and gh pr edit --body-file where pulls/
 #                                          exists: the body of the pull request it opened or edited
@@ -280,7 +281,7 @@ case "$*" in
     fi
     reactions='[]'
     if [ -n "$canned" ] && [ -f "${shown%.json}.reactions" ]; then reactions=$(cat "${shown%.json}.reactions"); fi
-    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s},"reactions":{"nodes":%s}}}}}\n' "$threads" "$reactions" ;;
+    printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":%s},"reactionGroups":%s}}}}\n' "$threads" "$reactions" ;;
   'api '*)
     endpoint=${!#}
     file="$canned/api/$endpoint"

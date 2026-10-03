@@ -67,11 +67,18 @@ export interface Reading {
   reviews?: { id?: string; author?: { login?: string } | null; authorAssociation?: string; body?: string; url?: string; state: string; submittedAt?: string }[]
 }
 
-// A reaction on the pull request as the GraphQL API answers it: its content, such as THUMBS_UP, and the
-// login of its user, which GitHub writes with [bot] for a bot.
+// A reaction on the pull request: its content, such as THUMBS_UP, and the login of who reacted. The
+// GraphQL API names a bot only among the reactors of a reaction group, since Reaction.user is a User.
 export interface Reaction {
   content?: string
-  user?: { login?: string } | null
+  login?: string
+}
+
+// A reaction group of the pull request as the GraphQL API answers it: its content and who reacted with it,
+// a bot, a user, an organization or a mannequin.
+interface ReactionGroup {
+  content?: string
+  reactors?: { nodes?: ({ login?: string } | null)[] }
 }
 
 // A review thread as the GraphQL API answers it: its id, whether it is resolved, where it is, and its
@@ -276,7 +283,7 @@ async function judge(r: Reading, points: () => Promise<Points>, reactions: () =>
   // A bot's review is a review of it in any state, or its thumbs up on the pull request, on whichever commit.
   const bot = (login?: string) => k.bots.includes((login ?? '').replace(/\[bot\]$/, ''))
   const reviewed = (r.reviews ?? []).some((v) => bot(v.author?.login))
-  if (k.bots.length > 0 && !reviewed && now - doneAt.at < k.reviewWait * 1000 && !(await reactions()).some((x) => x.content === 'THUMBS_UP' && bot(x.user?.login))) {
+  if (k.bots.length > 0 && !reviewed && now - doneAt.at < k.reviewWait * 1000 && !(await reactions()).some((x) => x.content === 'THUMBS_UP' && bot(x.login))) {
     return { kind: 'waiting', wait: `a review of ${k.bots.join(', ')}, until ${new Date(doneAt.at + k.reviewWait * 1000).toISOString()}` }
   }
   const read = await points()
@@ -289,18 +296,20 @@ async function judge(r: Reading, points: () => Promise<Points>, reactions: () =>
 }
 
 // threadsOf reads the first hundred review threads of a pull request, with their first twenty comments.
-// With reactions it also reads the first hundred thumbs-up reactions in the same query.
+// With reactions it also reads who reacted to the pull request, the first hundred of each content, in the
+// same query, through the reactors of the reaction groups, which name bots as well.
 export async function threadsOf(gh: string, owner: string, name: string, n: number, reactions = false): Promise<{ threads: Thread[]; reactions: Reaction[] }> {
-  const thumbs = reactions ? ' reactions(first:100,content:THUMBS_UP){nodes{content user{login}}}' : ''
+  const thumbs = reactions ? ' reactionGroups{content reactors(first:100){nodes{__typename ... on Bot{login} ... on User{login} ... on Organization{login} ... on Mannequin{login}}}}' : ''
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{__typename login} authorAssociation body url}}}}${thumbs}}}}`
   const out = JSON.parse(await run(gh, ['api', 'graphql', '-F', `owner=${owner}`, '-F', `name=${name}`, '-F', `number=${n}`, '-f', `query=${query}`])) as {
-    data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: Thread[] }; reactions?: { nodes?: Reaction[] } } } }
+    data?: { repository?: { pullRequest?: { reviewThreads?: { nodes?: Thread[] }; reactionGroups?: ReactionGroup[] | null } } }
   }
   const pull = out.data?.repository?.pullRequest
   const nodes = pull?.reviewThreads?.nodes
   if (!nodes) throw new Error(`GitHub named no review threads of PR #${n}`)
-  if (reactions && !pull?.reactions?.nodes) throw new Error(`GitHub named no reactions of PR #${n}`)
-  return { threads: nodes, reactions: pull?.reactions?.nodes ?? [] }
+  if (reactions && !pull?.reactionGroups) throw new Error(`GitHub named no reactions of PR #${n}`)
+  const found = (pull?.reactionGroups ?? []).flatMap((g) => (g.reactors?.nodes ?? []).map((x) => ({ content: g.content, login: x?.login })))
+  return { threads: nodes, reactions: found }
 }
 
 // readPoints reads the review threads of a reading of pull request n, unless they are given, and whose

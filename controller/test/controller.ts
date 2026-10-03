@@ -322,6 +322,18 @@ export function canPull(m: Machine, repository: string, number: number, readings
   })
 }
 
+// groupsOf makes reactions, each a login and a content that is THUMBS_UP unless given, into the reaction
+// groups the GraphQL query answers: a login with [bot] is a Bot reactor, named without it, as GitHub does.
+function groupsOf(reactions: { login: string; content?: string }[]) {
+  const groups = new Map<string, { __typename: string; login: string }[]>()
+  for (const x of reactions) {
+    const content = x.content ?? 'THUMBS_UP'
+    const bot = x.login.endsWith('[bot]')
+    groups.set(content, [...(groups.get(content) ?? []), { __typename: bot ? 'Bot' : 'User', login: x.login.replace(/\[bot\]$/, '') }])
+  }
+  return [...groups].map(([content, nodes]) => ({ content, reactors: { nodes } }))
+}
+
 // reading is a reading of an open pull request as gh pr view answers it: mergeable, with checks of the
 // given conclusions, and with the reviews given, each with the association of its author when given; its
 // merge state is clean unless it conflicts or is given, and more adds fields. Its reactions on the pull
@@ -358,7 +370,7 @@ export function reading(
       body: r.body ?? 'Looked.',
       submittedAt: r.at ?? `2026-09-30T10:0${i}:00Z`,
     })),
-    ...(o.reactions ? { reactions: o.reactions.map((x) => ({ content: x.content ?? 'THUMBS_UP', user: { login: x.login } })) } : {}),
+    ...(o.reactions ? { reactions: groupsOf(o.reactions) } : {}),
     ...o.more,
   }
 }
