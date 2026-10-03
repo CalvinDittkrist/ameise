@@ -4,21 +4,24 @@
 // every reviewer of WF_REVIEWERS, a later one those whose last verdict was fix. Every round is an attempt
 // in the record's history with each reviewer's verdict and findings.
 //
-// A fix verdict starts one fix session of the review with every finding of the round by its id; its
-// complete runs the gate again, whose pass starts the next round. Once every reviewer passes, the panel
-// passes and the engine (engine.ts) enters the pr node of the process's graph, whose pr stage (pr.ts)
-// opens the pull request. Once WF_REVIEW_ROUNDS rounds ran with a fix verdict still standing, the panel
-// fails: the pull request is opened all the same, and names the failed panel. A reviewer that reports no
-// verdict ends the process failed with the reason.
+// The review and its fix are two nodes of the delivery graph (delivery.ts), which start no stage
+// themselves. The review node returns pass, findings or failed, and the engine (engine.ts) follows it.
+// A round with no reviewer left due passes at once. A pass writes the panel pass and goes on to the pr
+// node, whose pr stage (pr.ts) opens the pull request. The graph's guard reviewRoundsRemain counts the
+// rounds against WF_REVIEW_ROUNDS. Findings in a round below the limit go to the review fix node.
+// Findings in the last round go to the pr node with the panel failed, which the pull request names.
+// Failed parks the process failed with the reason. That is a reviewer with no verdict, a fix verdict
+// without a finding, a wrong WF_REVIEWERS or WF_REVIEW_ROUNDS, or a throw.
+//
+// The review fix node starts one fresh fix session with every finding of the last round by its id. The
+// complete of that session reaches the engine (session.ts), whose edge runs the gate again, and the
+// gate's pass enters the next round.
 import { type AgentRun, type Ended, reviewers } from './agents.js'
 import { reviewRounds } from './budgets.js'
 import { git } from './git.js'
-import { enter } from './engine.js'
-import { graphOf } from './graphs.js'
-import type { Project } from './project.js'
+import type { Node, NodeContext, Outcome } from './engine.js'
 import { reviewBrief, reviewFixBrief } from './briefs.js'
-import { type Running, track } from './running.js'
-import { agents, begin, type Runtime } from './session.js'
+import { agents, begin } from './session.js'
 import { knob, setting } from './settings.js'
 import type { Attempt, StageRecord, Verdict } from './records.js'
 import { attempt, event, update } from './store.js'
@@ -38,48 +41,26 @@ export function reviewersOf(record: StageRecord): string[] {
   return names.length > 0 ? names : defaultReviewers
 }
 
-// review starts a round of the review stage of a process and answers the record as it runs. A stop ends
-// its reviewers; a resume runs the round again.
-export function review(record: StageRecord, project: Project, rt: Runtime): StageRecord {
-  const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'review', state: 'running', note: 'the reviewers run', fixing: false } as Partial<StageRecord>) as StageRecord | undefined) ?? record
-  const abort = new AbortController()
-  // The round starts on the next turn, once the stage is tracked, so a stop meanwhile ends it.
-  const tracked: { own: () => boolean; s?: Running } = { own: () => false }
-  const own = () => tracked.own()
-  const done = Promise.resolve()
-    .then(() => (tracked.s ? round(started, project, rt, tracked.s, own) : undefined))
-    .catch((err: unknown) => {
-      if (!own()) return
-      const note = `the review failed: ${(err as Error).message}`
-      event(rt.stateDir, id, { event: 'review-end', stage: 'review', state: 'failed', note })
-      const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-      if (failed) rt.announce(failed)
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`warning: ${id}: its review ended unexpectedly: ${(err as Error).message}\n`)
-    })
-  Object.assign(tracked, track(id, abort, done, 'the reviewers run'))
-  return started
-}
+// reviewNode is the review node of the delivery graph (delivery.ts). It runs a round of the reviewers side
+// by side and returns pass, findings or failed. It starts no stage and no session itself; the engine
+// (engine.ts) follows its outcome. A stop ends its reviewers; a resume enters the node again, which runs
+// the round again.
+export const reviewNode: Node = { run: (ctx) => round(ctx) }
 
-async function round(record: StageRecord, project: Project, rt: Runtime, s: Running, own: () => boolean): Promise<void> {
+// stopped is what the node returns once a stop has taken the process over, which the engine discards.
+const stopped: Outcome = { outcome: 'stopped' }
+
+async function round({ record, project, rt, running, own, signal }: NodeContext): Promise<Outcome> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
-  // end ends the review with the note, unless a stop has taken it over: a panel that passed or failed
-  // goes on to the pr stage, a review that failed ends the process failed.
-  const end = (state: 'ready' | 'failed', note: string, a?: Attempt, change: Partial<StageRecord> = {}) => {
-    if (!own()) return
-    event(rt.stateDir, id, { event: 'review-end', stage: 'review', state: state === 'ready' ? (change.panel ?? 'pass') : state, note })
-    if (state === 'ready') {
-      const full = { ...change, note }
-      const next = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
-      if (next && own()) enter(graphOf(next as StageRecord), 'pr', next as StageRecord, project, rt)
-      return
-    }
-    const full = { ...change, state, note, unseen: true }
-    const ended = a ? attempt(rt.stateDir, id, a, full) : update(rt.stateDir, id, full)
-    if (ended) rt.announce(ended)
+  // pass ends the review with the panel, which goes on to the pr node, unless a stop has taken it over.
+  const pass = (panel: 'pass' | 'failed', note: string, a?: Attempt): Outcome => {
+    if (!own()) return stopped
+    event(rt.stateDir, id, { event: 'review-end', stage: 'review', state: panel, note })
+    const change = { panel, note } as Partial<StageRecord>
+    if (a) attempt(rt.stateDir, id, a, change)
+    else update(rt.stateDir, id, change)
+    return { outcome: panel === 'pass' ? 'pass' : 'findings' }
   }
   let names: string[]
   let rounds: number
@@ -87,7 +68,7 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
     names = reviewersOf(record)
     rounds = knob(record, 'WF_REVIEW_ROUNDS', defaultRounds, 1)
   } catch (err) {
-    return end('failed', (err as Error).message)
+    return { outcome: 'failed', note: (err as Error).message }
   }
 
   // The rounds of this review: those since the implement session last ended, whose work it reviews.
@@ -97,18 +78,18 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
   const last = new Map<string, string>()
   for (const r of past) for (const v of r.verdicts ?? []) last.set(v.reviewer, v.verdict)
   const due = names.filter((name) => !last.has(name) || last.get(name) !== 'pass')
-  if (due.length === 0) return end('ready', `the review passed in round ${n - 1}`, undefined, { panel: 'pass' })
+  if (due.length === 0) return pass('pass', `the review passed in round ${n - 1}`)
 
   update(rt.stateDir, id, { note: `review round ${n} of ${rounds}: ${due.join(', ')}` })
   event(rt.stateDir, id, { event: 'review-start', stage: 'review', round: n, reviewers: due })
   const gated = [...history].reverse().find((h) => h.stage === 'gate' && h.kind === 'run')
   const commit = await git(record.worktree, 'rev-parse', 'HEAD')
   // A stop while git ran has taken the process over; no reviewer starts after it.
-  if (!own() || s.abort.signal.aborted) return
+  if (!own() || signal.aborted) return stopped
   const brief = reviewBrief(record, repo, gated)
-  const ended = await agents(record, rt, s, own, due.map((name) => ({ run: reviewers[name] as AgentRun, brief })))
+  const ended = await agents(record, rt, running, own, due.map((name) => ({ run: reviewers[name] as AgentRun, brief })))
   const ends = due.map((reviewer, i) => ({ reviewer, ended: ended[i] as Ended }))
-  if (!own()) return
+  if (!own()) return stopped
 
   const verdicts: Verdict[] = ends.map(({ reviewer, ended }) => {
     const at = ended.session_id ? { session_id: ended.session_id } : {}
@@ -121,24 +102,35 @@ async function round(record: StageRecord, project: Project, rt: Runtime, s: Runn
   const result = broken.length > 0 ? 'failed' : fixing.length > 0 ? 'fix' : 'pass'
   const a: Attempt = { stage: 'review', kind: 'round', result, at: new Date().toISOString(), commit, round: n, verdicts }
   event(rt.stateDir, id, { event: 'review', ...a })
-  if (broken.length > 0) return end('failed', `review round ${n}: ${broken.map((v) => v.note).join('; ')}`, a)
-  if (fixing.length === 0) return end('ready', `the review passed in round ${n}`, a, { panel: 'pass' })
-  const who = fixing.map((v) => v.reviewer).join(', ')
-  if (n >= rounds) {
-    return end('ready', `the review spent its ${rounds} round(s) with ${who} at fix; the panel failed, which the pull request names`, a, { panel: 'failed' })
+  if (broken.length > 0) {
+    const note = `review round ${n}: ${broken.map((v) => v.note).join('; ')}`
+    attempt(rt.stateDir, id, a)
+    return { outcome: 'failed', note }
   }
-  // A fix session is a fresh session with every finding of the round; its complete runs the gate again.
-  const findings = verdicts.flatMap((v) => v.findings)
-  const next = attempt(rt.stateDir, id, a, { session_id: undefined, fixing: true, note: `review round ${n}: ${who} at fix; a fix session takes ${findings.length} finding(s)` })
-  if (!next || !own()) return
-  begin(next, project, rt, reviewFixBrief(next, repo, n, findings))
+  if (fixing.length === 0) return pass('pass', `the review passed in round ${n}`, a)
+  // The guard reviewRoundsRemain of the graph reads the same budget: findings in the last round go to the
+  // pr node with the panel failed, any other round's to the review fix node.
+  if (n >= rounds) {
+    const who = fixing.map((v) => v.reviewer).join(', ')
+    return pass('failed', `the review spent its ${rounds} round(s) with ${who} at fix; the panel failed, which the pull request names`, a)
+  }
+  attempt(rt.stateDir, id, a)
+  return { outcome: 'findings' }
 }
 
-// resumeFix starts the fix session of the review afresh for a process the controller stopped before that
-// session reported its id: with every finding of the last round, as the round had started it.
-export function resumeFix(record: StageRecord, project: Project, rt: Runtime): StageRecord {
-  const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
-  if (!last || last.result !== 'fix') return review(record, project, rt)
-  const findings = (last.verdicts ?? []).flatMap((v) => v.findings)
-  return begin(record, project, rt, reviewFixBrief(record, `${project.owner}/${project.name}`, last.round ?? 1, findings)) as StageRecord
+// reviewFixNode is the review fix node: a fresh fix session with every finding of the last round, which
+// it reads from that round's attempt. Its complete goes to the gate through the engine.
+export const reviewFixNode: Node = {
+  adapt: (record, project, rt) => {
+    const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
+    const n = last?.round ?? 1
+    const fixing = (last?.verdicts ?? []).filter((v) => v.verdict === 'fix')
+    const findings = fixing.flatMap((v) => v.findings)
+    const who = fixing.map((v) => v.reviewer).join(', ')
+    const started =
+      (update(rt.stateDir, record.id, { stage: 'review', session_id: undefined, fixing: true, note: `review round ${n}: ${who} at fix; a fix session takes ${findings.length} finding(s)` } as Partial<StageRecord>) as
+        | StageRecord
+        | undefined) ?? record
+    return begin(started, project, rt, reviewFixBrief(started, `${project.owner}/${project.name}`, n, findings))
+  },
 }

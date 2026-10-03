@@ -145,3 +145,29 @@ test('a green pull request whose yolo merge did not happen parks ready', () => {
   expect(String(next.value)).toBe('ci')
   expect(actions).toContainEqual(expect.objectContaining({ type: 'park', params: { state: 'ready' } }))
 })
+
+test('the review guard sends findings to the review fix below the limit and to pr in the last round', () => {
+  expect(step('review', { ...remain, reviewRound: 2 }, 'findings')).toBe('review-fix')
+  expect(step('review', { ...remain, reviewRound: 3 }, 'findings')).toBe('pr')
+  expect(step('review', { ...remain, reviewRound: 1, reviewRounds: 1 }, 'findings')).toBe('pr')
+  expect(step('review', spent, 'pass')).toBe('pr')
+  expect(step('review', remain, 'failed')).toBe('parked failed')
+  const at = '2026-01-01T00:00:00Z'
+  const last = deliveryContext(
+    recordOf({
+      env: { WF_REVIEW_ROUNDS: '2' },
+      history: [
+        { stage: 'implement', kind: 'session', result: 'complete', at, session_id: 'i' },
+        { stage: 'review', kind: 'round', result: 'fix', at, round: 1 },
+        { stage: 'review', kind: 'session', result: 'complete', at, session_id: 'r1' },
+        { stage: 'review', kind: 'round', result: 'fix', at, round: 2 },
+      ],
+    } as Partial<StageRecord>),
+  )
+  expect(step('review', last, 'findings')).toBe('pr')
+})
+
+test('the review fix session goes to the gate and parks on input, blocked and failed', () => {
+  expect(step('review-fix', spent, 'complete')).toBe('gate')
+  for (const state of ['input', 'blocked', 'failed']) expect(step('review-fix', remain, state)).toBe(`parked ${state}`)
+})

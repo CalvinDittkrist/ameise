@@ -20,12 +20,11 @@ import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
 import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
 import { open } from './terminal.js'
 import { gate } from './gate.js'
-import { resumeFix, review } from './review.js'
 import { enter } from './engine.js'
 import { graphOf } from './graphs.js'
 import { followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
-import type { SessionRecord } from './records.js'
+import type { SessionRecord, StageRecord } from './records.js'
 import { eventsFile, processId, readRecord, seen, watch } from './store.js'
 
 export interface Options {
@@ -53,6 +52,19 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
     timer.unref()
   })
   return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+
+// nodeOf is the node of the delivery graph a resume enters for a process interrupted with no session to
+// go on with, or undefined where its session starts afresh. A fix session of the review is entered afresh
+// with the findings of the last round, or the review runs again if that round was no fix.
+function nodeOf(record: StageRecord): string | undefined {
+  if (record.stage === 'review' && record.fixing === true) {
+    const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
+    return last?.result === 'fix' ? 'review-fix' : 'review'
+  }
+  if (record.stage === 'review' || record.stage === 'pr') return record.stage
+  if (record.stage === 'ci' || record.stage === 'address-reviews') return 'ci'
+  return undefined
 }
 
 export function serve(o: Options): Server {
@@ -164,11 +176,11 @@ export function serve(o: Options): Server {
   // A resume goes on with the session of an interrupted process in its worktree by its session id when
   // it has one, and starts a fresh session otherwise. A process interrupted in its gate command runs the
   // gate again, and one interrupted while its gate on CI waited takes its draft over and reads the head
-  // again. One interrupted while its reviewers ran runs the round again, one interrupted in its pr
-  // stage runs that stage again, one interrupted while its ci stage waited, or before its address-reviews
-  // session started, waits again, and one interrupted in a fix session of its gate, its review or its
-  // ci stage, or in its address-reviews session, goes on with that session. A fix
-  // session of the review that had no id yet starts afresh with the findings of its round.
+  // again. One interrupted in a node of its graph enters that node again: its review runs the round
+  // again, its pr stage runs again, and its ci stage waits again, as it does before its address-reviews
+  // session started. One interrupted in a fix session of its gate, its review or its ci stage, or in its
+  // address-reviews session, goes on with that session. A fix session of the review that had no id yet
+  // starts afresh with the findings of its last round, or runs the review again if that round was no fix.
   // A hunt, which has no issue, is named by its id.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
@@ -178,19 +190,8 @@ export function serve(o: Options): Server {
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
     const fix = interrupted.fixing === true && interrupted.session_id !== undefined
-    // A fix session of the review that never reported its id starts afresh with the round's findings.
-    const record =
-      interrupted.stage === 'gate' && !fix
-        ? gate(interrupted, project, rt)
-        : interrupted.stage === 'review' && interrupted.fixing === true && !fix
-          ? resumeFix(interrupted, project, rt)
-          : interrupted.stage === 'review' && !fix
-            ? review(interrupted, project, rt)
-            : interrupted.stage === 'pr'
-              ? enter(graphOf(interrupted), 'pr', interrupted, project, rt)
-              : (interrupted.stage === 'ci' || interrupted.stage === 'address-reviews') && !fix
-                ? enter(graphOf(interrupted), 'ci', interrupted, project, rt)
-                : begin(interrupted, project, rt)
+    const node = fix ? undefined : nodeOf(interrupted)
+    const record = interrupted.stage === 'gate' && !fix ? gate(interrupted, project, rt) : node ? enter(graphOf(interrupted), node, interrupted, project, rt) : begin(interrupted, project, rt)
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }

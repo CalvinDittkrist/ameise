@@ -20,7 +20,8 @@ import { checksOf, pause, type Reading } from './ci.js'
 import { run } from './exec.js'
 import { defaultGrace, type GateForm, mergeBase, repair, short, tailOf } from './gate.js'
 import type { Project } from './project.js'
-import { review } from './review.js'
+import { advance } from './engine.js'
+import { graphOf } from './graphs.js'
 import { type Runtime } from './session.js'
 import { knob } from './settings.js'
 import type { Attempt, Check, Pull, StageRecord } from './records.js'
@@ -237,7 +238,7 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
           event(rt.stateDir, id, { event: 'gate', ...a })
           event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: `the gate on CI passed at ${short(head)} on PR #${n}: ${checks.map((c) => c.name).join(', ')}` })
           const next = attempt(rt.stateDir, id, a, { state: 'running', wait: undefined, checks } as Partial<StageRecord>)
-          if (next && own()) review(next, project, rt)
+          if (next && own()) advance(graphOf(next), 'gate', { outcome: 'pass' }, next, project, rt)
           return
         }
         seen = key
