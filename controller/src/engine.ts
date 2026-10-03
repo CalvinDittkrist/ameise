@@ -12,8 +12,8 @@
 // the outcome. A park writes the node's end event, the state and the note, and is announced. The next
 // node is entered before the run settles, so the process is never untracked between two nodes. A state
 // whose stage is not a node yet calls today's stage function through an adapter. advance follows an
-// outcome or an event into a node from outside a run: the complete of a session an adapter started, or
-// the follow-up of a parked process. A node entered after a session runs once that runtime has exited.
+// outcome or an event into a node from outside a run. That is the complete of a session an adapter
+// started, or the follow-up of a parked process. A node entered after a session runs once that runtime has exited.
 // A stop of the node stops that runtime too, so two never work the worktree at once.
 import type { AnyStateMachine } from 'xstate'
 import { transition } from 'xstate'

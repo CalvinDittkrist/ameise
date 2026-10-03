@@ -460,8 +460,8 @@ async function mention(record: StageRecord, project: Project, rt: Runtime, n: nu
   }
 }
 
-// ciNode is the ci node of the delivery graph (delivery.ts): it pushes, posts what an address-reviews
-// session reported, then waits on the pull request and returns its verdict. It starts no stage and no
+// ciNode is the ci node of the delivery graph (delivery.ts). It pushes and posts what an address-reviews
+// session reported. Then it waits on the pull request and returns its verdict. It starts no stage and no
 // session itself; the engine follows its outcome. A stop ends its wait; a resume enters the node again.
 export const ciNode: Node = {
   run: async (ctx) => {
@@ -643,8 +643,8 @@ const whatFailed = (record: StageRecord, n: number, kind: string, checks: Check[
         .map((c) => c.name)
         .join(', ')}`
 
-// ciFixNode is the fix-session node of the ci stage: a fresh session whose brief is for the conflict or
-// for the failed checks of the verdict it was entered with, the last wait of the record. Before a
+// ciFixNode is the fix-session node of the ci stage, a fresh session. Its brief is for the conflict or
+// for the failed checks of the verdict it was entered with. That verdict is the last wait of the record. Before a
 // conflict fix it fetches the base. Its complete returns to the ci node through the engine.
 export const ciFixNode: Node = {
   adapt: (record, project, rt) => {
@@ -704,8 +704,9 @@ export const addressNode: Node = {
 }
 
 // green is the outcome of a green pull request. A manual process parks ready for the maintainer's
-// merge. A yolo process whose panel passed is merged at once, by the merge action's rules, which remove
-// its worktree, its branch and its record, so it ends done; the maintainer is told of it as it ended. A
+// merge. A yolo process whose panel passed is merged at once, by the merge action's rules. The merge
+// removes its worktree, its branch and its record, so it ends done. The maintainer is told of it as it
+// ended. A
 // merge that is refused, or that a merge queue takes, is unmerged and parks it ready with the reason.
 async function green(record: StageRecord, project: Project, rt: Runtime, n: number, a: Attempt, own: () => boolean, attempt: NodeContext['attempt']): Promise<Outcome> {
   const note = `PR #${n} is green: it merges, its checks pass and no review asks for changes`

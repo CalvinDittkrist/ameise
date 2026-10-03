@@ -3,9 +3,9 @@
 // ends by reporting complete with its commits or blocked through a structured result. On complete the
 // controller starts the gate stage (gate.ts), unless the maintainer holds the session open. A fix session
 // of the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
-// same way; the complete of a fix session of the ci stage or of an address-reviews session is an outcome
-// of its node of the delivery graph, which the engine (engine.ts) follows back to the ci node (ci.ts),
-// and every other complete goes to the gate. Every subagent of a stage is an agent run (agents.ts): a
+// same way. The complete of a fix session of the ci stage or of an address-reviews session is an outcome
+// of its node of the delivery graph. The engine (engine.ts) follows that outcome back to the ci node
+// (ci.ts). Every other complete goes to the gate. Every subagent of a stage is an agent run (agents.ts): a
 // reviewer, the author session, the spec checker, an auditor or the apply session. The one runner,
 // agents, starts each here beside the process's own session, side by side where there are several. The
 // streams of the read-only ones stay out of the event log. Every session's end is an attempt in the
