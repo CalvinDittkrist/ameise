@@ -26,7 +26,7 @@
 //
 // A hunt process runs its hunt session in place of the implement session, the worker on the hunt skill,
 // and the hunt record stands where the issue stands in every brief after it (hunt.ts). Its session runs
-// on no node: begin starts it, and its complete reads the hunt record.
+// as the hunt node of the hunt graph, through talk, with a callback for the user messages of the session.
 //
 // The first prompt of each session is its brief (briefs.ts), and the plugins it loads are the bundle's
 // (bundle.ts).
@@ -45,7 +45,6 @@ import { brief, planBrief, safeRef } from './briefs.js'
 import { advance, type Entry, type Node, type NodeContext, type Outcome } from './engine.js'
 import { graphOf } from './graphs.js'
 import { githubServer, githubTools } from './github.js'
-import { hunted, refresh } from './hunt.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from './records.js'
@@ -159,18 +158,17 @@ const sessionOf = (record: SessionRecord) =>
             : `${firstStage(record)} session`
 const stageOf = (record: SessionRecord) => (record.kind === 'plan' ? record.stage : ['gate', 'review', 'ci', 'address-reviews'].includes(record.stage) ? record.stage : firstStage(record))
 
-// begin starts the session of a process that runs on no graph yet, the planner session of a plan or the
-// hunt session of a hunt, and answers its record as it runs. A process with a session id resumes that
-// session in its worktree. The session goes on after the answer; its end is written into the record. A
-// hunt session that reports complete hands its process to hunted (hunt.ts) once its runtime has exited.
-// A message is the first turn of the session, in place of the brief.
-export function begin(record: StageRecord | PlanRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
+// begin starts the planner session of a plan process, which runs on no graph, and answers its record as
+// it runs. A process with a session id resumes that session in its worktree. The session goes on after
+// the answer; its end is written into the record. A message is the first turn of the session, in place of
+// the brief.
+export function begin(record: PlanRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
   const id = record.id
   const resumed = record.session_id
   const what = sessionOf(record)
   const stage = stageOf(record)
   const note = resumed ? `${what} resumed` : `${what} running`
-  const started = update(rt.stateDir, id, { state: 'running', stage, note, ...(record.kind !== 'plan' ? { held: undefined } : {}) } as Partial<CreatedRecord>) ?? record
+  const started = update(rt.stateDir, id, { state: 'running', stage, note } as Partial<CreatedRecord>) ?? record
   event(rt.stateDir, id, { event: 'session-start', stage, ...(resumed ? { resume: resumed } : {}) })
   const abort = new AbortController()
   const input = new Input()
@@ -184,16 +182,6 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
     s.over = true
     close(s, rt, id)
     event(rt.stateDir, id, { event: 'session-end', stage, state: ended.state, note: ended.note, ...(ended.commits ? { commits: ended.commits } : {}) })
-    if (record.kind !== 'plan') {
-      const a = attemptOf(record, stage, ended, rt)
-      if (ended.state === 'complete') {
-        const done = attempt(rt.stateDir, id, a, { fixing: false } as Partial<StageRecord>)
-        // A hunt session's complete reads the hunt record, which decides between the gate and the end.
-        if (done && done.kind === 'hunt') hunted(done, project, rt, exited, abort)
-        return
-      }
-      attempt(rt.stateDir, id, a)
-    }
     // The process is unseen until its page is opened, so the dashboard marks it until then. A planner
     // that waits for input is told on the board alone, as a question of a session is.
     const ended_ = update(rt.stateDir, id, { state: ended.state, note: ended.note, unseen: true })
@@ -216,9 +204,7 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
     }
   }
   const repo = `${project.owner}/${project.name}`
-  if (message !== undefined) input.push(message)
-  else if (record.kind === 'plan') input.push(planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
-  else input.push(brief(record, repo))
+  input.push(message ?? planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
   register(id, s)
   s.done = session(record, rt, s, live, spawned, ownRun(record, s, rt, repo))
     .then(settle, (err: Error) => settle({ state: 'failed', note: `the ${what} failed: ${err.message}` }))
@@ -246,10 +232,11 @@ export function sessionEntry(record: StageRecord, how: Entry, change: Partial<St
 // outcome once the session's end is written. It tells the engine of its runtime's exit, which the next
 // node waits for. The session goes on with the
 // record's session on a message, whose text is its first turn, and on a resume. Otherwise its first turn
-// is fresh, the brief of the node, or the brief of the stage where the node has none. The end of the
-// session starts nothing: the engine follows the outcome's edge. A complete of a held implement session
+// is fresh, the brief of the node, or the brief of the stage where the node has none. user is told of each
+// user message of the session, which carries the results of its tools. The end of the session starts
+// nothing: the engine follows the outcome's edge. A complete of a held implement session
 // spends the hold and answers input, which keeps the session open for the maintainer's next message.
-export async function talk(ctx: NodeContext, fresh?: () => string): Promise<Outcome> {
+export async function talk(ctx: NodeContext, fresh?: () => string, user?: () => void): Promise<Outcome> {
   const { record, rt, project, running: s } = ctx
   const id = record.id
   const stage = stageOf(record)
@@ -262,7 +249,7 @@ export async function talk(ctx: NodeContext, fresh?: () => string): Promise<Outc
   try {
     let ended: Ended
     try {
-      ended = await session(record, rt, s, ctx.own, (p) => (exited = p), ownRun(record, s, rt, repo))
+      ended = await session(record, rt, s, ctx.own, (p) => (exited = p), ownRun(record, s, rt, repo, user))
     } catch (err) {
       ended = { state: 'failed', note: `the ${what} failed: ${(err as Error).message}` }
     }
@@ -338,9 +325,8 @@ function parkedNode(record: StageRecord): string {
 
 // say writes the maintainer's message to the process's session and answers where it went.
 // A question that waits takes it as its answer. A session that runs takes it as its next turn.
-// A message to a process whose session has ended is an event on its node of the delivery graph, whose
-// edge resumes a session by its id with the message. A planner, and a hunt that goes on as its hunt
-// session, resume their session directly.
+// A message to a process whose session has ended is an event on its node of its graph, whose edge
+// resumes a session by its id with the message. A planner resumes its session directly.
 export async function say(record: SessionRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
   const s = runningOf(id)
@@ -370,16 +356,10 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
     begin(now, p, rt, text)
     return 'resumed'
   }
-  // A follow-up to a ready work process is new work on it: its session goes on as the implement session,
-  // whose complete runs the gate and a review with every reviewer again. A message to a work process the
-  // ci stage left blocked has its session take the review on, a fix session of the ci stage. A hunt that
-  // goes back to its first stage goes on as its hunt session the same way, outside the graph.
+  // A follow-up to a ready process is new work on it: its session goes on as its first session, implement
+  // or hunt, whose complete runs the gate and a review with every reviewer again. A message to a process
+  // the ci stage left blocked has its session take the review on, a fix session of the ci stage.
   const ready = now.state === 'ready' && now.stage !== firstStage(now)
-  if (now.kind === 'hunt' && (ready || now.stage === 'hunt' || now.stage === 'pr')) {
-    const next = ready ? ((update(rt.stateDir, id, { stage: 'hunt', fixing: false, panel: undefined } as Partial<CreatedRecord>) as StageRecord | undefined) ?? now) : now
-    begin(next, p, rt, text)
-    return 'resumed'
-  }
   advance(graphOf(now), parkedNode(now), { outcome: 'message', ready, message: text }, now, p, rt)
   return 'resumed'
 }
@@ -419,6 +399,8 @@ interface Run {
   disallowed?: string[]
   // tools are the controller's in-process tools the session writes GitHub with, allowed without a card.
   tools?: McpSdkServerConfigWithInstance
+  // user is told of each user message of the session, which carries the results of its tools.
+  user?: () => void
   // read reads the structured result the session reported.
   read: (out: unknown, sessionId: string | undefined) => Ended
 }
@@ -426,8 +408,8 @@ interface Run {
 // ownRun is the run of a process's own session: a work session reports complete or blocked, a fix
 // session of the review also what it did with each finding, and a planner session reports nothing.
 // A planner session writes GitHub through the controller's tools alone (ADR 0059), and every write goes
-// into the process's event log.
-function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo: string): Run {
+// into the process's event log. user is told of the session's user messages.
+function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo: string, user?: () => void): Run {
   const what = sessionOf(record)
   const review = record.kind !== 'plan' && record.stage === 'review'
   const address = record.kind !== 'plan' && record.stage === 'address-reviews'
@@ -442,6 +424,7 @@ function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo:
     // and its pipeline, and with the stage timeout.
     later: record.kind !== 'plan' && record.stage !== firstStage(record),
     own: true,
+    ...(user ? { user } : {}),
     ...(record.kind === 'plan'
       ? { tools: githubTools(rt.gh, repo, (e) => event(rt.stateDir, record.id, e)) }
       : { schema: review ? fixReport : address ? addressReport : report }),
@@ -710,8 +693,7 @@ async function session(
         size = c
         update(rt.stateDir, id, { context: c })
       }
-      // A hunt session's tool results are where its hunt record changes, so the record follows them.
-      if (run.own && record.kind === 'hunt' && record.stage === 'hunt' && message.type === 'user') refresh(record, rt)
+      if (message.type === 'user') run.user?.()
       if (message.type !== 'result') continue
       // A message the maintainer wrote while the turn ran makes a turn of its own after this one.
       if (message.subtype === 'success' && (message.queued_turn_count ?? 0) > 0) continue

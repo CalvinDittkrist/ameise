@@ -2,7 +2,7 @@
 // has an edge, every guard is named, and every budget ends in a park once it is spent.
 import { expect, test } from 'vitest'
 import { transition } from 'xstate'
-import { delivery, type DeliveryContext, deliveryContext } from '../src/delivery.js'
+import { delivery, type DeliveryContext, deliveryContext, huntGraph } from '../src/delivery.js'
 import { graphOf } from '../src/graphs.js'
 import type { StageRecord } from '../src/records.js'
 
@@ -116,9 +116,9 @@ test('a knob that is no whole number reads as a budget of 0', () => {
   expect(context).toMatchObject({ gateRounds: 0, reviewRounds: 0, repairRounds: 0 })
 })
 
-test('a work and a hunt process run on the delivery graph, and an unknown kind is refused', () => {
+test('a work process runs on the delivery graph, a hunt on the hunt graph, and an unknown kind is refused', () => {
   expect(graphOf(recordOf({})).machine).toBe(delivery)
-  expect(graphOf(recordOf({ kind: 'hunt' } as Partial<StageRecord>))).toBe(graphOf(recordOf({})))
+  expect(graphOf(recordOf({ kind: 'hunt' } as Partial<StageRecord>)).machine).toBe(huntGraph)
   expect(() => graphOf(recordOf({ kind: 'plan' } as unknown as Partial<StageRecord>))).toThrow('no process graph is registered for a plan process')
 })
 
