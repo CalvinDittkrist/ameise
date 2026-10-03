@@ -265,7 +265,7 @@ export async function workspace(c: Ctx, opts: WorkspaceOptions) {
 
   // Labels: the workflow vocabulary plus skill-candidate; GitHub matches label names ignoring case.
   const labels = await getAll(`repos/${nwo}/labels?per_page=100`)
-  const labelPlan = standardLabels.filter((l) => !labels.some((x) => show(x.name).toLowerCase() === l.name))
+  const labelPlan = standardLabels().filter((l) => !labels.some((x) => show(x.name).toLowerCase() === l.name))
   for (const l of labelPlan) diffs.push(`label ${l.name}: missing -> create`)
 
   // Dependabot alerts (204 when on, 404 when off) and security updates; read-only Actions token.
