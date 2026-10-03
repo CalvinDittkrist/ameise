@@ -11,12 +11,13 @@
 // session, or a gh pr create or edit that fails ends the process failed with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { git, push } from './claim.js'
+import { git, push } from './git.js'
 import { botsOf, ci } from './ci.js'
 import { run } from './exec.js'
 import { defaultGate } from './gate.js'
 import type { Project } from './project.js'
-import { author, authorBrief, type Runtime, type Running, track } from './session.js'
+import { authorBrief } from './briefs.js'
+import { author, type Runtime, type Running, track } from './session.js'
 import type { Attempt, Pull, StageRecord } from './records.js'
 import { attempt, event, update } from './store.js'
 
