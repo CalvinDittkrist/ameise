@@ -11,7 +11,8 @@ import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
-import { gate } from './gate.js'
+import { enter } from './engine.js'
+import { graphOf } from './graphs.js'
 import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
 import { huntScript } from './bundle.js'
@@ -164,8 +165,9 @@ export function hunted(record: HuntRecord, project: Project, rt: Runtime, after:
       }
       // hunt.sh lists only the removals that still stand, and counts the stale ones apart.
       if (hunt.removed.length > 0) {
-        // The gate takes the process's place among the running ones from this reading.
-        gate(now, project, rt)
+        // The gate node of the delivery graph takes the process's place among the running ones from this
+        // reading.
+        enter(graphOf(now), 'gate', now, project, rt)
         return
       }
       const note = `the hunt removed nothing in ${plural(hunt.rounds, 'round')}, so no pull request opens; ${plural(hunt.kept.length, 'candidate')} were checked and kept. Finish it to remove its worktree and branch`

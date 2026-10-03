@@ -338,3 +338,28 @@ test('a stop while a fix session of the gate runs marks it interrupted, and a re
   expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
   expect(done.history?.[2]?.session_id).toBe(fixing.session_id)
 })
+
+test('a resume of a gate whose fix session had no id yet runs the gate again', async () => {
+  gated(dir, 'test -f fixed.txt')
+  play(m, 'complete Implemented the board')
+  // Without an end the fix session runs until it is stopped.
+  playGate('say Looking into it')
+  const r = await claim()
+  const fixing = await until(r.id, (x) => x.stage === 'gate' && x.state === 'running' && (x.history ?? []).length === 2 && !!x.session_id)
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGTERM')
+  await exited
+  // The record is as a stop leaves it before the fix session has its id: fixing, with no session id.
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  const stopped = JSON.parse(read(file)) as { [key: string]: unknown }
+  expect(stopped).toMatchObject({ state: 'interrupted', stage: 'gate', fixing: true, node: 'gate-fix' })
+  delete stopped.session_id
+  writeFileSync(file, JSON.stringify(stopped))
+
+  server = await up()
+  writeFileSync(join(fixing.worktree, 'fixed.txt'), '')
+  expect(cli(m, ['resume', '144', '--project', dir]).stderr).toBe('')
+  const done = await until(r.id, (x) => !['running', 'waiting'].includes(x.state) && x.state !== 'interrupted')
+  expect(done).toMatchObject({ state: 'ready', stage: 'ci' })
+  expect(shape(done)).toEqual(['implement session complete', 'gate run fail', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
+})

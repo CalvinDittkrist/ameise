@@ -11,17 +11,17 @@
 //
 // It then reads the checks of the pushed head every poll until they pass, fail or go missing. The
 // "Gate on CI" section of controller/README.md states the rules and the knobs of this reading.
-// A draft that conflicts with the base gets the base merged in and pushed. A merge that conflicts in
-// files goes to a fix session, as a failed check does.
+// A draft that conflicts with the base gets the base merged in and pushed. The whole poll runs inside
+// the gate node (gate.ts), which a stop ends. A pass returns the outcome pass. A merge that conflicts in
+// files and a failed check return fail, which the engine takes to the gate fix node within the budget.
+// Every other end returns failed, which parks the process with the reason.
 import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { git, push } from './git.js'
-import { checksOf, pause, type Reading } from './ci.js'
+import { checksOf, pause, type Reading } from './checks.js'
 import { run } from './exec.js'
-import { defaultGrace, type GateForm, mergeBase, repair, short, tailOf } from './gate.js'
-import type { Project } from './project.js'
-import { advance } from './engine.js'
-import { graphOf } from './graphs.js'
+import { defaultGrace, fail, type GateForm, mergeBase, short, stopped, tailOf } from './gate.js'
+import type { NodeContext, Outcome } from './engine.js'
 import { type Runtime } from './session.js'
 import { knob } from './settings.js'
 import type { Attempt, Check, Pull, StageRecord } from './records.js'
@@ -106,20 +106,21 @@ async function failedLogs(gh: string, repo: string, failing: Check[]): Promise<s
   return out.length > 0 ? out.join('\n\n') : "no failed log could be read; the checks' pages are named above"
 }
 
-// ciGate runs the gate on CI of a process until its pass, its failure or its end, unless a stop takes
-// it over.
-export async function ciGate(record: StageRecord, project: Project, rt: Runtime, signal: AbortSignal, own: () => boolean, form: CiForm, rounds: number, limit: number): Promise<void> {
+// ciGate runs the gate on CI of a process within the gate node until its pass, its failure or its end,
+// unless a stop takes it over, and returns the outcome of the node: pass, fail or failed. Its waits are
+// polls inside the node, which a stop ends.
+export async function ciGate({ record, project, rt, signal, own }: NodeContext, form: CiForm, rounds: number, limit: number): Promise<Outcome> {
   const id = record.id
   const repo = `${project.owner}/${project.name}`
   const wt = record.worktree
   const now = () => new Date().toISOString()
-  // end ends the process failed with the note, unless a stop has taken it over.
-  const end = (note: string, a?: Attempt) => {
-    if (!own()) return
-    event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'failed', note })
-    const change = { state: 'failed', note, wait: undefined, unseen: true } as Partial<StageRecord>
-    const ended = a ? attempt(rt.stateDir, id, a, change) : update(rt.stateDir, id, change)
-    if (ended) rt.announce(ended)
+  // end is the outcome failed with the note, which parks the process, unless a stop has taken it over.
+  const end = (note: string, a?: Attempt): Outcome => {
+    if (!own()) return stopped
+    const change = { wait: undefined } as Partial<StageRecord>
+    if (a) attempt(rt.stateDir, id, a, change)
+    else update(rt.stateDir, id, change)
+    return { outcome: 'failed', note }
   }
   let grace: number
   try {
@@ -140,12 +141,12 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
   } catch (err) {
     return end(`could not push ${record.branch} to origin: ${(err as Error).message}`)
   }
-  if (!own()) return
+  if (!own()) return stopped
 
   let pull: Pull
   try {
     const settled = await draft(record, repo, rt, own)
-    if (!settled || !own()) return
+    if (!settled || !own()) return stopped
     if ('foreign' in settled) {
       const named = settled.foreign.map((p) => `#${p.number} of ${p.author} (${p.url})`).join(', ')
       return end(
@@ -163,7 +164,7 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
   let shown = ''
   let said = ''
   for (;;) {
-    if (!own()) return
+    if (!own()) return stopped
     if (Date.now() - began >= limit * 1000) {
       return end(`the gate on CI ran past the gate timeout of ${limit} s (WF_GATE_TIMEOUT) on PR #${n} at ${short(head)}${shown ? `, waiting for ${shown}` : ''}`)
     }
@@ -175,7 +176,7 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
     } catch (err) {
       wait = `GitHub to answer: ${(err as Error).message.split('\n')[0]}`
     }
-    if (!own()) return
+    if (!own()) return stopped
     if (!r) {
       // wait says what GitHub did not answer
     } else if (r.state !== 'OPEN') {
@@ -189,19 +190,19 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
       } catch (err) {
         return end((err as Error).message)
       }
-      if (!own()) return
+      if (!own()) return stopped
       if (files.length > 0) {
         const failure: Attempt = { stage: 'gate', kind: 'merge', result: 'conflict', at: now(), commit: await git(wt, 'rev-parse', 'HEAD'), files, pr: n, url: pull.url }
-        if (!own()) return
+        if (!own()) return stopped
         event(rt.stateDir, id, { event: 'gate', ...failure })
-        return repair(record, project, rt, own, failure, form.name, rounds)
+        return fail(record, rt, own, failure, form.name, rounds)
       }
       try {
         head = await pushed()
       } catch (err) {
         return end(`could not push the merge of ${record.base} to origin: ${(err as Error).message}`)
       }
-      if (!own()) return
+      if (!own()) return stopped
       pushedAt = Date.now()
       seen = ''
       wait = `the checks of ${short(head)}, which merged ${record.base}`
@@ -224,11 +225,11 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
       if (judged.verdict === 'fail') {
         const failing = checks.filter((c) => c.state === 'fail')
         const tail = `The checks that failed:\n${listed(failing)}\n\nThe end of their failed logs:\n${await failedLogs(rt.gh, repo, failing)}`
-        if (!own()) return
+        if (!own()) return stopped
         const failure: Attempt = { ...base, result: 'fail', tail }
         update(rt.stateDir, id, { checks } as Partial<StageRecord>)
         event(rt.stateDir, id, { event: 'gate', ...failure })
-        return repair(record, project, rt, own, failure, form.name, rounds)
+        return fail(record, rt, own, failure, form.name, rounds)
       }
       if (judged.verdict === 'pass') {
         const key = `${head} ${JSON.stringify(checks)}`
@@ -237,9 +238,8 @@ export async function ciGate(record: StageRecord, project: Project, rt: Runtime,
           const a: Attempt = { ...base, tail: listed(checks) }
           event(rt.stateDir, id, { event: 'gate', ...a })
           event(rt.stateDir, id, { event: 'gate-end', stage: 'gate', state: 'pass', note: `the gate on CI passed at ${short(head)} on PR #${n}: ${checks.map((c) => c.name).join(', ')}` })
-          const next = attempt(rt.stateDir, id, a, { state: 'running', wait: undefined, checks } as Partial<StageRecord>)
-          if (next && own()) advance(graphOf(next), 'gate', { outcome: 'pass' }, next, project, rt)
-          return
+          attempt(rt.stateDir, id, a, { state: 'running', wait: undefined, checks } as Partial<StageRecord>)
+          return { outcome: 'pass' }
         }
         seen = key
         wait = 'a second reading a poll later that shows the same checks'

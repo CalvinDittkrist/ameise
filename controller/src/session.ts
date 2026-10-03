@@ -1,19 +1,19 @@
 // The sessions of a work process: Claude Code run headless through the Agent SDK in the process's
 // worktree. The implement session implements the issue and commits, with the bundled worker plugin, and
 // ends by reporting complete with its commits or blocked through a structured result. On complete the
-// controller starts the gate stage (gate.ts), unless the maintainer holds the session open. A fix session
-// of the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
-// same way. The complete of a fix session of the review, of the ci stage or of an address-reviews session
-// is an outcome of its node of the delivery graph. The engine (engine.ts) follows that outcome, from the
-// review fix to the gate and from the others back to the ci node (ci.ts). Every other complete goes to
-// the gate. Every subagent of a stage is an agent run (agents.ts): a
-// reviewer, the author session, the spec checker, an auditor or the apply session. The one runner,
-// agents, starts each here beside the process's own session, side by side where there are several. The
-// streams of the read-only ones stay out of the event log. Every session's end is an attempt in the
-// record's history. Its stream goes into the process's event log and its session id into the record. A
-// session that ends without a result, or a runtime that cannot start, ends the process as failed with
-// the reason. A session the controller's stop cuts off ends the process as interrupted. A resume goes on
-// with it by its session id when it has one, and starts a fresh session otherwise.
+// controller enters the gate node (gate.ts) through the engine, unless the maintainer holds the session
+// open. A fix session of the gate, of the review or of the ci stage is a fresh session with a stage
+// timeout that reports the same way. The complete of a fix session of the gate, of the review, of the ci
+// stage or of an address-reviews session is an outcome of its node of the delivery graph. The engine
+// (engine.ts) follows that outcome. The gate fix and the review fix go to the gate, the others back to
+// the ci node (ci.ts). Every other complete enters the gate node. Every subagent of a stage is an agent
+// run (agents.ts): a reviewer, the author session, the spec checker, an auditor or the apply session.
+// The one runner, agents, starts each here beside the process's own session, side by side where there
+// are several. The streams of the read-only ones stay out of the event log. Every session's end is an
+// attempt in the record's history. Its stream goes into the process's event log and its session id into
+// the record. A session that ends without a result, or a runtime that cannot start, ends the process as
+// failed with the reason. A session the controller's stop cuts off ends the process as interrupted. A
+// resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
@@ -42,8 +42,7 @@ import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { type Addressed, type AgentRun, type Ended, report } from './agents.js'
 import { brief, planBrief, safeRef } from './briefs.js'
-import { advance } from './engine.js'
-import { gate } from './gate.js'
+import { advance, enter } from './engine.js'
 import { graphOf } from './graphs.js'
 import { githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
@@ -223,10 +222,10 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
         const reported = { replies: addressed?.replies ?? [], answer: addressed?.answer ?? '' }
         const done = attempt(rt.stateDir, id, a, { fixing: false, ...(addressing ? { addressing: { ...addressing, reported } } : {}) } as Partial<StageRecord>)
         // A hunt session's complete reads the hunt record, which decides between the gate and the end.
-        const node = stage === 'ci' ? 'ci-fix' : stage === 'review' ? 'review-fix' : stage === 'address-reviews' ? 'address-reviews' : undefined
+        const node = stage === 'gate' ? 'gate-fix' : stage === 'ci' ? 'ci-fix' : stage === 'review' ? 'review-fix' : stage === 'address-reviews' ? 'address-reviews' : undefined
         if (done && node) advance(graphOf(done), node, { outcome: 'complete' }, done, project, rt, exited, abort)
         else if (done && done.kind === 'hunt' && stage === 'hunt') hunted(done, project, rt, exited, abort)
-        else if (done) gate(done, project, rt, exited, abort)
+        else if (done) enter(graphOf(done), 'gate', done, project, rt, exited, abort)
         return
       }
       attempt(rt.stateDir, id, a)
