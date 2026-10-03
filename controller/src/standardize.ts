@@ -5,13 +5,25 @@
 // (agents.ts, session.ts), and merges their finding lines per category with the report. The process then waits for
 // one answer per category, approve or reject.
 //
-// The apply records the answers and applies the approved categories in this order: the backup (the tag
-// pre-standard and the catalogue issue) before anything is deleted, the cleanup's prepare, a session for the
-// todo lines that need judgement, the cleanup's open for the cleanup pull request, and the issues. After the
-// merge, the finalize configures the workspace and runs the standard check. Every step is safe to run again,
-// so a failed step is applied again from the start. The steps keep the names of the scripts they were in the
-// lines they report (approve.sh, cleanup.sh open), which the process view and its notes show.
+// The apply records the answers and applies the approved categories in a fixed order. The backup (the tag
+// pre-standard and the catalogue issue) comes before anything is deleted. Then come the cleanup's prepare,
+// a session for the todo lines that need judgement, the cleanup's open for the cleanup pull request, and
+// the issues. After the merge, the finalize configures the workspace and runs the standard check. Every
+// step is safe to run again, so a failed step is applied again from the start. In the lines they report,
+// the steps keep the names of the scripts they were in (approve.sh, cleanup.sh open). The process view
+// and its notes show these names.
+//
+// A standardize process runs on the standardize graph through the engine (engine.ts). Its nodes are
+// audit, apply and finalize, each with the stage of its name, and every park keeps the process on its
+// node. The audit parks in input while its report waits for the answers, and failed. The apply parks
+// ready once the cleanup pull request is open, and blocked or failed. Answers its approval step refuses
+// move the process back to the audit node, parked failed. The finalize ends the graph once the check
+// passes and parks failed when it fails. While its step refuses, as before the merge, it parks ready
+// without an announce. The routes send a request to the engine. Audit runs again from a failed audit.
+// Apply runs with the answers from the audit's input, or again from a blocked or failed apply. Finalize
+// runs from a ready apply, or from a ready or failed finalize. A message moves no standardize process.
 import { createHash } from 'node:crypto'
+import { setup } from 'xstate'
 import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { applier, auditor, type Ended } from './agents.js'
@@ -20,8 +32,9 @@ import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
 import { run } from './exec.js'
 import { removal } from './hunt.js'
+import { advance, type Entry, enter, type NodeContext, type Outcome, type StateMeta } from './engine.js'
+import { graphOf } from './graphs.js'
 import { type Project, Refusal } from './project.js'
-import { type Running, track } from './running.js'
 import { agents, type Runtime } from './session.js'
 import { settingOf } from './settings.js'
 import { backup as backupStep } from './standard/backup.js'
@@ -32,8 +45,8 @@ import { issues as issuesStep } from './standard/issues.js'
 import { type Category, categories, type Ctx, step } from './standard/lib.js'
 import { approve, report as reportStep } from './standard/report.js'
 import { workspace } from './standard/workspace.js'
-import type { Answer, CategoryReport, Standardization, StandardizeRecord, Step } from './records.js'
-import { event, readRecord, update, writeProcess } from './store.js'
+import type { Answer, CategoryReport, StageRecord, Standardization, StandardizeRecord, Step } from './records.js'
+import { readRecord, update, writeProcess } from './store.js'
 
 // The branch of a standardize process, the cleanup branch of the standardize steps.
 export const standardizeBranch = 'chore/standardize'
@@ -121,6 +134,102 @@ function standardizeOf(stateDir: string, id: string): StandardizeRecord {
   return r
 }
 
+// What the guards of the standardize graph read: the state the process is parked in.
+export type StandardizeContext = { state: string }
+
+// standardizeContext is the context of the standardize graph for the record as it stands.
+export const standardizeContext = (record: { state: string }): StandardizeContext => ({ state: record.state })
+
+// park keeps the process on its node, or on the node of the edge's target, in one of the park states.
+// A park in input is announced here too, and a quiet park is not.
+const park = (state: 'ready' | 'blocked' | 'input' | 'failed', announce?: boolean) => ({ type: 'park', params: { state, ...(announce === undefined ? {} : { announce }) } }) as const
+
+// node is the meta of a node of the standardize graph: its stage, the running state and note it is entered
+// with, and its events. The apply writes its own start event, which names its answers.
+const node = (stage: string, note: string, entry: Record<string, unknown> = {}, start = true): StateMeta => ({
+  stage,
+  entry: { state: 'running', ...entry },
+  note,
+  ...(start ? { start: `${stage}-start` } : {}),
+  end: `${stage}-end`,
+  failure: `the ${stage} failed`,
+  what: `its ${stage}`,
+})
+
+// The standardize graph: the outcomes of its nodes, and the requests of the routes, from the park each is
+// sent from. Only done is final.
+export const standardizeGraph = setup({
+  types: { context: {} as StandardizeContext, events: {} as { type: string; answers?: Record<string, string> } },
+  guards: {
+    failed: ({ context }) => context.state === 'failed',
+    input: ({ context }) => context.state === 'input',
+    ready: ({ context }) => context.state === 'ready',
+    blockedOrFailed: ({ context }) => context.state === 'blocked' || context.state === 'failed',
+    readyOrFailed: ({ context }) => context.state === 'ready' || context.state === 'failed',
+  },
+  actions: {
+    // park is read from the transition by the engine, which writes it; it runs nothing itself.
+    park: () => {},
+  },
+}).createMachine({
+  id: 'standardize',
+  initial: 'audit',
+  context: { state: 'created' },
+  states: {
+    audit: {
+      // Entering the audit clears the report of an earlier one.
+      meta: node('audit', 'the audit gathers the facts', { standardize: undefined }),
+      on: {
+        input: { actions: park('input', true) },
+        failed: { actions: park('failed') },
+        audit: { guard: 'failed', target: 'audit' },
+        apply: { guard: 'input', target: 'apply' },
+      },
+    },
+    apply: {
+      meta: node('apply', 'the apply records the answers', {}, false),
+      on: {
+        ready: { actions: park('ready') },
+        blocked: { actions: park('blocked') },
+        failed: { actions: park('failed') },
+        refused: { target: 'audit', actions: park('failed') },
+        apply: { guard: 'blockedOrFailed', target: 'apply' },
+        finalize: { guard: 'ready', target: 'finalize' },
+      },
+    },
+    finalize: {
+      meta: node('finalize', 'finalize.sh runs: the workspace and the standard check'),
+      on: {
+        done: 'done',
+        failed: { actions: park('failed') },
+        refused: { actions: park('ready', false) },
+        finalize: { guard: 'readyOrFailed', target: 'finalize' },
+      },
+    },
+    done: { type: 'final' },
+  },
+})
+
+// standardizeNode is the node of the standardize graph the process is on: its node, or for a record of a
+// release before the graph, which has no workflow, the node its stage names.
+export function standardizeNode(record: StandardizeRecord): string {
+  return record.workflow === 'standardize' && record.node ? record.node : record.stage
+}
+
+// The engine runs a work process's record; a standardize record goes through it as one.
+const asStage = (r: StandardizeRecord) => r as unknown as StageRecord
+const recordOf = (ctx: NodeContext) => ctx.record as unknown as StandardizeRecord
+
+// request sends the event of a route to the engine on the node the process is parked on, and answers the
+// record of the node it entered.
+function request(project: Project, rt: Runtime, r: StandardizeRecord, o: Outcome): StandardizeRecord {
+  const done = advance(graphOf(r), standardizeNode(r), o, asStage(r), project, rt) as StandardizeRecord | undefined
+  return done ?? (readRecord(rt.stateDir, r.id) as StandardizeRecord | undefined) ?? r
+}
+
+// stopped is what a node returns once a stop took the process over; the engine follows no edge of it.
+const stopped: Outcome = { outcome: 'stopped' }
+
 // Ran is how a step ended: its exit code and every line it reported.
 interface Ran {
   code: number
@@ -154,34 +263,6 @@ async function script(project: Project, rt: Runtime, signal: AbortSignal, work: 
 const errors = (r: Ran) => r.lines.filter((l) => l.startsWith('error: ')).map((l) => l.slice('error: '.length))
 const firstError = (r: Ran, name: string) => errors(r)[0] ?? `${name} exited with ${r.code}`
 
-// background runs one stage of a standardize process in the background, tracked, so a stop ends it and its
-// step or session. A stage that throws ends the process failed with the reason.
-function background(record: StandardizeRecord, rt: Runtime, busy: string, work: (s: Running, own: () => boolean) => Promise<void>) {
-  const id = record.id
-  const abort = new AbortController()
-  const tracked: { own: () => boolean; s?: Running } = { own: () => false }
-  const own = () => tracked.own()
-  const done = Promise.resolve()
-    .then(async () => {
-      if (!tracked.s) return
-      await work(tracked.s, own)
-    })
-    .catch((err: unknown) => {
-      if (own()) failed(rt, id, record.stage, `the ${record.stage} failed: ${(err as Error).message}`)
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`warning: ${id}: its ${record.stage} ended unexpectedly: ${(err as Error).message}\n`)
-    })
-  Object.assign(tracked, track(id, abort, done, busy))
-}
-
-// failed ends a stage failed with the note, told as every turn to failed is.
-function failed(rt: Runtime, id: string, stage: string, note: string) {
-  event(rt.stateDir, id, { event: `${stage}-end`, stage, state: 'failed', note })
-  const r = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-  if (r) rt.announce(r)
-}
-
 // auditorBrief is the brief of one auditor: the worktree it audits, the facts verbatim, the workspace's
 // dry run for the workspace auditor, and how it reports.
 export function auditorBrief(record: StandardizeRecord, repo: string, category: Category, facts: string[], workspace: string[]): string {
@@ -205,35 +286,39 @@ const oneLine = (s: string) =>
     .replace(/^([-*]\s+)?`?/, '')
     .replace(/`\s*$/, '')
 
-// audit starts the audit of a standardize process and answers the record as it runs: the facts, the six
-// auditors in parallel and their report per category, then the wait for an answer per category.
+// audit starts the audit of a standardize process through the engine and answers the record as it runs.
 export function audit(record: StandardizeRecord, project: Project, rt: Runtime): StandardizeRecord {
-  const id = record.id
-  const started = (update(rt.stateDir, id, { stage: 'audit', state: 'running', note: 'the audit gathers the facts', standardize: undefined } as Partial<StandardizeRecord>) as StandardizeRecord | undefined) ?? record
-  event(rt.stateDir, id, { event: 'audit-start', stage: 'audit' })
-  background(started, rt, 'the auditors run', async (s, own) => {
+  return enter(graphOf(record), 'audit', asStage(record), project, rt) as unknown as StandardizeRecord
+}
+
+// auditNode is the audit node: the facts, the six auditors in parallel and their report per category,
+// then the wait for an answer per category. A failed step or auditor fails the audit.
+export const auditNode = {
+  run: async (ctx: NodeContext): Promise<Outcome> => {
+    const { project, rt, signal, own } = ctx
+    const started = recordOf(ctx)
+    const id = started.id
     const repo = `${project.owner}/${project.name}`
-    const signal = s.abort.signal
     const f = await script(project, rt, signal, (c) => facts(c, started.worktree))
-    if (!own()) return
-    if (f.code !== 0) return failed(rt, id, 'audit', `the audit failed: facts.sh: ${firstError(f, 'facts.sh')}; audit again`)
+    if (!own()) return stopped
+    if (f.code !== 0) return { outcome: 'failed', note: `the audit failed: facts.sh: ${firstError(f, 'facts.sh')}; audit again` }
     const ws = await script(project, rt, signal, (c) => workspace(c, { apply: false }))
-    if (!own()) return
+    if (!own()) return stopped
     // A workspace that cannot be read is not audited, which the report says, as the plugin's does.
     const unaudited = ws.code === 0 ? undefined : firstError(ws, 'workspace.sh')
-    event(rt.stateDir, id, { event: 'audit-facts', facts: f.lines.length, workspace: unaudited ?? 'read' })
-    update(rt.stateDir, id, { note: 'the six auditors run' })
-    const ended = await agents(started, rt, s, own, categories.map((c) => ({ run: auditor(c), brief: auditorBrief(started, repo, c, f.lines, ws.lines) })))
+    ctx.event({ event: 'audit-facts', facts: f.lines.length, workspace: unaudited ?? 'read' })
+    ctx.note('the six auditors run')
+    const ended = await agents(started, rt, ctx.running, own, categories.map((c) => ({ run: auditor(c), brief: auditorBrief(started, repo, c, f.lines, ws.lines) })))
     const ends = categories.map((category, i) => ({ category, ended: ended[i] as Ended }))
-    if (!own()) return
+    if (!own()) return stopped
     const ran = ends.map(({ category, ended }) => ({ category, state: ended.state, note: ended.note, findings: ended.findings?.length ?? 0 }))
-    event(rt.stateDir, id, { event: 'audit-auditors', auditors: ran })
+    ctx.event({ event: 'audit-auditors', auditors: ran })
     const broke = ends.find((e) => e.ended.state !== 'complete')
-    if (broke) return failed(rt, id, 'audit', `the ${broke.category} auditor failed: ${broke.ended.note}; audit again`)
+    if (broke) return { outcome: 'failed', note: `the ${broke.category} auditor failed: ${broke.ended.note}; audit again` }
     const lines = ends.flatMap((e) => (e.ended.findings ?? []).map(oneLine)).filter((l) => l !== '')
     const reported = await report(project, rt, signal, lines)
-    if (!own()) return
-    if ('error' in reported) return failed(rt, id, 'audit', `the audit failed: report.sh: ${reported.error}; audit again`)
+    if (!own()) return stopped
+    if ('error' in reported) return { outcome: 'failed', note: `the audit failed: report.sh: ${reported.error}; audit again` }
     const standardization: Standardization = {
       facts: f.lines,
       workspace: ws.lines,
@@ -243,13 +328,11 @@ export function audit(record: StandardizeRecord, project: Project, rt: Runtime):
       dropped: reported.dropped,
       ...(unaudited ? { unaudited } : {}),
     }
+    update(rt.stateDir, id, { standardize: standardization } as Partial<StandardizeRecord>)
     const unread = unaudited ? `; the GitHub workspace was not audited: ${unaudited}` : ''
     const note = `${reported.summary}${unread}; approve or reject each category in the process view`
-    event(rt.stateDir, id, { event: 'audit-end', stage: 'audit', state: 'input', note, categories: reported.categories.map((c) => c.name), dropped: reported.dropped.length })
-    const waiting = update(rt.stateDir, id, { state: 'input', note, unseen: true, standardize: standardization } as Partial<StandardizeRecord>)
-    if (waiting) rt.announce(waiting)
-  })
-  return started
+    return { outcome: 'input', note, end: { categories: reported.categories.map((c) => c.name), dropped: reported.dropped.length } }
+  },
 }
 
 // report merges the finding lines with the report step and reads its report per category. A line the
@@ -299,7 +382,7 @@ async function readReport(project: Project, lines: string[]): Promise<CategoryRe
 export function auditAgain(project: Project, rt: Runtime, id: string): StandardizeRecord {
   const r = standardizeOf(rt.stateDir, id)
   if (r.stage !== 'audit' || r.state !== 'failed') throw new Refusal(`the ${r.stage} of ${id} is ${r.state}; only a failed audit runs again`, 409)
-  return audit(r, project, rt)
+  return request(project, rt, r, { outcome: 'audit' })
 }
 
 // applyRequest reads the answers of a body: approve or reject per category.
@@ -317,10 +400,9 @@ export function applyRequest(body: Record<string, unknown>): Partial<Record<Cate
   return out
 }
 
-// apply records the answers and applies the approved categories in the background: the approval, the
-// backup, the cleanup's prepare, a session for its todo lines, the cleanup's open and the issues. Every category of the
-// report needs an answer, so only an approved one is applied. A failed or blocked apply applies again
-// with the answers it has, since every step goes on from what an earlier run created.
+// apply sends the request to apply to the engine: with an answer per category once the audit waits for
+// them, or without answers again after a blocked or failed apply. Every category of the report needs an
+// answer, so only an approved one is applied.
 export function apply(project: Project, rt: Runtime, id: string, answers: Partial<Record<Category, Answer>> | undefined): StandardizeRecord {
   const r = standardizeOf(rt.stateDir, id)
   const st = r.standardize
@@ -333,77 +415,87 @@ export function apply(project: Project, rt: Runtime, id: string, answers: Partia
   }
   const missing = st.categories.filter((c) => given[c.name] === undefined).map((c) => c.name)
   if (missing.length > 0) throw new Refusal(`answer every category before the apply; ${missing.join(', ')} ${missing.length === 1 ? 'has' : 'have'} no answer`)
-  const answered: Standardization = { ...st, categories: st.categories.map((c) => ({ ...c, answer: given[c.name] })), applied: [] }
-  const started = (update(rt.stateDir, id, { stage: 'apply', state: 'running', note: 'the apply records the answers', standardize: answered } as Partial<StandardizeRecord>) as StandardizeRecord | undefined) ?? r
-  event(rt.stateDir, id, { event: 'apply-start', stage: 'apply', answers: given })
-  background(started, rt, 'the apply runs', async (s, own) => {
-    const signal = s.abort.signal
+  return request(project, rt, r, { outcome: 'apply', ...(answers ? { answers: answers as Record<string, string> } : {}) })
+}
+
+// answersOf are the answers an apply is entered with: those of its request, or the recorded ones.
+const answersOf = (st: Standardization, how: Entry) => (how.answers ?? Object.fromEntries(st.categories.map((c) => [c.name, c.answer]))) as Partial<Record<Category, Answer>>
+
+// applyNode is the apply node: it records the answers and applies the approved categories, the approval,
+// the backup, the cleanup's prepare, a session for its todo lines, the cleanup's open and the issues. A
+// failed or blocked apply applies again with the answers it has, since every step goes on from what an
+// earlier run created.
+export const applyNode = {
+  entry: (record: StageRecord, how: Entry): Partial<StageRecord> => {
+    const st = (record as unknown as StandardizeRecord).standardize
+    if (!st) return {}
+    const given = answersOf(st, how)
+    const answered: Standardization = { ...st, categories: st.categories.map((c) => ({ ...c, answer: given[c.name] })), applied: [] }
+    return { standardize: answered } as Partial<StageRecord>
+  },
+  run: async (ctx: NodeContext): Promise<Outcome> => {
+    const { project, rt, signal, own } = ctx
+    const started = recordOf(ctx)
+    const id = started.id
+    const answered = started.standardize
+    if (!answered) return { outcome: 'failed', note: 'the apply found no report; audit again' }
+    ctx.event({ event: 'apply-start', stage: 'apply', answers: answersOf(answered, ctx.how) })
     const steps: Step[] = []
     const keep = (step: string, ok: boolean, lines: string[], change: Partial<Standardization> = {}) => {
       steps.push({ step, ok, lines, at: new Date().toISOString() })
       const now = readRecord(rt.stateDir, id) as StandardizeRecord | undefined
       if (now?.standardize) update(rt.stateDir, id, { standardize: { ...now.standardize, ...change, applied: [...steps] } } as Partial<StandardizeRecord>)
-      event(rt.stateDir, id, { event: 'apply-step', step, ok })
+      ctx.event({ event: 'apply-step', step, ok })
     }
     // run runs a step; read takes what the record keeps of its output.
     const run = async (step: string, work: (c: Ctx) => Promise<number | void>, note: string, read: (out: string) => Partial<Standardization> = () => ({})): Promise<Ran | undefined> => {
-      update(rt.stateDir, id, { note })
+      ctx.note(note)
       const out = await script(project, rt, signal, work)
       if (!own()) return undefined
       keep(step, out.code === 0, out.lines, out.code === 0 ? read(out.lines.join('\n')) : {})
       return out
     }
     const answer = await run('approve', (c) => approve(c, answered.categories.map((x) => `${x.name}=${x.answer}`)), 'the apply records the answers')
-    if (!answer) return
+    if (!answer) return stopped
     // approve.sh refuses when the report it stored is gone or differs, so the audit fails and runs again.
-    if (answer.code !== 0) {
-      update(rt.stateDir, id, { stage: 'audit' })
-      return failed(rt, id, 'audit', `approve.sh refused the answers: ${firstError(answer, 'approve.sh')}; audit again`)
-    }
+    if (answer.code !== 0) return { outcome: 'refused', note: `approve.sh refused the answers: ${firstError(answer, 'approve.sh')}; audit again` }
     // Nothing is deleted without the backup: a backup that failed stops the apply here.
     const backup = await run('backup', backupStep, 'the apply backs up: the tag pre-standard and the catalogue issue', (out) => {
       const catalogue = Number(/^catalogue: #(\d+)/m.exec(out)?.[1])
       return catalogue ? { catalogue } : {}
     })
-    if (!backup) return
-    if (backup.code !== 0) return failed(rt, id, 'apply', `the backup failed, so nothing was deleted: ${firstError(backup, 'backup.sh')}; apply again`)
+    if (!backup) return stopped
+    if (backup.code !== 0) return { outcome: 'failed', note: `the backup failed, so nothing was deleted: ${firstError(backup, 'backup.sh')}; apply again` }
     const prepare = await run('prepare', cleanupPrepare, 'the apply prepares the cleanup on chore/standardize')
-    if (!prepare) return
-    if (prepare.code !== 0) return failed(rt, id, 'apply', `cleanup.sh prepare failed: ${firstError(prepare, 'cleanup.sh prepare')}; apply again`)
+    if (!prepare) return stopped
+    if (prepare.code !== 0) return { outcome: 'failed', note: `cleanup.sh prepare failed: ${firstError(prepare, 'cleanup.sh prepare')}; apply again` }
     const todo = prepare.lines.filter((l) => l.startsWith('todo: '))
     if (todo.length > 0) {
-      update(rt.stateDir, id, { note: `the apply session works ${todo.length} todo line(s)` })
-      event(rt.stateDir, id, { event: 'session-start', stage: 'apply' })
-      const [ended] = await agents(started, rt, s, own, [{ run: applier, brief: applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo) }])
-      if (!own()) return
-      event(rt.stateDir, id, { event: 'session-end', stage: 'apply', state: ended.state, note: ended.note })
+      ctx.note(`the apply session works ${todo.length} todo line(s)`)
+      ctx.event({ event: 'session-start', stage: 'apply' })
+      const [ended] = await agents(started, rt, ctx.running, own, [{ run: applier, brief: applyBrief(started, `${project.owner}/${project.name}`, answered.facts, todo) }])
+      if (!own()) return stopped
+      ctx.event({ event: 'session-end', stage: 'apply', state: ended.state, note: ended.note })
       keep('session', ended.state === 'complete', [ended.note])
-      if (ended.state === 'blocked') {
-        const blocked = update(rt.stateDir, id, { state: 'blocked', note: `the apply session asks: ${ended.note}; settle it in the worktree and apply again`, unseen: true })
-        if (blocked) rt.announce(blocked)
-        return
-      }
-      if (ended.state !== 'complete') return failed(rt, id, 'apply', `the apply session failed: ${ended.note}; apply again`)
+      if (ended.state === 'blocked') return { outcome: 'blocked', note: `the apply session asks: ${ended.note}; settle it in the worktree and apply again` }
+      if (ended.state !== 'complete') return { outcome: 'failed', note: `the apply session failed: ${ended.note}; apply again` }
     }
     const pullOf = (out: string) => /^pr: (\S+) (opened|updated|unchanged)$/m.exec(out)?.[1]
     const open = await run('open', cleanupOpen, 'the apply opens the cleanup pull request', (out) => {
       const pull = pullOf(out)
       return pull ? { pull } : {}
     })
-    if (!open) return
-    if (open.code !== 0) return failed(rt, id, 'apply', `cleanup.sh open failed: ${firstError(open, 'cleanup.sh open')}; apply again`)
+    if (!open) return stopped
+    if (open.code !== 0) return { outcome: 'failed', note: `cleanup.sh open failed: ${firstError(open, 'cleanup.sh open')}; apply again` }
     const pull = pullOf(open.lines.join('\n'))
     const issues = await run('issues', issuesStep, 'the apply opens the issues of the approved findings')
-    if (!issues) return
-    if (issues.code !== 0) return failed(rt, id, 'apply', `issues.sh failed: ${firstError(issues, 'issues.sh')}; apply again`)
+    if (!issues) return stopped
+    if (issues.code !== 0) return { outcome: 'failed', note: `issues.sh failed: ${firstError(issues, 'issues.sh')}; apply again` }
     const note = pull
       ? `the cleanup pull request ${pull} is open; merge it once its check passes, then finalize`
       : 'the base needed no cleanup; finalize to configure the workspace and run the check'
-    event(rt.stateDir, id, { event: 'apply-end', stage: 'apply', state: 'ready', note })
-    const ready = update(rt.stateDir, id, { state: 'ready', note, unseen: true })
-    if (ready) rt.announce(ready)
-  })
-  return started
+    return { outcome: 'ready', note }
+  },
 }
 
 // applyBrief is the brief of the apply session: the todo lines of cleanup.sh prepare and how to work them,
@@ -426,21 +518,29 @@ export function applyBrief(record: StandardizeRecord, repo: string, facts: strin
   ].join('\n')
 }
 
-// finalize runs the finalize step once the cleanup pull request is merged: the workspace of an approved
-// workspace category and the standard check. While the pull request is not merged it refuses, and the
-// process waits again with the reason. A check that fails ends the process failed; it finalizes again.
+// finalize sends the request to finalize to the engine, once the apply opened the cleanup pull request,
+// or again after a finalize that refused or failed.
 export function finalize(project: Project, rt: Runtime, id: string): StandardizeRecord {
   const r = standardizeOf(rt.stateDir, id)
   const ok = (r.stage === 'apply' && r.state === 'ready') || (r.stage === 'finalize' && ['ready', 'failed'].includes(r.state))
   if (!ok || !r.standardize) throw new Refusal(`the ${r.stage} of ${id} is ${r.state}; finalize once the apply opened the cleanup pull request`, 409)
-  const started = (update(rt.stateDir, id, { stage: 'finalize', state: 'running', note: 'finalize.sh runs: the workspace and the standard check' }) as StandardizeRecord | undefined) ?? r
-  event(rt.stateDir, id, { event: 'finalize-start', stage: 'finalize' })
-  background(started, rt, 'the finalize runs', async (s, own) => {
-    const out = await script(project, rt, s.abort.signal, finalizeStep)
-    if (!own()) return
+  return request(project, rt, r, { outcome: 'finalize' })
+}
+
+// finalizeNode is the finalize node: the finalize step once the cleanup pull request is merged, the
+// workspace of an approved workspace category and the standard check. While the pull request is not
+// merged the step refuses, and the process waits ready again with the reason. A check that fails parks
+// the process failed; it finalizes again.
+export const finalizeNode = {
+  run: async (ctx: NodeContext): Promise<Outcome> => {
+    const { project, rt, own } = ctx
+    const started = recordOf(ctx)
+    const id = started.id
+    const out = await script(project, rt, ctx.signal, finalizeStep)
+    if (!own()) return stopped
     const now = readRecord(rt.stateDir, id) as StandardizeRecord | undefined
     const st = now?.standardize ?? started.standardize
-    if (!st) return
+    if (!st) return { outcome: 'failed', note: 'the finalize found no report; finish the process and standardize again' }
     const result = out.lines.includes('result: pass') ? 'pass' : out.lines.includes('result: fail') ? 'fail' : undefined
     const applied = [...(st.applied ?? []), { step: 'finalize', ok: out.code === 0, lines: out.lines, at: new Date().toISOString() }]
     update(rt.stateDir, id, { standardize: { ...st, applied, ...(result ? { result } : {}) } } as Partial<StandardizeRecord>)
@@ -448,21 +548,19 @@ export function finalize(project: Project, rt: Runtime, id: string): Standardize
       const note = st.unaudited
         ? `standardized but for the GitHub workspace, which the audit could not read (${st.unaudited}); the standard check passes; configure the workspace with workspace.sh, then finish to remove the process`
         : 'standardized: the workspace is configured and the standard check passes; finish to remove the process'
-      event(rt.stateDir, id, { event: 'finalize-end', stage: 'finalize', state: 'done', note })
+      // The graph ends at done, which writes nothing, so the node writes its end itself.
+      ctx.event({ event: 'finalize-end', stage: 'finalize', state: 'done', note })
       const done = update(rt.stateDir, id, { state: 'done', note, unseen: true })
       if (done) rt.announce(done)
-      return
+      return { outcome: 'done' }
     }
     if (result === 'fail') {
       const fails = out.lines.filter((l) => /^check: fail: |^workspace: failed/.test(l))
-      return failed(rt, id, 'finalize', `the standard check fails${fails.length > 0 ? `: ${fails.join('; ')}` : ''}; fix it on the base and finalize again`)
+      return { outcome: 'failed', note: `the standard check fails${fails.length > 0 ? `: ${fails.join('; ')}` : ''}; fix it on the base and finalize again` }
     }
     // A refusal, as while the pull request is not merged, waits for the finalize again.
-    const note = `finalize.sh refused: ${firstError(out, 'finalize.sh')}`
-    event(rt.stateDir, id, { event: 'finalize-end', stage: 'finalize', state: 'ready', note })
-    update(rt.stateDir, id, { state: 'ready', note, unseen: true })
-  })
-  return started
+    return { outcome: 'refused', note: `finalize.sh refused: ${firstError(out, 'finalize.sh')}` }
+  },
 }
 
 // finishStandardize ends a standardize process: it stops what runs, then removes its worktree, its branch

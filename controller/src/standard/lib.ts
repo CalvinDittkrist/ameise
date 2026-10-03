@@ -33,8 +33,9 @@ export const cleanupBranch = 'chore/standardize'
 export const catalogueTitle = 'Standardisation: removed skills and how to restore them'
 
 // The labels a standardisation creates: the workflow's vocabulary, which the controller's github tools own, and
-// skill-candidate, which marks the catalogue issue.
-export const standardLabels: Label[] = [...vocabulary, skillCandidate]
+// skill-candidate, which marks the catalogue issue. It is read on a call, since the registry of the process
+// graphs loads this module through an import cycle with the github tools.
+export const standardLabels = (): Label[] => [...vocabulary, skillCandidate]
 
 // The ruleset that protects the tag from deletion and moving; the workspace wants the same one.
 export function tagRuleset() {
@@ -275,7 +276,7 @@ export async function remoteRef(c: Ctx, ref: string): Promise<string> {
 export async function ensureLabel(c: Ctx, repo: Repo, name: string) {
   const labels = await listAll<{ name: string }>(c, `repos/${repo.nwo}/labels?per_page=100`, `cannot read the labels of ${repo.nwo}`)
   if (labels.some((l) => l.name.toLowerCase() === name)) return
-  const label = standardLabels.find((l) => l.name === name)
+  const label = standardLabels().find((l) => l.name === name)
   const r = await gh(c, ['api', '--method', 'POST', `repos/${repo.nwo}/labels`, '--input', '-'], label ?? { name })
   if (r.code !== 0) throw new Stop(`cannot create the label ${name}: ${last(r.stderr)}`)
 }
