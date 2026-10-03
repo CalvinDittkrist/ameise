@@ -8,14 +8,14 @@
 // history. A pass starts the review stage (review.ts); a budget spent ends the process failed with the
 // end of the last output. The gate runs again after every fix session of the review.
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { fetch, git } from './git.js'
 import type { Project } from './project.js'
 import { ciGate } from './cigate.js'
 import { review } from './review.js'
 import { fixBrief } from './briefs.js'
-import { begin, runtimeEnv, type Runtime, track } from './session.js'
+import { track } from './running.js'
+import { begin, type Runtime } from './session.js'
+import { knob, runtimeEnv, setting } from './settings.js'
 import type { Attempt, StageRecord } from './records.js'
 import { attempt, event, update } from './store.js'
 
@@ -64,33 +64,6 @@ export const defaultGrace = 600
 // The end of the gate command's output the record keeps and a fix session is briefed with.
 const tailLines = 20
 const tailChars = 4000
-
-// setting reads a knob of the process: the claim's override, else the env block of the repository's
-// .claude/settings.json, else undefined.
-export const setting = (record: StageRecord, name: string): unknown => settingOf(record.env, record.project, name)
-
-// settingOf reads a knob from the overrides, else from the env block of the checkout's settings.
-export function settingOf(env: Record<string, string>, checkout: string, name: string): unknown {
-  const value: unknown = env[name]
-  if (value !== undefined) return value
-  try {
-    return (JSON.parse(readFileSync(join(checkout, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, unknown> }).env?.[name]
-  } catch {
-    // a repository without settings sets no knob
-    return undefined
-  }
-}
-
-// knob reads a whole-number knob of the process, or the default where it is not set. A value that is no
-// whole number of at least min is refused with the reason. A record without overrides, as a plan's,
-// reads it from the repository's settings alone.
-export function knob(record: { env?: Record<string, string>; project: string }, name: string, fallback: number, min = 0): number {
-  const value = settingOf(record.env ?? {}, record.project, name)
-  if (value === undefined || value === '') return fallback
-  const n = Number(value)
-  if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
-  return n
-}
 
 // gate starts the gate stage of a process once after has settled, as the runtime of the session before
 // it has exited, and answers the record as it runs. A stop ends it and its gate command; the process's

@@ -137,4 +137,4 @@ export function attempt(stateDir: string, id: string, a: Attempt, change: Partia
 }
 
 // warn tells the controller's own stderr what a process could not write, as the record cannot hold it.
-const warn = (id: string, what: string, err: unknown) => process.stderr.write(`warning: ${id}: ${what}: ${(err as Error).message}\n`)
+export const warn = (id: string, what: string, err: unknown) => process.stderr.write(`warning: ${id}: ${what}: ${(err as Error).message}\n`)
