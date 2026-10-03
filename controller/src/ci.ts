@@ -52,8 +52,8 @@ import { addressBrief, ciFixBrief } from './briefs.js'
 import { repairsSpent } from './budgets.js'
 import { advance, type Node, type NodeContext, type Outcome } from './engine.js'
 import { graphOf } from './graphs.js'
-import { busy, track } from './running.js'
-import { begin, type Runtime } from './session.js'
+import { busy } from './running.js'
+import { goesOn, type Runtime, sessionEntry, talk } from './session.js'
 import { knob, setting } from './settings.js'
 import type { Attempt, Check, Point, StageRecord } from './records.js'
 import { event, readRecord, recordsDir, update } from './store.js'
@@ -603,64 +603,48 @@ const whatFailed = (record: StageRecord, n: number, kind: string, checks: Check[
         .map((c) => c.name)
         .join(', ')}`
 
-// ciFixNode is the fix-session node of the ci stage, a fresh session. Its brief is for the conflict or
-// for the failed checks of the verdict it was entered with. That verdict is the last wait of the record. Before a
-// conflict fix it fetches the base. Its complete returns to the ci node through the engine.
+// ciFixNode is the fix-session node of the ci stage, a fresh session unless it goes on with the
+// record's session on a resume or a message. Its brief is for the conflict or for the failed checks of
+// the verdict it was entered with. That verdict is the last wait of the record. Before a conflict fix it
+// fetches the base. Its complete returns to the ci node through the engine.
 export const ciFixNode: Node = {
-  adapt: (record, project, rt) => {
-    const id = record.id
+  talks: true,
+  entry: (record, how) => {
     const history = record.history ?? []
-    const verdict = [...history].reverse().find((h) => h.stage === 'ci' && h.kind === 'wait')
+    const repairs = repairRounds(record)
+    const spent = repairsSpent(history)
+    // A fix session is a fresh session: the one before it is in the history, not in its resume.
+    return sessionEntry(record, how, { session_id: undefined, wait: undefined, repairs: { spent: spent + 1, of: repairs } })
+  },
+  run: async (ctx) => {
+    const { record, project, rt } = ctx
+    const verdict = [...(record.history ?? [])].reverse().find((h) => h.stage === 'ci' && h.kind === 'wait')
     const kind = verdict?.result === 'conflicts' ? 'conflicts' : 'checks-failed'
     const checks = verdict?.checks ?? []
     const n = record.pull?.number ?? 0
-    const repairs = repairRounds(record)
-    const spent = repairsSpent(history)
-    const what = whatFailed(record, n, kind, checks)
-    // A fix session is a fresh session: the one before it is in the history, not in its resume.
-    const fixing =
-      (update(rt.stateDir, id, { stage: 'ci', session_id: undefined, fixing: true, wait: undefined, note: `${what}; repair round ${spent + 1} of ${repairs}`, repairs: { spent: spent + 1, of: repairs } } as Partial<StageRecord>) as
-        | StageRecord
-        | undefined) ?? record
-    const start = () => begin(fixing, project, rt, ciFixBrief(fixing, `${project.owner}/${project.name}`, n, kind, checks.filter((c) => c.state === 'fail')))
-    if (kind !== 'conflicts' || !record.base.startsWith('origin/')) return start()
-    // The base is fetched before the conflict fix, tracked so a stop meanwhile starts no session.
-    const abort = new AbortController()
-    let own = () => false
-    const done = fetch(record.project, record.base.slice('origin/'.length), rt.fake)
-      .catch(() => false)
-      .then((fetched) => {
-        if (!own()) return
-        if (!fetched) event(rt.stateDir, id, { event: 'ci-note', note: `could not fetch ${record.base}; the fix session merges what this checkout has of it` })
-        start()
-      })
-      .catch((err: unknown) => {
-        process.stderr.write(`warning: ${id}: its ci fix session could not start: ${(err as Error).message}\n`)
-      })
-    own = track(id, abort, done, `the ci stage fetches ${record.base}`).own
-    return fixing
+    if (!goesOn(record, ctx.how) && kind === 'conflicts' && record.base.startsWith('origin/')) {
+      // The base is fetched before the conflict fix, as nothing a message is written to.
+      ctx.running.busy = `the ci stage fetches ${record.base}`
+      const fetched = await fetch(record.project, record.base.slice('origin/'.length), rt.fake).catch(() => false)
+      if (!ctx.own()) return { outcome: 'stopped' }
+      if (!fetched) ctx.event({ event: 'ci-note', note: `could not fetch ${record.base}; the fix session merges what this checkout has of it` })
+    }
+    return talk(ctx, () => ciFixBrief(record, `${project.owner}/${project.name}`, n, kind, checks.filter((c) => c.state === 'fail')))
   },
 }
 
 // addressNode is the address-reviews node: a fresh session with the points of its record, the
-// writer's request or a bot's review the wait gave it. What the session reported is written with its
-// end, and its complete returns to the ci node through the engine, which posts it.
+// writer's request or a bot's review the wait gave it, unless it goes on with the record's session on a
+// resume or a message. What the session reported is written with its end, and its complete returns to
+// the ci node through the engine, which posts it.
 export const addressNode: Node = {
-  adapt: (record, project, rt) => {
-    const addressing = record.addressing
-    const points = addressing?.points ?? []
+  talks: true,
+  entry: (record, how) => {
     const repairs = repairRounds(record)
     const spent = repairsSpent(record.history ?? [])
-    const started =
-      (update(rt.stateDir, record.id, {
-        stage: 'address-reviews',
-        session_id: undefined,
-        fixing: true,
-        wait: undefined,
-        repairs: { spent: addressing?.mandate === 'writer' ? 0 : spent + 1, of: repairs },
-      } as Partial<StageRecord>) as StageRecord | undefined) ?? record
-    return begin(started, project, rt, addressBrief(started, `${project.owner}/${project.name}`, record.pull?.number ?? 0, points))
+    return sessionEntry(record, how, { session_id: undefined, wait: undefined, repairs: { spent: record.addressing?.mandate === 'writer' ? 0 : spent + 1, of: repairs } })
   },
+  run: (ctx) => talk(ctx, () => addressBrief(ctx.record, `${ctx.project.owner}/${ctx.project.name}`, ctx.record.pull?.number ?? 0, ctx.record.addressing?.points ?? [])),
 }
 
 // green is the outcome of a green pull request. A manual process parks ready for the maintainer's

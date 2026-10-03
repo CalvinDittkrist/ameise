@@ -1,39 +1,39 @@
 // The sessions of a work process: Claude Code run headless through the Agent SDK in the process's
 // worktree. The implement session implements the issue and commits, with the bundled worker plugin, and
-// ends by reporting complete with its commits or blocked through a structured result. On complete the
-// controller enters the gate node (gate.ts) through the engine, unless the maintainer holds the session
-// open. A fix session of the gate, of the review or of the ci stage is a fresh session with a stage
-// timeout that reports the same way. The complete of a fix session of the gate, of the review, of the ci
-// stage or of an address-reviews session is an outcome of its node of the delivery graph. The engine
-// (engine.ts) follows that outcome. The gate fix and the review fix go to the gate, the others back to
-// the ci node (ci.ts). Every other complete enters the gate node. Every subagent of a stage is an agent
-// run (agents.ts): a reviewer, the author session, the spec checker, an auditor or the apply session.
-// The one runner, agents, starts each here beside the process's own session, side by side where there
-// are several. The streams of the read-only ones stay out of the event log. Every session's end is an
-// attempt in the record's history. Its stream goes into the process's event log and its session id into
-// the record. A session that ends without a result, or a runtime that cannot start, ends the process as
-// failed with the reason. A session the controller's stop cuts off ends the process as interrupted. A
-// resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
+// ends by reporting complete with its commits or blocked through a structured result. A fix session of
+// the gate, of the review or of the ci stage is a fresh session with a stage timeout that reports the
+// same way, and so is an address-reviews session. Each runs as the run of its node of the delivery graph
+// (talk), and its end reports an outcome to the engine (engine.ts) and starts no stage: the engine
+// follows the outcome's edge. A held implement session reports input in place of complete. Every subagent
+// of a stage is an agent run (agents.ts): a reviewer, the author session, the spec checker, an auditor or
+// the apply session. The one runner, agents, starts each here beside the process's own session, side by
+// side where there are several. The streams of the read-only ones stay out of the event log. Every
+// session's end is an attempt in the record's history. Its stream goes into the process's event log and
+// its session id into the record. A session that ends without a result, or a runtime that cannot start,
+// ends failed with the reason. A session the controller's stop cuts off ends the process as interrupted.
+// A resume goes on with it by its session id when it has one, and starts a fresh session otherwise.
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
 // A permission the classifier does not settle and a question of the session reach the controller
 // through the SDK's permission callback. The session waits until the process page answers them.
-// A message to a process whose session has ended resumes that session by its id.
+// A message to a work process whose session has ended is an event on its node, whose edge resumes a
+// session by its id.
 //
 // A plan process runs a planner session the same way, with the bundled planner plugin and the planner's
 // start context in its brief. It reports no result: each turn it ends waits for the maintainer, whose
 // next message resumes it.
 //
 // A hunt process runs its hunt session in place of the implement session, the worker on the hunt skill,
-// and the hunt record stands where the issue stands in every brief after it (hunt.ts).
+// and the hunt record stands where the issue stands in every brief after it (hunt.ts). Its session runs
+// on no node: begin starts it, and its complete reads the hunt record.
 //
 // The first prompt of each session is its brief (briefs.ts), and the plugins it loads are the bundle's
 // (bundle.ts).
 //
-// This module holds begin, say, hold and answer, the session loop with its permission callback, the
-// report schemas of its own session, the one runner of the agent runs, and the plugins and agent of a
-// session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
+// This module holds begin, talk, the implement node, say, hold and answer, the session loop with its
+// permission callback, the report schemas of its own session, the one runner of the agent runs, and the
+// plugins and agent of a session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
 // settings of a session, its runtime environment, the knobs, the rules an allowance grants and the hook
 // against a direct GitHub write are settings.ts.
 import { spawn } from 'node:child_process'
@@ -42,7 +42,7 @@ import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { type Addressed, type AgentRun, type Ended, report } from './agents.js'
 import { brief, planBrief, safeRef } from './briefs.js'
-import { advance, enter } from './engine.js'
+import { advance, type Entry, type Node, type NodeContext, type Outcome } from './engine.js'
 import { graphOf } from './graphs.js'
 import { githubServer, githubTools } from './github.js'
 import { hunted, refresh } from './hunt.js'
@@ -159,10 +159,10 @@ const sessionOf = (record: SessionRecord) =>
             : `${firstStage(record)} session`
 const stageOf = (record: SessionRecord) => (record.kind === 'plan' ? record.stage : ['gate', 'review', 'ci', 'address-reviews'].includes(record.stage) ? record.stage : firstStage(record))
 
-// begin starts the session of a process, the implement session of a claimed work process or the planner
-// session of a plan, and answers its record as it runs. A process with a session id resumes that session
-// in its worktree. The session goes on after the answer; its end is written into the record. A work
-// session that reports complete starts the gate stage, or opens the hold when one is set on implement.
+// begin starts the session of a process that runs on no graph yet, the planner session of a plan or the
+// hunt session of a hunt, and answers its record as it runs. A process with a session id resumes that
+// session in its worktree. The session goes on after the answer; its end is written into the record. A
+// hunt session that reports complete hands its process to hunted (hunt.ts) once its runtime has exited.
 // A message is the first turn of the session, in place of the brief.
 export function begin(record: StageRecord | PlanRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
   const id = record.id
@@ -179,61 +179,25 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
   const spawned = (p: Promise<void>) => (exited = p)
   const s: Running = { abort, done: Promise.resolve(), input, requests, over: false }
   const live = () => runningOf(id) === s && !s.over
-  const end = ({ state, note, commits, session_id, fixes, addressed }: Ended) => {
+  const end = (ended: Ended) => {
     if (!live()) return
     s.over = true
-    input.close()
-    for (const [request, r] of requests) {
-      r.close()
-      event(rt.stateDir, id, { event: 'closed', request })
-    }
-    requests.clear()
-    event(rt.stateDir, id, { event: 'session-end', stage, state, note, ...(commits ? { commits } : {}) })
+    close(s, rt, id)
+    event(rt.stateDir, id, { event: 'session-end', stage, state: ended.state, note: ended.note, ...(ended.commits ? { commits: ended.commits } : {}) })
     if (record.kind !== 'plan') {
-      const sessionId = session_id ?? readRecord(rt.stateDir, id)?.session_id
-      const a: Attempt = {
-        stage: stage as Attempt['stage'],
-        kind: 'session',
-        result: state,
-        at: new Date().toISOString(),
-        note,
-        ...(sessionId ? { session_id: sessionId } : {}),
-        ...(commits ? { commits } : {}),
-        ...(fixes ? { fixes } : {}),
-        ...(stage === 'address-reviews' && record.addressing ? { mandate: record.addressing.mandate } : {}),
-        ...(addressed ? { fixed: addressed.fixed, declined: addressed.declined } : {}),
-      }
-      if (state === 'complete') {
-        const now = readRecord(rt.stateDir, id) as StageRecord | undefined
-        // A held implement session stays open for more turns: the hold is spent, and the maintainer's next
-        // message resumes it, whose next complete starts the gate.
-        if (stage === 'implement' && now?.hold) {
-          attempt(rt.stateDir, id, a, { hold: false, held: true, state: 'input', note: `complete, held open: ${note}; write to go on, and its next complete starts the gate`, unseen: true })
-          return
-        }
-        // The gate starts once this session's runtime has exited, so two never work the worktree at once.
-        // The complete of a fix session of the review is an outcome of the review fix node, whose edge runs
-        // the gate, and the gate's pass enters the next round. A fix session of the ci stage goes back to its wait, which pushes what it committed, and so does an
-        // address-reviews session, whose replies and answer the wait posts once it has pushed.
-        // Until then a stop of the next stage also stops this runtime, whose forced kill still applies.
-        // What an address-reviews session reported is written with its end, so a restart before the ci
-        // stage posted it resumes the stage with it.
-        const addressing = stage === 'address-reviews' ? (now?.addressing ?? record.addressing) : undefined
-        const reported = { replies: addressed?.replies ?? [], answer: addressed?.answer ?? '' }
-        const done = attempt(rt.stateDir, id, a, { fixing: false, ...(addressing ? { addressing: { ...addressing, reported } } : {}) } as Partial<StageRecord>)
+      const a = attemptOf(record, stage, ended, rt)
+      if (ended.state === 'complete') {
+        const done = attempt(rt.stateDir, id, a, { fixing: false } as Partial<StageRecord>)
         // A hunt session's complete reads the hunt record, which decides between the gate and the end.
-        const node = stage === 'gate' ? 'gate-fix' : stage === 'ci' ? 'ci-fix' : stage === 'review' ? 'review-fix' : stage === 'address-reviews' ? 'address-reviews' : undefined
-        if (done && node) advance(graphOf(done), node, { outcome: 'complete' }, done, project, rt, exited, abort)
-        else if (done && done.kind === 'hunt' && stage === 'hunt') hunted(done, project, rt, exited, abort)
-        else if (done) enter(graphOf(done), 'gate', done, project, rt, exited, abort)
+        if (done && done.kind === 'hunt') hunted(done, project, rt, exited, abort)
         return
       }
       attempt(rt.stateDir, id, a)
     }
     // The process is unseen until its page is opened, so the dashboard marks it until then. A planner
     // that waits for input is told on the board alone, as a question of a session is.
-    const ended = update(rt.stateDir, id, { state, note, unseen: true })
-    if (ended && state !== 'input') rt.announce(ended)
+    const ended_ = update(rt.stateDir, id, { state: ended.state, note: ended.note, unseen: true })
+    if (ended_ && ended.state !== 'input') rt.announce(ended_)
   }
   // A write that fails, as on a full or read-only disk, ends this process failed where it still can and
   // is told on stderr; it never reaches the controller as an unhandled rejection.
@@ -266,14 +230,122 @@ export function begin(record: StageRecord | PlanRecord, project: Project, rt: Ru
   return started
 }
 
+// goesOn says a session node goes on with the record's session: on a message, and on a resume of a
+// record that has a session id. Otherwise the node starts its session afresh with its own brief.
+export const goesOn = (record: StageRecord, how: Entry): boolean => how.message !== undefined || (how.resume === true && record.session_id !== undefined)
+
+// sessionEntry is the entry of a session node: the process runs, its session named in the note, with
+// change, the fields of a fresh session the node clears, unless the node goes on with the session.
+export function sessionEntry(record: StageRecord, how: Entry, change: Partial<StageRecord> = {}): Partial<StageRecord> {
+  const fields = goesOn(record, how) ? {} : change
+  const now = { ...record, ...fields } as StageRecord
+  return { ...fields, state: 'running', note: `${sessionOf(now)} ${now.session_id ? 'resumed' : 'running'}` }
+}
+
+// talk runs the process's own session as the run of a session node of its graph and answers its
+// outcome once the session's end is written. It tells the engine of its runtime's exit, which the next
+// node waits for. The session goes on with the
+// record's session on a message, whose text is its first turn, and on a resume. Otherwise its first turn
+// is fresh, the brief of the node, or the brief of the stage where the node has none. The end of the
+// session starts nothing: the engine follows the outcome's edge. A complete of a held implement session
+// spends the hold and answers input, which keeps the session open for the maintainer's next message.
+export async function talk(ctx: NodeContext, fresh?: () => string): Promise<Outcome> {
+  const { record, rt, project, running: s } = ctx
+  const id = record.id
+  const stage = stageOf(record)
+  const what = sessionOf(record)
+  const repo = `${project.owner}/${project.name}`
+  s.busy = undefined
+  event(rt.stateDir, id, { event: 'session-start', stage, ...(record.session_id ? { resume: record.session_id } : {}) })
+  s.input.lead(ctx.how.message ?? (goesOn(record, ctx.how) ? undefined : fresh?.()) ?? brief(record, repo))
+  let exited: Promise<void> = Promise.resolve()
+  try {
+    let ended: Ended
+    try {
+      ended = await session(record, rt, s, ctx.own, (p) => (exited = p), ownRun(record, s, rt, repo))
+    } catch (err) {
+      ended = { state: 'failed', note: `the ${what} failed: ${(err as Error).message}` }
+    }
+    if (!ctx.own()) return { outcome: 'stopped' }
+    close(s, rt, id)
+    const { state, note, commits, addressed } = ended
+    event(rt.stateDir, id, { event: 'session-end', stage, state, note, ...(commits ? { commits } : {}) })
+    const a = attemptOf(record, stage, ended, rt)
+    if (state !== 'complete') {
+      attempt(rt.stateDir, id, a)
+      return { outcome: state, note }
+    }
+    const now = readRecord(rt.stateDir, id) as StageRecord | undefined
+    // A held implement session stays open for more turns: the hold is spent, and the maintainer's next
+    // message resumes it, whose next complete goes to the gate.
+    if (stage === 'implement' && now?.hold) {
+      attempt(rt.stateDir, id, a, { hold: false, held: true } as Partial<StageRecord>)
+      return { outcome: 'input', note: `complete, held open: ${note}; write to go on, and its next complete starts the gate` }
+    }
+    // What an address-reviews session reported is written with its end, so a restart before the ci stage
+    // posted it resumes the stage with it.
+    const addressing = stage === 'address-reviews' ? (now?.addressing ?? record.addressing) : undefined
+    const reported = { replies: addressed?.replies ?? [], answer: addressed?.answer ?? '' }
+    attempt(rt.stateDir, id, a, { fixing: false, ...(addressing ? { addressing: { ...addressing, reported } } : {}) } as Partial<StageRecord>)
+    return { outcome: 'complete' }
+  } finally {
+    // The next node runs once this runtime has exited, so two never work the worktree at once.
+    ctx.exits(exited)
+  }
+}
+
+// close ends the input of a session that has ended and closes the requests that still wait.
+function close(s: Running, rt: Runtime, id: string) {
+  s.input.close()
+  for (const [request, r] of s.requests) {
+    r.close()
+    event(rt.stateDir, id, { event: 'closed', request })
+  }
+  s.requests.clear()
+}
+
+// attemptOf is the attempt of a work session's end in the record's history.
+function attemptOf(record: StageRecord | PlanRecord, stage: string, { state, note, commits, session_id, fixes, addressed }: Ended, rt: Runtime): Attempt {
+  const sessionId = session_id ?? readRecord(rt.stateDir, record.id)?.session_id
+  return {
+    stage: stage as Attempt['stage'],
+    kind: 'session',
+    result: state,
+    at: new Date().toISOString(),
+    note,
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(commits ? { commits } : {}),
+    ...(fixes ? { fixes } : {}),
+    ...(stage === 'address-reviews' && record.kind !== 'plan' && record.addressing ? { mandate: record.addressing.mandate } : {}),
+    ...(addressed ? { fixed: addressed.fixed, declined: addressed.declined } : {}),
+  }
+}
+
+// implementNode is the implement node of the delivery graph: the implement session, which a claim enters
+// fresh, the resume route goes on with, and a message resumes.
+export const implementNode: Node = {
+  talks: true,
+  entry: (record, how) => sessionEntry(record, how),
+  run: (ctx) => talk(ctx),
+}
+
+// parkedNode is the node of the delivery graph a message to a parked work process is an event on. Until
+// the record's node decides it, it is read from the stage and the fixing flag.
+function parkedNode(record: StageRecord): string {
+  if (record.stage === 'gate' || record.stage === 'review' || record.stage === 'ci') return record.fixing ? `${record.stage}-fix` : record.stage
+  return record.stage
+}
+
 // say writes the maintainer's message to the process's session and answers where it went.
 // A question that waits takes it as its answer. A session that runs takes it as its next turn.
-// A session that has ended is resumed by its id with the message.
+// A message to a process whose session has ended is an event on its node of the delivery graph, whose
+// edge resumes a session by its id with the message. A planner, and a hunt that goes on as its hunt
+// session, resume their session directly.
 export async function say(record: SessionRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
   const s = runningOf(id)
   if (s?.busy && !s.over) throw new Refusal(`${s.busy} and no session runs to write to; write once they have ended`, 409)
-  if (s && !s.over) {
+  if (s && !s.over && !s.input.closed) {
     const question = [...s.requests.values()].find((r) => r.kind === 'question')
     if (question) {
       question.answer({ text })
@@ -294,18 +366,21 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   // A standardize process runs its apply session once per apply, which an apply again starts afresh.
   if (now.kind === 'standardize') throw new Refusal('the apply session of this standardize process has ended; apply again to start it afresh', 409)
   event(rt.stateDir, id, { event: 'message', text })
+  if (now.kind === 'plan') {
+    begin(now, p, rt, text)
+    return 'resumed'
+  }
   // A follow-up to a ready work process is new work on it: its session goes on as the implement session,
-  // whose complete runs the gate and a review with every reviewer again. A ready hunt goes on as its hunt
-  // session the same way.
-  // A message to a work process the ci stage left blocked has its session take the review on, a fix
-  // session of the ci stage, which a restart of the controller resumes as such.
-  const next =
-    now.kind !== 'plan' && now.state === 'ready' && now.stage !== firstStage(now)
-      ? (update(rt.stateDir, id, { stage: firstStage(now), fixing: false, panel: undefined } as Partial<CreatedRecord>) ?? now)
-      : now.kind !== 'plan' && now.stage === 'ci' && !now.fixing
-        ? (update(rt.stateDir, id, { fixing: true } as Partial<CreatedRecord>) ?? now)
-        : now
-  begin(next as StageRecord | PlanRecord, p, rt, text)
+  // whose complete runs the gate and a review with every reviewer again. A message to a work process the
+  // ci stage left blocked has its session take the review on, a fix session of the ci stage. A hunt that
+  // goes back to its first stage goes on as its hunt session the same way, outside the graph.
+  const ready = now.state === 'ready' && now.stage !== firstStage(now)
+  if (now.kind === 'hunt' && (ready || now.stage === 'hunt' || now.stage === 'pr')) {
+    const next = ready ? ((update(rt.stateDir, id, { stage: 'hunt', fixing: false, panel: undefined } as Partial<CreatedRecord>) as StageRecord | undefined) ?? now) : now
+    begin(next, p, rt, text)
+    return 'resumed'
+  }
+  advance(graphOf(now), parkedNode(now), { outcome: 'message', ready, message: text }, now, p, rt)
   return 'resumed'
 }
 

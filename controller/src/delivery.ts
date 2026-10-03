@@ -4,6 +4,11 @@
 // the action park on an edge, which keeps the process on its node until a later event takes an edge from
 // there. Only done is final.
 //
+// A message to a parked process is the event message on its node. Its edge goes on with the session of
+// the stage: the implement session, or the fix session of the gate, the review or the ci stage, or the
+// address-reviews session. A message to a process parked ready is new work, which goes to implement
+// first, with the action write, which clears the fix and the panel of the review that passed.
+//
 // The guards are named and read the budgets of today (budgets.ts). They read them from a context that the
 // engine builds from the record at every transition (deliveryContext), so no budget is kept a second time.
 // A state's meta carries its stage, the fields and the note the engine writes as it enters it, and its
@@ -66,17 +71,26 @@ export function deliveryContext(record: StageRecord): DeliveryContext {
 // An event of the delivery graph: the outcome of a node, or a message or a follow-up to a parked
 // process. mandate is writer or bot on a comments event of the ci stage: a writer's comments are always
 // addressed, a bot's only while a repair round remains. unmerged is set on a green event whose yolo
-// merge was refused or queued, which parks the process ready.
-export type DeliveryEvent = { type: string; mandate?: 'writer' | 'bot'; unmerged?: boolean }
+// merge was refused or queued, which parks the process ready. ready is set on a message to a process
+// parked ready, and message carries its text.
+export type DeliveryEvent = { type: string; mandate?: 'writer' | 'bot'; unmerged?: boolean; ready?: boolean; message?: string }
 
 // park keeps the process on its node in one of the park states.
 const park = (state: 'ready' | 'blocked' | 'input' | 'failed') => ({ type: 'park', params: { state } }) as const
 
+// write changes the record as the edge is taken, before the next node is entered.
+const write = (change: Record<string, unknown>) => ({ type: 'write', params: change }) as const
+
+// message is the edge of a message to a process parked on a node: implement for one parked ready, with
+// its fix and its panel cleared, and the node's session otherwise.
+const message = (target: string) => [{ guard: 'ready' as const, target: 'implement', actions: write({ fixing: false, panel: undefined }) }, { target }]
+
 // The parks every session node has: a session that asks, is blocked or failed waits on its node.
 const sessionParks = { input: { actions: park('input') }, blocked: { actions: park('blocked') }, failed: { actions: park('failed') } }
 
-// session is the meta of a node that runs a session of the stage.
-const session = (stage: string, entry: Record<string, unknown> = {}): StateMeta => ({ stage, entry, start: 'session-start', end: 'session-end' })
+// session is the meta of a node that runs a session of the stage. The session writes its own start and
+// end events, which name the session it resumes and the commits it reported.
+const session = (stage: string, entry: Record<string, unknown> = {}): StateMeta => ({ stage, entry, what: `its ${stage} session` })
 
 export const delivery = setup({
   types: { context: {} as DeliveryContext, events: {} as DeliveryEvent },
@@ -86,10 +100,12 @@ export const delivery = setup({
     repairRoundsRemain: ({ context }) => context.repairs < context.repairRounds,
     writerOrRepairRoundsRemain: ({ context, event }) => event.mandate === 'writer' || context.repairs < context.repairRounds,
     yoloPanelPassed: ({ context, event }) => context.yolo && context.panelPassed && event.unmerged !== true,
+    ready: ({ event }) => event.ready === true,
   },
   actions: {
-    // park is read from the transition by the engine, which writes the park; it runs nothing itself.
+    // park and write are read from the transition by the engine, which writes them; they run nothing themselves.
     park: () => {},
+    write: () => {},
   },
 }).createMachine({
   id: 'delivery',
@@ -97,8 +113,9 @@ export const delivery = setup({
   context: { gateFixes: 0, gateRounds: defaultGateRounds, reviewRound: 0, reviewRounds: defaultReviewRounds, repairs: 0, repairRounds: defaultRepairRounds, yolo: false, panelPassed: false },
   states: {
     implement: {
-      meta: session('implement'),
-      on: { complete: 'gate', ...sessionParks, message: 'implement' },
+      // Entering implement clears the hold that was spent.
+      meta: session('implement', { fixing: false, held: undefined }),
+      on: { complete: 'gate', ...sessionParks, message: message('implement') },
     },
     gate: {
       meta: { stage: 'gate', entry: { state: 'running', fixing: false }, note: 'the gate starts', start: 'gate-start', end: 'gate-end', failure: 'the gate failed', what: 'its gate' } satisfies StateMeta,
@@ -107,11 +124,12 @@ export const delivery = setup({
         skipped: 'review',
         fail: [{ guard: 'gateRoundsRemain', target: 'gate-fix' }, { actions: park('failed') }],
         failed: { actions: park('failed') },
+        message: message('gate-fix'),
       },
     },
     'gate-fix': {
       meta: session('gate', { fixing: true }),
-      on: { complete: 'gate', ...sessionParks },
+      on: { complete: 'gate', ...sessionParks, message: message('gate-fix') },
     },
     review: {
       // The review node writes its own start event, which names the round and its reviewers.
@@ -120,11 +138,12 @@ export const delivery = setup({
         pass: 'pr',
         findings: [{ guard: 'reviewRoundsRemain', target: 'review-fix' }, { target: 'pr' }],
         failed: { actions: park('failed') },
+        message: message('review-fix'),
       },
     },
     'review-fix': {
       meta: session('review', { fixing: true }),
-      on: { complete: 'gate', ...sessionParks },
+      on: { complete: 'gate', ...sessionParks, message: message('review-fix') },
     },
     pr: {
       meta: {
@@ -136,7 +155,7 @@ export const delivery = setup({
         failure: 'the pr stage failed',
         what: 'its pr stage',
       } satisfies StateMeta,
-      on: { opened: 'ci', found: 'ci', finished: 'ci', failed: { actions: park('failed') } },
+      on: { opened: 'ci', found: 'ci', finished: 'ci', failed: { actions: park('failed') }, message: message('implement') },
     },
     ci: {
       // The ci node writes its own note and its start event, which name the pull request it waits on.
@@ -152,15 +171,16 @@ export const delivery = setup({
         conflicts: [{ guard: 'repairRoundsRemain', target: 'ci-fix' }, { actions: park('failed') }],
         comments: [{ guard: 'writerOrRepairRoundsRemain', target: 'address-reviews' }, { actions: park('failed') }],
         'follow-up': 'ci',
+        message: message('ci-fix'),
       },
     },
     'ci-fix': {
       meta: session('ci', { fixing: true }),
-      on: { complete: 'ci', ...sessionParks },
+      on: { complete: 'ci', ...sessionParks, message: message('ci-fix') },
     },
     'address-reviews': {
       meta: session('address-reviews', { fixing: true }),
-      on: { complete: 'ci', ...sessionParks },
+      on: { complete: 'ci', ...sessionParks, message: message('address-reviews') },
     },
     done: { type: 'final' },
   },

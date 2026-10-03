@@ -128,7 +128,7 @@ In fake mode the claim fetches nothing and branches from what the checkout has o
 An abandon stops the process's session and waits for its runtime to exit, then removes the worktree, the record and the event log. It leaves the branch and the issue, assignment included. It refuses a worktree whose branch has commits on no branch of origin, or changes not committed, unless forced. It checks before the stop and again after it, so work the session wrote until it stopped is refused too; a refusal after the stop ends the process `failed`.
 
 ## Implement session
-A claimed process runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
+A claimed process enters the implement node of the delivery graph, which the engine runs. It runs Claude Code headless through the Agent SDK in its worktree. The session is started with:
 - the machine's `claude` from `PATH` as the executable,
 - the bundled worker and repo-standards plugins (`dist/plugins`) loaded, and the marketplace's copies of the workflow's plugins switched off,
 - the user's, the repository's and the local settings, the `auto` permission mode and the `worker` agent,
@@ -140,10 +140,12 @@ The brief names the issue, the branch, its base and the `gh` and `git` reads the
 - The stream goes into the event log, each message as a `stream` event, and the session id into the record as `session_id`.
 - The record's `context` is the size of the session's context in tokens: input, cached input and output of its latest message, leaving out subagents.
 - The session reports through a structured result: `complete` with its commits, or `blocked` with the question, each with a message.
-  - `complete` starts the [gate stage](#gate-stage) once its runtime has exited, unless the process is held.
-  - `blocked` ends the process `blocked` with the question as the note.
-- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process turns `input`, which a restart keeps.
-  - The next message resumes the session, whose next `complete` starts the gate.
+- The end of the session starts no stage: it returns its outcome to the engine, which follows the edge of the delivery graph.
+  - `complete` goes to the [gate stage](#gate-stage) once its runtime has exited, unless the process is held.
+  - `blocked` and `failed` park the process on the implement node, with the question or the reason as the note.
+- A hold (`POST /api/processes/hold`) keeps the session open at its next `complete`: the hold is spent and the process parks `input` on the implement node, which a restart keeps.
+  - The next message is an event on that node, which resumes the session, whose next `complete` goes to the gate.
+  - Entering the implement node clears `held`.
 - Every session's end is an attempt in the record's `history`: `{stage, kind: "session", result, session_id, commits, note, at}`.
 - A record or event that cannot be written, as on a full disk, ends the process `failed` where it still can and is told on the controller's stderr.
 - A session that ends without that report, and a runtime that cannot start, end the process `failed` with the reason as the note.
@@ -368,7 +370,22 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A call that asks several questions takes the one message as the answer to each.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
-- A message to a process whose session has ended resumes that session by its id, with the message as its turn.
+- A message to a process whose session has ended is an event on its node of the delivery graph, read from its stage and its `fixing` flag.
+  - Its edge resumes the session by its id in the next node, with the message as its first turn:
+
+  | park | next node | record change |
+  | --- | --- | --- |
+  | `ready`, on any stage but the first | implement | `stage` implement, `fixing` false, `panel` cleared |
+  | ci, `fixing` not set | ci fix | `fixing` true |
+  | implement | implement | none |
+  | gate | gate fix | none |
+  | review | review fix | none |
+  | pr | implement | `stage` implement |
+  | ci fix | ci fix | none |
+  | address reviews | address reviews | none |
+
+  - A record without a session id refuses the message with `409`.
+  - A planner session, and a hunt that goes back to its hunt session, are resumed directly.
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal

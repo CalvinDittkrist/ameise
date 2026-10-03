@@ -27,6 +27,12 @@ export class Input implements AsyncIterable<SDKUserMessage> {
     this.wake?.()
   }
 
+  // lead puts the text before every message that waits, as the first turn of a session that starts.
+  lead(text: string) {
+    this.queue.unshift({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null })
+    this.wake?.()
+  }
+
   close() {
     this.closed = true
     this.wake?.()

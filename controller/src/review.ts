@@ -21,7 +21,7 @@ import { reviewRounds } from './budgets.js'
 import { git } from './git.js'
 import type { Node, NodeContext, Outcome } from './engine.js'
 import { reviewBrief, reviewFixBrief } from './briefs.js'
-import { agents, begin } from './session.js'
+import { agents, sessionEntry, talk } from './session.js'
 import { knob, setting } from './settings.js'
 import type { Attempt, StageRecord, Verdict } from './records.js'
 import { attempt, event, update } from './store.js'
@@ -119,18 +119,21 @@ async function round({ record, project, rt, running, own, signal }: NodeContext)
 }
 
 // reviewFixNode is the review fix node: a fresh fix session with every finding of the last round, which
-// it reads from that round's attempt. Its complete goes to the gate through the engine.
+// it reads from that round's attempt, unless it goes on with the record's session on a resume or a
+// message. Its complete goes to the gate through the engine.
 export const reviewFixNode: Node = {
-  adapt: (record, project, rt) => {
-    const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
-    const n = last?.round ?? 1
-    const fixing = (last?.verdicts ?? []).filter((v) => v.verdict === 'fix')
-    const findings = fixing.flatMap((v) => v.findings)
-    const who = fixing.map((v) => v.reviewer).join(', ')
-    const started =
-      (update(rt.stateDir, record.id, { stage: 'review', session_id: undefined, fixing: true, note: `review round ${n}: ${who} at fix; a fix session takes ${findings.length} finding(s)` } as Partial<StageRecord>) as
-        | StageRecord
-        | undefined) ?? record
-    return begin(started, project, rt, reviewFixBrief(started, `${project.owner}/${project.name}`, n, findings))
-  },
+  talks: true,
+  entry: (record, how) => sessionEntry(record, how, { session_id: undefined }),
+  run: (ctx) =>
+    talk(ctx, () => {
+      const { n, findings } = lastRound(ctx.record)
+      return reviewFixBrief(ctx.record, `${ctx.project.owner}/${ctx.project.name}`, n, findings)
+    }),
+}
+
+// lastRound is the last round of the review: its number and the findings of the reviewers at fix.
+function lastRound(record: StageRecord) {
+  const last = [...(record.history ?? [])].reverse().find((h) => h.stage === 'review' && h.kind === 'round')
+  const fixing = (last?.verdicts ?? []).filter((v) => v.verdict === 'fix')
+  return { n: last?.round ?? 1, findings: fixing.flatMap((v) => v.findings) }
 }
