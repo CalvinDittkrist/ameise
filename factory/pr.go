@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// The pr stage, which the factory runs itself ([ADR 0043], step 3): the implement session stops once the
+// The pr stage, which the factory runs itself ([ADR 0040]): the implement session stops once the
 // review has recorded its panel summary, and the factory pushes the branch, has a read-only session
 // write the pull request's title and body from the diff, the commits and the issue, appends the
 // verification section from the run's facts as they were reported, and opens the pull request against
 // the base the branch was cut from, or makes the draft a gate on CI opened that pull request. The ci
 // stage follows.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // The factory's review and pr stages.
 const (

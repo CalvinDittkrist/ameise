@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// The review stage is the factory's ([ADR 0043], step 4): the implement session stops after the gate, and
+// The review stage is the factory's ([ADR 0040]): the implement session stops after the gate, and
 // the factory runs the reviewers of the panel as read-only sessions of its own, a fix session for every
 // round that asks for fixes, and the gate on the final head before the pr stage.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // panelClaim is ciClaim on a repository whose gate is this make recipe: make check runs it in the
 // worktree when the review's fixes moved the branch.

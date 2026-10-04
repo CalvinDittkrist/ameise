@@ -20,12 +20,12 @@ import (
 // The outcomes of the vocabulary. A run in fake mode reaches ready, blocked, failed, timeout and
 // interrupted; lost is the race another claimer won ([ADR 0024]), cancelled is a run a decision on
 // GitHub ended (the routing label taken off its issue, or the issue closed, [ADR 0023]), and quota
-// a session that ended in an error on a used-up quota ([ADR 0037]). merged is a ticket run of a spec
+// a session that ended in an error on a used-up quota ([ADR 0028]). merged is a ticket run of a spec
 // run whose pull request the merge stage squash-merged into the spec branch (merge.go).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0024]: ../docs/adr/0024-a-claim-is-the-creation-of-the-branch-through-the-api.md
-// [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
+// [ADR 0028]: ../docs/adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md
 const (
 	outcomeReady       = "ready"
 	outcomeBlocked     = "blocked"
@@ -44,12 +44,12 @@ const (
 // after the quota reset that a run which ran out of it waits for, the run a person asked for by
 // taking the assignee off an issue the factory holds ([ADR 0026]), the run a writer's review that
 // asks for changes on the pull request queues ([ADR 0023]), and the run a bot's review that leaves
-// an unresolved thread on it queues ([ADR 0051]). The signals of an issue's runs are what the next
+// an unresolved thread on it queues ([runbook]). The signals of an issue's runs are what the next
 // run of it is decided from, which is why every run records its own.
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
-// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+// [runbook]: ../docs/factory-runbook.md#answering-reviews
 const (
 	signalRouted           = "routed"
 	signalInterruption     = "interruption"

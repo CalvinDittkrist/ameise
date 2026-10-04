@@ -16,13 +16,11 @@ import (
 // the factory asks the quota-axi the host has installed how much of it is left and waits when too
 // little is. It is a courtesy and not a guard: a check that cannot answer lets the run start with a
 // warning, because the worst case of that is a slow lunchtime and the worst case of the other way
-// round is a host that stopped for days without telling anyone ([ADR 0028], [ADR 0037]). A run whose
+// round is a host that stopped for days without telling anyone ([ADR 0028]). A run whose
 // panel names a reviewer on Codex spends the host's Codex login as well, and the check reads that
-// provider of the same quota-axi beside Claude's ([ADR 0053]).
+// provider of the same quota-axi beside Claude's ([ADR 0028]).
 //
 // [ADR 0028]: ../docs/adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md
-// [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
-// [ADR 0053]: ../docs/adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md
 
 // quotaSchema is the version of quota-axi's JSON output this reading is written against. Another
 // version is output the factory cannot read, which is the operator's cue to look at the release
@@ -116,15 +114,13 @@ type quotaReport struct {
 // readQuota runs the configured quota-axi for the provider of a runtime, which quota-axi names as the
 // runtime is named, and reads the scopes of these models out of its answer. An expired credential is renewed on the way: quota-axi runs Claude Code's own
 // `claude doctor` for that, which spends no quota, and no session of the factory reads the credential
-// while a check runs, because the factory works one run at a time and checks only between sessions
-// ([ADR 0037], amended). With the flag that forbade the renewal, every run after a quiet night
+// while a check runs, because the factory works one run at a time and checks only between sessions.
+// With the flag that forbade the renewal, every run after a quiet night
 // started without a reading, which is when the maintainer's share of the window is most likely in use.
 //
 // The renewal is a child of quota-axi, so the check runs as a process group and the deadline ends
 // the group: a renewal that outlived the check would rewrite the credential later, beside the
 // session that started meanwhile, which is the second writer the check must not be.
-//
-// [ADR 0037]: ../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md
 func (f *Factory) readQuota(ctx context.Context, provider string, models []string) (quota, error) {
 	// command sets the same deadline once more; this one is the earlier of the two, so a check the
 	// deadline ended is told from one that failed on its own.

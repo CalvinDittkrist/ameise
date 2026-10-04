@@ -19,14 +19,14 @@ import (
 // which queues a run in the worktree of the claim that starts at the factory's address-reviews stage
 // ([ADR 0023]). A bot's review that leaves an unresolved thread is the second gesture: the bot is an
 // app the maintainer installed, and its review queues the same run, within the repair budget of the
-// pull request rather than with a fresh one ([ADR 0051]). Nothing else is needed of the maintainer
+// pull request rather than with a fresh one ([runbook]). Nothing else is needed of the maintainer
 // (no checkout, no comment on the issue), and nothing of it is a state of the factory: the reviews
 // are read from GitHub on every poll and what has been answered is read from the run records,
 // exactly as a release is ([ADR 0025]).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0025]: ../docs/adr/0025-one-queue-one-worker-work-in-progress-first.md
-// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+// [runbook]: ../docs/factory-runbook.md#answering-reviews
 
 // reviewed is what one reading of a held pull request says a follow-up run could answer, as GitHub
 // timed each submission: the newest review of a writer that asks for changes, and the newest review
