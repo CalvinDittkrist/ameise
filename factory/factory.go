@@ -1561,21 +1561,26 @@ func sessionSettings() (string, error) {
 }
 
 // bundledSkills is every skill bundled with Claude Code bundledSkillsVersion, the one place the
-// factory lists them. The list is the skills of that version's init message and the bundled skills
-// the command table of https://code.claude.com/docs/en/commands.md marks Skill (checked on 2026-10-04).
-// Some of these appear in a session only when their feature is on. A later version can bundle a skill
-// this list misses: it shows up in the skills of a session's init message, and it belongs here.
+// factory lists them. The list is every skill that version's binary registers, read from the names
+// passed to its skill registration, together with the skills of its init message and the bundled
+// skills the command table of https://code.claude.com/docs/en/commands.md marks Skill (checked on
+// 2026-10-04). Some of these appear in a session only when their feature is on. A later version can
+// bundle a skill this list misses: it shows up in the skills of a session's init message, and it
+// belongs here.
 var bundledSkills = []string{
-	"artifact-capabilities", "artifact-diagramming", "batch", "claude-api", "claude-in-chrome", "code-review",
-	"dataviz", "debug", "deep-research", "design", "design-sync", "doctor", "fewer-permission-prompts", "loop",
-	"run", "run-skill-generator", "schedule", "simplify", "slides", "update-config", "verify", "workflow-authoring",
+	"artifact-capabilities", "artifact-components", "artifact-design", "artifact-diagramming",
+	"artifact-pr-review", "batch", "claude-api", "claude-code-docs", "claude-in-chrome", "code-review",
+	"commit", "cowork-plugin", "dataviz", "debug", "deep-research", "design", "design-sync", "doc",
+	"doctor", "explain-usage", "fewer-permission-prompts", "keybindings-help", "loop", "memory-types",
+	"pr", "prototype", "run", "run-skill-generator", "schedule", "setup-claude", "simplify", "slides",
+	"update-config", "verify", "whiteboard", "workflow-authoring", "workshop",
 }
 
 // bundledSkillsVersion is the version of Claude Code bundledSkills was read from.
 const bundledSkillsVersion = "2.1.284"
 
-// allowedSkill is the one bundled skill a session sees: /simplify, which the implement session runs
-// on its change before it commits.
+// allowedSkill is the one bundled skill a session sees: /simplify, which the implement session is
+// to run on its change before it commits (spec #418).
 const allowedSkill = "simplify"
 
 // skillAllowlist is the skillOverrides of the session's settings: every bundled skill off but
