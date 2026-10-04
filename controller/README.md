@@ -116,6 +116,7 @@ The mode is `manual` or `yolo`. The overrides set worker knobs for the process, 
   - Before it reports complete, the session runs the bundled /simplify on the branch diff against the base and commits the fixes as refactor commits.
 
 A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form and a `WF_SIMPLIFY` override that is neither `on` nor `off`.
+
 Without the override, the claim reads `WF_SIMPLIFY` from the settings the worktree starts with, which its session loads. It refuses a value other than `on` or `off` with `400` before the worktree is created, and pins the value on the process, which the brief and the session's settings follow.
 
 A claim then:
