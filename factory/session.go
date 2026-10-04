@@ -98,16 +98,18 @@ func implementSession(brief string) session {
 // the work starts.
 //
 // With simplify on, the brief also has the session run the bundled /simplify skill on its diff before
-// it reports. The target is named, because the skill reads the diff against the upstream, or against
-// main without one, and neither is the run's base. A session without the skill goes on and reports:
+// it reports. The session reads the branch's diff against the run's base itself and hands the skill that
+// diff as its context, because the skill takes a path or a pull request as its target, not a command, and
+// without one reads the diff against the upstream, or against main, and neither is the run's base. A session without the skill goes on and reports:
 // the step never ends a run blocked, and the result schema stays as it is.
 func implementBrief(entry Entry, claim claimed, simplify bool) string {
 	step := ""
 	if simplify {
-		step = fmt.Sprintf("Once your change is committed and before you report, run the skill /simplify with the target `git diff origin/%s...HEAD`, the branch's diff against its base. "+
+		step = fmt.Sprintf("Once your change is committed and before you report, read the branch's diff against its base with `git diff origin/%s...HEAD`, "+
+			"then run the skill /simplify with no target and give it that diff as the change to review, so it reviews the branch against origin/%s and not against main or an upstream. "+
 			"Apply what it finds, verify the fixes with the single test or linter of the files they touch, and commit them as refactor commits of their own. "+
 			"Say in one sentence of the summary what it changed, that it found nothing, or that the skill was unavailable; an unavailable skill is no reason to report blocked.\n\n",
-			claim.base)
+			claim.base, claim.base)
 	}
 	return fmt.Sprintf("Implement issue #%d of %s. The branch %s is checked out in this worktree, cut from origin/%s.\n\n"+
 		"Read the issue and its latest comments with `gh issue view %d --repo %s --json title,body,comments --jq %s`, then the repository's instructions: "+
