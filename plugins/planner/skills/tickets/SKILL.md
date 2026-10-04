@@ -32,7 +32,7 @@ Source: the spec issue named in the argument ($ARGUMENTS), or the spec this sess
 
    In a spec run, label the spec first: `set_labels` on the spec adding `factory:spec-run`. An agent ticket then takes `factory:spec-run` beside `ready-for-agent`; a person's ticket takes `ready-for-human` instead of both.
 
-   A ticket created with a milestone attaches the spec to the same milestone, so the release waits for the acceptance; a warning means the spec already carries a different one. The first ticket also carries the spec's glossary terms and ADRs under Docs. If the spec fits one session, create no tickets: `set_labels` on the spec adding `ready-for-agent` (plus `factory` when it is routed), then `attach_milestone` on the spec when a milestone was chosen.
+   A ticket created with a milestone attaches the spec to the same milestone, so the release waits for the acceptance; a warning means the spec already carries a different one. The first ticket also carries the spec's glossary terms and the ADRs to write, change or remove under Docs. If the spec fits one session, create no tickets: `set_labels` on the spec adding `ready-for-agent` (plus `factory` when it is routed), then `attach_milestone` on the spec when a milestone was chosen.
 
 8. Reply with the milestone (or none), the spec's milestone, a line per ticket (number, title, blocked by, routed or not, or who works it in a spec run).
    - End with `next: the controller claims from the frontier on its board; /planner:finish ends this session`.

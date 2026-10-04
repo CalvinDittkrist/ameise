@@ -101,7 +101,7 @@ func implementBrief(entry Entry, claim claimed) string {
 		"Read the issue and its latest comments with `gh issue view %d --repo %s --json title,body,comments --jq %s`, then the repository's instructions: "+
 		"AGENTS.md or CLAUDE.md at its root and the documents they point to for the part you change. "+
 		"The branch may carry commits of an earlier session on this issue: read them with `git log origin/%s..HEAD` and go on from where they stand rather than starting over.\n\n"+
-		"Make the smallest complete change that closes the issue. For a bug, reproduce it before you fix it. Update the documentation the change makes stale. "+
+		"Make the smallest complete change that closes the issue. For a bug, reproduce it before you fix it. Update the documentation the change makes stale: edit an ADR it makes stale in place, and delete one that no longer holds. "+
 		"Verify with the single test or linter for the files you touched, and commit in conventional commits without a co-author. "+
 		"Do only that: never push, and run no full gate, no reviewer and no pull request; the factory runs the gate, the review, the pull request and CI after you.\n\n"+
 		"Report complete with the commits of the branch beyond origin/%s in commits, each as its short hash and subject, once everything you changed is committed. "+

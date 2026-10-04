@@ -150,8 +150,13 @@ var reviewers = map[string]reviewer{
 		"Focus: written text only (Markdown, docstrings, comments, commit messages). Hold it to the writing rules a script cannot count: a sentence has at most 25 words; " +
 			"no metaphors, no filler, no hedging; no session ids, dates or measurements told as a story. Also flag claims the code does not back; " +
 			"restating the code in prose; headings and bullet lists that carry no information; emojis in docs; documentation that should have changed but did not " +
-			"(the architecture, the ADRs, the README, a changelog when the repository has one); a change that deserves an ADR but has none. " +
-			"Prefer deletion over addition. S1 only for documentation that is factually wrong.", ""},
+			"(the architecture, the ADRs, the README, a changelog when the repository has one). " +
+			"Prefer deletion over addition. S1 only for documentation that is factually wrong. " +
+			"ADRs hold the decisions that hold today and are hard to reverse or surprising without context. " +
+			"A smaller decision is a rule with its reason in the document of its area. " +
+			"Read the ADR index and the ADRs the diff touches or contradicts, then flag: a change that contradicts an ADR without editing it (S2); " +
+			"a new ADR that is no hard decision and belongs as a rule in a document (S2); " +
+			"a deleted or merged ADR whose live rule appears nowhere else (S1, a rule is lost); a moved rule that lacks its reason (S2).", ""},
 	"tests": {"Fresh-context review of the tests in the branch diff.", "sonnet", "high",
 		"Focus: tests. A test must execute a public or executable interface and assert observable behaviour, state, output or failure modes; " +
 			"a test whose only evidence is that it opens, greps, parses or snapshots implementation source for strings, names or shapes proves nothing and must go (S2). " +
