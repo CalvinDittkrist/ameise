@@ -41,6 +41,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Force overrides those refusals.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>`, assigns the issue and starts the implement session headless with the `worker` agent ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
    - A spec-run ticket branches from and targets its spec branch.
+   - Before it reports complete, the session runs the simplify step: the bundled /simplify on the branch diff against the base, its fixes committed as refactor commits ([ADR 0071](adr/0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)). `WF_SIMPLIFY=off` drops it.
 3. Its settings run subagents in foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)), pin the compact trigger at 250 000 tokens and set `WF_CONTROLLER=1`.
    - Its skill allowlist names every skill it sees ([ADR 0072](adr/0072-a-session-sees-only-the-skills-its-process-kind-names.md)).
 4. Worker knobs given to the claim reach that process alone ([claim](../controller/README.md#claim-and-abandon)).
