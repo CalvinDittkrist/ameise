@@ -14,4 +14,4 @@ Durable over precise: the issue may wait for weeks. Describe interfaces, types a
     **Acceptance criteria:**
     - [ ] one testable line each
     **Out of scope:** what the worker must not touch.
-    **Docs:** glossary terms and ADRs to write, or none.
+    **Docs:** glossary terms, and ADRs to write, change or remove, or none.

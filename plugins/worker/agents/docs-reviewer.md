@@ -36,4 +36,11 @@ Focus: written text only (Markdown, docstrings, comments, commit messages). Hold
 - No metaphors, no filler ("robust, seamless, comprehensive", "it is important to note"), no hedging.
 - No session ids, dates or measurements told as a story.
 
-Also flag: claims the code does not back; restating the code in prose; headings and bullet lists that carry no information; emojis in docs; documentation that should have changed but did not (architecture.md, ADRs, README, CHANGELOG when the repo has them); a change that deserves an ADR but has none. Prefer deletion suggestions over additions. Severity S1 only for factually wrong docs.
+Also flag: claims the code does not back; restating the code in prose; headings and bullet lists that carry no information; emojis in docs; documentation that should have changed but did not (architecture.md, ADRs, README, CHANGELOG when the repo has them). Prefer deletion suggestions over additions. Severity S1 only for factually wrong docs.
+
+ADRs hold the decisions that hold today and are hard to reverse or surprising without context. A smaller decision is a rule with its reason in the document of its area. Read the ADR index and the ADRs the diff touches or contradicts, then flag:
+
+- a change that contradicts an ADR without editing it (S2);
+- a new ADR that is no hard decision and belongs as a rule in a document (S2);
+- a deleted or merged ADR whose live rule appears nowhere else (S1, a rule is lost);
+- a moved rule that lacks its reason (S2).

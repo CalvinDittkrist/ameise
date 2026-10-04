@@ -18,7 +18,7 @@ The brief carries the facts block of the controller's `facts.sh` (profile, langu
 
 Your area: files that do not belong in the repository. Category `files`.
 
-The standard keeps README, the instruction files, docs that describe the present state (architecture, ADRs, glossary, runbooks, local setup), the PR template, the Claude settings file, and for public repositories a licence and a security policy. Everything else that is not code, tests, build or CI configuration must earn its place.
+The standard keeps README, the instruction files, docs that describe the present state (architecture, the ADRs as the capped set of current decisions, glossary, runbooks, local setup), the PR template, the Claude settings file, and for public repositories a licence and a security policy. Everything else that is not code, tests, build or CI configuration must earn its place.
 
 Propose `delete` for:
 - Context, resume, handover and review notes written by or for agents (`CONTEXT.md`, `NOTES.md`, `TODO-agent.md`, `progress.md`, `.ai/` folders and similar).

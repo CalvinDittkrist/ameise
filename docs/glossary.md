@@ -9,6 +9,9 @@ Terms the code, the issues and the docs use, one row each.
 | writing rules | The fixed rule set for prose in documents, prompts and comments ([repo-standard.md](repo-standard.md#writing-rules)). The standard check counts the mechanical ones; the docs reviewer judges the rest. |
 | profile | Visibility plus branch model (`main` alone, or `dev` plus `main`), derived from GitHub, never configured. |
 | gate | The command that must pass before a pull request: the gate command of the applying change class ([ADR 0041](adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md)), `make check` for `full`. It runs in the worktree or on CI, as the factory's gate command or `WF_GATE` sets. |
+| ADR | A decision that holds today and is hard to reverse or surprising without context; at most `WF_ADR_MAX`, edited in place, deleted when it no longer holds ([ADR 0071](adr/0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)). |
+| `WF_ADR_MAX` | The most ADRs a repository keeps, default 20. |
+| `WF_ADR_LENIENT` | Turns the standard check's ADR findings into warnings. |
 | `WF_GATE` | The local workflow's gate form, the peer of the factory's gate command: unset for `make check`, a command run without a shell, `none`, or `ci` and `ci:<jobs>` for a gate on CI. |
 | gate on CI | A gate whose form is `ci`: it reads the checks of the gate's draft instead of running a command in the worktree. Both peers have it. |
 | gate's draft | The draft pull request the first gate on CI opens and the pr stage finishes. Its draft state is the peer's record, never GitHub's. |

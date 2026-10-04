@@ -18,7 +18,7 @@ What a good test is here (external behaviour, not internals), the seams, which m
 New or changed terms for `docs/glossary.md`: `term`: one-line definition. Or "none".
 
 ## ADRs to write
-One line per decision that is hard to reverse and surprising without context. The worker of the first ticket writes them. Or "none".
+One line per ADR to write, change or remove. An ADR holds a decision that holds today and is hard to reverse or surprising without context; a smaller one is a rule with its reason in the document of its area. The set holds at most 20: on a full set, name the ADR to move or delete. The worker of the first ticket makes the change. Or "none".
 
 ## Out of scope
 What this spec deliberately leaves out.

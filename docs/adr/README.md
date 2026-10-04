@@ -1,6 +1,12 @@
 # Architecture Decision Records
 
-One file per decision, numbered. An accepted ADR may be shortened in wording in place, but its decision is never edited, and a change of decision needs a superseding ADR. A status is accepted, amended or superseded, with the ADR that amends or supersedes it. What an amendment says stands in that ADR, or in the amended ADR when no other ADR made it. Format: [MADR](https://adr.github.io/madr/), trimmed. Create one with `/repo-standards:adr <title>`.
+An ADR records a decision that holds today and is hard to reverse or surprising without context ([ADR 0071](0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)). Format: [MADR](https://adr.github.io/madr/), trimmed. Create one with `/repo-standards:adr <title>`.
+
+- The set holds at most 20. A new ADR on a full set removes one, or moves it as a rule into the document of its area.
+- A changed decision edits its ADR in place, and a decision that no longer holds is deleted.
+- A status is proposed or accepted. A number is never reused.
+
+Next free number: 0072
 
 | ADR | Title | Status |
 | --- | --- | --- |
@@ -52,7 +58,6 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0046](0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md) | A test is removed at high confidence without a person's approval before the pull request | amended by [0047](0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md) |
 | [0047](0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md) | A test hunt reads its shares whole and hunts while it finds something new | accepted |
 | [0048](0048-writing-rules-are-part-of-the-standard-and-the-gate-checks-the-mechanical-ones.md) | Writing rules are part of the standard, and the gate checks the mechanical ones | accepted |
-| [0049](0049-an-accepted-adr-may-be-shortened-in-wording-its-decision-is-never-edited.md) | An accepted ADR may be shortened in wording; its decision is never edited | accepted |
 | [0050](0050-the-host-installs-every-factory-release-and-the-factory-drains-on-signal.md) | The host installs every factory release and the factory drains on signal | accepted |
 | [0051](0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md) | A bot's review queues a follow-up run within the repair budget | accepted |
 | [0052](0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md) | Sessions run on a runtime, and Codex is one of them, as a reviewer first | accepted |
@@ -74,3 +79,4 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0068](0068-the-host-crosses-the-rename-through-a-bridge-release.md) | The host crosses the rename through a bridge release | accepted |
 | [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) | The controller reads Claude and Codex and warns a claim of Claude | accepted |
 | [0070](0070-processes-run-on-process-graphs.md) | Processes run on process graphs | accepted |
+| [0071](0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md) | ADRs are a capped set of decisions that hold today | accepted |

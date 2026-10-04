@@ -70,6 +70,10 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - The label vocabulary is duplicated the same way, and a test in `controller/test/scripts/plugins.test.ts` fails when the shell copy differs from the contract fixture.
 - Docs: `docs/architecture.md` is the map, `docs/vision.md` is the why, decisions are ADRs in `docs/adr/`, terms are in `docs/glossary.md`.
   - The standard every repository follows is `docs/repo-standard.md`. Update the docs with the change that makes them stale.
+- ADRs are a capped set of decisions that hold today ([ADR 0071](docs/adr/0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)): at most 20, each hard to reverse or surprising without context.
+  - A changed decision edits its ADR in place; one that no longer holds is deleted. A status is proposed or accepted.
+  - A smaller rule goes with its reason into the document of its area. A comment cites an ADR that exists, or states the reason.
+  - No plugin file cites an ADR number, because plugins run in other repositories. A plugin states the reason inline.
 - Prose in documents, prompts and comments follows the [writing rules](docs/repo-standard.md#writing-rules).
 - `AGENTS.md` is the instruction source for every agent; `CLAUDE.md` only imports it. No repository-local skills, agents, commands or rules (the standard check fails on them).
 - No agent co-authors in commits. Conventional commits.
