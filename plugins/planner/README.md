@@ -1,10 +1,10 @@
 # planner
 
-Skills and agents for a planning session on one topic ([ADR 0063](../../docs/adr/0063-plugins-are-skills-and-agents.md)). The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. Its brief names the plan branch, the base and the topic or the issue. The plugin has no hook and no script.
+Skills and agents for a planning session on one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. Its brief names the plan branch, the base and the topic or the issue. The plugin has no hook and no script.
 
 The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools, the controller's github tools and no Skill tool. It reads GitHub with `gh`.
 
-It writes GitHub only through the controller's tools ([ADR 0059](../../docs/adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)): `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
+It writes GitHub only through the controller's tools, so every write passes the label rules in one place: `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
 
 ## Skills
 | Skill | Tool or controller action | Needs the controller | Effect |

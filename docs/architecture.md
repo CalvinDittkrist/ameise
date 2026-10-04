@@ -6,15 +6,15 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ## Components
 | Component | Responsibility | Entry point |
 | --- | --- | --- |
-| `planner` plugin | Skills and agents: the `planner` agent for one session per topic, and its spec, tickets, triage, research and prototype skills. Writes issues through the controller's tools, never code; no hook and no script ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `plugins/planner/agents/planner.md`, `/planner:plan` |
-| `worker` plugin | Skills and agents: the `worker` agent that implements an issue, the reviewers, the test hunt and the documentation lookup; no hook and no steering script ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `plugins/worker/agents/worker.md`, `/worker:hunt-tests`, `/worker:docs` |
-| test hunt | A worker session without an issue that removes the tests that prove nothing ([ADR 0045](adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). | `plugins/worker/skills/hunt-tests`, `plugins/worker/agents/test-hunter.md` |
+| `planner` plugin | Skills and agents: the `planner` agent for one session per topic, and its spec, tickets, triage, research and prototype skills. Writes issues through the controller's tools, never code; no hook and no script ([ADR 0057](adr/0057-the-controller-does-agents-decide.md)). | `plugins/planner/agents/planner.md`, `/planner:plan` |
+| `worker` plugin | Skills and agents: the `worker` agent that implements an issue, the reviewers, the test hunt and the documentation lookup; no hook and no steering script ([ADR 0057](adr/0057-the-controller-does-agents-decide.md)). | `plugins/worker/agents/worker.md`, `/worker:hunt-tests`, `/worker:docs` |
+| test hunt | A worker session without an issue that removes the tests that prove nothing ([worker](../plugins/worker/README.md#test-hunt)). | `plugins/worker/skills/hunt-tests`, `plugins/worker/agents/test-hunter.md` |
 | reviewer agents | Five read-only subagents with fresh context: code, security, docs, tests, senior. | `plugins/worker/agents/*-reviewer.md` |
-| `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
+| `docs-lookup` agent | Answers one Claude Code question from the current documentation ([security](security.md#prompt-injection)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0023](adr/0023-github-is-the-only-control-surface-of-the-factory.md)). | [factory/](../factory/README.md), `factory/ui/`; the [runbook](factory-runbook.md) |
-| controller | The local workflow: projects, processes and their stages, headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
+| controller | The local workflow: projects, processes and their stages, headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([controller](../controller/README.md#install)). | `ameise`; [controller/](../controller/README.md#install) |
 | engine | The XState engine runs work processes on the delivery graph, hunts on a hunt graph sharing its tail, plans on the plan graph ([ADR 0070](adr/0070-processes-run-on-process-graphs.md)). | `controller/src/engine/`, `controller/src/graphs/` |
-| `repo-standards` plugin | Owns the [repository standard](repo-standard.md): the auditors, the templates, the scaffold and the check; skills and agents beside them ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `/repo-standards:adr`, `/repo-standards:docs-check`, `plugins/repo-standards/scripts/check.sh` |
+| `repo-standards` plugin | Owns the [repository standard](repo-standard.md): the auditors, the templates, the scaffold and the check; skills and agents beside them ([ADR 0057](adr/0057-the-controller-does-agents-decide.md)). | `/repo-standards:adr`, `/repo-standards:docs-check`, `plugins/repo-standards/scripts/check.sh` |
 | standardize steps | Controller code for a standardisation: facts, report, approval, backup, cleanup, issues, workspace apply and finalize. They run the plugin's templates, scaffold and check. | `controller/src/stages/standard/*.ts` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
@@ -27,23 +27,23 @@ This repository holds the local workflow, a controller with plugins, and the fac
 1. A plan on the dashboard or `ameise plan` creates `plan/<slug>` and a worktree, and starts the planner headless on `/planner:plan` ([plan process](../controller/README.md#plan-process)).
    - Without an idea or an issue it opens an open session.
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone, or triages an issue into an agent brief.
-3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
+3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([the local workflow](local-workflow.md)).
 4. Finish in the process view removes the worktree; the plan branch never carries commits. Capture prototype first moves prototype code to its own branch.
 5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. Accept on the board or `ameise accept` starts the acceptance in a plan process ([acceptance](../controller/README.md#acceptance)).
    - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
    - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing.
-   - The controller writes them through its github tools and closes the spec once nothing is open ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)).
+   - The controller writes them through its github tools and closes the spec once nothing is open ([the local workflow](local-workflow.md)).
 
 ### Local delivery
-1. A claim on the dashboard or `ameise claim N` refuses an issue without `ready-for-agent` ([ADR 0014](adr/0014-claims-require-ready-for-agent.md)), routed, in a spec run without `ready-for-human`, or with its branch on origin.
+1. A claim on the dashboard or `ameise claim N` refuses an issue without `ready-for-agent`, routed, in a spec run without `ready-for-human`, or with its branch on origin.
    - Force overrides those refusals.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>`, assigns the issue and starts the implement session headless with the `worker` agent ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
    - A spec-run ticket branches from and targets its spec branch.
 3. The session's settings disable background tasks, so subagents run in the foreground ([token budget](token-budget.md)). They pin the compact trigger at 250 000 tokens and mark the session with `WF_CONTROLLER=1`.
 4. Worker knobs given to the claim reach that process alone ([claim](../controller/README.md#claim-and-abandon)).
-5. The controller drives the stages after implement, each session fresh with a structured result ([ADR 0058](adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
+5. The controller drives the stages after implement, each session fresh with a structured result ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)):
    - gate: merges the base and runs the gate command, or hands it to CI through a draft; a failure gets a fix session,
    - review: the reviewers run in parallel, read-only; a `fix` gets a fix session,
    - pr: a read-only author session writes the title and body; the controller pushes and opens the pull request,
@@ -56,8 +56,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
 ### Test hunt
 1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`.
    - It refuses while a hunt branch exists here or on origin, or while the base has no test file.
-2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
-3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
+2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([worker](../plugins/worker/README.md#test-hunt)).
+3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([worker](../plugins/worker/README.md#test-hunt)).
 4. A round without a new candidate ends the hunt. The controller keeps the hunt record (`hunt.sh json`) in the process record.
 5. The gate, review, pull request and CI follow, with `hunt.sh print` instead of the issue.
 6. A hunt that removed nothing opens no pull request and turns `done`; a finish removes it.

@@ -552,11 +552,10 @@ func declaredBase(ctx context.Context, clone, branch string) string {
 	return declared
 }
 
-// branchName is the branch contract of the workflow, restated in Go: <type>/<issue>-<slug>
-// ([ADR 0003]). It is what the worker's session start reads the issue number from, so the shape is
+// branchName is the branch contract of the workflow, restated in Go: <type>/<issue>-<slug>.
+// It is what the worker's session start reads the issue number from, so the shape is
 // the pipeline's and not the factory's, and the contract fixture binds it to the shell ([ADR 0062]).
 //
-// [ADR 0003]: ../docs/adr/0003-herdr-worktree-per-issue.md
 // [ADR 0062]: ../docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md
 func branchName(issue Issue) string {
 	return branchType(issue.Labels) + "/" + strconv.Itoa(issue.Number) + "-" + slug(issue.Title)

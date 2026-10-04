@@ -2,7 +2,7 @@
 // controller registers them in the session as the in-process MCP server github. They create an issue with
 // its parent and milestone, set labels, link blockers, comment, close, attach a milestone and create one.
 // They own the label vocabulary: a vocabulary label the repository lacks is created on first use. They
-// refuse the label sets the factory cannot work (ADR 0021 states the rules). Every write goes into the
+// refuse the label sets the factory cannot work (the routing label only beside ready-for-agent and never beside ready-for-human). Every write goes into the
 // process's event log with what it changed, and so does every refusal. A hook of the session denies a
 // Bash call that writes GitHub with gh past them (directWrite).
 //

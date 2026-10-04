@@ -17,7 +17,7 @@ case "$(printf '%s' "${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-}" | tr '[:upper:]'
   *) wf_kv subagents "background" ;;
 esac
 
-# The controller marks every session it starts with WF_CONTROLLER=1 (ADR 0063). A skill that needs it reads
+# The controller marks every session it starts with WF_CONTROLLER=1. A skill that needs it reads
 # this line and, without it, says the line to the user and stops, rather than failing somewhere later.
 if [ "${WF_CONTROLLER:-}" = 1 ]; then
   wf_kv controller "present"

@@ -59,7 +59,7 @@ Tools, plugins and instructions:
 - So the vision is a linked file ([vision.md](vision.md)) and not an `@` import. An import would load at launch and cost the whole text everywhere.
 - A documentation page is read where it is needed and nowhere else. `/worker:docs` puts the question to a `docs-lookup` subagent that runs `claude-docs.sh`.
 - The pages stay in that context. A page can run to tens of thousands of tokens, so the agent narrows it with `grep` and runs on sonnet.
-- The worker's context gets the answer and the page URLs, under 300 words ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
+- The worker's context gets the answer and the page URLs, under 300 words ([security model](security.md#prompt-injection)).
 
 ## Measuring it
 `ameise context-report` prints one line per finished worker session:

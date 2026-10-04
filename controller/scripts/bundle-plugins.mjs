@@ -1,4 +1,4 @@
-// The plugins the controller ships (ADR 0060): the build copies the worker, planner and repo-standards
+// The plugins the controller ships, at its version so the pair is the one tested: the build copies the worker, planner and repo-standards
 // plugins of the checkout into dist/plugins, where the sessions load them from. A copy of an earlier
 // build goes first, so a file removed from a plugin is removed from the bundle too. The repository's
 // licence goes beside them, since the package carries its code and the MIT terms travel with it. The

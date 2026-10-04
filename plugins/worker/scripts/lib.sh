@@ -32,7 +32,7 @@ wf_dirty_tree() {
 # A commit as a reader wants it, and as the caller has it when git cannot resolve it any more: a record
 # names a commit an amend or a rebase may have taken away, and a brief still has to be able to print it.
 wf_short() { git rev-parse --short "$1" 2>/dev/null || printf '%s\n' "$1"; }
-# Where the hunt record lives (ADR 0018): this worktree's own git directory, never the common one, so two
+# Where the hunt record lives: this worktree's own git directory, never the common one, so two
 # worktrees keep separate records. Removed with the worktree, which is what a hunt lives in.
 wf_state_dir() {
   local d
@@ -43,8 +43,8 @@ wf_state_dir() {
 # only: the block below them quotes a hunter's text, and a line of it that looks like a header is text in a
 # block, not a fact about the record.
 wf_record_field() { sed -n "/^$/q; s/^$2: //p" "$1" | head -1; }
-# A test hunt works on a branch hunt/tests-<date>, which names no issue (ADR 0045): the hunt record in this
-# worktree's git directory stands where the issue stands for a ticket.
+# A test hunt works on a branch hunt/tests-<date>, which names no issue, because its removals are known only
+# at its end: the hunt record in this worktree's git directory stands where the issue stands for a ticket.
 wf_is_hunt_branch() { case "$(wf_branch)" in hunt/*) return 0 ;; *) return 1 ;; esac; }
 # The issue as a brief prints it: the number, or `none` for a branch that works none.
 wf_issue_label() {

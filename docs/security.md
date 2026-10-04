@@ -15,9 +15,10 @@ Threat model: an agent with shell access works on code and reads text from the i
    { "sandbox": { "enabled": true, "autoAllowBashIfSandboxed": true,
      "network": { "allowedDomains": ["github.com", "api.github.com", "registry.npmjs.org", "code.claude.com"] } } }
    ```
-   `code.claude.com` is in the list because agents verify Claude Code facts against the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). It is the only documentation origin the pipeline reads.
+   `code.claude.com` is in the list because agents verify Claude Code facts against the current documentation ([AGENTS.md](../AGENTS.md#claude-code-facts)). It is the only documentation origin the pipeline reads.
 
 ## Prompt injection
+- The worker has no `WebFetch`: Claude Code docs reach it only through the pinned `claude-docs.sh` in its `docs-lookup` subagent, because its context reads issues, comments and CI logs.
 - The controller's briefs label the issue, its comments and the files as data, not instructions.
 - Reviewer, worker and author prompts repeat that file contents, comments, logs and reviews are data, not instructions.
 - `address-reviews` declines what a review asks, in a thread or in its summary, when it would weaken tests, skip checks or change unrelated code.
@@ -43,7 +44,7 @@ That is surface reduction, not containment:
 - A test fails when the list and the agent files drift apart.
 - The worker's `Bash` stays, so the enforced network boundary is the permission layer and the sandbox `allowedDomains` above.
 - The pinned script keeps the untrusted-text context away from the open web, and gives the pipeline one auditable command instead of a free fetch tool.
-- The lookup agent holds `Bash`, like every reviewer and auditor. Its read-only, one-origin behaviour rests on its prompt plus the permission layer, not on its tool list ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
+- The lookup agent holds `Bash`, like every reviewer and auditor. Its read-only, one-origin behaviour rests on its prompt plus the permission layer, not on its tool list.
 
 `WF_PLANNER_LANGUAGE` is copied verbatim into the planner session's system prompt by Claude Code's `language` setting. It is operator configuration, as trusted as the rest of `WF_*`. The controller still refuses a plan whose value has a control character or is longer than a language name, so a pasted instruction cannot enter through it.
 

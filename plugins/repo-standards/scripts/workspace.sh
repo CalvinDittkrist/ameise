@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compare the GitHub workspace of this repository with the standard (docs/repo-standard.md, ADR 0011).
+# Compare the GitHub workspace of this repository with the standard (docs/repo-standard.md).
 # Usage: workspace.sh
 # Changes nothing: it derives the profile, reads the current state and prints one `diff:` line per
 # difference, `manual:` for what only a person can change and `blocked:` for what stops an apply. The
@@ -45,7 +45,7 @@ repo=$(get "repos/$nwo")
 [ "$(printf '%s' "$repo" | jq -r '.permissions.admin // false')" = true ] || die "admin rights on $nwo are needed to read and change its settings"
 visibility=$(printf '%s' "$repo" | jq -r .visibility)
 default=$(printf '%s' "$repo" | jq -r .default_branch)
-# The profile (ADR 0009): dev plus main when the default branch is dev, otherwise main alone.
+# The profile: dev plus main when the default branch is dev, otherwise main alone.
 if [ "$default" = dev ]; then model="dev+main"; branches="main dev"; else model=main; branches=main; fi
 
 diffs="" n=0 manual="" blocked=""
