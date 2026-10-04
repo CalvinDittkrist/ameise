@@ -11,7 +11,7 @@ import ts from 'typescript'
 import { expect, test } from 'vitest'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const through = ['engine/engine.ts', 'sessions/session.ts']
+const through = ['engine/engine.ts', 'sessions/session.ts', 'records/store.ts', 'sessions/running.ts', 'sessions/settings.ts', 'sessions/briefs.ts']
 
 // lint lints the code as if it were the named source of the controller and answers the rules it broke.
 async function lint(code: string, file: string): Promise<string[]> {
@@ -23,6 +23,7 @@ async function lint(code: string, file: string): Promise<string[]> {
 test('the engine and the session runtime may not import a node for its value', async () => {
   for (const file of through) {
     expect(await lint("import { gateNode } from '../stages/gate.js'\nexport const n = gateNode\n", file)).toContain('@typescript-eslint/no-restricted-imports')
+    expect(await lint("import * as lib from '../stages/standard/lib.js'\nexport const l = lib\n", file)).toContain('@typescript-eslint/no-restricted-imports')
   }
 })
 
