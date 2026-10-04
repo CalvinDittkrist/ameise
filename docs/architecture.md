@@ -125,5 +125,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - The factory shares nothing with a developer's machine but GitHub. Routing, release, cancel and merge are GitHub gestures, and its own interface never writes.
 - Worktrees live under `.claude/worktrees/`, so workspace trust covers them.
 
+The controller's imports run one way: from the graphs and nodes to the engine and the session runtime, never back. The restricted importers are the engine, the session runtime, the record store, the registry of running processes, the session settings and the briefs (`engine.ts`, `session.ts`, `store.ts`, `running.ts`, `settings.ts`, `briefs.ts`). They import the forbidden targets for their types only: every graph, every node, the agent runs and the stage modules (`graphs`, `delivery`, `planning`, `agents`, `claim`, `gate`, `cigate`, `review`, `pr`, `ci`, `hunt`, `plan`, `standardize`, `acceptance` and `standard/*`). The graph registry, the server and the entry point import graphs and nodes and hand them to the engine and the session runtime as data. The restricted imports rule of typescript-eslint with `allowTypeImports` holds the direction in `controller/eslint.config.js`. `controller/test/imports.test.ts` lints a node import under the engine's and the session runtime's names, and fails on any cycle of value imports through either.
+
 ## Decisions
 See [ADRs](adr/README.md). Terms are in the [glossary](glossary.md).
