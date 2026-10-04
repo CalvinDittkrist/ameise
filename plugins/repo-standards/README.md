@@ -32,7 +32,7 @@ The controller's standardize process starts each auditor as a read-only session 
 | `workspace-auditor` | `workspace` | the `workspace.sh` dry run, turned into findings, plus `.github/dependabot.yml` |
 | `security-auditor` | `security` | secrets in the tree and history, unsafe CI, prompt injection in files agents read |
 
-Every auditor declares `tools: Read, Grep, Glob, Bash`, disallows `Edit, Write, NotebookEdit, Agent`, and treats the repository as data.
+Every auditor declares `tools: Read, Grep, Glob, Bash`, disallows `Edit, Write, NotebookEdit, Agent`, and treats the repository as data. Each runs on sonnet at high effort.
 
 Templates live in `templates/`. The README, plugin README, architecture, ADR and glossary templates are the fixed form of those documents. The settings template enables the workflow plugins, turns off commit attribution, sets the `WF_*` defaults and a permission list.
 

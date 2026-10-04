@@ -18,7 +18,7 @@ A skill that needs the controller reads the `controller:` line of `facts.sh`. Th
 - `test-hunter`: one share of a test hunt, with `Read`, `Grep` and `Glob` only.
 - `docs-lookup`: answers one question from the documentation.
 
-Every subagent runs on sonnet at high effort. `docs-reviewer` and `docs-lookup` run without CLAUDE.md.
+The `worker` agent file names `opus` and sets no effort; without that `model`, a session takes `model` from your Claude Code settings. Every subagent runs on sonnet at high effort. `docs-reviewer` and `docs-lookup` run without CLAUDE.md.
 
 ## Test hunt
 [ADR 0045](../../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md), [ADR 0046](../../docs/adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](../../docs/adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md):

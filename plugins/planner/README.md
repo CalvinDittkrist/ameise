@@ -33,7 +33,13 @@ Labels the controller's tools create on first use: `ready-for-agent`, `needs-tri
 - They refuse `factory:spec-run` next to `factory` or `ready-for-human`, or on a non-spec whose parent lacks it.
 - Sub-issues and blocking edges use GitHub's native APIs and fall back to body text.
 
-Model: the agent file names `fable`; the root README explains why. The research subagent has no agent file, so it follows the session.
+## Model
+A session takes its model from the first that is set:
+
+1. the `model` of its agent file: `fable` for `planner`
+2. `model` in your Claude Code settings
+
+The planner runs on Fable and sets no effort. The research subagent has no agent file, so it follows the session.
 
 ## Configuration
 | Variable | Default | Effect |
