@@ -4,7 +4,7 @@
 // reviewer that is not quoted as data. Each brief of a work session ends with how it reports.
 import { huntScript } from '../bundle.js'
 import type { Attempt, Check, Finding, HuntRecord, PlanRecord, Point, StageRecord } from '../records/records.js'
-import { setting, simplifyOn } from './settings.js'
+import { setting, simplifyOrOn } from './settings.js'
 
 // safeRef is a branch name the brief carries: letters, digits and . _ / - only.
 export const safeRef = /^[A-Za-z0-9._/-]+$/
@@ -16,13 +16,7 @@ const reportLine = 'Report complete with the commits of this session, each its s
 // none where WF_SIMPLIFY is off. A value the claim would refuse, set after the claim, reads as the
 // default on. A session without the skill goes on and reports; the step never blocks it.
 function simplifyLines(record: StageRecord): string[] {
-  let on = true
-  try {
-    on = simplifyOn(setting(record, 'WF_SIMPLIFY'))
-  } catch {
-    // the claim refused it; a later change of the settings keeps the default
-  }
-  if (!on) return []
+  if (!simplifyOrOn(setting(record, 'WF_SIMPLIFY'))) return []
   return [
     `Before every complete report, run the skill simplify on the diff of the branch against ${record.base}: pass it the target git diff ${record.base}...HEAD.`,
     'Apply what it finds, verify the fixes with the single test or linter of the files they touch, and commit them as refactor commits of their own.',

@@ -144,6 +144,12 @@ export function simplifyOn(value: unknown): boolean {
   throw new Error(`WF_SIMPLIFY=${JSON.stringify(value)} is neither on nor off; set on, off, or leave it out for on`)
 }
 
+// simplifyOrOn reads WF_SIMPLIFY as simplifyOn does, but answers the default on for a value it would
+// refuse: the claim refused it, so only a later change of the settings sets one.
+export function simplifyOrOn(value: unknown): boolean {
+  return value !== 'off'
+}
+
 // allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the
 // call, or the call itself when it suggests none.
 export function allowance(tool: string, input: Record<string, unknown>, suggestions: PermissionUpdate[] | undefined): string[] {
