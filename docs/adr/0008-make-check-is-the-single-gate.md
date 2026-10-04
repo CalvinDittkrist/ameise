@@ -1,7 +1,7 @@
 # 0008. make check is the single gate and check the single required status check
 
 Date: 2026-09-18
-Status: accepted, amended
+Status: accepted
 
 ## Context
 - Each repository ran tests, linters and builds differently, so an agent discovered the command every time and sometimes ran less than CI.
