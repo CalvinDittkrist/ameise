@@ -801,7 +801,7 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		// worker_env set knobs of the worker plugin, which no session runs any more: it is refused as
 		// unknown, naming the knobs of the factory's own that took its place.
 		{"worker variables", `{"data_dir":"data","repositories":["a/b"],"worker_env":{"WF_REVIEW_ROUNDS":"2"}}`, `json: unknown field "worker_env"; worker_env set knobs of the worker plugin, which no session of the factory runs any more; remove it, and write a knob it carried as the factory's own, at the top of the file or on the repository: ci (repair_rounds, bot_reviewers, review_wait, checks_grace), review (rounds, reviewers, gate_rounds, classes) or gate (command, rounds, timeout)`},
-		{"repository object with an unknown field", `{"data_dir":"data","repositories":[{"name":"a/b","branch":"dev"}]}`, `a repository is "owner/name" or {"name": "owner/name", "base": "dev", "ci": {"repair_rounds": 2}, "review": {"rounds": 2}, "gate": {"rounds": 2}}`},
+		{"repository object with an unknown field", `{"data_dir":"data","repositories":[{"name":"a/b","branch":"dev"}]}`, `a repository is "owner/name" or {"name": "owner/name", "base": "dev", "ci": {"repair_rounds": 2}, "review": {"rounds": 2}, "gate": {"rounds": 2}, "simplify": false}`},
 		// The knobs of the ci stage are the factory's own, at the top of the file or on a repository.
 		{"unknown ci knob", `{"data_dir":"data","repositories":["a/b"],"ci":{"repair_round":2}}`, `json: unknown field "repair_round"; the ci knobs are repair_rounds, bot_reviewers, review_wait, checks_grace`},
 		{"unknown ci knob of a repository", `{"data_dir":"data","repositories":[{"name":"a/b","ci":{"grace":"1m"}}]}`, `the ci knobs are repair_rounds, bot_reviewers, review_wait, checks_grace`},
@@ -844,6 +844,10 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"a gate command that is a line of shell", `{"data_dir":"data","repositories":["a/b"],"gate":{"command":"make check"}}`, `the gate "make check" is none of the forms of a gate`},
 		{"a negative gate budget", `{"data_dir":"data","repositories":["a/b"],"gate":{"rounds":-1}}`, `gate: rounds -1 is not a number of fix sessions; write it as 3, or 0 to block on the first failure`},
 		{"a gate timeout of a repository that is no duration", `{"data_dir":"data","repositories":[{"name":"a/b","gate":{"timeout":"0s"}}]}`, `the gate of a/b: timeout "0s" is not a positive duration; write it as "45m"`},
+		// The simplify switch is true or false, at the top of the file or on a repository, and nothing else.
+		{"a simplify that is a word", `{"data_dir":"data","repositories":["a/b"],"simplify":"yes"}`, `simplify "yes" is not a boolean; write it as true or false`},
+		{"a simplify that is null", `{"data_dir":"data","repositories":["a/b"],"simplify":null}`, `simplify null is not a boolean`},
+		{"a simplify of a repository that is a number", `{"data_dir":"data","repositories":[{"name":"a/b","simplify":1}]}`, `the simplify of a/b: simplify 1 is not a boolean`},
 		// The quota check runs the binary the operator installed, never a name PATH or npx resolves.
 		{"quota tool by name", `{"data_dir":"data","repositories":["a/b"],"quota_axi":"quota-axi"}`, `quota_axi "quota-axi" is not an absolute path`},
 		{"quota tool through npx", `{"data_dir":"data","repositories":["a/b"],"quota_axi":"npx -y quota-axi"}`, `is not an absolute path`},

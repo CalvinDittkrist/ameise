@@ -6,6 +6,7 @@
   "data_dir": "/var/lib/factory",
   "worker_args": [],
   "gate": {"command": ["make", "check"], "rounds": 3, "timeout": "45m"},
+  "simplify": true,
   "paused": true,
   "auto_update": false,
   "notify": [

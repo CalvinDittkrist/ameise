@@ -236,6 +236,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `gate` | see below | The knobs of the gate stage ([The gate stage](#the-gate-stage)). |
 | `review` | see below | The knobs of the review stage ([The review stage](#the-review-stage)). |
 | `validate` | see below | The knobs of the validate stage ([The validate stage](#the-validate-stage)). Without it the stage is off. |
+| `simplify` | `true` | Whether the implement session runs the bundled `/simplify` skill on its diff before it reports. See below the table. |
 | `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is read again on every poll, so it takes no restart ([Pausing](#pausing)). |
 | `auto_update` | `false` | Lets the host's update tick install factory releases on this host. It is read again on every poll like `paused`, and `/api/line` reports it. |
 | `notify` | `[]` | GitHub logins, without the `@`. They are asked for a review when a run ends `ready`, and mentioned on the issue when a run waits for a person. Empty: nobody is notified, and the log says so on start. |
@@ -289,11 +290,22 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - `rounds` (default `2`): the fix sessions a validation that does not pass may take.
 - Past them the run ends `ready` all the same, and the pull request says the validation did not pass.
 
+`simplify`:
+
+- `true` (the default): the implement session runs `/simplify` on the branch's diff against its base once its change is committed.
+  - It applies what the skill finds, verifies the fixes with the single test or linter of the files they touch, and commits them as refactor commits of their own.
+  - Its summary says in one sentence what the skill changed, that it found nothing, or that the skill was unavailable.
+  - A session without the skill goes on and reports, so the step never blocks a run.
+- `false`: the implement session runs no `/simplify`.
+- The fix sessions and the address-reviews session never run it.
+- Anything but `true` or `false` is refused, `null` included.
+
 `repositories`:
 
 - An entry is `"owner/name"`, or `{"name": "owner/name", "base": "dev"}` when this host branches off something other than the repository's base.
 - The repository's base is its `WF_BASE_BRANCH`, else its default branch.
 - The object may also carry `"gate"`, `"ci"`, `"review"` and `"validate"` with any of their knobs, which then stand for that repository over the host's.
+- It may carry `"simplify"` too, which stands over the host's the same way.
 - A repository's `classes` replace the host's as a whole. An unknown knob, reviewer or validator is refused, and so is a `rounds` below 1.
 
 `quota_minimum` applies to the all-models scope, and to the scope of each model the run spends. Those are the worker's model, and the one each reviewer of the repository's panel, change classes or validators names.
@@ -321,12 +333,13 @@ A complete configuration, written to `/etc/factory/factory.json` (root owns it, 
   "gate": {"command": ["make", "check"], "rounds": 3, "timeout": "45m"},
   "review": {"rounds": 3, "reviewers": ["code", "security", "docs", "tests", "senior"], "gate_rounds": 2},
   "ci": {"repair_rounds": 3, "bot_reviewers": [], "review_wait": "20m", "checks_grace": "10m"},
+  "simplify": true,
   "paused": false,
   "notify": ["yourname"],
   "quota_axi": "/usr/bin/quota-axi",
   "quota_minimum": 12,
   "repositories": [
-    {"name": "yourname/service", "gate": {"command": "ci"}},
+    {"name": "yourname/service", "gate": {"command": "ci"}, "simplify": false},
     {"name": "yourname/app", "base": "dev", "review": {"rounds": 2}, "ci": {"repair_rounds": 2},
      "validate": {"validators": ["codex", "senior"], "rounds": 2}},
     {"name": "yourname/handbook", "review": {"classes": [

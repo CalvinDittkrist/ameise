@@ -1074,7 +1074,18 @@ func (f *Factory) roundsOn(r *Run, pull string) int {
 // its summary as the reason the issue comment quotes.
 func (f *Factory) implement(parent, ctx context.Context, r *Run, entry Entry, claim claimed) {
 	f.runs.update(r, func() { r.stage(stageImplement) })
-	s := implementSession(implementBrief(entry, claim))
+	simplify := f.simplifyFor(entry.Repository)
+	// The bundled /simplify reviews the diff against the branch's upstream when it is given no target,
+	// and against main without one, so the branch tracks its base: the skill then reviews what the run
+	// changed against origin/<base> and nothing else. Every push names its refspec, so the upstream
+	// changes nothing else. A branch that cannot track its base leaves the skill on main; the step
+	// is never a reason to stop a run.
+	if simplify && !f.fake {
+		if _, err := git(ctx, claim.worktree, "branch", "--set-upstream-to=origin/"+claim.base, claim.branch); err != nil {
+			f.runs.event(r, Event{Kind: "factory", Title: "left the branch without an upstream", Body: err.Error()})
+		}
+	}
+	s := implementSession(implementBrief(entry, claim, simplify))
 	f.runs.event(r, Event{Kind: "factory", Title: "briefed the implement session", Body: s.prompt})
 	got, ok := f.session(parent, ctx, r, s, entry, claim)
 	if !ok {
@@ -1579,8 +1590,8 @@ var bundledSkills = []string{
 // bundledSkillsVersion is the version of Claude Code bundledSkills was read from.
 const bundledSkillsVersion = "2.1.284"
 
-// allowedSkill is the one bundled skill a session sees: /simplify, which the implement session is
-// to run on its change before it commits (spec #418).
+// allowedSkill is the one bundled skill a session sees: /simplify, which the implement session runs
+// on the committed branch diff before it reports (spec #418, issue #422).
 const allowedSkill = "simplify"
 
 // skillAllowlist is the skillOverrides of the session's settings: every bundled skill off but

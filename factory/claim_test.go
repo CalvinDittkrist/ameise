@@ -203,6 +203,11 @@ func TestAClaimOfARepositoryWithItsOwnBaseCutsAndWorksFromThatBase(t *testing.T)
 		t.Errorf("%s was cut at %s, want the head of dev (%s) and not of main", claimedBranch, workers[0].head, dev)
 	}
 	workers[0].briefedOn(t, "dev")
+	// The branch tracks its base, so /simplify without a target reviews the diff against dev and not
+	// against main.
+	if workers[0].upstream != "origin/dev" {
+		t.Errorf("the worker ran on a branch that tracks %q, want origin/dev, the base /simplify reviews against", workers[0].upstream)
+	}
 }
 
 // A repository moves its line of work after this host cloned it: it declares another base in its own
@@ -906,6 +911,7 @@ func inProcess(t *testing.T, gh *ghShim) {
 // group, the command line it was given and the names in its environment.
 type workerStart struct {
 	cwd, branch, head string
+	upstream          string // the branch the worktree's branch tracks, none when it tracks none
 	pid, pgid         int
 	longest           int // the size of the longest argument in bytes
 	args              []string
@@ -1057,7 +1063,7 @@ func sessionsIn(t *testing.T, log string) []workerStart {
 		}
 		w := &started[len(started)-1]
 		switch field {
-		case "cwd", "branch", "head", "pid", "pgid", "longest", "arg", "env":
+		case "cwd", "branch", "head", "upstream", "pid", "pgid", "longest", "arg", "env":
 			last = field
 		default:
 			// A line of no field is the next line of an argument that has more than one, a brief's.
@@ -1073,6 +1079,8 @@ func sessionsIn(t *testing.T, log string) []workerStart {
 			w.branch = value
 		case "head":
 			w.head = value
+		case "upstream":
+			w.upstream = value
 		case "pid", "pgid", "longest":
 			number, err := strconv.Atoi(value)
 			if err != nil {
