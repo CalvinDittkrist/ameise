@@ -50,7 +50,7 @@ test('the package carries the build, the bundled plugins and the scripted gh and
     expect.arrayContaining([
       'package.json',
       'dist/main.js',
-      'dist/session.js',
+      'dist/sessions/session.js',
       'fake/gh',
       'fake/claude',
       'dist/LICENSE',

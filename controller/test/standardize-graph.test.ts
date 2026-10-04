@@ -7,12 +7,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { transition } from 'xstate'
-import { advance, enter, type NodeContext, type Outcome, type Registration } from '../src/engine.js'
-import { graphOf } from '../src/graphs.js'
-import type { StageRecord } from '../src/records.js'
-import { runningOf, stop } from '../src/running.js'
-import type { Runtime } from '../src/session.js'
-import { standardizeContext, standardizeGraph, standardizeNode } from '../src/standardize.js'
+import { advance, enter, type NodeContext, type Outcome, type Registration } from '../src/engine/engine.js'
+import { graphOf } from '../src/engine/graphs.js'
+import type { StageRecord } from '../src/records/records.js'
+import { runningOf, stop } from '../src/sessions/running.js'
+import type { Runtime } from '../src/sessions/session.js'
+import { standardizeContext, standardizeGraph, standardizeNode } from '../src/stages/standardize.js'
 
 // The outcomes of each node, and the requests with the park each is sent from.
 const outcomes: Record<string, string[]> = {

@@ -2,9 +2,9 @@
 // every guard parks failed once it is spent, and from the gate on it runs the delivery graph's nodes.
 import { expect, test } from 'vitest'
 import { type AnyStateMachine, transition } from 'xstate'
-import { delivery, type DeliveryContext, huntGraph } from '../src/delivery.js'
-import { graphOf } from '../src/graphs.js'
-import type { StageRecord } from '../src/records.js'
+import { delivery, type DeliveryContext, huntGraph } from '../src/graphs/delivery.js'
+import { graphOf } from '../src/engine/graphs.js'
+import type { StageRecord } from '../src/records/records.js'
 
 // The outcomes and events of each node of the hunt graph.
 const table: Record<string, string[]> = {

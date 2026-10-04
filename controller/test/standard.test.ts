@@ -3,9 +3,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { facts } from '../src/standard/facts.js'
-import { categories, plugin, scaffoldCategories } from '../src/standard/lib.js'
-import { approve, report } from '../src/standard/report.js'
+import { facts } from '../src/stages/standard/facts.js'
+import { categories, plugin, scaffoldCategories } from '../src/stages/standard/lib.js'
+import { approve, report } from '../src/stages/standard/report.js'
 import { fixture, root, section } from './standard.js'
 
 const repo = fixture()

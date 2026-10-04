@@ -2,7 +2,7 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { report } from '../src/standard/report.js'
+import { report } from '../src/stages/standard/report.js'
 import { BACKUP, CATALOGUE, FILES, FINALIZE, ISSUES, PREPARE, REPLIES, WT, messy } from './standard.js'
 
 const repo = messy()

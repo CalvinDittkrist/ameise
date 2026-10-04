@@ -2,9 +2,9 @@
 // has an edge, every guard is named, and every budget ends in a park once it is spent.
 import { expect, test } from 'vitest'
 import { transition } from 'xstate'
-import { delivery, type DeliveryContext, deliveryContext, huntGraph } from '../src/delivery.js'
-import { graphOf } from '../src/graphs.js'
-import type { StageRecord } from '../src/records.js'
+import { delivery, type DeliveryContext, deliveryContext, huntGraph } from '../src/graphs/delivery.js'
+import { graphOf } from '../src/engine/graphs.js'
+import type { StageRecord } from '../src/records/records.js'
 
 // The outcomes and events of each node, as the delivery table names them.
 const table: Record<string, string[]> = {

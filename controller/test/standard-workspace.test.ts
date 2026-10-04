@@ -3,8 +3,8 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { plugin } from '../src/standard/lib.js'
-import { workspace } from '../src/standard/workspace.js'
+import { plugin } from '../src/stages/standard/lib.js'
+import { workspace } from '../src/stages/standard/workspace.js'
 import { type Fixture, fixture } from './standard.js'
 
 const repo = fixture()
