@@ -25,10 +25,10 @@
 // the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
 // interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
 //
-// Each graph names its request reader and its open function, and the start route (POST /api/processes/
-// start) and the start route of each kind start a process through them (startOf), so a graph added here
-// is started with no change to the server: delivery opens a claim, hunt a hunt, standardize a
-// standardize, and plan a plan or, with a spec, an acceptance.
+// Each graph names its request reader and its open function. The start route (POST /api/processes/start)
+// and the start route of each kind start a process through them (startOf).
+// So a graph added here is started with no change to the server.
+// Delivery opens a claim, hunt a hunt, standardize a standardize, and plan a plan or, with a spec, an acceptance.
 //
 // The graph read (GET /api/graphs) answers every graph of the registry in its order, each mapped by the
 // engine (describe) into nodes and edges.
