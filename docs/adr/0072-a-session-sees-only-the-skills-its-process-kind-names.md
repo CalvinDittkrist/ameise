@@ -17,5 +17,6 @@ Status: accepted
 ## Consequences
 - Bundled and personal skills cost no context, and the Skill tool rejects them.
 - The setting sources a session loads stay as they are.
+- A session opened in a terminal resumes without the allowlist: the interactive CLI has no flag or setting for an exact list, and the maintainer drives that session by hand.
 - A new skill a session needs is added to the list of its kind.
 - The factory's list follows the bundled skills of a Claude Code release; a session's init message shows a new one.
