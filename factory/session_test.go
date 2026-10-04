@@ -239,15 +239,22 @@ func TestTheSimplifySwitchDecidesWhichImplementSessionRunsTheSkill(t *testing.T)
 			// review round and its fix session, and #109 of the second.
 			for id := 1; id <= 2; id++ {
 				run := f.ended(t, id)
+				briefs := 0
 				for _, e := range run.Events {
 					if e.Kind != "factory" || !strings.HasPrefix(e.Title, "briefed ") {
 						continue
 					}
 					implement := e.Title == "briefed the implement session"
+					if implement {
+						briefs++
+					}
 					want := implement && c.on[run.Repository]
 					if got := strings.Contains(e.Body, "/simplify"); got != want {
 						t.Errorf("run %d of %s: %q runs /simplify: %v, want %v; the brief:\n%s", run.ID, run.Repository, e.Title, got, want, e.Body)
 					}
+				}
+				if briefs == 0 {
+					t.Errorf("run %d of %s briefed no implement session", run.ID, run.Repository)
 				}
 			}
 		})
