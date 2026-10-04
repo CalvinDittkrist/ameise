@@ -4,7 +4,7 @@
 // reviewer that is not quoted as data. Each brief of a work session ends with how it reports.
 import { huntScript } from '../bundle.js'
 import type { Attempt, Check, Finding, HuntRecord, PlanRecord, Point, StageRecord } from '../records/records.js'
-import { setting, simplifyOrOn } from './settings.js'
+import { settingOf, simplifyOrOn } from './settings.js'
 
 // safeRef is a branch name the brief carries: letters, digits and . _ / - only.
 export const safeRef = /^[A-Za-z0-9._/-]+$/
@@ -13,10 +13,12 @@ export const safeRef = /^[A-Za-z0-9._/-]+$/
 const reportLine = 'Report complete with the commits of this session, each its short hash and subject, once everything is committed, or blocked with the question a person has to answer, in the structured result.'
 
 // simplifyLines are the lines of the simplify step an implement session runs before it reports complete,
-// none where WF_SIMPLIFY is off. A value the claim would refuse, set after the claim, reads as the
-// default on. A session without the skill goes on and reports; the step never blocks it.
+// none where WF_SIMPLIFY is off. The claim pins the value on the record; a record without it, as an
+// adopted one's, reads the worktree's settings, which its session loads. A value the claim would refuse
+// reads as the default on. A session without the skill goes on and reports; the step never blocks it.
 function simplifyLines(record: StageRecord): string[] {
-  if (!simplifyOrOn(setting(record, 'WF_SIMPLIFY'))) return []
+  const on = record.kind === 'work' && record.simplify !== undefined ? record.simplify : simplifyOrOn(settingOf(record.env, record.worktree, 'WF_SIMPLIFY'))
+  if (!on) return []
   return [
     `Before every complete report, run the skill simplify on the diff of the branch against ${record.base}: pass it the target git diff ${record.base}...HEAD.`,
     'Apply what it finds, verify the fixes with the single test or linter of the files they touch, and commit them as refactor commits of their own.',

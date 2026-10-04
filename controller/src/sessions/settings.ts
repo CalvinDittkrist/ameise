@@ -79,12 +79,13 @@ export function planSettings(record: PlanRecord): Settings {
 }
 
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
-// has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
+// has none of, the base and the knob overrides of the claim with the WF_SIMPLIFY it pinned, the mark that the controller runs the session, which a worker skill that
 // needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
 export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {
       ...record.env,
+      ...(record.kind === 'work' && record.simplify !== undefined ? { WF_SIMPLIFY: record.simplify ? 'on' : 'off' } : {}),
       WF_MODE: record.mode,
       ...(record.kind === 'work' ? { WF_ISSUE: String(record.issue) } : {}),
       WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
