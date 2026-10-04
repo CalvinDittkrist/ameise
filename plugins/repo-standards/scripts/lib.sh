@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Helpers shared by the repo-standards scripts. Sourced, never run. The controller restates what it needs in its
-# own code (controller/src/standard); plugins and the controller share no code.
+# own code (controller/src/stages/standard); plugins and the controller share no code.
 
 # has <dir> <name>: a file or directory of exactly this name is in dir. macOS file systems ignore case,
 # so [ -e ] would accept claude.md for CLAUDE.md.
