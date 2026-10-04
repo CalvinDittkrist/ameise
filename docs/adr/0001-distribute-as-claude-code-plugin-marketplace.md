@@ -13,7 +13,7 @@ This repository is a Claude Code marketplace (`.claude-plugin/marketplace.json`)
 
 ## Consequences
 - Repositories declare the marketplace and enabled plugins in `.claude/settings.json`; users install with `claude plugin install <name>@ameise`.
-- The marketplace was first named `workflows` and is now `ameise` ([ADR 0066](0066-the-product-is-named-ameise-and-its-parts-keep-their-names.md)).
+- The marketplace was first named `workflows` and is now `ameise`.
 - `npx skills add` and `sbx skills add` consume the skills without a Claude Code install.
 - No installer to maintain: Claude Code handles caching, versions, updates and scope.
 - Releases are git tags per plugin (`claude plugin tag`).

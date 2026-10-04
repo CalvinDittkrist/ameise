@@ -16,7 +16,7 @@ Status: accepted; superseded by [0058](0058-the-controller-drives-the-local-stag
 - `/worker:work` keeps no copy of the checkpoint, so it cannot drift from the stages.
 - The hook records `injected_session:`, and the first entry of that session into the note's stage skips once, marked `skip_used:`.
 - The skip is denied only to a provably different session, and an unwritable mark is a warning.
-- `WF_HANDOFF_TOKENS` defaults to 100 000, so one review round fits under the compact trigger ([ADR 0031](0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md)).
+- `WF_HANDOFF_TOKENS` defaults to 100 000, so one review round fits under the compact trigger.
 - The number is kept in the README, [the token budget](../token-budget.md) and here; ADR 0029's `Status:` names this, as [ADR 0011](0011-github-workspace-configured-by-an-idempotent-script.md) names [ADR 0013](0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md).
 - A checkpoint after every review round, with its open findings, is #74; the repair record of the CI stage is #75.
 - Rejected: a threshold per stage, a second number to explain.

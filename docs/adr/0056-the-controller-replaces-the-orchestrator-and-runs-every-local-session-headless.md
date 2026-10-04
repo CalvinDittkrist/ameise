@@ -2,7 +2,7 @@
 
 Date: 2026-09-27
 Status: accepted
-Supersedes: [0003](0003-herdr-worktree-per-issue.md), [0017](0017-worker-subagents-run-in-the-foreground.md), [0020](0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md), [0029](0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md); for the local workflow [0031](0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md) and [0034](0034-the-compact-trigger-is-raised-through-the-window.md)
+Supersedes: [0003](0003-herdr-worktree-per-issue.md), [0020](0020-the-pane-measures-the-context-and-the-worktree-carries-the-value.md), [0029](0029-a-worker-resets-its-context-by-a-handoff-not-by-compaction.md)
 
 ## Context
 - An orchestrator agent in a Herdr pane steers the local workflow through shell scripts, Herdr and hooks. State lives in git directories, a status line and Herdr. Spec #253.

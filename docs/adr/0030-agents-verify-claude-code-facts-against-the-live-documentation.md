@@ -19,4 +19,4 @@ Status: accepted
 - The worker's `Agent` tool allows only the plugin's own subagents; a test finds drift against `plugins/worker/agents/`.
 - `Bash` can still call `curl`: containment is the permission layer and `allowedDomains` ([security.md](../security.md)).
 - Rejected: `WebFetch` in the worker, an open fetch tool in the context that reads others' text.
-- Rejected: `claude-code-guide`, absent from headless sessions, which the factory starts ([ADR 0022](0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md)).
+- Rejected: `claude-code-guide`, absent from headless sessions, which the factory starts.

@@ -5,7 +5,7 @@ Status: accepted
 Extends: [0056](0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md) (the dashboard is the control surface)
 
 ## Context
-- Spec #253 makes the dashboard a unit beside the controller, which serves it as the factory serves its own ([ADR 0033](0033-the-dashboard-is-built-into-the-factory-binary.md)).
+- Spec #253 makes the dashboard a unit beside the controller, which serves it as the factory serves its own.
 - The approved look is a shadcn/ui prototype on Tailwind. The controller is Node, so nothing is embedded.
 
 ## Decision
