@@ -138,6 +138,19 @@ test('a yolo session runs with the mode yolo', async () => {
   expect((JSON.parse(args[args.indexOf('--settings') + 1] ?? '{}') as { env: { [k: string]: string } }).env.WF_MODE).toBe('yolo')
 })
 
+test('every session of a work process is started with the skill allowlist of a work session and no other skill', async () => {
+  play(m, 'commit board.txt\ncomplete Implemented the board')
+  const r = await claim()
+  await ended(r.id)
+  // The implement session, the reviewer and the author of the pull request each send it in their
+  // initialize request.
+  const lists = started()
+    .read.filter((l) => l.includes('"subtype":"initialize"'))
+    .map((l) => (JSON.parse(l) as { request: { skills?: string[] } }).request.skills)
+  expect(lists.length).toBeGreaterThanOrEqual(3)
+  for (const list of lists) expect(list).toEqual(['simplify', 'worker:docs', 'repo-standards:adr', 'repo-standards:docs-check'])
+})
+
 test('the brief names the issue, the branch, the base and the read of the issue, and carries no text of it', async () => {
   play(m, 'complete done')
   const r = await claim()

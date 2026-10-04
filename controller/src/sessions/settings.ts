@@ -1,5 +1,5 @@
-// The settings of a session: the plan and work settings over the repository's, the environment its
-// runtime runs in, the compact pin with the context size the process page measures against, the knobs
+// The settings of a session: the plan and work settings over the repository's, its skill allowlist,
+// the environment its runtime runs in, the compact pin with the context size the process page measures against, the knobs
 // of a process as its claim and the repository's settings set them, the rules an allowance of the
 // maintainer grants, and the hook that keeps a session with the controller's GitHub tools from writing
 // GitHub past them. It imports neither the session module nor a stage module.
@@ -31,6 +31,18 @@ export type Settings = {
 
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
+
+// The skill allowlist of a session (ADR 0072): the exact set of skills the Agent SDK lets the session see
+// and invoke, by its process kind. The model sees no other skill, so the runtime's bundled skills and
+// the maintainer's personal ones cost no context, and the Skill tool rejects them. A skill a brief
+// dispatches by its slash command, as the hunt brief does, runs whether or not it is listed.
+const workSkills = ['simplify', 'worker:docs', 'repo-standards:adr', 'repo-standards:docs-check']
+const planSkills = ['accept', 'finish', 'grill', 'plan', 'prototype', 'research', 'spec', 'tickets', 'triage'].map((s) => `planner:${s}`)
+
+// skills is the skill allowlist of a session of the record's process kind: a plan session the planner's
+// skills, a hunt session the work list and the hunt skill, every other session the work list.
+export const skills = (record: SessionRecord): string[] =>
+  record.kind === 'plan' ? planSkills : record.kind === 'hunt' ? [...workSkills, 'worker:hunt-tests'] : workSkills
 
 // planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
 // WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.

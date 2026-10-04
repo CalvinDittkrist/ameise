@@ -35,7 +35,7 @@
 // This module holds begin, talk, the implement node, say, hold and answer, the session loop with its
 // permission callback, the report schemas of its own session, the one runner of the agent runs, and the
 // plugins and agent of a session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
-// settings of a session, its runtime environment, the knobs, the rules an allowance grants and the hook
+// settings of a session, its skill allowlist, its runtime environment, the knobs, the rules an allowance grants and the hook
 // against a direct GitHub write are settings.ts.
 //
 // The imports run one way: this module imports no graph, no node, no agent run and no stage module but
@@ -54,7 +54,7 @@ import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from '../project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from '../records/records.js'
 import { busy, firstStage, Input, type Request, type Running, runningOf } from './running.js'
-import { allowance, guard, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
+import { allowance, guard, knob, runtimeEnv, sessionScoped, settings, skills } from './settings.js'
 import { attempt, event, readRecord, update } from '../records/store.js'
 
 export interface Runtime {
@@ -89,8 +89,8 @@ export const sessionAgent = (record: SessionRecord): 'planner' | 'worker' | unde
   record.kind !== 'plan' && record.stage !== firstStage(record) ? undefined : agentOf(record)
 
 // sessionPlugins are the directories of the bundled plugins a session of the record's kind loads: the
-// plugin of its agent first, then repo-standards, whose skills every session may call. The marketplace
-// copies are switched off (see workSettings), so these are the only copies it loads.
+// plugin of its agent first, then repo-standards, whose adr and docs-check skills a work session may
+// call. The marketplace copies are switched off (see workSettings), so these are the only copies it loads.
 export const sessionPlugins = (dir: string, record: SessionRecord): string[] => [join(dir, agentOf(record)), join(dir, 'repo-standards')]
 
 // The result a session of a work process reports through, as a JSON schema.
@@ -609,6 +609,7 @@ async function session(
       plugins: plugins.map((path) => ({ type: 'local' as const, path })),
       settingSources: ['user', 'project', 'local'],
       settings: settings(record),
+      skills: skills(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
       ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard(rt.stateDir, id)] }] } } : {}),
