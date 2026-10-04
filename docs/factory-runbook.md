@@ -591,7 +591,8 @@ A run starts with the version of Claude Code it is made with, written on the run
 
 The session runs as the factory's own agent (`--agents`, `--agent worker`), whose prompt is compiled into the binary:
 
-- the tools `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob` and `Agent(Explore)`, which can start the built-in Explore and no other subagent
+- the tools `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Skill` and `Agent(Explore)`, which can start the built-in Explore and no other subagent
+- `Skill` reaches `/simplify` alone, through the skill allowlist of the session's settings
 - `StructuredOutput`, through which the session hands over its result
 - the model `opus` unless `worker_args` names another, and the auto permission mode
 - no MCP server and none of the workflow plugins; the worktree's own settings apply
