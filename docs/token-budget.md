@@ -62,15 +62,22 @@ Tools, plugins and instructions:
 - The worker's context gets the answer and the page URLs, under 300 words ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
 
 ## Measuring it
-`ameise context-report` prints one line per finished worker session:
+`ameise context-report` prints one line per finished planning or worker session, with its kind, `plan` or `work`:
 
-- Claude Code version and turns
+- Claude Code version and turns, one per model message
+- the maintainer's answers: the user messages that are text and not tool results
 - the peak context; the stages after implement run as sessions of their own, so a worker session holds none of them
+- the input tokens read from cache, the input tokens not read from cache and the output tokens, each summed over the turns
+- the resume share: the median share of the context re-cached at the first model turn after a maintainer message
 - the share of tool output that came from reading files through the shell
 - the number of read, edit, write and shell calls, and the number of sleep calls
 
 With no argument it reads the worktree sessions under `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR`). A path argument reads one transcript or one directory.
 
 It reads Claude Code's session transcripts, a format that is internal and changes without notice. So it fails with an `error:` line naming the version when it meets a format it does not understand.
+
+A planning session's cost is cached input, uncached input and output in about equal thirds.
+
+A parked session's process exits, and the next message resumes the session by its id ([ADR 0071](adr/0071-a-parked-session-ends-its-process-and-resumes-by-id.md)). The resume keeps the prompt cache: a median of 0.9 percent of the context was re-cached at 679 measured resumes.
 
 It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.

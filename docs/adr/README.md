@@ -74,3 +74,4 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0068](0068-the-host-crosses-the-rename-through-a-bridge-release.md) | The host crosses the rename through a bridge release | accepted |
 | [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) | The controller reads Claude and Codex and warns a claim of Claude | accepted |
 | [0070](0070-processes-run-on-process-graphs.md) | Processes run on process graphs | accepted |
+| [0071](0071-a-parked-session-ends-its-process-and-resumes-by-id.md) | A parked session ends its process and resumes by id | accepted |
