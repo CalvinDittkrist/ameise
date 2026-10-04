@@ -18,5 +18,5 @@ A remote claim is the creation of the issue's branch `<type>/<issue>-<slug>` thr
 - The factory takes such a branch up ([ADR 0026](0026-the-factory-never-deletes-work-on-its-own.md)).
 - Each host needs its own login ([ADR 0027](0027-the-factorys-isolation-boundary-is-the-host.md)).
 - An empty branch blocks until someone deletes it; the release signal handles a dead claimer.
-- The local claim refuses a routed issue or an existing remote branch; `--force` adopts the branch ([ADR 0014](0014-claims-require-ready-for-agent.md)).
+- The local claim refuses a routed issue or an existing remote branch; `--force` adopts the branch ([the local workflow](../local-workflow.md)).
 - Rejected: assignment and push as the claim; neither has one winner.

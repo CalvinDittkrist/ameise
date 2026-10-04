@@ -18,5 +18,5 @@ Read-only auditors judge the repository, the maintainer approves per category, a
 - The pull request comes from `chore/standardize`; code findings become issues.
 - Nothing is lost, and every removal is reviewed.
 - A run is repeatable and doubles as a drift check. It costs one pull request and issue per repository.
-- Repositories no longer override plugin agents or skills, which amends ADR 0004; changes go into the plugin or `WF_*` settings.
+- Repositories no longer override plugin agents or skills; changes go into the plugin or `WF_*` settings.
 - Rejected: deleting on the default branch, and an allowlist of local skills per repository.
