@@ -3,9 +3,9 @@
 // previous release to its node.
 import { expect, test } from 'vitest'
 import { transition } from 'xstate'
-import { graphOf } from '../src/graphs.js'
-import { planAt, planEntry, planGraph, planResume } from '../src/planning.js'
-import type { PlanRecord, StageRecord } from '../src/records.js'
+import { graphOf } from '../src/engine/graphs.js'
+import { planAt, planEntry, planGraph, planResume } from '../src/graphs/planning.js'
+import type { PlanRecord, StageRecord } from '../src/records/records.js'
 
 // The outcomes and events of each node.
 const table: Record<string, string[]> = {

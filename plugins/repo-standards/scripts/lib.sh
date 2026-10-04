@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Helpers shared by the repo-standards scripts. Sourced, never run. The controller restates what it needs in its
-# own code (controller/src/standard); plugins and the controller share no code.
+# own code (controller/src/stages/standard); plugins and the controller share no code.
 
 # has <dir> <name>: a file or directory of exactly this name is in dir. macOS file systems ignore case,
 # so [ -e ] would accept claude.md for CLAUDE.md.
@@ -53,7 +53,7 @@ tag_ruleset() {
     conditions: {ref_name: {include: ["refs/tags/" + $t], exclude: []}}, rules: [{type: "deletion"}, {type: "update"}]}'
 }
 # shellcheck disable=SC2034 # used by workspace.sh
-# The workflow's label vocabulary (the controller's github tools in controller/src/github.ts) plus skill-candidate: name|color|description.
+# The workflow's label vocabulary (the controller's github tools in controller/src/github/github.ts) plus skill-candidate: name|color|description.
 WF_LABELS='ready-for-agent|0E8A16|Fully specified; an agent can take it
 needs-triage|FBCA04|A maintainer has to evaluate this
 needs-info|D876E3|Waiting on the reporter

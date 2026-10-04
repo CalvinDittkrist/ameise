@@ -4,8 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
-import { issueFromBranch } from '../src/board.js'
-import { slug } from '../src/claim.js'
+import { issueFromBranch } from '../src/github/board.js'
+import { slug } from '../src/github/claim.js'
 
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL('../../contract/fixture.json', import.meta.url)), 'utf8')) as {
   spec_branch: { cases: { case: string; number: number; title: string; branch: string }[] }

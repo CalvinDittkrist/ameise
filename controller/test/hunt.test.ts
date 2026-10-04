@@ -2,7 +2,7 @@ import { type ChildProcess, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { testPaths } from '../src/hunt.js'
+import { testPaths } from '../src/stages/hunt.js'
 import { api, canApi, canPages, canPull, canPulls, checkout, cleanup, cli, gated, type Machine, machine, read, reading, record, start, tools, worktree } from './controller.js'
 
 afterEach(cleanup)

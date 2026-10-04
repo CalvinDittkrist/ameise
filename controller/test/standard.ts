@@ -8,12 +8,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect } from 'vitest'
-import { backup } from '../src/standard/backup.js'
-import { cleanupOpen, cleanupPrepare } from '../src/standard/cleanup.js'
-import { finalize } from '../src/standard/finalize.js'
-import { issues } from '../src/standard/issues.js'
-import { type Ctx, step } from '../src/standard/lib.js'
-import { approve, report } from '../src/standard/report.js'
+import { backup } from '../src/stages/standard/backup.js'
+import { cleanupOpen, cleanupPrepare } from '../src/stages/standard/cleanup.js'
+import { finalize } from '../src/stages/standard/finalize.js'
+import { issues } from '../src/stages/standard/issues.js'
+import { type Ctx, step } from '../src/stages/standard/lib.js'
+import { approve, report } from '../src/stages/standard/report.js'
 
 export const root = fileURLToPath(new URL('../..', import.meta.url))
 export const shims = fileURLToPath(new URL('./shims', import.meta.url))

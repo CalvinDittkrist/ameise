@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { setup } from 'xstate'
-import { enter, type NodeContext, type Outcome, type Registration } from '../src/engine.js'
-import type { StageRecord } from '../src/records.js'
-import { runningOf, stop } from '../src/running.js'
-import type { Runtime } from '../src/session.js'
+import { enter, type NodeContext, type Outcome, type Registration } from '../src/engine/engine.js'
+import type { StageRecord } from '../src/records/records.js'
+import { runningOf, stop } from '../src/sessions/running.js'
+import type { Runtime } from '../src/sessions/session.js'
 
 let dir: string
 let rt: Runtime

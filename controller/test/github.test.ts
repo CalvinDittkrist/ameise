@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { skillCandidate, vocabulary } from '../src/github.js'
+import { skillCandidate, vocabulary } from '../src/github/github.js'
 import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)

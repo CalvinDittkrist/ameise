@@ -11,7 +11,7 @@ import ts from 'typescript'
 import { expect, test } from 'vitest'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const through = ['engine.ts', 'session.ts']
+const through = ['engine/engine.ts', 'sessions/session.ts', 'records/store.ts', 'sessions/running.ts', 'sessions/settings.ts', 'sessions/briefs.ts']
 
 // lint lints the code as if it were the named source of the controller and answers the rules it broke.
 async function lint(code: string, file: string): Promise<string[]> {
@@ -22,13 +22,14 @@ async function lint(code: string, file: string): Promise<string[]> {
 
 test('the engine and the session runtime may not import a node for its value', async () => {
   for (const file of through) {
-    expect(await lint("import { gateNode } from './gate.js'\nexport const n = gateNode\n", file)).toContain('@typescript-eslint/no-restricted-imports')
+    expect(await lint("import { gateNode } from '../stages/gate.js'\nexport const n = gateNode\n", file)).toContain('@typescript-eslint/no-restricted-imports')
+    expect(await lint("import * as lib from '../stages/standard/lib.js'\nexport const l = lib\n", file)).toContain('@typescript-eslint/no-restricted-imports')
   }
 })
 
 test('the engine and the session runtime may import a node for its type', async () => {
   for (const file of through) {
-    expect(await lint("import type { gateNode } from './gate.js'\nexport type N = typeof gateNode\n", file)).toEqual([])
+    expect(await lint("import type { gateNode } from '../stages/gate.js'\nexport type N = typeof gateNode\n", file)).toEqual([])
   }
 })
 
@@ -92,7 +93,7 @@ test('the cycle search finds a cycle through the session runtime in its fixture'
     writeFileSync(join(dir, 'actions.ts'), "import { held } from './claim.js'\nexport const version = held\n")
     writeFileSync(join(dir, 'claim.ts'), "import { type Runtime, s } from './session.js'\nexport const held = s\nexport type R = Runtime\n")
     writeFileSync(join(dir, 'gate.ts'), "import { advance } from './engine.js'\nexport type Node = typeof advance\n")
-    expect(cycles(dir, through)).toEqual([['session.ts', 'github.ts', 'actions.ts', 'claim.ts', 'session.ts']])
+    expect(cycles(dir, ['engine.ts', 'session.ts'])).toEqual([['session.ts', 'github.ts', 'actions.ts', 'claim.ts', 'session.ts']])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -3,7 +3,7 @@
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { report } from '../src/standard/report.js'
+import { report } from '../src/stages/standard/report.js'
 import { ANSWERS, BACKUP, FILES, FINALIZE, ISSUES, OPEN, PREPARE, REPLIES, messy } from './standard.js'
 
 const repo = messy()

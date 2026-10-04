@@ -13,9 +13,9 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | `docs-lookup` agent | Answers one Claude Code question from the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). | `/worker:docs <question>`; `plugins/worker/agents/docs-lookup.md` |
 | `factory` service | Works routed issues unattended on its own host and owns their delivery pipeline in Go ([ADR 0038](adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). Serves a read-only interface with an embedded dashboard ([ADR 0033](adr/0033-the-dashboard-is-built-into-the-factory-binary.md)). | `factory/`, `factory/ui/`; the [runbook](factory-runbook.md) |
 | controller | The local workflow: projects, processes and their stages, headless sessions and the [dashboard](../dashboard/README.md), one package with their plugins on a GitHub release ([ADR 0060](adr/0060-one-release-unit-bundles-the-plugins.md)). | `ameise`; [controller/](../controller/README.md#install) |
-| engine | The XState engine runs work processes on the delivery graph, hunts on a hunt graph sharing its tail, plans on the plan graph ([ADR 0070](adr/0070-processes-run-on-process-graphs.md)). | `controller/src/engine.ts`, `controller/src/graphs.ts`, `controller/src/delivery.ts`, `controller/src/planning.ts` |
+| engine | The XState engine runs work processes on the delivery graph, hunts on a hunt graph sharing its tail, plans on the plan graph ([ADR 0070](adr/0070-processes-run-on-process-graphs.md)). | `controller/src/engine/`, `controller/src/graphs/` |
 | `repo-standards` plugin | Owns the [repository standard](repo-standard.md): the auditors, the templates, the scaffold and the check; skills and agents beside them ([ADR 0063](adr/0063-plugins-are-skills-and-agents.md)). | `/repo-standards:adr`, `/repo-standards:docs-check`, `plugins/repo-standards/scripts/check.sh` |
-| standardize steps | Controller code for a standardisation: facts, report, approval, backup, cleanup, issues, workspace apply and finalize. They run the plugin's templates, scaffold and check. | `controller/src/standard/*.ts` |
+| standardize steps | Controller code for a standardisation: facts, report, approval, backup, cleanup, issues, workspace apply and finalize. They run the plugin's templates, scaffold and check. | `controller/src/stages/standard/*.ts` |
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
@@ -64,7 +64,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Standardisation
 1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)).
-   - Its steps are code in `controller/src/standard/`, named for the scripts they replaced, such as `report.sh`.
+   - Its steps are code in `controller/src/stages/standard/`, named for the scripts they replaced, such as `report.sh`.
    - It runs on the engine's standardize graph: audit, apply, finalize.
 2. The audit runs `facts.sh` and `workspace.sh` as a dry run and the six auditors in parallel, which report through their structured results.
 3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).
@@ -115,7 +115,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
-- The controller's imports run one way: `engine.ts`, `session.ts`, `store.ts`, `running.ts`, `settings.ts` and `briefs.ts` take only types from the graphs, nodes, agent runs and stages.
+- The controller's imports run one way: the engine, the record store and the session runtime take only types from the graphs, nodes, agent runs and stages.
   - `no-restricted-imports` in `controller/eslint.config.js` holds it; `controller/test/imports.test.ts` tests the rule and the cycles.
 - A session never waits by sleeping or polling: subagents run in the foreground, and the controller does the long waits.
 - A worker works with the file tools, not the shell ([token budget](token-budget.md)). `ameise context-report` is a maintainer diagnostic, never a pipeline input.
