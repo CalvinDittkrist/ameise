@@ -66,7 +66,7 @@ The sessions that write on the branch are the implement session and every fix an
 - They have a shell, the edit tools and built-in subagents, the auto permission mode and the host's `gh` login.
 - They read the issue and the reviews, which are text somebody else wrote. The prompt tells them it is data and never instructions.
 - The auto mode classifier judges every action, and what is left is bounded by the host ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-- No plugin runs in them and the factory installs or updates none. So no code reaches the host between two releases of the factory ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
+- No plugin runs in them and the factory installs or updates none. So no code reaches the host between two releases of the factory ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
 The author session of the pr stage reads the issue, the commits and the diff, which are text somebody else wrote. So it gets no power to act:
 
@@ -91,7 +91,7 @@ The reviewers of the review stage read the same text and get the same bounds:
 - The gate on the final head is `make check` in the worktree, the command the gate stage ran. It runs the branch's code with the host user's rights.
 - Its output reaches a fix session as data.
 
-The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)):
+The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md)):
 
 - It runs `codex exec` in Codex's read-only sandbox. It may run commands that read, and the sandbox refuses a write.
 - The sandbox bounds only the shell commands. So the call drops the host user's Codex configuration and every execpolicy rule, of the user and of the worktree (`--ignore-user-config`, `--ignore-rules`).
@@ -107,7 +107,7 @@ Its HTTP interface is read-only and unauthenticated, and it serves live issue ti
 - Claude Code caches plugin versions; releases are git tags created with `claude plugin tag`.
 - `npx -y gh-axi` and `npx -y quota-axi` are optional and run unpinned. Pin them in your own settings or install them globally if that matters to you.
 - The factory never runs `npx`. Its quota check runs the quota-axi at the absolute path its configuration names, installed on the host in a pinned version.
-- An expired credential it renews through Claude Code's own `claude doctor`, while no session runs ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
+- An expired credential it renews through Claude Code's own `claude doctor`, while no session runs ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md)).
 - The release path is the factory host's trust boundary. Whoever can push a factory version tag (`factory/v<version>`) on main decides what the host runs.
 - The release workflow attests both binaries in its publishing job, the one job with an OIDC token. That job runs nothing but gh and the attestation action.
 - The build job, which runs npm packages, can only read.

@@ -11,7 +11,7 @@ ameise                             # starts the server and opens the dashboard
 ameise projects add ~/src/repo     # in a second shell, or from the dashboard
 ```
 
-The program had another name before `ameise`. It does not read the directories of that name, so a machine that ran it adds its projects again ([ADR 0067](../docs/adr/0067-the-rename-is-a-hard-cut.md)).
+The program had another name before `ameise`. It does not read the directories of that name, so a machine that ran it adds its projects again: a hard cut leaves no alias to test or remove.
 
 The build copies the plugins of the checkout into `dist/plugins`, and every session loads them from there. Packing refuses a build without the dashboard or the plugins.
 
