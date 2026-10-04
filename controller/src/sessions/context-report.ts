@@ -1,8 +1,9 @@
-// Context report: a maintainer diagnostic over finished worker sessions.
+// Context report: a maintainer diagnostic over finished planning and worker sessions.
 //
-// It reads Claude Code's session transcripts (JSONL) and prints one line per worker session: the Claude
-// Code version, the turns, the peak context, the share of tool output read from files through the shell,
-// the read, edit, write and shell calls, and the sleep calls.
+// It reads Claude Code's session transcripts (JSONL) and prints one line per planning or worker session:
+// its kind, the Claude Code version, the turns, the maintainer's answers, the peak context, the input
+// tokens read from cache and not, the output tokens, the resume share, the share of tool output read from
+// files through the shell, the read, edit, write and shell calls, and the sleep calls.
 //
 // The transcript format is internal to Claude Code and undocumented. This report is written against the
 // version in knownVersion and fails with an `error:` line when it meets a format it does not understand.
@@ -36,7 +37,7 @@ const segmentPrefix = new RegExp(
   `^(do|then|else|elif|if|while|until|!|time|nohup|command|exec|eval|timeout${space}+[\\p{Nd}.]+[smhd]?)${space}+`,
   'u',
 )
-const workerSkill = new RegExp(`(?<!${word})worker:[a-z]`, 'u')
+const skills = { work: new RegExp(`(?<!${word})worker:[a-z]`, 'u'), plan: new RegExp(`(?<!${word})planner:[a-z]`, 'u') }
 const commandName = /<command-name>([^\n]*?)<\/command-name>/g
 const edges = new RegExp(`^${space}+|${space}+$`, 'gu')
 
@@ -245,15 +246,15 @@ function promptText(record: Obj): string {
     .join(' ')
 }
 
-// invokesWorkerSkill says whether this record invokes a `worker:` skill. A skill is invoked by the agent
+// invokesSkill says whether this record invokes a skill the pattern names, `worker:` or `planner:`. A skill is invoked by the agent
 // through the Skill tool, or by the maintainer as a slash command, which the transcript marks with
 // `<command-name>`. Prose that merely names the skill does not invoke it.
-function invokesWorkerSkill(record: Obj): boolean {
+function invokesSkill(record: Obj, skill: RegExp): boolean {
   const texts = blocks(message(record))
     .filter((b) => b.type === 'tool_use' && (b.name === 'Skill' || b.name === 'SlashCommand'))
     .map((b) => JSON.stringify(truthy(b.input) ? b.input : {}))
   if (record.type === 'user') for (const m of promptText(record).matchAll(commandName)) texts.push(m[1] as string)
-  return texts.some((t) => workerSkill.test(t))
+  return texts.some((t) => skill.test(t))
 }
 
 // readRecords is every JSON record of a transcript, in order. It splits on \n alone: a record may carry
@@ -297,8 +298,11 @@ function checkToolCalls(records: Obj[], calls: number, answered: number, version
   if (!answered) throw new FormatError('records carry `toolUseResult` but no `tool_result` block matches a `tool_use` id', version)
 }
 
+type Kind = 'plan' | 'work'
+
 interface Row {
   session: string
+  kind: Kind
   start: string
   label: string
   version: string
@@ -310,6 +314,11 @@ interface Row {
   turns: number
   peak: number
   shellread: number
+  answers: number
+  cached: number
+  uncached: number
+  output: number
+  resume: number | undefined
 }
 
 // stem is the file name without its last suffix.
@@ -319,7 +328,7 @@ function stem(path: string): string {
   return dot > 0 && dot < name.length - 1 ? name.slice(0, dot) : name
 }
 
-// load parses one transcript into a row, or undefined when it is not a worker session.
+// load parses one transcript into a row, or undefined when it is neither a planning nor a worker session.
 function load(path: string): Row | undefined {
   const records = readRecords(path)
   if (records.length === 0) return undefined // an empty file: a session that wrote nothing
@@ -339,17 +348,50 @@ function first(records: Obj[], field: string, when: (r: Obj) => boolean = () => 
   return r === undefined ? undefined : text(r[field])
 }
 
-// measure is the row for a worker session, or undefined when the session ran no worker stage.
+// isAnswer says whether a user record is a message of the maintainer: text, not a tool result, and not a
+// record Claude Code writes itself.
+function isAnswer(record: Obj): boolean {
+  if (record.type !== 'user' || truthy(record.isMeta) || truthy(record.isCompactSummary) || truthy(record.toolUseResult)) return false
+  const content = message(record).content
+  if (typeof content === 'string') return strip(content) !== ''
+  const bs = blocks(message(record))
+  return bs.some((b) => b.type === 'text') && !bs.some((b) => b.type === 'tool_result')
+}
+
+// median is the middle of the values, the mean of the two middles for an even count.
+function median(values: number[]): number | undefined {
+  if (values.length === 0) return undefined
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2
+}
+
+// kindOf is the kind of the session: the plugin its transcript is attributed to, else the plugin whose
+// skills it invokes.
+function kindOf(records: Obj[]): Kind | undefined {
+  if (records.some((r) => r.attributionPlugin === 'worker')) return 'work'
+  if (records.some((r) => r.attributionPlugin === 'planner')) return 'plan'
+  const main = records.filter((r) => !truthy(r.isSidechain))
+  if (main.some((r) => invokesSkill(r, skills.work))) return 'work'
+  if (main.some((r) => invokesSkill(r, skills.plan))) return 'plan'
+  return undefined
+}
+
+// measure is the row for a planning or worker session, or undefined when the session is neither.
 function measure(records: Obj[], path: string, version: string): Row | undefined {
   const tools = { read: 0, edit: 0, write: 0, shell: 0, sleep: 0 }
   const pending = new Map<string, [unknown, unknown]>()
-  const turns = new Set<string>()
+  // The usage of each turn by its id: the transcript repeats one model message on each of its content
+  // blocks, so a turn is a message and its last record carries its usage.
+  const turns = new Map<string, Obj>()
+  const resumes: number[] = []
   let peak = 0
   let outputChars = 0
   let shellReadChars = 0
   let calls = 0
   let answered = 0
-  let isWorker = records.some((r) => r.attributionPlugin === 'worker')
+  let answers = 0
+  let afterAnswer = false
 
   for (const record of records) {
     if (truthy(record.isSidechain)) continue
@@ -358,8 +400,18 @@ function measure(records: Obj[], path: string, version: string): Row | undefined
       const usage = truthy(m.usage) ? m.usage : {}
       const carries = typeof usage === 'string' || Array.isArray(usage) ? usage.includes('input_tokens') : 'input_tokens' in obj(usage, 'a usage')
       if (carries) {
-        peak = Math.max(peak, contextTokens(obj(usage, 'a usage')))
-        turns.add(key(truthy(record.requestId) ? record.requestId : record.uuid, 'a turn id'))
+        const u = obj(usage, 'a usage')
+        const context = contextTokens(u)
+        peak = Math.max(peak, context)
+        const id = key(truthy(record.requestId) ? record.requestId : truthy(m.id) ? m.id : record.uuid, 'a turn id')
+        if (afterAnswer && !turns.has(id)) {
+          // The first model turn after a maintainer message: the share of its context written to the
+          // cache anew, near zero when the cache survived the resume.
+          const created = 'cache_creation_input_tokens' in u ? num(u.cache_creation_input_tokens, 'usage.cache_creation_input_tokens') : 0
+          if (context > 0) resumes.push(created / context)
+          afterAnswer = false
+        }
+        turns.set(id, u)
       }
       for (const block of blocks(m)) {
         if (block.type !== 'tool_use') continue
@@ -378,6 +430,9 @@ function measure(records: Obj[], path: string, version: string): Row | undefined
           if (sleeps(command)) tools.sleep++
         }
       }
+    } else if (turns.size > 0 && isAnswer(record)) {
+      answers++
+      afterAnswer = true
     }
     for (const block of blocks(m)) {
       if (block.type !== 'tool_result') continue
@@ -389,13 +444,15 @@ function measure(records: Obj[], path: string, version: string): Row | undefined
       outputChars += size
       if (typeof name === 'string' && shellTools.has(name) && readsFiles(command)) shellReadChars += size
     }
-    if (invokesWorkerSkill(record)) isWorker = true
   }
 
-  if (!isWorker) return undefined
+  const kind = kindOf(records)
+  if (kind === undefined) return undefined
   checkToolCalls(records, calls, answered, version)
+  const sum = (field: string) => [...turns.values()].reduce((n, u) => n + (field in u ? num(u[field], `usage.${field}`) : 0), 0)
   return {
     session: Array.from(stem(path)).slice(0, 8).join(''),
+    kind,
     start: first(records, 'timestamp') ?? '',
     label: first(records, 'agentName', (r) => r.type === 'agent-name') ?? first(records, 'gitBranch') ?? '-',
     version,
@@ -403,6 +460,11 @@ function measure(records: Obj[], path: string, version: string): Row | undefined
     turns: turns.size,
     peak,
     shellread: outputChars ? shellReadChars / outputChars : 0,
+    answers,
+    cached: sum('cache_read_input_tokens'),
+    uncached: sum('input_tokens') + sum('cache_creation_input_tokens'),
+    output: sum('output_tokens'),
+    resume: median(resumes),
   }
 }
 
@@ -459,9 +521,15 @@ function thousands(value: number): string {
 
 const columns: [string, (r: Row) => string][] = [
   ['session', (r) => r.session],
+  ['kind', (r) => r.kind],
   ['version', (r) => r.version],
   ['turns', (r) => String(r.turns)],
+  ['answers', (r) => String(r.answers)],
   ['peak', (r) => thousands(r.peak)],
+  ['cached', (r) => thousands(r.cached)],
+  ['uncached', (r) => thousands(r.uncached)],
+  ['output', (r) => thousands(r.output)],
+  ['resume', (r) => (r.resume === undefined ? '-' : `${fixed(r.resume * 100, 1)}%`)],
   ['shellread', (r) => `${fixed(r.shellread * 100, 0)}%`],
   ['read', (r) => String(r.read)],
   ['edit', (r) => String(r.edit)],
@@ -517,9 +585,11 @@ export function contextReport(args: string[], out: (s: string) => void, err: (s:
     if (row) rows.push(row)
   }
   out(`# context report: a diagnostic over Claude Code's internal session transcript format (written against ${knownVersion}), never an input to the pipeline.\n`)
-  out('# peak: the session\'s maximum context tokens. shellread: share of tool output read from files through the shell.\n')
+  out('# kind: plan or work. answers: the maintainer\'s messages. peak: the session\'s maximum context tokens.\n')
+  out('# cached, uncached, output: input tokens read from cache, input tokens not read from cache and output tokens, summed over the turns.\n')
+  out('# resume: median share of the context re-cached at the first turn after an answer. shellread: share of tool output read from files through the shell.\n')
   if (rows.length === 0) {
-    out('# no worker session found\n')
+    out('# no planning or worker session found\n')
     return failed ? 1 : 0
   }
   rows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.session < b.session ? -1 : a.session > b.session ? 1 : 0))
