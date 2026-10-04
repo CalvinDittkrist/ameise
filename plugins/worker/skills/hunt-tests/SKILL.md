@@ -12,7 +12,7 @@ Hunt record:
 
 When the session facts read `controller: absent`, say that line to the user as it stands and stop: a hunt runs as a process of the controller, which runs its gate, review, pull request and CI.
 
-This session is a test hunt: it works no issue, and the hunt record above stands where the issue stands for a ticket (ADR 0045). The record is derived by `hunt.sh`, never restated from memory.
+This session is a test hunt: it works no issue, and the hunt record above stands where the issue stands for a ticket. The record is derived by `hunt.sh`, never restated from memory.
 
 **Hunt.** Run rounds until `hunt.sh` ends the hunt. For each round:
 

@@ -4,7 +4,7 @@
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// The plugins ship with the controller (ADR 0060): its build copies the worker, planner and
+// The plugins ship with the controller, at its version so the pair is the one tested: its build copies the worker, planner and
 // repo-standards plugins of the checkout into dist/plugins, and dist/bundle.js reaches them there, in a
 // checkout and in the installed package alike.
 export const bundledPlugins = fileURLToPath(new URL('./plugins', import.meta.url))

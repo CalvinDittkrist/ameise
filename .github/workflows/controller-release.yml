@@ -1,7 +1,7 @@
 name: controller-release
 # The local workflow installs as one npm package: the controller, the dashboard it serves and the
-# plugins its sessions load, at one version (ADR 0060). A controller version tag, and nothing else,
-# releases it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
+# plugins its sessions load, at one version, so no controller runs beside plugins nobody tested it with.
+# A controller version tag, and nothing else, releases it: `scripts/release.sh controller --push` creates that tag from a green gate. No branch
 # push and no other tag matches this trigger. Plugin and milestone tags carry no slash, and the
 # factory's tags start with factory/. The two checks of the package job mirror factory-release.yml,
 # so a change to one belongs in both.

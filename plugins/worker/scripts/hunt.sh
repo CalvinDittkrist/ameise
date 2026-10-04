@@ -9,8 +9,8 @@
 #        hunt.sh removed   record the removal the last commit made, its block on stdin
 #        hunt.sh print     the hunt block the reviewer and pull request briefs carry instead of an issue
 #        hunt.sh json      the same record as one JSON object, which the controller keeps in the process record
-# The records live in this worktree's git directory (ADR 0018), and the
-# numbers below are fixed, never knobs (ADR 0046).
+# The records live in this worktree's git directory, so two worktrees keep separate records. The numbers
+# below are fixed, never knobs, because the hunt removes tests without asking anyone before its pull request.
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -317,7 +317,7 @@ case "${1:-}" in
       summary="$f_path | $f_test | $f_cat | $f_reason"
       # A high or a medium candidate is new unless it was removed or checked before: a new one is recorded, so
       # no later round proposes it again, and handed to the worker, who removes a high one unless it proves
-      # something and a medium one only when it is sure it proves nothing (ADR 0047).
+      # something and a medium one only when it is sure it proves nothing.
       if [ "$f_conf" = low ]; then dropped=$((dropped + 1)); wf_kv dropped "$summary"
       elif is_removed "$f_path" "$f_test"; then dropped=$((dropped + 1)); wf_kv dropped "$summary (removed already)"
       elif is_kept "$f_path" "$f_test"; then kept=$((kept + 1)); wf_kv kept "$summary (checked already)"

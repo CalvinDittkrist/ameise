@@ -1,5 +1,5 @@
 // The gate stage of a work process, which the controller runs itself once the implement session has
-// reported complete (ADR 0058). It merges the base into the branch and runs the repository's gate
+// reported complete (ADR 0056). It merges the base into the branch and runs the repository's gate
 // command in the worktree. WF_GATE names the form of that command, and the form none runs no gate.
 // The gate on CI pushes the branch and reads the checks of the gate's draft instead (cigate.ts).
 //

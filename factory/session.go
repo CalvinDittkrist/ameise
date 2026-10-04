@@ -224,10 +224,9 @@ func (o overran) Error() string {
 //
 // The mode is manual: the factory never merges what it built. A finished run waits for the maintainer
 // on GitHub, which is the only surface the factory is steered from ([ADR 0023]). Foreground subagents
-// are the same setting a local claim makes ([ADR 0017]), and the auto permission mode is what being
+// are the same setting a local claim makes, so a subagent's report is the tool result, and the auto permission mode is what being
 // unattended costs: no prompt has anybody to ask ([ADR 0027]).
 //
-// [ADR 0017]: ../docs/adr/0017-worker-subagents-run-in-the-foreground.md
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0027]: ../docs/adr/0027-the-factorys-isolation-boundary-is-the-host.md
 func (f *Factory) command(ctx context.Context, s session, entry Entry, claim claimed) (*exec.Cmd, error) {

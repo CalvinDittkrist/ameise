@@ -1557,9 +1557,8 @@ func sessionSettings() (string, error) {
 const marketplace = "ameise"
 
 // sessionVariables is the env block of those settings: subagents in the foreground, as a local claim
-// runs them ([ADR 0017]), and the percentage of the compact pin.
-//
-// [ADR 0017]: ../docs/adr/0017-worker-subagents-run-in-the-foreground.md
+// runs them, so a subagent's report comes back as the tool result rather than through sleep turns, and
+// the percentage of the compact pin.
 var sessionVariables = map[string]string{
 	"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 	"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":      compactPercentage,

@@ -231,7 +231,7 @@ export interface HuntLog {
   stale: number
 }
 
-// A hunt process: a test hunt on a hunt branch, which works no issue (ADR 0045). The hunt record stands
+// A hunt process: a test hunt on a hunt branch, which works no issue, because its removals are known only at its end. The hunt record stands
 // where the issue stands, and after the hunt session it runs the stages of a work process.
 export interface HuntRecord extends Omit<WorkRecord, 'kind' | 'issue'> {
   kind: 'hunt'

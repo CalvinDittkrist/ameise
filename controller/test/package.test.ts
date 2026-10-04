@@ -1,4 +1,4 @@
-// The package the controller is released as (ADR 0060): what npm pack puts into it and what the build
+// The package the controller is released as at one version with its plugins: what npm pack puts into it and what the build
 // bundles into it. The build ran before the tests (pretest), so dist is what a release would pack.
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
