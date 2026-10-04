@@ -281,6 +281,22 @@ test('a claim refuses a WF_GATE that is no gate form, as an override or in the s
   expect(read(m.ghLog)).not.toContain('144')
 })
 
+test('a claim refuses a WF_SIMPLIFY that is neither on nor off, as an override or in the settings, before anything is created', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  for (const value of ['maybe', '', 'ON']) {
+    const r = await claim({ issue: 144, env: [`WF_SIMPLIFY=${value}`] })
+    expect(r.status, value).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(/^WF_SIMPLIFY=.* is neither on nor off; set on, off/)
+  }
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'maybe' } }))
+  const r = await claim({ issue: 144 })
+  expect(r.status).toBe(400)
+  expect((r.body as { error: string }).error).toMatch(/^WF_SIMPLIFY="maybe" is neither on nor off/)
+  nothing()
+  expect(read(m.ghLog)).not.toContain('144')
+})
+
 test('a claim records the mode and the accepted overrides on the process', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
   const r = await claim({ issue: 144, mode: 'yolo', env: ['WF_REVIEWERS=2', 'WF_PR_BOT_REVIEWERS=', 'WF_DOCS_TIMEOUT=a=b'] })

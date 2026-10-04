@@ -13,7 +13,7 @@ import { enter, type Opening } from '../engine/engine.js'
 import { gateForm } from '../stages/gate.js'
 import { graphOf } from '../engine/graphs.js'
 import { claimRuntime } from '../quota.js'
-import { settingOf } from '../sessions/settings.js'
+import { settingOf, simplifyOn } from '../sessions/settings.js'
 import { type Project, Refusal } from '../project.js'
 import { stop } from '../sessions/running.js'
 import type { Announce, Runtime } from '../sessions/session.js'
@@ -34,6 +34,7 @@ export const knobs = [
   'WF_GATE_TIMEOUT',
   'WF_CHECKS_GRACE',
   'WF_STAGE_TIMEOUT',
+  'WF_SIMPLIFY',
 ]
 
 const envShape = 'an override is NAME=VALUE, such as WF_REVIEW_ROUNDS=5; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
@@ -179,9 +180,11 @@ export async function held<T>(project: Project, key: string, f: () => Promise<T>
 // the factory, held in a spec run or claimed on origin; each of those it lifts is a warning.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
 export async function claim(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
-  // A gate form the gate would refuse is refused here, before anything is created.
+  // A gate form the gate would refuse, and a WF_SIMPLIFY that is neither on nor off, are refused here,
+  // before anything is created.
   try {
     gateForm(settingOf(req.env, project.path, 'WF_GATE'))
+    simplifyOn(settingOf(req.env, project.path, 'WF_SIMPLIFY'))
   } catch (err) {
     throw new Refusal((err as Error).message)
   }

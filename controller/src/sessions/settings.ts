@@ -136,6 +136,14 @@ export function knob(record: { env?: Record<string, string>; project: string }, 
   return n
 }
 
+// simplifyOn reads WF_SIMPLIFY, the switch of the simplify step of an implement session: on, the
+// default where it is not set, or off. Any other value is refused with the values it accepts.
+export function simplifyOn(value: unknown): boolean {
+  if (value === undefined || value === 'on') return true
+  if (value === 'off') return false
+  throw new Error(`WF_SIMPLIFY=${JSON.stringify(value)} is neither on nor off; set on, off, or leave it out for on`)
+}
+
 // allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the
 // call, or the call itself when it suggests none.
 export function allowance(tool: string, input: Record<string, unknown>, suggestions: PermissionUpdate[] | undefined): string[] {
