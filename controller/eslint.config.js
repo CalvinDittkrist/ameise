@@ -2,12 +2,11 @@ import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
-// The import direction: the engine, the session runtime, the record store, the registry of running
-// processes, the session settings and the briefs import no graph, no node, no agent run and no stage
-// module, except for their types. The graph registry, the server and the entry point import those and
-// hand the graphs to the engine as data. test/imports.test.ts holds the rule and the absence of a cycle.
-export const restricted = ['src/engine.ts', 'src/session.ts', 'src/store.ts', 'src/running.ts', 'src/settings.ts', 'src/briefs.ts']
-export const forbidden = [
+// The import direction: the restricted modules import no graph, node, agent run or stage module, but
+// their types. The graph registry, the server and the entry point import those. They hand the graphs to
+// the engine as data. test/imports.test.ts tests the rule and the absence of a cycle.
+const restricted = ['src/engine.ts', 'src/session.ts', 'src/store.ts', 'src/running.ts', 'src/settings.ts', 'src/briefs.ts']
+const forbidden = [
   'graphs',
   'delivery',
   'planning',

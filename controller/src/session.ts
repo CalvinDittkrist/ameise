@@ -39,7 +39,7 @@
 // against a direct GitHub write are settings.ts.
 //
 // The imports run one way: this module imports no graph, no node, no agent run and no stage module but
-// their types, and no module it imports reaches one. A message to a parked process takes its graph and
+// their types. No module it imports reaches one. A message to a parked process takes its graph and
 // node from the caller of say (parkedAt in graphs.ts). The report schema of a work session is held here,
 // and the agent runs (agents.ts) read it from here. The lint and test/imports.test.ts hold this.
 import { spawn } from 'node:child_process'

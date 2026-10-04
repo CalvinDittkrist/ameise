@@ -1,7 +1,7 @@
-// The import direction: the lint of the controller refuses a value import of a node in the engine and the
-// session runtime and lets a type import through, and no cycle of value imports runs through either of
-// them. The lint runs through the ESLint API on the controller's own configuration; the cycles are read
-// from the value imports of every source, and a fixture of its own proves the search finds one.
+// The import direction. The lint refuses a value import of a node in the engine and the session runtime,
+// and it lets a type import through. No cycle of value imports runs through either of them.
+// The lint runs through the ESLint API on the controller's own configuration. The cycles are read from
+// the value imports of every source, and a fixture of its own proves the search finds one.
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
