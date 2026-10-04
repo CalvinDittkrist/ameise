@@ -25,20 +25,27 @@
 // the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
 // interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
 //
+// Each graph names its request reader and its open function, and the start route (POST /api/processes/
+// start) and the start route of each kind start a process through them (startOf), so a graph added here
+// is started with no change to the server: delivery opens a claim, hunt a hunt, standardize a
+// standardize, and plan a plan or, with a spec, an acceptance.
+//
 // The graph read (GET /api/graphs) answers every graph of the registry in its order, each mapped by the
 // engine (describe) into nodes and edges.
+import { claimRequest, openClaim } from './claim.js'
 import { checkerNode, decisionNode, gatherNode } from './acceptance.js'
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume, huntGraph, huntResume } from './delivery.js'
 import { describe, type Graph, type Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
-import { hunt, huntNode, huntRecordNode, huntRequest } from './hunt.js'
-import { openPlan, plannerNode, planStart } from './plan.js'
+import { huntNode, huntRecordNode, huntRequest, openHunt } from './hunt.js'
+import { plannerNode, planStart, startPlan } from './plan.js'
 import { planContext, planGraph, planResume } from './planning.js'
 import { prNode } from './pr.js'
 import { reviewFixNode, reviewNode } from './review.js'
 import { implementNode } from './session.js'
-import { applyNode, auditNode, finalizeNode, standardizeContext, standardizeGraph } from './standardize.js'
+import { Refusal } from './project.js'
+import { applyNode, auditNode, finalizeNode, openStandardize, standardizeContext, standardizeGraph, standardizeRequest } from './standardize.js'
 
 // registrations builds the registry on its first read. The graphs' modules import this one through a
 // cycle, so a registry built as this module loads could hold a machine or a node not loaded yet.
@@ -57,14 +64,24 @@ const registrations = (): Map<string, Registration> => {
     'address-reviews': addressNode,
   }
   registry = new Map<string, Registration>([
-    ['work', { machine: delivery, context: deliveryContext, old: deliveryResume, nodes: { implement: implementNode, ...tail } }],
+    [
+      'work',
+      {
+        machine: delivery,
+        context: deliveryContext,
+        request: claimRequest,
+        open: openClaim,
+        old: deliveryResume,
+        nodes: { implement: implementNode, ...tail },
+      },
+    ],
     [
       'hunt',
       {
         machine: huntGraph,
         context: deliveryContext,
         request: huntRequest,
-        open: hunt,
+        open: openHunt,
         old: huntResume,
         nodes: { hunt: huntNode, 'hunt-record': huntRecordNode, ...tail },
       },
@@ -74,6 +91,8 @@ const registrations = (): Map<string, Registration> => {
       {
         machine: standardizeGraph,
         context: standardizeContext,
+        request: standardizeRequest,
+        open: openStandardize,
         nodes: { audit: auditNode, apply: applyNode, finalize: finalizeNode },
       },
     ],
@@ -84,7 +103,7 @@ const registrations = (): Map<string, Registration> => {
         context: planContext,
         old: planResume,
         request: planStart,
-        open: openPlan,
+        open: startPlan,
         nodes: { planner: plannerNode, gather: gatherNode, checker: checkerNode, decision: decisionNode },
       },
     ],
@@ -96,6 +115,22 @@ const registrations = (): Map<string, Registration> => {
 export function graphOf(record: { kind: string }): Registration {
   const g = registrations().get(record.kind)
   if (!g) throw new Error(`no process graph is registered for a ${record.kind} process`)
+  return g
+}
+
+// A start is a registration that a process is started on: its request reader and its open function.
+export type Start = Required<Pick<Registration, 'request' | 'open'>>
+
+// startOf is the start of the graph a start route names by its id (POST /api/processes/start and the
+// start route of each kind). An unknown or missing graph is refused with the graphs a process starts on.
+export function startOf(graph: unknown): Start {
+  const all = [...registrations().values()].filter((g): g is Registration & Start => g.request !== undefined && g.open !== undefined)
+  const g = all.find((r) => r.machine.id === graph)
+  if (!g) {
+    const ids = all.map((r) => r.machine.id).join(', ')
+    const named = typeof graph === 'string' ? `graph ${JSON.stringify(graph)} is not a process graph` : 'graph is missing'
+    throw new Refusal(`${named}; send one of ${ids}`)
+  }
   return g
 }
 

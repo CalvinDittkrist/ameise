@@ -32,7 +32,7 @@ import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
 import { run } from './exec.js'
 import { removal } from './hunt.js'
-import { advance, type Entry, enter, type NodeContext, type Outcome, type StateMeta } from './engine.js'
+import { advance, type Entry, enter, type NodeContext, type Opening, type Outcome, type StateMeta } from './engine.js'
 import { graphOf } from './graphs.js'
 import { type Project, Refusal } from './project.js'
 import { agents, type Runtime } from './session.js'
@@ -289,6 +289,17 @@ const oneLine = (s: string) =>
 // audit starts the audit of a standardize process through the engine and answers the record as it runs.
 export function audit(record: StandardizeRecord, project: Project, rt: Runtime): StandardizeRecord {
   return enter(graphOf(record), 'audit', asStage(record), project, rt) as unknown as StandardizeRecord
+}
+
+// standardizeRequest reads the request of a standardize, which names nothing but its project.
+export const standardizeRequest = (): Record<string, never> => ({})
+
+// openStandardize is the open function of the standardize graph: it opens a standardize process on
+// chore/standardize and starts its audit at once, and answers its record as it runs.
+export async function openStandardize(project: Project, rt: Runtime, _request: Record<string, never>, opening: Opening): Promise<Record<string, unknown>> {
+  const done = await standardize(project, rt.stateDir, rt.gh, rt.fake)
+  opening.log({ event: 'standardized', project: project.path, branch: done.branch })
+  return { record: audit(done, project, rt) }
 }
 
 // auditNode is the audit node: the facts, the six auditors in parallel and their report per category,

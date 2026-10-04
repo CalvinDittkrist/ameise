@@ -12,7 +12,7 @@ import { accept, specRequest } from './actions.js'
 import { issueFromBranch, recordFiles, worktrees } from './board.js'
 import { planBrief } from './briefs.js'
 import { held, slug } from './claim.js'
-import { enter, type Node } from './engine.js'
+import { enter, type Node, type Opening } from './engine.js'
 import { graphOf } from './graphs.js'
 import { planEntry } from './planning.js'
 import { type Runtime, sessionEntry, talk } from './session.js'
@@ -34,12 +34,27 @@ export function planStart(body: Record<string, unknown>): PlanStart {
   return body.spec !== undefined ? { route: 'accept', spec: specRequest(body) } : planRequest(body)
 }
 
+// acceptStart reads the body of an acceptance start (POST /api/acceptances), which takes its spec alone.
+export const acceptStart = (body: Record<string, unknown>): PlanStart => ({ route: 'accept', spec: specRequest(body) })
+
 // openPlan opens a plan process for the start and enters the node of its route, and answers its record
 // as it runs: the planner session of a plan, the facts of an acceptance.
 export async function openPlan(project: Project, rt: Runtime, req: PlanStart): Promise<PlanRecord> {
   const done = req.route === 'accept' ? await accept(project, rt.stateDir, rt.gh, rt.fake, req.spec) : await plan(project, rt.stateDir, rt.gh, rt.fake, req)
   const stage = done as unknown as StageRecord
   return enter(graphOf(stage), planEntry(done.route), stage, project, rt) as PlanRecord
+}
+
+// startPlan is the open function of the plan graph: it opens the plan or the acceptance of the start and
+// answers its record as it runs.
+export async function startPlan(project: Project, rt: Runtime, req: PlanStart, opening: Opening): Promise<Record<string, unknown>> {
+  const record = await openPlan(project, rt, req)
+  opening.log(
+    req.route === 'accept'
+      ? { event: 'accept', project: project.path, issue: req.spec, branch: record.branch }
+      : { event: 'planned', project: project.path, route: req.route, issue: record.issue, branch: record.branch },
+  )
+  return { record }
 }
 
 // plannerNode is the planner node of the plan graph: the planner session, which a plan enters fresh with
