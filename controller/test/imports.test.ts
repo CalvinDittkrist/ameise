@@ -92,7 +92,7 @@ test('the cycle search finds a cycle through the session runtime in its fixture'
     writeFileSync(join(dir, 'actions.ts'), "import { held } from './claim.js'\nexport const version = held\n")
     writeFileSync(join(dir, 'claim.ts'), "import { type Runtime, s } from './session.js'\nexport const held = s\nexport type R = Runtime\n")
     writeFileSync(join(dir, 'gate.ts'), "import { advance } from './engine.js'\nexport type Node = typeof advance\n")
-    expect(cycles(dir, through)).toEqual([['session.ts', 'github.ts', 'actions.ts', 'claim.ts', 'session.ts']])
+    expect(cycles(dir, ['engine.ts', 'session.ts'])).toEqual([['session.ts', 'github.ts', 'actions.ts', 'claim.ts', 'session.ts']])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
