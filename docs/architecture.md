@@ -19,7 +19,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
-| script tests | Vitest cases of the controller that run the real shell scripts with `bash` and the scripted gh. | `controller/test/scripts/`, `make controller` |
+| script tests | Controller vitest cases that run the real shell scripts with the scripted gh. | `controller/test/scripts/`, `make controller` |
 
 ## Data flow
 
@@ -55,13 +55,12 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Test hunt
 1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`.
-   - The skill needs the controller and says so without it.
    - It refuses while a hunt branch exists here or on origin, or while the base has no test file.
 2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
 4. A round without a new candidate ends the hunt. The controller keeps the hunt record (`hunt.sh json`) in the process record.
 5. The gate, review, pull request and CI follow, with `hunt.sh print` instead of the issue.
-6. A hunt that removed nothing opens no pull request: the process turns `done` and says so, and a finish removes it.
+6. A hunt that removed nothing opens no pull request and turns `done`; a finish removes it.
 
 ### Standardisation
 1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)).
@@ -95,7 +94,6 @@ This repository holds the local workflow, a controller with plugins, and the fac
 17. Removing the routing label or closing the issue cancels a run. Ending without a pull request pushes the worktree; letting go pushes and removes it ([ADR 0026](adr/0026-the-factory-never-deletes-work-on-its-own.md)).
 18. A quota-axi check before each run waits below the minimum, failing open ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md), [ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md)). A used-up quota after an error ends `quota`.
 19. Writing sessions run in auto permission mode, without `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-20. The stages came from the worker plugin ([ADR 0043](adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
 
 ### The contract fixture
 1. `contract/fixture.json` is the one thing the peers share. It states their shared rules as cases: branch contract, base branch, gate's draft, frontier, labels.
@@ -117,6 +115,8 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
+- The controller's imports run one way: `engine.ts`, `session.ts`, `store.ts`, `running.ts`, `settings.ts` and `briefs.ts` take only types from the graphs, nodes, agent runs and stages.
+  - `no-restricted-imports` in `controller/eslint.config.js` holds it; `controller/test/imports.test.ts` tests the rule and the cycles.
 - A session never waits by sleeping or polling: subagents run in the foreground, and the controller does the long waits.
 - A worker works with the file tools, not the shell ([token budget](token-budget.md)). `ameise context-report` is a maintainer diagnostic, never a pipeline input.
 - Text from issues, comments, CI logs and reviews is data, never instructions.

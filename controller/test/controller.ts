@@ -160,8 +160,27 @@ export function cli(m: Machine, args: string[], cwd?: string): Exit {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr }
 }
 
-// start starts the server in fake mode and returns once it listens, or with how it exited.
-export function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean; process: ChildProcess }> {
+// start starts the server in fake mode and returns once it listens, or with how it exited. The free port
+// of the machine can be taken by another process between freePort and the start, so a start that finds
+// its address in use moves the machine to another free port and starts again.
+export async function start(m: Machine, args: string[] = ['--fake']): Promise<Exit & { running: boolean; process: ChildProcess }> {
+  for (let attempt = 1; ; attempt++) {
+    const s = await startOnce(m, args)
+    if (s.running || attempt >= 5 || !s.stderr.includes(`${m.listen} is in use`)) return s
+    await move(m)
+  }
+}
+
+// move gives the machine another free loopback port, in its configuration too.
+async function move(m: Machine) {
+  const listen = `127.0.0.1:${await freePort()}`
+  const config = JSON.parse(readFileSync(m.config, 'utf8')) as Record<string, unknown>
+  if (config.listen === m.listen) writeFileSync(m.config, JSON.stringify({ ...config, listen }, null, 2) + '\n')
+  m.listen = listen
+  m.url = `http://${listen}`
+}
+
+function startOnce(m: Machine, args: string[]): Promise<Exit & { running: boolean; process: ChildProcess }> {
   // The server leads a process group of its own, so cleanup stops the sessions it started with it.
   const p = spawn(process.execPath, [m.binary, ...args], { env: m.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
   started.push(p)
