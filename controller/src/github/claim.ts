@@ -298,11 +298,13 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     if (!(await exists(top, start))) throw new Refusal(`the base ${base} is neither on origin nor in ${top}; fetch it and claim again`, 409)
   }
 
-  // WF_SIMPLIFY is the override, else the settings the worktree starts with, which its session loads.
+  // WF_SIMPLIFY is the override, else the settings the worktree starts with, which its session loads:
+  // the local branch of the issue where one is left, since the worktree checks it out, else the start.
   // The record pins that one value, so the brief and the session's settings read the same.
   let simplify: boolean
   try {
-    simplify = simplifyOn(req.env.WF_SIMPLIFY ?? (await settingAt(top, start, 'WF_SIMPLIFY')))
+    const from = (await exists(top, `refs/heads/${branch}`)) ? `refs/heads/${branch}` : start
+    simplify = simplifyOn(req.env.WF_SIMPLIFY ?? (await settingAt(top, from, 'WF_SIMPLIFY')))
   } catch (err) {
     throw new Refusal((err as Error).message)
   }

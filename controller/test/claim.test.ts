@@ -370,6 +370,32 @@ test('abandon removes worktree and process, leaves branch and issue, and refuses
   expect((await abandon({ issue: 144 })).status).toBe(200)
 })
 
+test('a claim that reuses a local branch of the issue pins the WF_SIMPLIFY of that branch, not of the base', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  const branch = 'feat/144-board-lists-every-project'
+  // A branch an abandon left behind, whose settings differ from the base's, which sets no knob.
+  const commit = (value: string) => {
+    writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: value } }))
+    git(dir, 'add', '.claude/settings.json')
+    git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'settings')
+  }
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  git(dir, 'checkout', '-q', '-b', branch)
+  commit('maybe')
+  git(dir, 'checkout', '-q', 'main')
+  const refused = await claim({ issue: 144 })
+  expect(refused.status).toBe(400)
+  expect((refused.body as { error: string }).error).toMatch(/^WF_SIMPLIFY="maybe" is neither on nor off/)
+  expect(worktrees()).toBe(0)
+
+  git(dir, 'checkout', '-q', branch)
+  commit('off')
+  git(dir, 'checkout', '-q', 'main')
+  const r = await claim({ issue: 144 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  expect((r.body as Claimed).record).toMatchObject({ branch, simplify: false })
+})
+
 test('the CLI claims and abandons', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
   const c = cli(m, ['claim', '144', '--yolo', '--env', 'WF_REVIEWERS=2'], dir)
