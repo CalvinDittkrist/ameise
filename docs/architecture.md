@@ -67,7 +67,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Its steps are code in `controller/src/stages/standard/`, named for the scripts they replaced, such as `report.sh`.
    - It runs on the engine's standardize graph: audit, apply, finalize.
 2. The audit runs `facts.sh` and `workspace.sh` as a dry run and the six auditors in parallel, which report through their structured results.
-3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).
+3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([applying the findings](repo-standard.md#applying-the-findings)).
 4. The apply runs `backup.sh`, `cleanup.sh prepare` on `chore/standardize` with the plugin's `scaffold.sh`, `cleanup.sh open` for the cleanup pull request, and `issues.sh`.
 5. After the merge `finalize.sh` applies the workspace for an approved `configure` finding, posts the snapshot and runs the plugin's `check.sh` ([ADR 0010](adr/0010-standardisation-audits-read-only-and-backs-up-before-deleting.md)).
 
@@ -104,8 +104,8 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 ### Release
 1. Tickets and their spec carry a `vX.Y.Z` milestone, so a release waits for the acceptance.
 2. A release on the dashboard or `ameise release vX.Y.Z` refuses while the milestone is missing or has open issues, or the tag exists ([release](../controller/README.md#release)).
-3. With `dev` plus `main` it opens the promotion pull request, merges it with a merge commit when green, and tags that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
-4. With `main` alone it tags the head of `main`. It publishes the GitHub release and closes the milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)).
+3. With `dev` plus `main` it opens the promotion pull request, merges it with a merge commit when green, and tags that commit ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
+4. With `main` alone it tags the head of `main`. It publishes the GitHub release and closes the milestone ([milestones and releases](repo-standard.md#milestones-and-releases)).
 
 ## Boundaries and constraints
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.

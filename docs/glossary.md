@@ -17,7 +17,7 @@ Terms the code, the issues and the docs use, one row each.
 | gate's draft | The draft pull request the first gate on CI opens and the pr stage finishes. Its draft state is the peer's record, never GitHub's. |
 | auditor | A read-only subagent that judges one area of a repository during standardisation and returns findings. |
 | facts | The compact `key: value` block `facts.sh` prints about a repository; every auditor gets it instead of exploring. |
-| finding | One proposed action of an auditor, one line: `finding: <category> \| <target> \| <action> \| <reason> \| <confidence>`. Actions are delete, replace, create, issue and configure ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)). |
+| finding | One proposed action of an auditor, one line: `finding: <category> \| <target> \| <action> \| <reason> \| <confidence>`. Actions are delete, replace, create, issue and configure ([approval](repo-standard.md#applying-the-findings)). |
 | cleanup pull request | The one pull request from `chore/standardize` that carries a standardisation run's deletions and new baseline files; its description lists how to restore each removed path. |
 | catalogue issue | The issue, labelled `skill-candidate`, that lists the skills standardisation removed and how to restore each from the `pre-standard` tag. |
 | standardize process | A process of the controller on `chore/standardize` that runs the audit, the apply of the approved categories and the finalize of a standardisation, with the approval per category in its process view. |

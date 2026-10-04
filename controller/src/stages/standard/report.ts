@@ -9,16 +9,16 @@
 // Any malformed finding line fails the whole report and stores nothing.
 // Per category the report keeps the findings the run works through one by one (delete, replace, create, and
 // issue apart) away from the `configure` ones, which only describe what the workspace step decides for itself,
-// and it says what approving the category triggers beyond its lines; approval stays per category (ADR 0016).
+// and it says what approving the category triggers beyond its lines; approval stays per category (docs/repo-standard.md).
 // A category scaffold.sh has templates for is asked about even without findings, because approving it creates
-// its missing baseline files and rejecting it is what keeps the apply out of it (ADR 0035).
+// its missing baseline files and rejecting it is what keeps the apply out of it (docs/repo-standard.md).
 // The findings go to <git dir>/standardize/findings; earlier approvals and the record of what the apply already
 // applied are cleared, because they answered another report. Nothing in the working tree or on GitHub changes.
 //
 // approve records the maintainer's answer per category of the last report and reports the state of all. A later
 // answer for a category replaces the earlier one. An unanswered category is `pending` when it has findings, which
 // stops the apply, and `unanswered` when it is only scaffolded, which does not: the apply scaffolds it as an
-// approval would, and rejecting it is what keeps the apply out (ADR 0035).
+// approval would, and rejecting it is what keeps the apply out (docs/repo-standard.md).
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { answerable, categories, type Ctx, ensureDir, type Finding, hasFindings, lines, readApprovals, readFindings, say, scaffoldCategories, stateDir, Stop } from './lib.js'
@@ -98,7 +98,7 @@ export async function report(c: Ctx, replies: string[]) {
   for (const cat of order) {
     const mine = of(cat)
     // An answerable category without findings is one scaffold.sh has templates for: the apply creates its missing
-    // baseline files, and rejecting it is the only way to keep the apply out of it (ADR 0035).
+    // baseline files, and rejecting it is the only way to keep the apply out of it (docs/repo-standard.md).
     if (mine.length === 0) {
       say(c, '', `${cat}: no findings`, `  approving ${cat} ${baseline}`)
       if (cat === 'agent-config') say(c, settings)
@@ -112,7 +112,7 @@ export async function report(c: Ctx, replies: string[]) {
     })
     const row = (f: Finding) => `    ${f.action} ${f.target}: ${f.reason} (${f.confidence})`
     // The action decides the group, not the category: delete, replace and create name a target the run works
-    // through one by one, configure names a setting the workspace step decides for itself (ADR 0016).
+    // through one by one, configure names a setting the workspace step decides for itself (docs/repo-standard.md).
     const per = mine.filter((f) => f.action !== 'issue' && f.action !== 'configure')
     const dec = mine.filter((f) => f.action === 'configure')
     const iss = mine.filter((f) => f.action === 'issue')
@@ -149,7 +149,7 @@ export async function approve(c: Ctx, args: string[]) {
   const findings = readFindings(dir)
   if (!findings) throw new Stop('no findings recorded; run the audit and report.sh first')
   // The categories the report asked about: those with findings and the scaffolded ones, which the apply creates
-  // baseline files for whether a finding lists them or not (ADR 0035).
+  // baseline files for whether a finding lists them or not (docs/repo-standard.md).
   const cats: string[] = answerable(findings)
 
   // Validate every argument before recording any, so a typo records nothing.
