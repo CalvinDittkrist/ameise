@@ -74,3 +74,5 @@ One file per decision, numbered. An accepted ADR may be shortened in wording in 
 | [0068](0068-the-host-crosses-the-rename-through-a-bridge-release.md) | The host crosses the rename through a bridge release | accepted |
 | [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) | The controller reads Claude and Codex and warns a claim of Claude | accepted |
 | [0070](0070-processes-run-on-process-graphs.md) | Processes run on process graphs | accepted |
+| [0071](0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md) | The implement session runs the bundled /simplify before it reports | accepted |
+| [0072](0072-a-session-sees-only-the-skills-its-process-kind-names.md) | A session sees only the skills its process kind names | accepted |

@@ -1,0 +1,22 @@
+# 0072. A session sees only the skills its process kind names
+
+Date: 2026-10-04
+Status: accepted
+
+## Context
+- A session lists every skill it can load to the model on every turn.
+- A measured work session listed 16 bundled skills and 10 personal skills of the maintainer beside the plugins' four.
+- `disableBundledSkills` removes every bundled skill, /simplify with them ([ADR 0071](0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
+
+## Decision
+- Every session gets the skill allowlist of its process kind and sees no other skill.
+- A work session: `simplify`, `worker:docs`, `repo-standards:adr` and `repo-standards:docs-check`. A hunt session adds `worker:hunt-tests`. A plan session gets the planner's skills.
+- The controller passes the Agent SDK's `skills` option, an exact list in which plugin skills are named `plugin:skill`. Its lists live in `controller/src/sessions/settings.ts`.
+- The factory calls claude in print mode, where neither the option nor a flag exists. Its session settings set skillOverrides `off` for every bundled skill but simplify.
+- A skill a brief dispatches by its slash command runs whether or not it is listed.
+
+## Consequences
+- Bundled and personal skills cost no context, and the Skill tool rejects them.
+- The setting sources a session loads stay as they are.
+- A new skill a session needs is added to the list of its kind.
+- The factory's list follows the bundled skills of a Claude Code release; a session's init message shows a new one.
