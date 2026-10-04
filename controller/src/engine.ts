@@ -114,11 +114,12 @@ export interface Registration {
   old?: (record: StageRecord) => string | undefined
 }
 
-// Opening is what the server lends an open function: its log, and the quota read beside the start,
-// which answers the warnings of the runtimes it is given within the quota's share of the answer.
+// Opening is what the server lends an open function: its log, and the quota read beside the start.
+// quota starts the reading at once and returns its wait. The wait answers the runtimes' warnings,
+// and its timer of the quota's share starts only when the wait is called.
 export interface Opening {
   log: (event: Record<string, unknown>) => void
-  quota: (runtimes: string[]) => Promise<string[]>
+  quota: (runtimes: string[]) => () => Promise<string[]>
 }
 
 // metaOf is the meta of a node of the graph, from its resolved state.

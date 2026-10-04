@@ -132,11 +132,8 @@ export function serve(o: Options): Server {
     return derive(top, o.gh)
   }
 
-  // A start opens a process of the graph its route or its body names, through the graph's registration
-  // (startOf): its request reader refuses a bad body, the project is read, and its open function creates
-  // the record, enters its first node and answers. The start route of a kind may read the body its own
-  // way, as a plan, which takes no spec, and an acceptance, which takes nothing but one, do. A claim's
-  // quota is read with it and waits no longer than the quota's share allows.
+  // A start opens a process of the graph its route or its body names, through its registration (startOf).
+  // A kind's own route may pass read to parse the body its own way.
   async function started(req: IncomingMessage, res: ServerResponse, graph?: string, read?: (body: Record<string, unknown>) => unknown) {
     const body = (await readJSON(req)) ?? {}
     const g = startOf(graph ?? body.graph)
@@ -144,7 +141,10 @@ export function serve(o: Options): Server {
     const project = await known(body)
     const opening: Opening = {
       log,
-      quota: (read) => within(quota(read), quotaShare).then((q) => (q ? warnings(q) : [])),
+      quota: (read) => {
+        const reading = quota(read)
+        return () => within(reading, quotaShare).then((q) => (q ? warnings(q) : []))
+      },
     }
     send(res, 201, await g.open(project, rt, request as never, opening))
   }
