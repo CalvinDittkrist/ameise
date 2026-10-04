@@ -13,6 +13,7 @@ Status: accepted
 - The controller passes the Agent SDK's `skills` option, an exact list in which plugin skills are named `plugin:skill`. Its lists live in `controller/src/sessions/settings.ts`.
 - The factory calls claude in print mode, where neither the option nor a flag exists. Its session settings set skillOverrides `off` for every bundled skill but simplify.
 - A skill a brief dispatches by its slash command runs whether or not it is listed.
+- A personal or project skill named simplify replaces the bundled one in the runtime, so the controller leaves `simplify` out of a work list when one exists. That session has no /simplify.
 
 ## Consequences
 - Bundled and personal skills cost no context, and the Skill tool rejects them.

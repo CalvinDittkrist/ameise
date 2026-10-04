@@ -4,7 +4,8 @@
 // them, the rules an allowance of the maintainer grants, and the hook that keeps a session with the
 // controller's GitHub tools from writing GitHub past them. It imports neither the session module
 // nor a stage module.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { HookCallback, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import { directWrite } from '../github/github.js'
@@ -41,9 +42,19 @@ const workSkills = ['simplify', 'worker:docs', 'repo-standards:adr', 'repo-stand
 const planSkills = ['accept', 'finish', 'grill', 'plan', 'prototype', 'research', 'spec', 'tickets', 'triage'].map((s) => `planner:${s}`)
 
 // skills is the skill allowlist of a session of the record's process kind: a plan session the planner's
-// skills, a hunt session the work list and the hunt skill, every other session the work list.
-export const skills = (record: SessionRecord): string[] =>
-  record.kind === 'plan' ? planSkills : record.kind === 'hunt' ? [...workSkills, 'worker:hunt-tests'] : workSkills
+// skills, a hunt session the work list and the hunt skill, every other session the work list. A work
+// list leaves simplify out where a personal or project skill of that name shadows the bundled one, which
+// the runtime would run in its place: the session then has no /simplify and says so in its report.
+export const skills = (record: SessionRecord): string[] => {
+  if (record.kind === 'plan') return planSkills
+  const work = shadowsSimplify(record.worktree) ? workSkills.filter((s) => s !== 'simplify') : workSkills
+  return record.kind === 'hunt' ? [...work, 'worker:hunt-tests'] : work
+}
+
+// shadowsSimplify is whether a personal skill or a skill of the worktree is named simplify, which the
+// runtime prefers to its bundled skill of that name.
+const shadowsSimplify = (worktree: string): boolean =>
+  [process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), join(worktree, '.claude')].some((dir) => existsSync(join(dir, 'skills', 'simplify')))
 
 // planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
 // WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
