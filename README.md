@@ -44,6 +44,8 @@ ameise projects add ~/src/repo     # once ameise runs, or from the dashboard
 
 The controller's sessions load the plugins it bundles. For sessions started by hand, install them from the marketplace `ameise`. They need Claude Code 2.1.270+, `gh`, `jq` and git; `npx gh-axi` and Codex as reviewer are optional.
 
+The plugins ship through a Claude Code marketplace, so Claude Code handles their versions, updates and scope, and no installer of our own needs upkeep.
+
 ```sh
 claude plugin marketplace add CalvinDittkrist/ameise
 claude plugin install worker@ameise

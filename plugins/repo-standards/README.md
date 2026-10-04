@@ -1,6 +1,6 @@
 # repo-standards
 
-Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. The plugin holds skills, agents, templates and the standard check ([ADR 0063](../../docs/adr/0063-plugins-are-skills-and-agents.md)).
+Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. The plugin holds skills, agents, templates and the standard check.
 
 A standardisation runs in the controller: standardize on a project page opens its standardize process ([controller](../../controller/README.md#standardize-process)). The process runs the six auditors of this plugin, takes the approval per category and applies the approved ones with scripts of its own. Those scripts use the templates, `scaffold.sh` and `check.sh` of this plugin.
 

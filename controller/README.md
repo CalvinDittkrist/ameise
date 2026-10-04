@@ -3,7 +3,9 @@
 `ameise` is the local workflow and the peer of the factory: one program per machine that holds the projects of this machine and serves them over a local API. It is TypeScript and shares no code with the factory.
 
 ## Install
-One npm package, `ameise`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version ([ADR 0060](../docs/adr/0060-one-release-unit-bundles-the-plugins.md)). It is private and not on npm yet: install it by the URL of the tarball on the latest controller release of the [releases page](https://github.com/CalvinDittkrist/ameise/releases). It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
+One npm package, `ameise`, carries the controller, the dashboard and the worker, planner and repo-standards plugins of the tagged commit, released under the package's version. They release as one, because a controller beside plugins of another version is a pair nobody tested.
+
+It is private and not on npm yet: install it by the URL of the tarball on the latest controller release of the [releases page](https://github.com/CalvinDittkrist/ameise/releases). It needs Node 22 or later, Claude Code, git, `jq` and a logged-in `gh`.
 
 ```sh
 npm install --global <tarball URL from the releases page>
@@ -68,6 +70,8 @@ One file per machine: `$XDG_CONFIG_HOME/ameise/config.json`, else `~/.config/ame
 - A changed `listen` takes effect at the next start. Until then the CLI finds the server at the address it started on.
 
 ## Projects
+A project is a path to an existing checkout, and the controller clones nothing. Its worktrees lie in the checkout's `.claude/worktrees/`, where workspace trust covers them.
+
 Owner and name come from the checkout's origin, which must be on GitHub. The base branch follows the base branch rule, whose cases [`contract/base-branch.json`](../contract/base-branch.json) states:
 1. `WF_BASE_BRANCH` in the env block of the checkout's `.claude/settings.json`, when git accepts it as a branch name,
 2. the head `origin` points at,
@@ -175,7 +179,7 @@ In fake mode the scripted `fake/gh` answers GitHub from `AMEISE_FAKE_GH` (see th
 - `git/<owner>/<name>.git` is the repository the scripts of a standardize process push to and fetch from as origin.
 
 ## Gate stage
-The controller runs the gate itself, in the stage `gate` ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
+The controller runs the gate itself, in the stage `gate` ([ADR 0056](../docs/adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)):
 1. It fetches the base, outside fake mode, and merges it into the branch.
 2. It runs the gate command in the worktree, in a process group of its own, within `WF_GATE_TIMEOUT` seconds (2700).
 3. A pass starts the [review stage](#review-stage).
@@ -327,7 +331,7 @@ Each verdict that ends a wait is an attempt in `history`: `{stage: "ci", kind: "
 A message while the stage waits is refused with `409`. A stop while it waits marks the process `interrupted`, and a resume waits again. A stop while its fix session runs is resumed as the gate's is.
 
 ## Address-reviews stage
-The stage `address-reviews` answers what reviewers ask for on the pull request, as the factory's does ([ADR 0058](../docs/adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)).
+The stage `address-reviews` answers what reviewers ask for on the pull request, as the factory's does ([ADR 0056](../docs/adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
 - A writer is an author who may push to the repository, as `repos/<owner>/<name>/collaborators/<login>/permission` answers.
   - Only an author GitHub associates as `OWNER`, `MEMBER` or `COLLABORATOR` is asked, once per review or comment.
   - Nobody else's review reaches a session, since it becomes the brief of a session that pushes.
@@ -533,7 +537,7 @@ A capture moves the prototype the session left in the worktree to the branch `pr
 A finish stops the session, then removes the worktree, the plan branch and the process. It refuses, unless forced, changes not captured and commits on the plan branch. It checks before the stop and again after it; a refusal after the stop leaves the process `input`. `/planner:finish` in the chat lists what the session wrote and leaves the removal to the finish. `/planner:prototype` asks the maintainer for the capture.
 
 ## Hunt process
-A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md)). It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
+A hunt opens a hunt process: a test hunt that works no issue, because its removals are known only at its end. Its branch and pull request are its trace. It creates the branch `hunt/tests-<local date>` from `origin/<base>` and its worktree, in `manual` mode. It refuses, with `409`:
 - a hunt process, a `hunt/` worktree or a local `hunt/` branch,
 - a `hunt/` branch on origin; a list of origin's branches that cannot be read is a warning instead,
 - a base without a test file by the hunt's rule:
@@ -589,6 +593,8 @@ A finish removes the worktree, the local branch and the process, as for a hunt. 
 In fake mode the steps push to the canned `git/<owner>/<name>.git` and call the scripted gh.
 
 ## Quota
+The quota warns and never holds a claim, unlike the factory's, because the person who claims sits at the machine and judges the quota themselves.
+
 The controller reads the quota of Claude, then Codex. It runs `<quota_axi> --provider <runtime> --json` for both at once on each request and reads the `all_models` scope of quota-axi's report in schema version 5. It answers the percentage left and the latest reset of the windows that limit it. A runtime under `quota_minimum` is marked `below`.
 
 Beside that headline a reading gives:

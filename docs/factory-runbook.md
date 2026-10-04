@@ -466,7 +466,7 @@ The factory is steered on GitHub alone; its interface never writes ([ADR 0023](a
 
 | You want to | On GitHub |
 | --- | --- |
-| **Route** an issue | Give it the routing label beside `ready-for-agent`, with no assignee and no open blocker. The planner does this when you route a ticket ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)). The line is ordered by the time the label was set, oldest first. Work the factory already holds comes first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)). |
+| **Route** an issue | Give it the routing label beside `ready-for-agent`, with no assignee and no open blocker. The planner does this when you route a ticket ([the local workflow](local-workflow.md)). The line is ordered by the time the label was set, oldest first. Work the factory already holds comes first ([ADR 0025](adr/0025-one-queue-one-worker-work-in-progress-first.md)). |
 | **Route** a spec | Give the spec the spec-run label, `<label>:spec-run`, beside `spec`, with no assignee. The planner does this for a spec run. See [Spec runs](#spec-runs). |
 | **Release** an issue that waits for you | Remove the machine user as its assignee. See [Releasing a held issue](#releasing-a-held-issue). |
 | **Cancel** a run or let an issue go | Remove the routing label, or close the issue. A run that is going is ended within one poll. See [Cancelling](#cancelling). |
