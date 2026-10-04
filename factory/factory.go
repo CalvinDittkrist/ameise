@@ -1538,9 +1538,9 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 //
 // Of the skills bundled with Claude Code the session sees only /simplify: skillOverrides switches every
 // other one off (skillAllowlist), so none is listed to the model on every turn. The factory calls claude
-// in print mode, where the Agent SDK's skill allowlist does not exist and no flag replaces it
-// (https://code.claude.com/docs/en/skills.md and https://code.claude.com/docs/en/agent-sdk/skills.md,
-// checked on 2026-10-04). skillOverrides leaves a plugin's skills alone, and disableBundledSkills would
+// in print mode, where the Agent SDK's skill allowlist does not exist and no flag replaces it. Sources:
+// https://code.claude.com/docs/en/skills.md, https://code.claude.com/docs/en/agent-sdk/skills.md,
+// checked on 2026-10-04. skillOverrides leaves a plugin's skills alone, and disableBundledSkills would
 // take /simplify with the rest.
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
@@ -1561,9 +1561,9 @@ func sessionSettings() (string, error) {
 }
 
 // bundledSkills is every skill bundled with Claude Code bundledSkillsVersion, the one place the
-// factory lists them. It is the skills of that version's init message with the bundled skills the
-// command table of https://code.claude.com/docs/en/commands.md marks Skill (checked on 2026-10-04),
-// some of which a session lists only where their feature is on. A later version can bundle a skill
+// factory lists them. The list is the skills of that version's init message and the bundled skills
+// the command table of https://code.claude.com/docs/en/commands.md marks Skill (checked on 2026-10-04).
+// Some of these appear in a session only when their feature is on. A later version can bundle a skill
 // this list misses: it shows up in the skills of a session's init message, and it belongs here.
 var bundledSkills = []string{
 	"artifact-capabilities", "artifact-diagramming", "batch", "claude-api", "claude-in-chrome", "code-review",
