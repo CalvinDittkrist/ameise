@@ -4,8 +4,7 @@ Date: 2026-10-04
 Status: accepted
 
 ## Context
-- A session lists every skill it can load to the model on every turn.
-- A measured work session listed 16 bundled skills and 10 personal skills of the maintainer beside the plugins' four.
+- A session lists every skill it can load to the model on every turn: every bundled skill and every personal skill of the maintainer beside the plugins' own.
 - `disableBundledSkills` removes every bundled skill, /simplify with them ([ADR 0071](0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
 
 ## Decision

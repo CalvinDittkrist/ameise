@@ -1,8 +1,9 @@
-// The settings of a session: the plan and work settings over the repository's, its skill allowlist,
-// the environment its runtime runs in, the compact pin with the context size the process page measures against, the knobs
-// of a process as its claim and the repository's settings set them, the rules an allowance of the
-// maintainer grants, and the hook that keeps a session with the controller's GitHub tools from writing
-// GitHub past them. It imports neither the session module nor a stage module.
+// The settings of a session: the plan and work settings over the repository's, its skill
+// allowlist, the environment its runtime runs in, the compact pin with the context size the process
+// page measures against, the knobs of a process as its claim and the repository's settings set
+// them, the rules an allowance of the maintainer grants, and the hook that keeps a session with the
+// controller's GitHub tools from writing GitHub past them. It imports neither the session module
+// nor a stage module.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { HookCallback, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
