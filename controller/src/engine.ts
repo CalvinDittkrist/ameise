@@ -11,13 +11,14 @@
 // has an edge before it transitions, since a transition without an edge answers the same state. An outcome
 // without an edge parks the process failed, with a note naming the node and the outcome. A park writes the
 // node's end event, the state and the note. A park in blocked, ready or failed is announced; one in input
-// waits on the board alone. An edge's write action changes the record before the next node is entered. The
-// next node is entered before the run settles, so the process is never untracked between two nodes.
-// advance follows an event into a node from outside a run. Such an event is a message to a parked process,
-// the follow-up of the ci stage, or an acceptance's check or answers. A session node runs the process's
-// own session (session.ts), which takes messages while it runs. Its run is tracked until its runtime has
-// exited, and the next node runs only then, so two sessions never work the worktree at once. Until then a
-// stop of the next node stops that runtime too.
+// waits on the board alone, unless the park says otherwise. A park whose edge names another node moves the
+// process there and parks it on that node, entering nothing. An edge's write action changes the record
+// before the next node is entered. The next node is entered before the run settles, so the process is never
+// untracked between two nodes. advance follows an event into a node from outside a run. Such an event is a
+// message to a parked process, the follow-up of the ci stage, or an acceptance's check or answers. A session
+// node runs the process's own session (session.ts), which takes messages while it runs. Its run is tracked
+// until its runtime has exited, and the next node runs only then, so two sessions never work the worktree
+// at once. Until then a stop of the next node stops that runtime too.
 import type { AnyStateMachine } from 'xstate'
 import { transition } from 'xstate'
 import type { Project } from './project.js'
@@ -29,8 +30,9 @@ import { attempt, event, readRecord, update } from './store.js'
 // The outcome a node returns, or an event to a parked process, with the note of a park and what an
 // edge's guard reads of it: mandate on the comments of the ci stage, unmerged on a green pull request
 // whose yolo merge did not happen, and ready on a message to a process parked ready. message is the text
-// of a message, the first turn of the session the next node resumes. data is what a node hands the next
-// one, such as the facts the gather node of an acceptance read for its checker.
+// of a message, the first turn of the session the next node resumes. answers are the answers of a
+// request, which the next node is entered with. data is what a node hands the next one, such as the facts
+// the gather node of an acceptance read for its checker. end holds the fields the end event of a park adds.
 export interface Outcome {
   outcome: string
   note?: string
@@ -39,15 +41,19 @@ export interface Outcome {
   ready?: boolean
   message?: string
   data?: unknown
+  answers?: Record<string, string>
+  end?: Record<string, unknown>
 }
 
 // How a node is entered: fresh from an edge, by the resume route of an interrupted process (resume), or
 // by a message to a parked process (message). A session node goes on with the record's session on a
-// message, and on a resume when the record has a session id.
+// message, and on a resume when the record has a session id. answers are those of the request that
+// entered it.
 export interface Entry {
   resume?: boolean
   message?: string
   data?: unknown
+  answers?: Record<string, string>
 }
 
 // What a node runs with: the record as it entered, how it was entered, the project, the runtime and the
@@ -171,7 +177,7 @@ export function enter(g: Registration, node: string, record: StageRecord, projec
     })
     .catch((err: unknown) => {
       if (!owns()) return
-      park(rt, id, meta, 'failed', `${meta.failure ?? `the ${node} node failed`}: ${(err as Error).message}`)
+      park(rt, id, meta, { state: 'failed' }, `${meta.failure ?? `the ${node} node failed`}: ${(err as Error).message}`)
     })
     .catch((err: unknown) => {
       process.stderr.write(`warning: ${id}: ${meta.what ?? `its ${node} node`} ended unexpectedly: ${(err as Error).message}\n`)
@@ -190,34 +196,52 @@ export function advance(g: Registration, node: string, o: Outcome, record: Stage
 
 // follow takes the edge of the node's outcome from the record as it stands: a park keeps the process on
 // the node, a final state ends the graph, any other state is entered, after the edge's write action has
-// changed the record. A message enters the next node with its text, and data enters it with the outcome's.
+// changed the record. A message enters the next node with its text, a request with its answers, and data
+// with the outcome's.
 function follow(g: Registration, id: string, node: string, meta: StateMeta, o: Outcome, project: Project, rt: Runtime, after?: Promise<void>, before?: AbortController): SessionRecord | undefined {
   const record = readRecord(rt.stateDir, id) as StageRecord | undefined
   if (!record) return
-  const { outcome, note, data, ...fields } = o
+  const { outcome, note, end, data, ...fields } = o
   const snapshot = g.machine.resolveState({ value: node, context: g.context(record) })
   const e = { type: outcome, ...fields }
-  if (!snapshot.can(e)) return park(rt, id, meta, 'failed', `the ${node} node of the ${g.machine.id} graph returned the outcome ${outcome}, which has no edge`)
+  if (!snapshot.can(e)) return void park(rt, id, meta, { state: 'failed' }, `the ${node} node of the ${g.machine.id} graph returned the outcome ${outcome}, which has no edge`)
   const [next, actions] = transition(g.machine, snapshot, e)
   const parked = (actions as { type: string; params?: unknown }[]).find((a) => a.type === 'park')
   if (parked) {
-    const { state, seen } = parked.params as { state: string; seen?: boolean }
-    return park(rt, id, meta, state, note ?? record.note, seen)
+    const at = String(next.value)
+    if (at === node) return park(rt, id, meta, parked.params as Park, note ?? record.note, end)
+    // A park on another node moves the process there first, with that node's stage.
+    const there = metaOf(g, at, record)
+    update(rt.stateDir, id, { stage: there.stage, workflow: g.machine.id, node: at } as Partial<StageRecord>)
+    return park(rt, id, there, parked.params as Park, note ?? record.note, end)
   }
   if (next.status === 'done') return record
   const writes = (actions as { type: string; params?: unknown }[]).filter((a) => a.type === 'write')
   let now = record
   for (const w of writes) now = (update(rt.stateDir, id, w.params as Partial<StageRecord>) as StageRecord | undefined) ?? now
-  const how = { ...(o.message !== undefined ? { message: o.message } : {}), ...(data !== undefined ? { data } : {}) }
+  const how: Entry = {
+    ...(o.message !== undefined ? { message: o.message } : {}),
+    ...(o.answers !== undefined ? { answers: o.answers } : {}),
+    ...(data !== undefined ? { data } : {}),
+  }
   return enter(g, String(next.value), now, project, rt, how, after, before)
 }
 
-// park ends the run of a node with the process waiting on it: its end event, then its state and note,
-// and the announce, unless it waits for input. A park the maintainer's own request takes is seen, so it
+// The params of the action park: the state it parks in, whether it is announced, announced by default
+// except a park in input, and whether it is seen. A park the maintainer's own request takes is seen, so it
 // marks nothing new on the board.
-function park(rt: Runtime, id: string, meta: StateMeta, state: string, note: string, seen = false): SessionRecord | undefined {
-  if (meta.end) event(rt.stateDir, id, { event: meta.end, stage: meta.stage, state, note })
-  const parked = update(rt.stateDir, id, { state, note, unseen: !seen })
-  if (parked && state !== 'input') rt.announce(parked)
+export interface Park {
+  state: string
+  announce?: boolean
+  seen?: boolean
+}
+
+// park ends the run of a node with the process waiting on it: its end event with the fields end adds,
+// then its state and note, and the announce. It answers the parked record.
+function park(rt: Runtime, id: string, meta: StateMeta, p: Park, note: string, end: Record<string, unknown> = {}): SessionRecord | undefined {
+  const state = p.state
+  if (meta.end) event(rt.stateDir, id, { event: meta.end, stage: meta.stage, state, note, ...end })
+  const parked = update(rt.stateDir, id, { state, note, unseen: !p.seen })
+  if (parked && (p.announce ?? state !== 'input')) rt.announce(parked)
   return parked
 }

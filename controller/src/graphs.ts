@@ -19,6 +19,11 @@
 // session, and the gather, checker and decision nodes run the acceptance of a spec. Its request reader
 // and open function start a plan or, with a spec, an acceptance (plan.ts), and its mapping names the node
 // a plan process goes on at after a restart (planResume).
+//
+// The standardize graph (standardize.ts) is registered for a standardize process: its nodes audit, apply
+// and finalize run the standardize steps and the auditor and apply sessions. A record of a release before
+// the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
+// interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
 import { checkerNode, decisionNode, gatherNode } from './acceptance.js'
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume, huntGraph, huntResume } from './delivery.js'
@@ -30,6 +35,7 @@ import { planContext, planGraph, planResume } from './planning.js'
 import { prNode } from './pr.js'
 import { reviewFixNode, reviewNode } from './review.js'
 import { implementNode } from './session.js'
+import { applyNode, auditNode, finalizeNode, standardizeContext, standardizeGraph } from './standardize.js'
 
 // registrations builds the registry on its first read. The graphs' modules import this one through a
 // cycle, so a registry built as this module loads could hold a machine or a node not loaded yet.
@@ -69,6 +75,14 @@ const registrations = (): Map<string, Registration> => {
         request: planStart,
         open: openPlan,
         nodes: { planner: plannerNode, gather: gatherNode, checker: checkerNode, decision: decisionNode },
+      },
+    ],
+    [
+      'standardize',
+      {
+        machine: standardizeGraph,
+        context: standardizeContext,
+        nodes: { audit: auditNode, apply: applyNode, finalize: finalizeNode },
       },
     ],
   ])

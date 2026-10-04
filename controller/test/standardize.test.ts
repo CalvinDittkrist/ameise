@@ -399,3 +399,19 @@ test('a workspace that cannot be read is reported as not audited, and the finali
   expect(r.note).toBe('findings: 6 in 6 categories; 5 for the run, 1 as issues; the GitHub workspace was not audited: cannot read repos/owner/repo/milestones?state=open&per_page=100: gh: Server Error (HTTP 502); approve or reject each category in the process view')
   expect((r.standardize as { unaudited?: string } | undefined)?.unaudited).toBe('cannot read repos/owner/repo/milestones?state=open&per_page=100: gh: Server Error (HTTP 502)')
 })
+
+test("a standardize record of the release before the graph, without its workflow, goes on from the node its stage names", async () => {
+  const r = await audited()
+  expect(r.state, r.note).toBe('input')
+  // The previous release kept no workflow and no node on a standardize record.
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  const { workflow, node, ...old } = JSON.parse(read(file)) as { workflow?: string; node?: string }
+  expect([workflow, node]).toEqual(['standardize', 'audit'])
+  writeFileSync(file, JSON.stringify(old))
+  const answers = { files: 'reject', 'agent-config': 'reject', docs: 'reject', 'tests-ci': 'reject', workspace: 'reject', security: 'reject' }
+  const applied = await api(m, 'POST', '/api/standardize/apply', { id: r.id, answers })
+  expect(applied.status, JSON.stringify(applied.body)).toBe(200)
+  const done = await settled(r.id)
+  expect(done).toMatchObject({ stage: 'apply', state: 'ready', workflow: 'standardize', node: 'apply' })
+  expect(done.standardize?.categories.map((c) => c.answer)).toEqual(Object.values(answers))
+})
