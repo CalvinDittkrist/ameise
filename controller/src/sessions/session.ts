@@ -609,6 +609,8 @@ async function session(
       plugins: plugins.map((path) => ({ type: 'local' as const, path })),
       settingSources: ['user', 'project', 'local'],
       settings: settings(record),
+      // The SDK also allows Skill(<name>) for each listed skill, so a read-only run loads one without a card;
+      // the writes a skill would make stay disallowed or carded.
       skills: skills(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
