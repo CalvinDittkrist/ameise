@@ -16,6 +16,7 @@ The [runbook](../docs/factory-runbook.md#configuration) documents every field. T
 - `factory.example.json` is a host's configuration, rooted at `/var/lib/factory`, and runs paused.
 - A configuration without `paused` is paused, and `-paused` never unpauses one.
 - `"gate"` runs a command in the worktree, runs none, or hands the gate to CI through a draft pull request ([a gate on CI](../docs/factory-runbook.md#a-gate-on-ci)).
+- `"simplify"`, default `true`, has the implement session run the bundled `/simplify` skill on its diff before it reports; a repository's own `simplify` stands over the host's.
 - `"quota_axi"` is the path of a pinned [quota-axi](https://github.com/kunchenguid/quota-axi), version 0.1.49.
 - Below `"quota_minimum"`, default 12 %, nothing starts ([ADR 0037](../docs/adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
 
