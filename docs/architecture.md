@@ -65,10 +65,9 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Standardisation
 1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)).
-   - The steps below are its own code, in `controller/src/standard/`.
-   - Each keeps the name of the script it replaced, such as `report.sh`, in what it says.
-2. The audit runs `facts.sh` and `workspace.sh` as a dry run and starts the six auditors in parallel, changing nothing.
-   - Each auditor reports its findings through its structured result.
+   - Its steps are code in `controller/src/standard/`, named for the scripts they replaced, such as `report.sh`.
+   - It runs on the engine's standardize graph: audit, apply, finalize.
+2. The audit runs `facts.sh` and `workspace.sh` as a dry run and the six auditors in parallel, which report through their structured results.
 3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md), [ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)).
 4. The apply runs `backup.sh`, `cleanup.sh prepare` on `chore/standardize` with the plugin's `scaffold.sh`, `cleanup.sh open` for the cleanup pull request, and `issues.sh`.
 5. After the merge `finalize.sh` applies the workspace for an approved `configure` finding, posts the snapshot and runs the plugin's `check.sh` ([ADR 0010](adr/0010-standardisation-audits-read-only-and-backs-up-before-deleting.md)).

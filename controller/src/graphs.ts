@@ -14,15 +14,20 @@
 // graph's node implementations, and copies none. It carries the hunt's request and opening, and its
 // mapping of an old record (huntResume) reads a record without workflow, or one with the delivery
 // workflow, by its stage.
+//
+// The standardize graph (standardize.ts) is registered for a standardize process: its nodes audit, apply
+// and finalize run the standardize steps and the auditor and apply sessions. A record of a release before
+// the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
+// interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume, huntGraph, huntResume } from './delivery.js'
 import type { Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
 import { hunt, huntNode, huntRecordNode, huntRequest } from './hunt.js'
 import { prNode } from './pr.js'
-import type { StageRecord } from './records.js'
 import { reviewFixNode, reviewNode } from './review.js'
 import { implementNode } from './session.js'
+import { applyNode, auditNode, finalizeNode, standardizeContext, standardizeGraph } from './standardize.js'
 
 // registrations builds the registry on its first read. The graphs' modules import this one through a
 // cycle, so a registry built as this module loads could hold a machine or a node not loaded yet.
@@ -53,12 +58,20 @@ const registrations = (): Map<string, Registration> => {
         nodes: { hunt: huntNode, 'hunt-record': huntRecordNode, ...tail },
       },
     ],
+    [
+      'standardize',
+      {
+        machine: standardizeGraph,
+        context: standardizeContext,
+        nodes: { audit: auditNode, apply: applyNode, finalize: finalizeNode },
+      },
+    ],
   ])
   return registry
 }
 
 // graphOf is the registration of the graph a process of the record's kind runs on.
-export function graphOf(record: StageRecord): Registration {
+export function graphOf(record: { kind: string }): Registration {
   const g = registrations().get(record.kind)
   if (!g) throw new Error(`no process graph is registered for a ${record.kind} process`)
   return g
