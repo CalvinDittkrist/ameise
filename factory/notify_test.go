@@ -170,7 +170,7 @@ func TestAReadyRunThatNamesNoPullRequestIsSaidOnTheIssue(t *testing.T) {
 // end to end: a blocked run, whose reason is the worker's own report.
 func TestARunThatWaitsForAPersonCommentsOnTheIssueWithTheReasonAndTheReleaseGesture(t *testing.T) {
 	t.Parallel()
-	const blocker = "the brief contradicts ADR 0012: it asks for a second control surface."
+	const blocker = "the brief contradicts ADR 0023: it asks for a second control surface."
 	gh := newGhShim(t)
 	gh.routed(t, "acme/edge-sensors", claimedIssue, claimedTitle)
 	gh.loggedInAs(t, "factory-bot")
@@ -215,7 +215,7 @@ func TestARunThatWaitsForAPersonCommentsOnTheIssueWithTheReasonAndTheReleaseGest
 func TestABlockedSummaryIsKeptAsTheWorkerWroteIt(t *testing.T) {
 	t.Parallel()
 	const later = "**What's done.** One commit on the branch.\n\n" +
-		"- The runbook, ADR 0037 and README now pin quota-axi 0.1.49\n" +
+		"- The runbook, ADR 0028 and README now pin quota-axi 0.1.49\n" +
 		"- `make check` passes on this host"
 	gh := newGhShim(t)
 	gh.routed(t, "acme/edge-sensors", claimedIssue, claimedTitle)
