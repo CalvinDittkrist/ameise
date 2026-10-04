@@ -9,11 +9,14 @@ import { basename, isAbsolute, join } from 'node:path'
 import { run } from './exec.js'
 import { addWorktree, exists, fetch, git } from './git.js'
 import { ghApi, issueFromBranch, kindOf, labelNames, labels, recordFiles, worktrees, type GitHubIssue, type Worktree } from './board.js'
+import { enter, type Opening } from './engine.js'
 import { gateForm } from './gate.js'
+import { graphOf } from './graphs.js'
+import { claimRuntime } from './quota.js'
 import { settingOf } from './settings.js'
 import { type Project, Refusal } from './project.js'
 import { stop } from './running.js'
-import type { Announce } from './session.js'
+import type { Announce, Runtime } from './session.js'
 import { modes, type Mode, type WorkRecord } from './records.js'
 import { event, forget, recordsDir, update, writeAtomic, writeProcess } from './store.js'
 
@@ -139,6 +142,20 @@ export interface Claimed {
   record: WorkRecord
   // warnings are the refusals force lifted and what the claim could not check.
   warnings: string[]
+}
+
+// openClaim is the open function of the delivery graph. It claims the issue and enters the implement node
+// at once. It answers the claim's record as it runs, its warnings and the quota's.
+// The quota is read beside the claim and never holds it. The session starts once the claim is done.
+// After the claim, the answer waits for the reading no longer than the quota's share allows.
+// Below the minimum the claim goes on, and its answer says so.
+// It reads Claude alone, the one runtime it warns of. So a slow reading of another runtime takes no warning away.
+export async function openClaim(project: Project, rt: Runtime, request: ClaimRequest, opening: Opening): Promise<Record<string, unknown>> {
+  const reading = opening.quota([claimRuntime])
+  const done = await claim(project, rt.stateDir, rt.gh, rt.fake, request)
+  opening.log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
+  const record = enter(graphOf(done.record), 'implement', done.record, project, rt)
+  return { ...done, record, quota: await reading() }
 }
 
 // The actions under way, per project and what they act on, so two at once cannot both pass the checks.

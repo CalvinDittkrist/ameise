@@ -13,7 +13,8 @@ import { run } from './exec.js'
 import { ghApi, kindOf, recordFiles, worktrees } from './board.js'
 import { held } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
-import type { Node, Outcome } from './engine.js'
+import { enter, type Node, type Opening, type Outcome } from './engine.js'
+import { graphOf } from './graphs.js'
 import { resumed } from './terminal.js'
 import { type Project, Refusal } from './project.js'
 import { huntScript } from './bundle.js'
@@ -143,6 +144,16 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
 // huntRequest reads the request of a hunt, which names nothing but its project.
 export const huntRequest = (): Record<string, never> => ({})
+
+// openHunt is the open function of the hunt graph: it opens a hunt process on a hunt branch and enters
+// the hunt node at once, which runs its hunt session, and answers its record as it runs and what the
+// hunt could not check.
+export async function openHunt(project: Project, rt: Runtime, _request: Record<string, never>, opening: Opening): Promise<Record<string, unknown>> {
+  const done = await hunt(project, rt.stateDir, rt.gh, rt.fake)
+  opening.log({ event: 'hunted', project: project.path, branch: done.record.branch })
+  const record = enter(graphOf(done.record), 'hunt', done.record, project, rt)
+  return { record, warnings: done.warnings }
+}
 
 // huntNode is the hunt node of the hunt graph: the hunt session, which a hunt enters fresh, the resume
 // route goes on with by its id, and a message resumes. The process page follows its hunt record, which

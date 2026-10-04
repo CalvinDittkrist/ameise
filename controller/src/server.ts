@@ -6,21 +6,21 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
-import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
+import { abandon, abandonRequest, adopt, adoptRequest, projectPath, resumable } from './claim.js'
 import { decide, decideRequest, recheck } from './acceptance.js'
-import { merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
+import { merge, mergeRequest, release, releaseRequest } from './actions.js'
 import { notify } from './notify.js'
-import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
+import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { recover } from './running.js'
 import { type Announce, answer, hold, type Runtime, say } from './session.js'
 import { compactAt } from './settings.js'
-import { finishHunt, hunt, resumableHunt } from './hunt.js'
-import { capture, captureRequest, finish, openPlan, planRequest } from './plan.js'
-import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
+import { finishHunt, resumableHunt } from './hunt.js'
+import { acceptStart, capture, captureRequest, finish, planRequest } from './plan.js'
+import { apply, applyRequest, auditAgain, finalize, finishStandardize } from './standardize.js'
 import { open } from './terminal.js'
-import { enter, resumeAt } from './engine.js'
-import { graphOf, graphs } from './graphs.js'
+import { enter, type Opening, resumeAt } from './engine.js'
+import { graphOf, graphs, startOf } from './graphs.js'
 import { followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 import type { SessionRecord } from './records.js'
@@ -132,24 +132,24 @@ export function serve(o: Options): Server {
     return derive(top, o.gh)
   }
 
-  // A claim takes an issue into a work process; an abandon drops the process again.
-  async function claimed(req: IncomingMessage, res: ServerResponse) {
+  // A start opens a process of the graph its route or its body names, through its registration (startOf).
+  // A kind's own route may pass read to parse the body its own way.
+  async function started(req: IncomingMessage, res: ServerResponse, graph?: string, read?: (body: Record<string, unknown>) => unknown) {
     const body = (await readJSON(req)) ?? {}
-    const request = claimRequest(body)
+    const g = startOf(graph ?? body.graph)
+    const request = (read ?? g.request)(body)
     const project = await known(body)
-    // The quota is read beside the claim and never holds it: the session starts once the claim is
-    // done, and the answer waits for the reading no longer than the quota's share allows. Below the
-    // minimum the claim goes on and its answer says so. It reads Claude alone, the one runtime it warns
-    // of, so a slow reading of another runtime takes no warning away.
-    const reading = quota([claimRuntime])
-    const done = await claim(project, o.stateDir, o.gh, o.fake, request)
-    log({ event: 'claimed', project: project.path, issue: request.issue, branch: done.record.branch, mode: request.mode, force: request.force })
-    // The claimed process enters the implement node at once; the answer is its record as it runs.
-    const record = enter(graphOf(done.record), 'implement', done.record, project, rt)
-    const q = await within(reading, quotaShare)
-    send(res, 201, { ...done, record, quota: q ? warnings(q) : [] })
+    const opening: Opening = {
+      log,
+      quota: (read) => {
+        const reading = quota(read)
+        return () => within(reading, quotaShare).then((q) => (q ? warnings(q) : []))
+      },
+    }
+    send(res, 201, await g.open(project, rt, request as never, opening))
   }
 
+  // An abandon drops a work process again.
   async function abandoned(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const { issue, force } = abandonRequest(body)
@@ -188,8 +188,7 @@ export function serve(o: Options): Server {
     send(res, 201, { record })
   }
 
-  // A merge takes a ready pull request into its base; a release tags a finished milestone; an acceptance
-  // start opens a plan process on a spec whose tickets are all closed.
+  // A merge takes a ready pull request into its base; a release tags a finished milestone.
   async function merged(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const pr = mergeRequest(body)
@@ -206,16 +205,6 @@ export function serve(o: Options): Server {
     const done = await release(project, o.stateDir, o.gh, o.fake, milestone)
     log({ event: done.status === 'released' ? 'released' : 'release waiting', project: project.path, milestone })
     send(res, done.status === 'released' ? 201 : 202, done)
-  }
-
-  async function accepted(req: IncomingMessage, res: ServerResponse) {
-    const body = (await readJSON(req)) ?? {}
-    const spec = specRequest(body)
-    const project = await known(body)
-    // The acceptance enters the gather node of the plan graph at once; the answer is its record as it runs.
-    const record = await openPlan(project, rt, { route: 'accept', spec })
-    log({ event: 'accept', project: project.path, issue: spec, branch: record.branch })
-    send(res, 201, { record })
   }
 
   // A check runs a failed acceptance again; the answers to its items write its gap tickets and
@@ -239,40 +228,8 @@ export function serve(o: Options): Server {
     send(res, 200, { record })
   }
 
-  // A plan opens a plan process from an idea, an issue or nothing and enters the planner node of the plan
-  // graph at once; the answer is its record as it runs.
-  async function planned(req: IncomingMessage, res: ServerResponse) {
-    const body = (await readJSON(req)) ?? {}
-    const request = planRequest(body)
-    const project = await known(body)
-    const record = await openPlan(project, rt, request)
-    log({ event: 'planned', project: project.path, route: request.route, issue: record.issue, branch: record.branch })
-    send(res, 201, { record })
-  }
-
-  // A hunt opens a hunt process on a hunt branch and enters the hunt node of its graph at once, which runs
-  // its hunt session; the answer is its record as it runs, and what the hunt could not check.
-  async function hunts(req: IncomingMessage, res: ServerResponse) {
-    const body = (await readJSON(req)) ?? {}
-    const project = await known(body)
-    const done = await hunt(project, o.stateDir, o.gh, o.fake)
-    log({ event: 'hunted', project: project.path, branch: done.record.branch })
-    const record = enter(graphOf(done.record), 'hunt', done.record, project, rt)
-    send(res, 201, { record, warnings: done.warnings })
-  }
-
-  // A standardize opens a standardize process on chore/standardize and starts its audit at once; the
-  // answer is its record as it runs. Its audit runs again once it failed, its apply takes an answer per
-  // category and applies the approved ones, and its finalize runs once the cleanup pull request is merged.
-  async function standardized(req: IncomingMessage, res: ServerResponse) {
-    const body = (await readJSON(req)) ?? {}
-    const project = await known(body)
-    const done = await standardize(project, o.stateDir, o.gh, o.fake)
-    log({ event: 'standardized', project: project.path, branch: done.branch })
-    const record = audit(done, project, rt)
-    send(res, 201, { record })
-  }
-
+  // A standardize's audit runs again once it failed, its apply takes an answer per category and applies
+  // the approved ones, and its finalize runs once the cleanup pull request is merged.
   async function standardizeStep(req: IncomingMessage, res: ServerResponse, step: 'audit' | 'apply' | 'finalize') {
     const body = (await readJSON(req)) ?? {}
     const r = recorded(body.id)
@@ -471,8 +428,10 @@ export function serve(o: Options): Server {
           return add(req, res)
         case 'DELETE /api/projects':
           return remove(req, res)
+        case 'POST /api/processes/start':
+          return started(req, res)
         case 'POST /api/processes':
-          return claimed(req, res)
+          return started(req, res, 'delivery')
         case 'DELETE /api/processes':
           return abandoned(req, res)
         case 'POST /api/processes/resume':
@@ -484,17 +443,17 @@ export function serve(o: Options): Server {
         case 'POST /api/releases':
           return released(req, res)
         case 'POST /api/acceptances':
-          return accepted(req, res)
+          return started(req, res, 'plan', acceptStart)
         case 'POST /api/acceptances/check':
           return checked(req, res)
         case 'POST /api/acceptances/answers':
           return decided(req, res)
         case 'POST /api/plans':
-          return planned(req, res)
+          return started(req, res, 'plan', planRequest)
         case 'POST /api/hunts':
-          return hunts(req, res)
+          return started(req, res, 'hunt')
         case 'POST /api/standardize':
-          return standardized(req, res)
+          return started(req, res, 'standardize')
         case 'POST /api/standardize/audit':
           return standardizeStep(req, res, 'audit')
         case 'POST /api/standardize/apply':

@@ -629,6 +629,14 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `GET /api/board?project=<path>`: the board of the project at that checkout; `404` says it is no project.
 - `POST /api/processes` with `{"project": "<path>", "issue": <n>, "mode": "manual"|"yolo", "env": ["NAME=VALUE", ...], "force": false}`: claims the issue, starts its session and answers `201` with `{record, warnings, quota}`.
   - `400` refuses a malformed request, `404` a path that is no project, `409` an issue a claim refuses, `502` a GitHub that does not answer.
+- `POST /api/processes/start` with `{"project": "<path>", "graph": "<graph>", ...}`: starts a process of the graph through its registration.
+  - The body is that graph's own start route's body beside `graph`, and the answer is that route's.
+  - `delivery` is a claim: `issue`, `mode`, `env` and `force` as `POST /api/processes` takes them, answered `201` with `{record, warnings, quota}`.
+  - `plan` carries `idea`, `issue` or neither, as `POST /api/plans` does, or `spec`, which starts the acceptance as `POST /api/acceptances` does. Each answers `201` with `{record}`.
+  - `hunt` and `standardize` carry nothing more. A hunt answers `201` with `{record, warnings}`, a standardize `201` with `{record}`.
+  - `400` names the known graphs for an unknown or missing `graph` before anything else is read.
+  - A known graph refuses as its own route does: a bad body with `400`, then a path that is no project with `404`.
+  - The start routes of each kind start through the same registration, so a graph added to the registry starts here with no change to the server.
 - `POST /api/processes/seen` with `{"id": "<id>"}`: marks the process seen, which clears its badge, and answers `200` with `{id}`. `400` refuses a malformed id, `404` an id that is no process.
 - `GET /api/processes/events?id=<id>`: the process page's stream of server-sent events.
   - It sends `record` with the record and `compact_at`, the context size at which the session compacts.

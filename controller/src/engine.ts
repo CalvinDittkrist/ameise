@@ -101,15 +101,25 @@ export interface StateMeta {
 
 // A registration of a process graph: its machine, the context its guards read, built from the record,
 // and its node implementations. The request reader, the open function and the mapping of an old record
-// to a node are filled by the graphs that need them. old maps the stage, the fixing flag and the session
+// to a node are filled by the graphs that need them. A graph with both is started through the start route
+// (POST /api/processes/start): request reads the body or refuses it, and open creates the record, enters
+// its first node and answers the body of the start's 201. old maps the stage, the fixing flag and the session
 // id of an interrupted record to the node a resume enters, or to none for a record the graph does not run.
 export interface Registration {
   machine: AnyStateMachine
   context: (record: StageRecord) => Record<string, unknown>
   nodes: Record<string, Node>
   request?: (body: Record<string, unknown>) => unknown
-  open?: (...args: never[]) => unknown
+  open?: (project: Project, rt: Runtime, request: never, opening: Opening) => Promise<Record<string, unknown>>
   old?: (record: StageRecord) => string | undefined
+}
+
+// Opening is what the server lends an open function: its log, and the quota read beside the start.
+// quota starts the reading at once and returns its wait. The wait answers the runtimes' warnings,
+// and its timer of the quota's share starts only when the wait is called.
+export interface Opening {
+  log: (event: Record<string, unknown>) => void
+  quota: (runtimes: string[]) => () => Promise<string[]>
 }
 
 // metaOf is the meta of a node of the graph, from its resolved state.
