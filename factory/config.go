@@ -59,9 +59,9 @@ type Config struct {
 // Connected is one repository the factory works: its name on GitHub and, optionally, the branch a
 // run of it branches off. The base is the explicit setting of the base branch rule, and it belongs
 // to the repository rather than to the factory, because a host connects repositories that do not
-// agree on one: one on main, the next on dev ([ADR 0022]).
+// agree on one: one on main, the next on dev ([contract fixture], base_branch).
 //
-// [ADR 0022]: ../docs/adr/0022-the-factory-is-a-second-driver-over-the-worker-pipeline.md
+// [contract fixture]: ../contract/fixture.json
 type Connected struct {
 	Name     string          `json:"name"`
 	Base     string          `json:"base"`
@@ -194,10 +194,10 @@ func validBase(name string) bool {
 // would be a second value for something the factory has decided, and a worker started with someone
 // else's --settings or --agents could carry a plugin that merges what it built. --plugin-dir is refused
 // for the same reason: the plugins the settings switch off are the workflow's by name, and a plugin
-// loaded from a directory would reach the session anyway ([ADR 0042]). What Claude Code makes of two of the same flag is not what the factory rests on: it is
+// loaded from a directory would reach the session anyway ([ADR 0040]). What Claude Code makes of two of the same flag is not what the factory rests on: it is
 // refused before a run is started (README, Configuration).
 //
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 var workerFlags = []string{"--settings", "--agents", "--agent", "--plugin-dir", "--permission-mode", "--output-format", "-p", "--print"}
 
 // factoryOwns names the flag of the worker command an argument would be a second value for, or "".

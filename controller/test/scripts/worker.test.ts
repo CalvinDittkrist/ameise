@@ -24,7 +24,7 @@ function brief(s: Sandbox, plugin: string, skill: string, env: Record<string, st
 
 describe('the brief of the hunt skill', () => {
   // A test hunt's branch names no issue, so the facts say none, and the brief carries the hunt record in its
-  // place (ADR 0045).
+  // place.
   test('says none for the issue and carries the hunt record', () => {
     const s = box()
     s.git('checkout', '-qb', 'hunt/tests-2026-09-24')
@@ -52,7 +52,7 @@ describe('facts.sh', () => {
     expect(r.stdout).toContain('mode: yolo\nissue: #12\n')
   })
 
-  // A skill that needs the controller stops on this line in a plain session rather than failing later (ADR 0063);
+  // A skill that needs the controller stops on this line in a plain session rather than failing later (ADR 0057);
   // a session the controller started reads present.
   test('tells a session without the controller what to start', () => {
     const s = box()
@@ -83,7 +83,7 @@ describe('facts.sh', () => {
 })
 
 // The one network call a worker has is pinned to the documentation origin: nothing an argument carries may leave
-// that path, and nothing from another host is printed (issue #44, ADR 0030).
+// that path, and nothing from another host is printed (issue #44).
 describe('claude-docs.sh', () => {
   const ORIGIN = 'https://code.claude.com/docs/'
   const docs = (s: Sandbox, args: string[] = [], env: Record<string, string> = {}) => s.run(join(worker, 'claude-docs.sh'), args, { env })

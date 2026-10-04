@@ -1,7 +1,7 @@
 // Open in terminal: the session of a process opened in a terminal window of this machine.
 // The runtime resumes it by its id in the process's worktree, with the bundled plugins and the settings
 // the headless session ran with. It runs without the session's skill allowlist: the interactive CLI
-// has no flag or setting for an exact list (ADR 0072).
+// has no flag or setting for an exact list (ADR 0073).
 import { execFile, spawn } from 'node:child_process'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { Refusal } from '../project.js'

@@ -132,7 +132,7 @@ describe('the plugins', () => {
     expect(frontmatter('plugins/worker/skills/hunt-tests/SKILL.md')).toContain('disable-model-invocation: true\n')
   })
 
-  // The controller drives the stages (ADR 0063): the worker plugin holds prompts, and a script only where a skill
+  // The controller drives the stages (ADR 0057): the worker plugin holds prompts, and a script only where a skill
   // injects or runs it.
   test('the worker plugin carries skills and agents and no hook', () => {
     expect(existsSync(join(root, 'plugins/worker/hooks')), 'the worker plugin carries a hooks directory').toBe(false)
@@ -143,7 +143,7 @@ describe('the plugins', () => {
     expect(scripts.sort(), 'a worker script no skill runs is steering the controller owns').toEqual([...used].sort())
   })
 
-  // The controller writes GitHub, captures prototypes, finishes plans and runs acceptances (ADR 0063): the planner
+  // The controller writes GitHub, captures prototypes, finishes plans and runs acceptances (ADR 0057): the planner
   // plugin holds prompts and nothing that runs.
   test('the planner plugin carries skills and agents and no hook or script', () => {
     expect(existsSync(join(root, 'plugins/planner/hooks')), 'the planner plugin carries a hooks directory').toBe(false)
@@ -153,7 +153,7 @@ describe('the plugins', () => {
   })
 
   // The worker's main context holds issue text written by someone else, so its own tool list carries no free web
-  // access; the documentation arrives through the pinned script and a lookup subagent (issue #44, ADR 0030).
+  // access; the documentation arrives through the pinned script and a lookup subagent (issue #44).
   test('the worker reaches the documentation through its script and not through the web tools', () => {
     const tools = declaredTools('plugins/worker/agents/worker.md')
     for (const tool of ['WebFetch', 'WebSearch']) expect(tools, `worker.md lists ${tool}; the documentation is read with /worker:docs`).not.toHaveProperty(tool)
@@ -161,7 +161,7 @@ describe('the plugins', () => {
 
   // A subagent's declared tools are granted, not intersected with the worker's, so a bare `Agent` hands the worker
   // every built-in type, the ones with WebFetch and WebSearch among them. The allowlist names the plugin's own
-  // subagents and the read-only Explore type that the reviewers of /simplify run as (ADR 0030, ADR 0071).
+  // subagents and the read-only Explore type that the reviewers of /simplify run as, which carries no web tool.
   test('the worker spawns its own subagents and no other type', () => {
     const own = agents('worker')
       .filter((a) => a !== 'worker')

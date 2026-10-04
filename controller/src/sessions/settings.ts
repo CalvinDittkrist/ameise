@@ -12,7 +12,7 @@ import { directWrite } from '../github/github.js'
 import type { PlanRecord, SessionRecord, StageRecord, StandardizeRecord } from '../records/records.js'
 import { event } from '../records/store.js'
 
-// The local workflow's compact pin (ADR 0031, ADR 0034): the session compacts at 80% of a window of
+// The local workflow's compact pin (docs/token-budget.md): the session compacts at 80% of a window of
 // 312 500 tokens, which is 250 000. Implement has no hand-over, so compaction is its safety net.
 const compactWindow = 312500
 const compactPercentage = '80'
@@ -34,7 +34,7 @@ export type Settings = {
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
 
-// The skill allowlist of a session (ADR 0072): the exact set of skills the Agent SDK lets the session see
+// The skill allowlist of a session (ADR 0073): the exact set of skills the Agent SDK lets the session see
 // and invoke, by its process kind. The model sees no other skill, so the runtime's bundled skills and
 // the maintainer's personal ones cost no context, and the Skill tool rejects them. A skill a brief
 // dispatches by its slash command, as the hunt brief does, runs whether or not it is listed.
@@ -56,8 +56,9 @@ export const skills = (record: SessionRecord): string[] => {
 const shadowsSimplify = (worktree: string): boolean =>
   [process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), join(worktree, '.claude')].some((dir) => existsSync(join(dir, 'skills', 'simplify')))
 
-// planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
-// WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
+// planSettings are a planner session's own settings: the base, the foreground subagents, whose report is
+// the tool result rather than a wait in sleep turns, and WF_CONTROLLER, the mark that the controller runs
+// the session. The brief carries the plan's context.
 // The marketplace copies of the plugins are switched off, so the bundled planner is the one the session
 // loads. The repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the
 // planner talks in.
@@ -80,7 +81,7 @@ export function planSettings(record: PlanRecord): Settings {
 
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
 // has none of, the base and the knob overrides of the claim with the WF_SIMPLIFY it pinned, the mark that the controller runs the session, which a worker skill that
-// needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
+// needs the controller reads (ADR 0057), the foreground subagents and the compact pin.
 export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {

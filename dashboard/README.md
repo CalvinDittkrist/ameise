@@ -1,6 +1,6 @@
 # Dashboard
 
-The browser interface of the [controller](../controller/README.md): React, Vite and TypeScript on shadcn/ui with Tailwind, base colour neutral ([ADR 0064](../docs/adr/0064-the-local-dashboard-is-built-into-the-controller.md)). It talks to the controller's API alone.
+The browser interface of the [controller](../controller/README.md): React, Vite and TypeScript on shadcn/ui with Tailwind, base colour neutral. It talks to the controller's API alone.
 
 ## Pages
 - The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
@@ -69,7 +69,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
 - Plan on a project's page asks for an idea, and without one opens an open session. Plan on a ready-to-start row plans its issue.
   - Either opens the page of the new plan, whose planner session runs there.
 - The controller carries out no other action yet. Until it does, the other actions are disabled.
-- Light and dark follow the system.
+- Light and dark follow the system's `prefers-color-scheme` with no script, because the content security policy refuses inline scripts.
 
 ## Development
 - `npm --prefix dashboard run build` writes the build into `controller/dist/dashboard`, which the controller serves at `/`.

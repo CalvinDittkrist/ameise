@@ -42,7 +42,7 @@ export const workspaceSettings = (out: string[]) => out.filter((l) => l.startsWi
 // deviation is one line naming how the difference the workspace step applied differs from the `configure` findings
 // the report recorded, in both directions, or undefined when the two sides name the same settings. The workspace
 // step recomputes the difference when it runs, after the cleanup pull request is merged, so it can be another one
-// than the audit saw (ADR 0016). A setting the apply of this run has already worked on counts as changed, so a
+// than the audit saw (docs/repo-standard.md). A setting the apply of this run has already worked on counts as changed, so a
 // second run does not claim the report asked for something that was never needed. Nothing is skipped or aborted
 // because of a deviation; the line is there to be read.
 function deviation(now: string[], before: string[], audited: string[]): string | undefined {
@@ -97,7 +97,7 @@ export async function finalize(c: Ctx) {
   // The workspace, only when the category was approved and the audit found a GitHub setting to change. What
   // approving `workspace` promises is what the report said it would do: a `configure` finding is the line that
   // says the whole difference between the workspace and the standard is applied, so an approval given for the
-  // baseline file the category scaffolds never configures GitHub (ADR 0035). The snapshot goes to the catalogue
+  // baseline file the category scaffolds never configures GitHub (docs/repo-standard.md). The snapshot goes to the catalogue
   // issue before anything else can fail.
   let status = 0
   if (answered(answers, 'approve').includes('workspace') && hasFindings(findings, 'workspace', 'configure')) {

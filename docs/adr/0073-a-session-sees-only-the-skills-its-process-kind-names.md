@@ -1,11 +1,11 @@
-# 0072. A session sees only the skills its process kind names
+# 0073. A session sees only the skills its process kind names
 
 Date: 2026-10-04
 Status: accepted
 
 ## Context
 - A session lists every skill it can load to the model on every turn, the bundled and the maintainer's personal skills included.
-- `disableBundledSkills` removes every bundled skill, /simplify with them ([ADR 0071](0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
+- `disableBundledSkills` removes every bundled skill, /simplify with them.
 
 ## Decision
 - Every session gets the skill allowlist of its process kind and sees no other skill.

@@ -15,9 +15,10 @@ Threat model: an agent with shell access works on code and reads text from the i
    { "sandbox": { "enabled": true, "autoAllowBashIfSandboxed": true,
      "network": { "allowedDomains": ["github.com", "api.github.com", "registry.npmjs.org", "code.claude.com"] } } }
    ```
-   `code.claude.com` is in the list because agents verify Claude Code facts against the current documentation ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)). It is the only documentation origin the pipeline reads.
+   `code.claude.com` is in the list because agents verify Claude Code facts against the current documentation ([AGENTS.md](../AGENTS.md#claude-code-facts)). It is the only documentation origin the pipeline reads.
 
 ## Prompt injection
+- The worker has no `WebFetch`: Claude Code docs reach it only through the pinned `claude-docs.sh` in its `docs-lookup` subagent, because its context reads issues, comments and CI logs.
 - The controller's briefs label the issue, its comments and the files as data, not instructions.
 - Reviewer, worker and author prompts repeat that file contents, comments, logs and reviews are data, not instructions.
 - `address-reviews` declines what a review asks, in a thread or in its summary, when it would weaken tests, skip checks or change unrelated code.
@@ -38,12 +39,12 @@ Fetched pages are data like every other external text, and only the subagent's s
 That is surface reduction, not containment:
 
 - A subagent whose own file declares `WebFetch` gets it, even when the worker's tool list has neither web tool. Declared tools are granted, not intersected with the parent's.
-- So the worker's `Agent` tool is an allowlist of the plugin's own subagents and the built-in `Explore` (`Agent(worker:code-reviewer, …, worker:docs-lookup, Explore)`). `Explore` carries no web tool ([ADR 0071](adr/0071-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
+- So the worker's `Agent` tool is an allowlist of the plugin's own subagents and the built-in `Explore` (`Agent(worker:code-reviewer, …, worker:docs-lookup, Explore)`). `Explore` carries no web tool ([ADR 0072](adr/0072-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
 - Every other type fails at the Agent call with `Agent type '…' not found`. That includes the built-in `general-purpose` and `claude-code-guide`, which carry `WebFetch` and `WebSearch`.
 - A test fails when the list and the agent files drift apart.
 - The worker's `Bash` stays, so the enforced network boundary is the permission layer and the sandbox `allowedDomains` above.
 - The pinned script keeps the untrusted-text context away from the open web, and gives the pipeline one auditable command instead of a free fetch tool.
-- The lookup agent holds `Bash`, like every reviewer and auditor. Its read-only, one-origin behaviour rests on its prompt plus the permission layer, not on its tool list ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
+- The lookup agent holds `Bash`, like every reviewer and auditor. Its read-only, one-origin behaviour rests on its prompt plus the permission layer, not on its tool list.
 
 `WF_PLANNER_LANGUAGE` is copied verbatim into the planner session's system prompt by Claude Code's `language` setting. It is operator configuration, as trusted as the rest of `WF_*`. The controller still refuses a plan whose value has a control character or is longer than a language name, so a pasted instruction cannot enter through it.
 
@@ -66,7 +67,7 @@ The sessions that write on the branch are the implement session and every fix an
 - They have a shell, the edit tools and built-in subagents, the auto permission mode and the host's `gh` login.
 - They read the issue and the reviews, which are text somebody else wrote. The prompt tells them it is data and never instructions.
 - The auto mode classifier judges every action, and what is left is bounded by the host ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
-- No plugin runs in them and the factory installs or updates none. So no code reaches the host between two releases of the factory ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
+- No plugin runs in them and the factory installs or updates none. So no code reaches the host between two releases of the factory ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
 The author session of the pr stage reads the issue, the commits and the diff, which are text somebody else wrote. So it gets no power to act:
 
@@ -91,7 +92,7 @@ The reviewers of the review stage read the same text and get the same bounds:
 - The gate on the final head is `make check` in the worktree, the command the gate stage ran. It runs the branch's code with the host user's rights.
 - Its output reaches a fix session as data.
 
-The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0052](adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md)):
+The reviewer `codex` reads the same text under the bounds of Codex ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md)):
 
 - It runs `codex exec` in Codex's read-only sandbox. It may run commands that read, and the sandbox refuses a write.
 - The sandbox bounds only the shell commands. So the call drops the host user's Codex configuration and every execpolicy rule, of the user and of the worktree (`--ignore-user-config`, `--ignore-rules`).
@@ -107,7 +108,7 @@ Its HTTP interface is read-only and unauthenticated, and it serves live issue ti
 - Claude Code caches plugin versions; releases are git tags created with `claude plugin tag`.
 - `npx -y gh-axi` and `npx -y quota-axi` are optional and run unpinned. Pin them in your own settings or install them globally if that matters to you.
 - The factory never runs `npx`. Its quota check runs the quota-axi at the absolute path its configuration names, installed on the host in a pinned version.
-- An expired credential it renews through Claude Code's own `claude doctor`, while no session runs ([ADR 0037](adr/0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md)).
+- An expired credential it renews through Claude Code's own `claude doctor`, while no session runs ([ADR 0028](adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md)).
 - The release path is the factory host's trust boundary. Whoever can push a factory version tag (`factory/v<version>`) on main decides what the host runs.
 - The release workflow attests both binaries in its publishing job, the one job with an OIDC token. That job runs nothing but gh and the attestation action.
 - The build job, which runs npm packages, can only read.

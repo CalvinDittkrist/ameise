@@ -9,11 +9,9 @@ import (
 	"time"
 )
 
-// The pr stage, tested against the real binary with the gh and claude shims ([ADR 0043], step 3): the
-// implement session stops after the review, a read-only author session writes the title and the body, and
-// the factory appends the verification section and opens the pull request.
-//
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// The pr stage, tested against the real binary with the gh and claude shims: the implement session
+// stops after the review, a read-only author session writes the title and the body, and the factory
+// appends the verification section and opens the pull request.
 
 // failedPanel is the panel summary of an implement session whose review ran out of rounds with two reviewers
 // that never passed.

@@ -1,4 +1,4 @@
-# 0071. The implement session runs the bundled /simplify before it reports
+# 0072. The implement session runs the bundled /simplify before it reports
 
 Date: 2026-10-04
 Status: accepted
@@ -15,7 +15,7 @@ Status: accepted
   - The factory sets its branch's upstream to `origin/<base>` before the session, because /simplify without a target reviews against the upstream, else main.
 - The fixes are refactor commits of the same session. A runtime without /simplify goes on and reports that.
 - The worker's subagent allowlist adds the read-only Explore type for the skill's reviewers. The factory's inline worker allows it already.
-- The factory has no SDK skill option in print mode, so it uses skillOverrides ([ADR 0072](0072-a-session-sees-only-the-skills-its-process-kind-names.md)).
+- The factory has no SDK skill option in print mode, so its session settings use skillOverrides.
 
 ## Consequences
 - Reviewers see a tidier change and fewer fix rounds.

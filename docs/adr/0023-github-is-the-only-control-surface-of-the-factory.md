@@ -1,8 +1,7 @@
 # 0023. GitHub is the only control surface of the factory
 
 Date: 2026-09-21
-Status: accepted, amended
-Amended by: [0051](0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md)
+Status: accepted
 
 ## Context
 - The factory runs on its own host and is watched from a phone as often as from a desk.
@@ -15,13 +14,12 @@ GitHub is the only thing the factory host and a developer's machine share, and t
 ## Consequences
 - Route: add the routing label to an agent-ready issue.
 - Release a blocked, failed or timed-out run: answer on the issue, remove the assignee.
-- Cancel: remove the routing label or close the issue; the worker ends, the issue is given back.
-- Ask for changes: a "changes requested" review on the factory's pull request queues a follow-up run.
-  - So does a bot's review, within the repair budget.
+- Cancel: remove the routing label or close the issue.
+- Ask for changes: a "changes requested" review, or a bot's review within the repair budget, queues a follow-up run.
 - Merge: a person, on GitHub. The factory has no yolo mode.
 - The pause is the operator's: `"paused"` in the configuration file, read on every poll.
-- Notifications go the same way: a review request when a run ends `ready`, a mention otherwise.
-- The HTTP interface is read-only: every writing method gets 405. It binds one address, never a wildcard, loopback by default.
-- A routed issue stays routed while the host is down.
+- Notifications: a review request when a run ends `ready`, a mention otherwise.
+- The HTTP interface and its dashboard read and never write: every method but `GET` and `HEAD` gets 405, so no button steers.
+- It binds one address, never a wildcard, loopback by default.
 - Steering lags by a poll, and what has no GitHub gesture has no way in.
 - Rejected: steering through the factory's own interface.

@@ -1,4 +1,4 @@
-// Bring the GitHub workspace of a repository to the standard (docs/repo-standard.md, ADR 0011).
+// Bring the GitHub workspace of a repository to the standard (docs/repo-standard.md, ADR 0009).
 // Without apply nothing changes: it derives the profile, reads the current state and reports one `diff:` line
 // per difference. The apply first writes the previous state to the snapshot file (default: a new temporary
 // file, reported as `snapshot:`), then makes exactly those changes. Run it again to verify.

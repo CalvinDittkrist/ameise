@@ -267,7 +267,7 @@ func TestFakeModeWorksTheCannedQueueOneRunAtATime(t *testing.T) {
 	}
 
 	// blocked: the reason is the result's summary, to its end.
-	if blocked.Outcome != "blocked" || !strings.Contains(blocked.Reason, "ADR 0012") || !strings.Contains(blocked.Reason, "decision needed:") {
+	if blocked.Outcome != "blocked" || !strings.Contains(blocked.Reason, "the release rule") || !strings.Contains(blocked.Reason, "decision needed:") {
 		t.Errorf("run 2 ended %q because %q, want blocked with the whole summary of the result", blocked.Outcome, blocked.Reason)
 	}
 	if blocked.PullRequest != "" {
