@@ -551,7 +551,7 @@ const types: Record<string, string> = {
 const policy = "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
 // page answers a file of the dashboard's build. The root is its index.html, which names every other
-// file by a name that carries its content's hash; the page itself lives in the URL's fragment, so no
+// file, itself or through the scripts it loads, by a name that carries its content's hash; the page itself lives in the URL's fragment, so no
 // other path is ever asked for. Without a build the root answers 404 with the command that makes one,
 // and the API works as it does with one.
 async function page(res: ServerResponse, dir: string, pathname: string) {

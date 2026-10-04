@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { Warnings } from "@/components/process-actions"
 import { Separator } from "@/components/ui/separator"
@@ -5,9 +6,12 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { broken, label, QuotaContext, useBoard, useProjects, useQuota } from "@/api"
 import { cn } from "@/lib/utils"
 import { useRoute } from "@/route"
-import { Orchestrator } from "@/views/orchestrator"
-import { ProcessView } from "@/views/process"
-import { ProjectView } from "@/views/project"
+
+// Each page loads its view when it is first opened, so the board does not wait for the markdown
+// renderer that only a process page uses.
+const Orchestrator = lazy(() => import("@/views/orchestrator").then((m) => ({ default: m.Orchestrator })))
+const ProcessView = lazy(() => import("@/views/process").then((m) => ({ default: m.ProcessView })))
+const ProjectView = lazy(() => import("@/views/project").then((m) => ({ default: m.ProjectView })))
 
 export default function App() {
   const route = useRoute()
@@ -40,20 +44,22 @@ export default function App() {
             )}
           </header>
           <div className={cn("flex flex-1 flex-col gap-4", route.page === "process" ? "min-h-0" : "p-4 lg:p-6")}>
-            {route.page === "orchestrator" ? (
-              <Orchestrator board={board} reload={reloadBoard} />
-            ) : route.page === "process" ? (
-              <ProcessView id={route.id} board={board} reload={reloadBoard} />
-            ) : (
-              <ProjectView
-                path={route.path}
-                project={project}
-                loading={projects.state === "loading"}
-                failed={projects.state === "failed" ? projects.error : undefined}
-                board={board}
-                reload={reloadBoard}
-              />
-            )}
+            <Suspense>
+              {route.page === "orchestrator" ? (
+                <Orchestrator board={board} reload={reloadBoard} />
+              ) : route.page === "process" ? (
+                <ProcessView id={route.id} board={board} reload={reloadBoard} />
+              ) : (
+                <ProjectView
+                  path={route.path}
+                  project={project}
+                  loading={projects.state === "loading"}
+                  failed={projects.state === "failed" ? projects.error : undefined}
+                  board={board}
+                  reload={reloadBoard}
+                />
+              )}
+            </Suspense>
           </div>
         </SidebarInset>
         <Warnings />
