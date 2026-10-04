@@ -152,6 +152,9 @@ Run the following as root unless it says otherwise.
    - Then quota-axi has nothing to read, and every run carries a warning that the check could not answer.
 5. **No plugin.** Every session the factory starts runs on the factory's own prompts, compiled into the binary ([ADR 0042](adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
    - It switches the `worker`, `planner`, `orchestrator` and `repo-standards` plugins of the `ameise` marketplace off.
+   - Its session settings carry a skill allowlist: `skillOverrides` switches every skill bundled with Claude Code off but `/simplify`, so a session sees that one alone ([skills](https://code.claude.com/docs/en/skills.md)).
+   - The list of bundled skills is `bundledSkills` in `factory/factory.go`, with the Claude Code version it was read from. A skill a later version bundles shows up in the `skills` of a session's `init` message; add it there.
+   - The codex runtime takes no such settings.
    - So the host needs Claude Code, `git`, `gh`, the factory binary and the tools of the gates above, and no plugin of this repository.
    - A host that carries the plugin from an earlier factory moves over in [Moving a host off the plugin](#moving-a-host-off-the-plugin).
 6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64`, `checksums.txt` and `factory-v<version>.sigstore.json`.

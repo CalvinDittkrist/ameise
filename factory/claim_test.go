@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -144,6 +145,19 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 	if settings.AutoCompactWindow != compactWindow || settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] != compactPercentage {
 		t.Errorf("the worker compacts at %q%% of %d, want %s%% of %d, the factory's pin",
 			settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], settings.AutoCompactWindow, compactPercentage, compactWindow)
+	}
+	// Of the bundled skills the session sees /simplify alone, and its agent has the Skill tool to run it.
+	for _, skill := range bundledSkills {
+		want := "off"
+		if skill == "simplify" {
+			want = "on"
+		}
+		if got := settings.SkillOverrides[skill]; got != want {
+			t.Errorf("the worker's settings set the bundled skill %s of Claude Code %s to %q, want %q: %v", skill, bundledSkillsVersion, got, want, settings.SkillOverrides)
+		}
+	}
+	if !slices.Contains(agent.Tools, "Skill") {
+		t.Errorf("the worker agent has the tools %v, want the Skill tool among them", agent.Tools)
 	}
 
 	// Its own process group, so that the deadline and the stop reach everything the session starts.
@@ -968,6 +982,7 @@ type startedSettings struct {
 	Env               map[string]string `json:"env"`
 	EnabledPlugins    map[string]bool   `json:"enabledPlugins"`
 	AutoCompactWindow int               `json:"autoCompactWindow"`
+	SkillOverrides    map[string]string `json:"skillOverrides"`
 }
 
 // settings is the session settings the worker was started with.

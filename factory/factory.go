@@ -1536,6 +1536,13 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // never merge what it built ([ADR 0023], [ADR 0042]). A plugin installed from a marketplace of another
 // name is not switched off: the host uninstalls it (docs/factory-runbook.md).
 //
+// Of the skills bundled with Claude Code the session sees only /simplify: skillOverrides switches every
+// other one off (skillAllowlist), so none is listed to the model on every turn. The factory calls claude
+// in print mode, where the Agent SDK's skill allowlist does not exist and no flag replaces it
+// (https://code.claude.com/docs/en/skills.md and https://code.claude.com/docs/en/agent-sdk/skills.md,
+// checked on 2026-10-04). skillOverrides leaves a plugin's skills alone, and disableBundledSkills would
+// take /simplify with the rest.
+//
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
 // [ADR 0034]: ../docs/adr/0034-the-compact-trigger-is-raised-through-the-window.md
@@ -1545,11 +1552,41 @@ func sessionSettings() (string, error) {
 		"env":               sessionVariables,
 		"enabledPlugins":    map[string]bool{"worker@" + marketplace: false, "planner@" + marketplace: false, "orchestrator@" + marketplace: false, "repo-standards@" + marketplace: false},
 		"autoCompactWindow": compactWindow,
+		"skillOverrides":    skillAllowlist(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("the session's settings could not be written: %w", err)
 	}
 	return string(settings), nil
+}
+
+// bundledSkills is every skill bundled with Claude Code bundledSkillsVersion, the one place the
+// factory lists them. It is the skills of that version's init message with the bundled skills the
+// command table of https://code.claude.com/docs/en/commands.md marks Skill (checked on 2026-10-04),
+// some of which a session lists only where their feature is on. A later version can bundle a skill
+// this list misses: it shows up in the skills of a session's init message, and it belongs here.
+var bundledSkills = []string{
+	"artifact-capabilities", "artifact-diagramming", "batch", "claude-api", "claude-in-chrome", "code-review",
+	"dataviz", "debug", "deep-research", "design", "design-sync", "doctor", "fewer-permission-prompts", "loop",
+	"run", "run-skill-generator", "schedule", "simplify", "slides", "update-config", "verify", "workflow-authoring",
+}
+
+// bundledSkillsVersion is the version of Claude Code bundledSkills was read from.
+const bundledSkillsVersion = "2.1.284"
+
+// allowedSkill is the one bundled skill a session sees: /simplify, which the implement session runs
+// on its change before it commits.
+const allowedSkill = "simplify"
+
+// skillAllowlist is the skillOverrides of the session's settings: every bundled skill off but
+// allowedSkill, which stays on.
+func skillAllowlist() map[string]string {
+	overrides := make(map[string]string, len(bundledSkills))
+	for _, skill := range bundledSkills {
+		overrides[skill] = "off"
+	}
+	overrides[allowedSkill] = "on"
+	return overrides
 }
 
 // marketplace is the marketplace the workflow's plugins are distributed from, whose plugins every
