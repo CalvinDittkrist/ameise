@@ -161,11 +161,12 @@ describe('the plugins', () => {
 
   // A subagent's declared tools are granted, not intersected with the worker's, so a bare `Agent` hands the worker
   // every built-in type, the ones with WebFetch and WebSearch among them. The allowlist names the plugin's own
-  // subagents and nothing else (ADR 0030).
+  // subagents and the read-only Explore type that the reviewers of /simplify run as (ADR 0030, ADR 0071).
   test('the worker spawns its own subagents and no other type', () => {
     const own = agents('worker')
       .filter((a) => a !== 'worker')
       .map((a) => `worker:${a}`)
+      .concat('Explore')
     const allowed = declaredTools('plugins/worker/agents/worker.md').Agent
     expect(allowed, 'worker.md has no Agent(...) allowlist; a bare Agent spawns every built-in type').toBeTruthy()
     expect([...allowed!].sort()).toEqual(own.sort())
