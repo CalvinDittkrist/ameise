@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -136,6 +136,32 @@ test('a yolo session runs with the mode yolo', async () => {
   await ended(r.id)
   const { args } = started()
   expect((JSON.parse(args[args.indexOf('--settings') + 1] ?? '{}') as { env: { [k: string]: string } }).env.WF_MODE).toBe('yolo')
+})
+
+test('every session of a work process is started with the skill allowlist of a work session and no other skill', async () => {
+  play(m, 'commit board.txt\ncomplete Implemented the board')
+  const r = await claim()
+  await ended(r.id)
+  // The implement session, the reviewer and the author of the pull request each send it in their
+  // initialize request.
+  const lists = started()
+    .read.filter((l) => l.includes('"subtype":"initialize"'))
+    .map((l) => (JSON.parse(l) as { request: { skills?: string[] } }).request.skills)
+  expect(lists.length).toBeGreaterThanOrEqual(3)
+  for (const list of lists) expect(list).toEqual(['simplify', 'worker:docs', 'repo-standards:adr', 'repo-standards:docs-check'])
+})
+
+test('a work session leaves simplify out of its allowlist when a personal skill of that name shadows the bundled one', async () => {
+  mkdirSync(join(m.root, '.claude', 'skills', 'simplify'), { recursive: true })
+  writeFileSync(join(m.root, '.claude', 'skills', 'simplify', 'SKILL.md'), '---\nname: simplify\ndescription: mine\n---\nmine\n')
+  play(m, 'commit board.txt\ncomplete Implemented the board')
+  const r = await claim()
+  await ended(r.id)
+  const lists = started()
+    .read.filter((l) => l.includes('"subtype":"initialize"'))
+    .map((l) => (JSON.parse(l) as { request: { skills?: string[] } }).request.skills)
+  expect(lists.length).toBeGreaterThanOrEqual(1)
+  for (const list of lists) expect(list).toEqual(['worker:docs', 'repo-standards:adr', 'repo-standards:docs-check'])
 })
 
 test('the brief names the issue, the branch, the base and the read of the issue, and carries no text of it', async () => {

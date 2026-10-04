@@ -7,7 +7,7 @@ Skills and agents for the work on one issue ([ADR 0063](../../docs/adr/0063-plug
 | --- | --- | --- | --- |
 | `/worker:hunt-tests` | `facts.sh`, `hunt.sh` | yes | the hunt stage of a test hunt; without the controller it says so and stops |
 | `/worker:docs` | `claude-docs.sh` | no | a read-only `docs-lookup` subagent answers one Claude Code question from the current documentation ([ADR 0030](../../docs/adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)) |
-| `/worker:gh-axi` | | no | the `gh-axi` discovery skill, so the worker prefers it over raw `gh` |
+| `/worker:gh-axi` | | no | the `gh-axi` discovery skill, so the worker prefers it over raw `gh`; a hand-started session only, since the controller's skill allowlist leaves it out ([ADR 0072](../../docs/adr/0072-a-session-sees-only-the-skills-its-process-kind-names.md)) |
 
 A skill that needs the controller reads the `controller:` line of `facts.sh`. The controller marks every session it starts with `WF_CONTROLLER=1`; without it the line says what to start, and the skill stops there.
 

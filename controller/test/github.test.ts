@@ -94,7 +94,9 @@ test('a planner session is started with the tools as its one server and allowed 
   const lines = read(m.claudeLog).split('\n')
   const init = JSON.parse(lines.find((l) => l.startsWith('< ') && l.includes('"subtype":"initialize"'))?.slice(2) ?? '{}') as { request?: { sdkMcpServers?: string[] } }
   expect(init.request?.sdkMcpServers).toEqual(['github'])
-  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__github')
+  // The tools are allowed beside the planner's skills, which the SDK allows as the session's skill allowlist.
+  const allowed = (lines[lines.indexOf('--allowedTools') + 1] ?? '').split(',')
+  expect(allowed.filter((t) => !t.startsWith('Skill('))).toEqual(['mcp__github'])
   expect(lines).toContain('--strict-mcp-config')
 })
 

@@ -41,7 +41,8 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Force overrides those refusals.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>`, assigns the issue and starts the implement session headless with the `worker` agent ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
    - A spec-run ticket branches from and targets its spec branch.
-3. The session's settings disable background tasks, so subagents run in the foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). They pin the compact trigger at 250 000 tokens and mark the session with `WF_CONTROLLER=1`.
+3. Its settings run subagents in foreground ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)), pin the compact trigger at 250 000 tokens and set `WF_CONTROLLER=1`.
+   - Its skill allowlist names every skill it sees ([ADR 0072](adr/0072-a-session-sees-only-the-skills-its-process-kind-names.md)).
 4. Worker knobs given to the claim reach that process alone ([claim](../controller/README.md#claim-and-abandon)).
 5. The controller drives the stages after implement, each session fresh with a structured result ([ADR 0058](adr/0058-the-controller-drives-the-local-stages-and-a-person-merges.md)):
    - gate: merges the base and runs the gate command, or hands it to CI through a draft; a failure gets a fix session,
