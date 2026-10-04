@@ -115,12 +115,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
-- The controller's sources are grouped by concern under `controller/src/`:
-  - `engine/` holds the engine and the graph registry, `graphs/` the process graphs and their budgets.
-  - `stages/` holds the nodes and their helpers, with the standardize steps in `stages/standard/`.
-  - `sessions/` holds the session runtime, `records/` the process records and their store, `github/` GitHub and git.
-  - The root keeps the entry point `main.ts` and what everything shares: server, config, project, exec, notify, quota and bundle.
-- The controller's imports run one way: `engine/engine.ts`, `sessions/session.ts`, `records/store.ts`, `sessions/running.ts`, `sessions/settings.ts` and `sessions/briefs.ts` take only types from the graphs, nodes, agent runs and stages.
+- The controller's imports run one way: the engine, the record store and the session runtime take only types from the graphs, nodes, agent runs and stages.
   - `no-restricted-imports` in `controller/eslint.config.js` holds it; `controller/test/imports.test.ts` tests the rule and the cycles.
 - A session never waits by sleeping or polling: subagents run in the foreground, and the controller does the long waits.
 - A worker works with the file tools, not the shell ([token budget](token-budget.md)). `ameise context-report` is a maintainer diagnostic, never a pipeline input.
