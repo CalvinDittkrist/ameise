@@ -370,12 +370,12 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A call that asks several questions takes the one message as the answer to each.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
-- A message to a process whose session has ended is an event on its node of the delivery graph, read from its stage and its `fixing` flag.
+- A message to a process whose session has ended is an event on its node of its graph, read from its stage and its `fixing` flag.
   - Its edge resumes the session by its id in the next node, with the message as its first turn:
 
   | park | next node | record change |
   | --- | --- | --- |
-  | `ready`, on any stage but the first | implement | `stage` implement, `fixing` false, `panel` cleared |
+  | `ready`, on any stage but the first | implement, or hunt for a hunt | `stage` of that node, `fixing` false, `panel` cleared |
   | ci, `fixing` not set | ci fix | `fixing` true |
   | implement | implement | none |
   | gate | gate fix | none |
@@ -386,7 +386,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 
   - A record without a session id refuses the message with `409`.
   - A message to a plan is an event on the planner node of the plan graph, which resumes the planner session by its id.
-  - A hunt that goes back to its hunt session is resumed directly.
+  - A hunt parked in its hunt stage, or in pr, goes on as its hunt session. Its next complete reads the hunt record again.
 - A request its session leaves unanswered as it ends is `closed`.
 
 ## Open in terminal
@@ -407,8 +407,8 @@ Stopping and starting the controller loses no process.
   - An acceptance with items waits on the decision node of the plan graph, as it was.
   - A plan record without `workflow` maps to the plan graph by its route, state and items.
 - Every other process shows as it was. An interrupted one keeps its `session_id`.
-- A resume enters the node of the delivery graph that the record names, and a hunt session goes on as before.
-  - A record whose `workflow` is `delivery` and whose `node` names its `stage` resumes at that node.
+- A resume enters the node of its graph that the record names: the delivery graph for a work process, the hunt graph for a hunt.
+  - A record whose `workflow` names its graph and whose `node` names its `stage` resumes at that node.
   - Any other record, such as one of an older release without `workflow`, resumes by its `stage`, `fixing` and session id:
 
     | stage | `fixing` | session id | node | what runs |
@@ -428,6 +428,9 @@ Stopping and starting the controller loses no process.
     | ci | set | no | ci | the wait runs again |
     | address-reviews | set | yes | address reviews | the session goes on by its id |
     | address-reviews | not set, or no id | any | ci | the wait reads the review again and posts what was reported |
+
+  - A hunt record in the stage `hunt` resumes at the hunt node: its session goes on by its id, or starts afresh with the brief.
+  - Past it, a hunt record maps by the table, also with `workflow` set to `delivery`.
 
   - A node named by the record keeps the same rules of the session id: a fix node without one enters the node of that row.
   - A session that goes on uses the runtime's resume by its session id, and a short brief to go on.
@@ -537,9 +540,13 @@ A hunt opens a hunt process: a test hunt that works no issue ([ADR 0045](../docs
   - `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*` and `*.spec.*` of JavaScript and TypeScript,
   - code files in a `tests` or `spec` directory, leaving out fixtures, testdata, `__snapshots__`, `node_modules` and `vendor`.
 
-Its hunt session starts at once, in the stage `hunt`, as the implement session does, without `WF_ISSUE`. Its brief starts with `/worker:hunt-tests`, so the worker runs its rounds with the `test-hunter` agents and removes and commits only.
+A hunt runs on the hunt graph. Its hunt node starts the hunt session at once, in the stage `hunt`, as the implement session does, without `WF_ISSUE`. Its brief starts with `/worker:hunt-tests`, so the worker runs its rounds with the `test-hunter` agents and removes and commits only.
 - The record's `hunt` is the hunt record as the worker's `hunt.sh json` prints it: `rounds`, `max_rounds`, `ended`, `removed`, `kept` and `stale`.
-  - The controller reads it again after each tool result of the session and once the session reports `complete`.
+  - The controller reads it again after each tool result of the session.
+  - Once the session reports `complete`, the hunt-record node reads it and decides where the hunt goes.
+  - A hunt whose session reported `complete` before `hunt.sh` ended the hunt waits on `input`, and a message resumes its session.
+  - A hunt record that cannot be read turns the process `failed`.
+- From the gate on, the hunt graph runs the nodes of the delivery graph.
 - A hunt that removed a test goes on to the [gate](#gate-stage), the [review](#review-stage), the [pr](#pr-stage) and the [ci](#ci-stage) stages of a work process.
   - Each brief names the hunt record, which its session reads with `hunt.sh print`, in place of the issue.
   - The review checks each removal against its reason.

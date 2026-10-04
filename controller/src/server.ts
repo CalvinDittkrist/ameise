@@ -13,7 +13,7 @@ import { notify } from './notify.js'
 import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { recover } from './running.js'
-import { type Announce, answer, begin, hold, type Runtime, say } from './session.js'
+import { type Announce, answer, hold, type Runtime, say } from './session.js'
 import { compactAt } from './settings.js'
 import { finishHunt, hunt, resumableHunt } from './hunt.js'
 import { capture, captureRequest, finish, openPlan, planRequest } from './plan.js'
@@ -161,8 +161,8 @@ export function serve(o: Options): Server {
 
   // A resume is one lookup: the graph of the interrupted process names the node it enters (resumeAt),
   // and the engine enters it. A node with a session goes on with it by its id when the record has one,
-  // and starts it afresh otherwise. A hunt is read by its stage and fixing flag alone. A hunt session, which the graph has no node of, goes on by its id or
-  // starts afresh, and a hunt, which has no issue, is named by its id.
+  // and starts it afresh otherwise. A hunt resumes on the hunt graph the same way, and a hunt, which has
+  // no issue, is named by its id.
   async function resumed(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const byId = typeof body.id === 'string'
@@ -171,9 +171,9 @@ export function serve(o: Options): Server {
     // The check and the start run in one go, so a second resume finds the process running.
     const interrupted = issue === null ? await resumableHunt(project, o.stateDir, body.id as string) : await resumable(project, o.stateDir, issue)
     const graph = graphOf(interrupted)
-    // A hunt keeps the resume of its stage and fixing flag until it has a graph of its own.
-    const node = interrupted.kind === 'hunt' ? graph.old?.(interrupted) : resumeAt(graph, interrupted)
-    const record = node ? enter(graph, node, interrupted, project, rt, { resume: true }) : begin(interrupted, project, rt)
+    const node = resumeAt(graph, interrupted)
+    if (!node) throw new Refusal(`${interrupted.id} stopped in the stage ${interrupted.stage}, which its ${graph.machine.id} graph has no node to resume at; finish it`, 409)
+    const record = enter(graph, node, interrupted, project, rt, { resume: true })
     log({ event: 'resumed', project: project.path, issue, branch: record.branch, session: record.session_id ?? null })
     send(res, 200, { record })
   }
@@ -250,14 +250,14 @@ export function serve(o: Options): Server {
     send(res, 201, { record })
   }
 
-  // A hunt opens a hunt process on a hunt branch and starts its hunt session at once; the answer is its
-  // record as it runs, and what the hunt could not check.
+  // A hunt opens a hunt process on a hunt branch and enters the hunt node of its graph at once, which runs
+  // its hunt session; the answer is its record as it runs, and what the hunt could not check.
   async function hunts(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const project = await known(body)
     const done = await hunt(project, o.stateDir, o.gh, o.fake)
     log({ event: 'hunted', project: project.path, branch: done.record.branch })
-    const record = begin(done.record, project, rt)
+    const record = enter(graphOf(done.record), 'hunt', done.record, project, rt)
     send(res, 201, { record, warnings: done.warnings })
   }
 
