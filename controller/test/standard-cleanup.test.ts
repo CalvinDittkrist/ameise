@@ -48,6 +48,7 @@ describe('cleanup', { timeout: 120_000 }, () => {
         'AGENTS.md',
         'Makefile',
         'docs/architecture.md',
+        'docs/adr/0001-use-make.md',
         'docs/adr/README.md',
         'docs/adr/template.md',
         'docs/glossary.md',
