@@ -245,3 +245,72 @@ function park(rt: Runtime, id: string, meta: StateMeta, p: Park, note: string, e
   if (parked && (p.announce ?? state !== 'input')) rt.announce(parked)
   return parked
 }
+
+// An edge of a graph as the graph read answers it. A plain edge goes to next; a guarded one goes to next
+// while its named guard holds and to otherwise when it does not. A target is the id of a node, a park on
+// the node itself as parked <state>, or a park on another node as parked <state> on <node>. A guarded
+// edge with no edge after its guard has otherwise null: the outcome then has no edge.
+export type Edge = { on: string; next: string } | { on: string; guard: string; next: string; otherwise: string | null }
+
+// A node of a graph as the graph read answers it: its id, the stage of its meta, or null for one without
+// a meta, whether it is final, and its edges in the order the graph declares them.
+export interface GraphNode {
+  id: string
+  stage: string | null
+  final: boolean
+  edges: Edge[]
+}
+
+// A graph as the graph read answers it: its id, which a record's workflow holds, its start node and its nodes.
+export interface Graph {
+  id: string
+  start: string
+  nodes: GraphNode[]
+}
+
+// A transition as XState holds it on a state node.
+interface Transition {
+  guard?: unknown
+  target?: readonly { key: string }[]
+  actions: readonly unknown[]
+}
+
+// targetOf names where a transition from the node goes: the node it targets, or the park of its action.
+function targetOf(from: string, t: Transition): string {
+  const to = t.target?.[0]?.key ?? from
+  const parked = t.actions.find((a): a is { type: string; params: Park } => (a as { type?: string }).type === 'park')
+  if (!parked) return to
+  return to === from ? `parked ${parked.params.state}` : `parked ${parked.params.state} on ${to}`
+}
+
+// guardOf is the name of a named guard, as the machine keeps it configured.
+function guardOf(g: Registration, guard: unknown): string {
+  if (typeof guard === 'string') return guard
+  const type = (guard as { type?: unknown }).type
+  if (typeof type === 'string') return type
+  throw new Error(`the ${g.machine.id} graph has a guard without a name`)
+}
+
+// describe maps the machine of a registration into the shape of the graph read. It reads the machine's
+// state nodes, never XState's own JSON. An event takes a plain edge, or a guarded one with at most the
+// edge it falls back on.
+export function describe(g: Registration): Graph {
+  const root = g.machine.root
+  const nodes = Object.entries(root.states).map(([id, state]): GraphNode => {
+    const edges = [...state.transitions].map(([on, list]): Edge => {
+      const ts = list as readonly Transition[]
+      const [first, second] = ts
+      if (!first || ts.length > 2 || (second && second.guard !== undefined)) throw new Error(`the ${g.machine.id} graph's edge ${on} on ${id} is neither plain nor one guarded edge`)
+      if (first.guard === undefined) {
+        if (second) throw new Error(`the ${g.machine.id} graph's edge ${on} on ${id} has an edge after one without a guard`)
+        return { on, next: targetOf(id, first) }
+      }
+      return { on, guard: guardOf(g, first.guard), next: targetOf(id, first), otherwise: second ? targetOf(id, second) : null }
+    })
+    const meta = state.meta as StateMeta | undefined
+    return { id, stage: meta?.stage ?? null, final: state.type === 'final', edges }
+  })
+  const start = root.initial?.target[0]?.key
+  if (!start) throw new Error(`the ${g.machine.id} graph has no start node`)
+  return { id: g.machine.id, start, nodes }
+}

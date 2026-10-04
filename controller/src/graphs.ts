@@ -24,10 +24,13 @@
 // and finalize run the standardize steps and the auditor and apply sessions. A record of a release before
 // the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
 // interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
+//
+// The graph read (GET /api/graphs) answers every graph of the registry in its order, each mapped by the
+// engine (describe) into nodes and edges.
 import { checkerNode, decisionNode, gatherNode } from './acceptance.js'
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume, huntGraph, huntResume } from './delivery.js'
-import type { Registration } from './engine.js'
+import { describe, type Graph, type Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
 import { hunt, huntNode, huntRecordNode, huntRequest } from './hunt.js'
 import { openPlan, plannerNode, planStart } from './plan.js'
@@ -67,6 +70,14 @@ const registrations = (): Map<string, Registration> => {
       },
     ],
     [
+      'standardize',
+      {
+        machine: standardizeGraph,
+        context: standardizeContext,
+        nodes: { audit: auditNode, apply: applyNode, finalize: finalizeNode },
+      },
+    ],
+    [
       'plan',
       {
         machine: planGraph,
@@ -75,14 +86,6 @@ const registrations = (): Map<string, Registration> => {
         request: planStart,
         open: openPlan,
         nodes: { planner: plannerNode, gather: gatherNode, checker: checkerNode, decision: decisionNode },
-      },
-    ],
-    [
-      'standardize',
-      {
-        machine: standardizeGraph,
-        context: standardizeContext,
-        nodes: { audit: auditNode, apply: applyNode, finalize: finalizeNode },
       },
     ],
   ])
@@ -94,4 +97,10 @@ export function graphOf(record: { kind: string }): Registration {
   const g = registrations().get(record.kind)
   if (!g) throw new Error(`no process graph is registered for a ${record.kind} process`)
   return g
+}
+
+// graphs is every process graph of the registry, in its order, in the shape of the graph read
+// (GET /api/graphs). It names no graph itself, so a graph added to the registry is read with the others.
+export function graphs(): Graph[] {
+  return [...registrations().values()].map(describe)
 }
