@@ -25,7 +25,7 @@ Terms the code, the issues and the docs use, one row each.
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |
 | acceptance | The check of a whole spec against the code on the base branch after its tickets are closed; it ends with gap tickets or the spec closed ([ADR 0015](adr/0015-a-spec-with-tickets-is-closed-by-an-acceptance.md)). |
 | foreground subagent | A subagent whose report is the result of the Agent call, because background tasks are disabled; worker sessions run this way ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)). |
-| context report | `ameise context-report`, the maintainer's diagnostic over finished planner and worker sessions, one line each with its kind, `plan` or `work`: turns, answers, peak context, cached and uncached input, output, resume share, tool mix, sleep calls. Never an input to the pipeline. |
+| context report | `ameise context-report`, the maintainer's diagnostic: one line per finished session, kind `plan` or `work`, with turns, answers, peak context, cached and uncached input, output, resume share, tool mix and sleep calls. Never a pipeline input. |
 | resume share | The share of a session's context re-cached at the first model turn after a maintainer message, the median over the session. Near zero means the prompt cache survives the controller's resume. |
 | spec checker | The read-only session that judges each checkable statement of a spec during an acceptance: the controller runs it beside the acceptance's plan process. |
 | item | One checkable statement of a spec with its verdict: `item: <section> \| <statement> \| <verdict> \| <evidence> \| <confidence>`. |

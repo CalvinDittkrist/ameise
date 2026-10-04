@@ -6,7 +6,8 @@ Status: accepted
 ## Context
 - A planning session parks between the maintainer's answers. A plan waits minutes to days for the next one.
 - A live Claude Code process per parked plan would hold memory for nothing, and a controller restart would lose it.
-- A resume sends the conversation again. It reads the unchanged prefix from the prompt cache within the cache's lifetime, one hour for Agent SDK turns on a subscription ([prompt caching](https://code.claude.com/docs/en/prompt-caching.md), checked 2026-10-04).
+- A resume sends the conversation again and reads the unchanged prefix from the prompt cache.
+- The cache lives one hour for Agent SDK turns on a subscription ([prompt caching](https://code.claude.com/docs/en/prompt-caching.md), checked 2026-10-04).
 - The context report measured it: a median of 0.9 percent of the context re-cached at 679 resumes.
 
 ## Decision
