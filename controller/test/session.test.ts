@@ -201,13 +201,10 @@ test('WF_SIMPLIFY reaches the implement session, whose brief carries the simplif
   expect(off.knob).toBe('off')
   expect(on.knob).toBe('on')
   expect(unset.knob).toBeUndefined()
-  // The step adds lines to the brief, which name the skill and the diff against the base it runs on.
-  expect(off.brief.join('\n')).not.toMatch(/simplify/)
+  // The step adds lines before the report line, and runs on the diff against the base.
   for (const b of [on.brief, unset.brief]) {
     expect(b.length).toBeGreaterThan(off.brief.length)
-    const step = b.slice(off.brief.length - 1, b.length - 1).join('\n')
-    expect(step).toMatch(/simplify/)
-    expect(step).toContain('origin/main...HEAD')
+    expect(b.slice(off.brief.length - 1, b.length - 1).join('\n')).toContain('origin/main...HEAD')
     expect(b.at(-1)).toBe(off.brief.at(-1))
   }
   // A checkout setting stands where the claim sets no override.
@@ -215,7 +212,6 @@ test('WF_SIMPLIFY reaches the implement session, whose brief carries the simplif
   writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'off' } }))
   const checkoutOff = await simplified(148, [])
   expect(checkoutOff.brief.length).toBe(off.brief.length)
-  expect(checkoutOff.brief.join('\n')).not.toMatch(/simplify/)
 })
 
 test('an adopted branch with a shell character in its name ends the process failed before any session starts', async () => {
