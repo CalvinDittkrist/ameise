@@ -144,6 +144,7 @@ while ! mkdir "$log.lock" 2>/dev/null && [ "$tries" -lt 200 ]; do tries=$((tries
   printf 'cwd %s\n' "$(pwd -P)"
   printf 'branch %s\n' "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo none)"
   printf 'head %s\n' "$(git rev-parse HEAD 2>/dev/null || echo none)"
+  printf 'upstream %s\n' "$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || echo none)"
   for argument in "$@"; do printf 'arg %s\n' "$argument"; done
   # The size of the longest argument in bytes, which Linux holds to 128 KiB each (MAX_ARG_STRLEN): a
   # length is counted in bytes under the C locale.
