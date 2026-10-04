@@ -429,7 +429,7 @@ func switchOver(above bool, raw json.RawMessage) (bool, error) {
 	}
 	var on bool
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &on) != nil {
-		return false, fmt.Errorf("simplify %s is not a boolean; write it as true or false, or leave it out for true", raw)
+		return false, fmt.Errorf("simplify %s is not a boolean; write it as true or false, or leave it out to take the switch above it", raw)
 	}
 	return on, nil
 }
