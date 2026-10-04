@@ -317,7 +317,7 @@ test('open in terminal resumes the session by its id in the worktree, and tells 
   expect(file).toBe((t.body as { script: string }).script)
   const body = readFileSync(file, 'utf8')
   expect(body).toContain(`cd '${done.worktree}' || exit 1`)
-  expect(body).toMatch(new RegExp(`^exec '[^']+/fake/claude' '--resume' '${done.session_id}' '--plugin-dir' '[^']+/dist/plugins/worker' '--plugin-dir' '[^']+/dist/plugins/repo-standards' '--agent' 'worker' '--settings' '\\{"env":\\{"WF_MODE":"manual","WF_ISSUE":"144"`, 'm'))
+  expect(body).toMatch(new RegExp(`^exec '[^']+/fake/claude' '--resume' '${done.session_id}' '--plugin-dir' '[^']+/dist/plugins/worker' '--plugin-dir' '[^']+/dist/plugins/repo-standards' '--agent' 'worker' '--settings' '\\{"env":\\{"WF_SIMPLIFY":"on","WF_MODE":"manual","WF_ISSUE":"144"`, 'm'))
 })
 
 test('open in terminal answers once a terminal that stays with its window has started, and leaves it running', async () => {

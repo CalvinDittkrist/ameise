@@ -176,6 +176,55 @@ test('the brief names the issue, the branch, the base and the read of the issue,
   expect(read(m.claudeLog)).not.toMatch(/SECRET-|Board lists every project/)
 })
 
+// simplified claims an issue with the overrides, lets its implement session report blocked, and
+// answers the WF_SIMPLIFY of the session's settings and the lines of its brief.
+async function simplified(issue: number, env: string[]): Promise<{ knob: string | undefined; brief: string[] }> {
+  canIssue(m, 'owner/repo', issue, `Issue ${issue}`, ['ready-for-agent'])
+  const before = existsSync(m.claudeLog) ? read(m.claudeLog).length : 0
+  play(m, 'blocked stop here')
+  const r = await api(m, 'POST', '/api/processes', { project: dir, issue, env })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  await ended((r.body as { record: Record }).record.id)
+  const lines = read(m.claudeLog).slice(before).trimEnd().split('\n')
+  const args = lines.filter((l) => !l.startsWith('< '))
+  const settings = JSON.parse(args[args.indexOf('--settings') + 1] ?? '{}') as { env: { [k: string]: string } }
+  const prompt = lines.find((l) => l.startsWith('< ') && l.includes('"type":"user"')) ?? ''
+  const message = (JSON.parse(prompt.slice(2)) as { message: { content: string | { text?: string }[] } }).message.content
+  const text = typeof message === 'string' ? message : message.map((c) => c.text ?? '').join('')
+  return { knob: settings.env.WF_SIMPLIFY, brief: text.split('\n') }
+}
+
+test('WF_SIMPLIFY reaches the implement session, whose brief carries the simplify step while it is on, the default', async () => {
+  const off = await simplified(145, ['WF_SIMPLIFY=off'])
+  const on = await simplified(146, ['WF_SIMPLIFY=on'])
+  const unset = await simplified(147, [])
+  expect(off.knob).toBe('off')
+  expect(on.knob).toBe('on')
+  // The claim pins the value it read, so the session's settings carry the one its brief follows.
+  expect(unset.knob).toBe('on')
+  // The step adds lines before the report line, and runs on the diff against the base.
+  for (const b of [on.brief, unset.brief]) {
+    expect(b.length).toBeGreaterThan(off.brief.length)
+    expect(b.slice(off.brief.length - 1, b.length - 1).join('\n')).toContain('origin/main...HEAD')
+    expect(b.at(-1)).toBe(off.brief.at(-1))
+  }
+  // The settings the worktree starts with stand where the claim sets no override, not the checkout's own.
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' })
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'off' } }))
+  git('add', '.claude/settings.json')
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'settings')
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'on' } }))
+  const worktreeOff = await simplified(148, [])
+  expect(worktreeOff.knob).toBe('off')
+  expect(worktreeOff.brief.length).toBe(off.brief.length)
+  // An override stands over the worktree's settings, in the brief and the session's settings alike.
+  const overridden = await simplified(149, ['WF_SIMPLIFY=on'])
+  expect(overridden.knob).toBe('on')
+  expect(overridden.brief.length).toBe(on.brief.length)
+})
+
 test('an adopted branch with a shell character in its name ends the process failed before any session starts', async () => {
   play(m, 'complete done')
   const branch = 'fix/144-board$(touch${IFS}pwned)'

@@ -79,12 +79,13 @@ export function planSettings(record: PlanRecord): Settings {
 }
 
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
-// has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
+// has none of, the base and the knob overrides of the claim with the WF_SIMPLIFY it pinned, the mark that the controller runs the session, which a worker skill that
 // needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
 export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {
       ...record.env,
+      ...(record.kind === 'work' && record.simplify !== undefined ? { WF_SIMPLIFY: record.simplify ? 'on' : 'off' } : {}),
       WF_MODE: record.mode,
       ...(record.kind === 'work' ? { WF_ISSUE: String(record.issue) } : {}),
       WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
@@ -134,6 +135,20 @@ export function knob(record: { env?: Record<string, string>; project: string }, 
   const n = Number(value)
   if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
   return n
+}
+
+// simplifyOn reads WF_SIMPLIFY, the switch of the simplify step of an implement session: on, the
+// default where it is not set, or off. Any other value is refused with the values it accepts.
+export function simplifyOn(value: unknown): boolean {
+  if (value === undefined || value === 'on') return true
+  if (value === 'off') return false
+  throw new Error(`WF_SIMPLIFY=${JSON.stringify(value)} is neither on nor off; set on, off, or leave it out for on`)
+}
+
+// simplifyOrOn reads WF_SIMPLIFY as simplifyOn does, but answers the default on for a value it would
+// refuse: the claim refused it, so only a later change of the settings sets one.
+export function simplifyOrOn(value: unknown): boolean {
+  return value !== 'off'
 }
 
 // allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the
