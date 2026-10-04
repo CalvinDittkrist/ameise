@@ -20,9 +20,10 @@
 // A message to a work process whose session has ended is an event on its node, whose edge resumes a
 // session by its id.
 //
-// A plan process runs a planner session the same way, with the bundled planner plugin and the planner's
-// start context in its brief. It reports no result: each turn it ends waits for the maintainer, whose
-// next message resumes it.
+// A plan process runs a planner session the same way, as the run of the planner node of the plan graph
+// (planning.ts), with the bundled planner plugin and the planner's start context in its brief. It reports
+// no result and keeps no history: each turn it ends parks the process on input, and the maintainer's next
+// message is an event on the node, which resumes the session by its id.
 //
 // A hunt process runs its hunt session in place of the implement session, the worker on the hunt skill,
 // and the hunt record stands where the issue stands in every brief after it (hunt.ts). Its session runs
@@ -41,16 +42,17 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { type Addressed, type AgentRun, type Ended, report } from './agents.js'
-import { brief, planBrief, safeRef } from './briefs.js'
+import { brief, safeRef } from './briefs.js'
 import { advance, type Entry, type Node, type NodeContext, type Outcome } from './engine.js'
 import { graphOf } from './graphs.js'
+import { planAt } from './planning.js'
 import { githubServer, githubTools } from './github.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from './records.js'
-import { busy, firstStage, Input, register, release, type Request, type Running, runningOf } from './running.js'
+import { busy, firstStage, Input, type Request, type Running, runningOf } from './running.js'
 import { allowance, guard, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
-import { attempt, event, readRecord, update, warn } from './store.js'
+import { attempt, event, readRecord, update } from './store.js'
 
 export interface Runtime {
   // claude is the executable the SDK starts: the machine's claude, or the scripted one in fake mode.
@@ -158,64 +160,6 @@ const sessionOf = (record: SessionRecord) =>
             : `${firstStage(record)} session`
 const stageOf = (record: SessionRecord) => (record.kind === 'plan' ? record.stage : ['gate', 'review', 'ci', 'address-reviews'].includes(record.stage) ? record.stage : firstStage(record))
 
-// begin starts the planner session of a plan process, which runs on no graph, and answers its record as
-// it runs. A process with a session id resumes that session in its worktree. The session goes on after
-// the answer; its end is written into the record. A message is the first turn of the session, in place of
-// the brief.
-export function begin(record: PlanRecord, project: Project, rt: Runtime, message?: string): SessionRecord {
-  const id = record.id
-  const resumed = record.session_id
-  const what = sessionOf(record)
-  const stage = stageOf(record)
-  const note = resumed ? `${what} resumed` : `${what} running`
-  const started = update(rt.stateDir, id, { state: 'running', stage, note } as Partial<CreatedRecord>) ?? record
-  event(rt.stateDir, id, { event: 'session-start', stage, ...(resumed ? { resume: resumed } : {}) })
-  const abort = new AbortController()
-  const input = new Input()
-  const requests = new Map<string, Request>()
-  let exited: Promise<void> = Promise.resolve()
-  const spawned = (p: Promise<void>) => (exited = p)
-  const s: Running = { abort, done: Promise.resolve(), input, requests, over: false }
-  const live = () => runningOf(id) === s && !s.over
-  const end = (ended: Ended) => {
-    if (!live()) return
-    s.over = true
-    close(s, rt, id)
-    event(rt.stateDir, id, { event: 'session-end', stage, state: ended.state, note: ended.note, ...(ended.commits ? { commits: ended.commits } : {}) })
-    // The process is unseen until its page is opened, so the dashboard marks it until then. A planner
-    // that waits for input is told on the board alone, as a question of a session is.
-    const ended_ = update(rt.stateDir, id, { state: ended.state, note: ended.note, unseen: true })
-    if (ended_ && ended.state !== 'input') rt.announce(ended_)
-  }
-  // A write that fails, as on a full or read-only disk, ends this process failed where it still can and
-  // is told on stderr; it never reaches the controller as an unhandled rejection.
-  const settle = (r: Ended) => {
-    try {
-      end(r)
-    } catch (err) {
-      warn(id, `could not write the end of its session (${r.state})`, err)
-      try {
-        s.over = true
-        const failed = update(rt.stateDir, id, { state: 'failed', note: `could not write the end of the ${what}: ${(err as Error).message}`, unseen: true })
-        if (failed) rt.announce(failed)
-      } catch (again) {
-        warn(id, 'could not mark it failed', again)
-      }
-    }
-  }
-  const repo = `${project.owner}/${project.name}`
-  input.push(message ?? planBrief(record, repo, existsSync(join(record.worktree, 'docs', 'glossary.md'))))
-  register(id, s)
-  s.done = session(record, rt, s, live, spawned, ownRun(record, s, rt, repo))
-    .then(settle, (err: Error) => settle({ state: 'failed', note: `the ${what} failed: ${err.message}` }))
-    .catch((err: unknown) => warn(id, 'its session ended unexpectedly', err))
-    .then(() => exited)
-    .finally(() => {
-      release(id, s)
-    })
-  return started
-}
-
 // goesOn says a session node goes on with the record's session: on a message, and on a resume of a
 // record that has a session id. Otherwise the node starts its session afresh with its own brief.
 export const goesOn = (record: StageRecord, how: Entry): boolean => how.message !== undefined || (how.resume === true && record.session_id !== undefined)
@@ -257,6 +201,8 @@ export async function talk(ctx: NodeContext, fresh?: () => string, user?: () => 
     close(s, rt, id)
     const { state, note, commits, addressed } = ended
     event(rt.stateDir, id, { event: 'session-end', stage, state, note, ...(commits ? { commits } : {}) })
+    // A planner session reports no result and a plan process keeps no history: its end is its outcome.
+    if ((record as SessionRecord).kind === 'plan') return { outcome: state, note }
     const a = attemptOf(record, stage, ended, rt)
     if (state !== 'complete') {
       attempt(rt.stateDir, id, a)
@@ -353,7 +299,7 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   if (now.kind === 'standardize') throw new Refusal('the apply session of this standardize process has ended; apply again to start it afresh', 409)
   event(rt.stateDir, id, { event: 'message', text })
   if (now.kind === 'plan') {
-    begin(now, p, rt, text)
+    advance(graphOf(now), planAt(now), { outcome: 'message', message: text }, now as unknown as StageRecord, p, rt)
     return 'resumed'
   }
   // A follow-up to a ready process is new work on it: its session goes on as its first session, implement

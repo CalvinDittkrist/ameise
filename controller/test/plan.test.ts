@@ -41,6 +41,8 @@ interface Record {
   base: string
   worktree: string
   session_id?: string
+  workflow?: string
+  node?: string
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim()
@@ -365,4 +367,30 @@ test('a plan whose session the controller stops waits for a message that resumes
   expect(said.body).toMatchObject({ delivered: 'resumed' })
   await new Promise((done) => setTimeout(done, 100))
   expect(await waiting(r.id)).toMatchObject({ state: 'input', note: 'Where were we?' })
+})
+
+test('a plan record of the previous release, without a workflow, whose planner ran waits on its planner node after a restart', async () => {
+  play(m, 'ready Which part first?')
+  const r = await planned({ idea: 'Offline mode' })
+  const first = await waiting(r.id)
+  const exited = new Promise((done) => server.once('exit', done))
+  server.kill('SIGKILL')
+  await exited
+  // The previous release wrote no workflow and no node, and its planner ran when the controller died.
+  const file = join(m.state, 'processes', `${r.id}.json`)
+  const old = JSON.parse(read(file)) as { [k: string]: unknown }
+  delete old.workflow
+  delete old.node
+  writeFileSync(file, JSON.stringify({ ...old, state: 'running' }))
+  const s = await start(m)
+  expect(s.running, s.stderr).toBe(true)
+  server = s.process
+  expect(recordOf(r.id)).toMatchObject({ state: 'input', note: 'the controller stopped while the planner session ran; write to it to go on' })
+
+  play(m, 'ready Where were we?')
+  const said = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Go on' })
+  expect(said.body).toMatchObject({ delivered: 'resumed' })
+  await new Promise((done) => setTimeout(done, 100))
+  expect(await waiting(r.id)).toMatchObject({ state: 'input', note: 'Where were we?', workflow: 'plan', node: 'planner' })
+  expect(sessions().at(-1)?.args).toContain(`--resume=${first.session_id ?? ''}`)
 })

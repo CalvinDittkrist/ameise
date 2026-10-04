@@ -2,7 +2,8 @@
 // gathers the facts: the spec, its tickets, the merged pull requests that referenced each ticket, the
 // files those changed and the deviations accepted earlier. It runs the spec checker as a read-only
 // session (agents.ts), which reports one item per checkable statement with its verdict, evidence and
-// confidence, and keeps the items on the process's record, where the process view shows them.
+// confidence, and keeps the items on the process's record, where the process view shows them. Each step
+// is a node of the plan graph (planning.ts): gather, checker and decision.
 //
 // The maintainer answers each item not met with a gap ticket, an accepted deviation or no finding. The
 // controller writes them through the github tools (github.ts): a gap ticket is an agent-ready sub-issue of
@@ -13,13 +14,15 @@ import { checker } from './agents.js'
 import { pages } from './board.js'
 import { confidences, sections, verdicts } from './checkitems.js'
 import { held } from './claim.js'
+import { advance, type Node } from './engine.js'
 import { fetch, git } from './git.js'
 import { run } from './exec.js'
 import { Refused, specRunLabel, writer } from './github.js'
+import { graphOf } from './graphs.js'
+import { planAt } from './planning.js'
 import { type Project, Refusal } from './project.js'
-import { track } from './running.js'
 import { agents, type Runtime } from './session.js'
-import type { Acceptance, Item, ItemAnswer, PlanRecord } from './records.js'
+import type { Acceptance, Item, ItemAnswer, PlanRecord, StageRecord } from './records.js'
 import { event, readRecord, update } from './store.js'
 
 // The first line of a comment that accepts a deviation, as the glossary defines it.
@@ -216,60 +219,67 @@ function acceptanceOf(stateDir: string, id: string): PlanRecord {
   return r
 }
 
-// check starts the acceptance of a plan process with the acceptance route and answers the record as it
-// runs: it gathers the facts, runs the spec checker and keeps its items, then waits for the maintainer's
-// answers. A stop ends it; an acceptance that failed or was stopped checks again.
-export function check(record: PlanRecord, project: Project, rt: Runtime): PlanRecord {
-  const id = record.id
-  const started = (update(rt.stateDir, id, { state: 'running', note: 'the acceptance gathers the facts', acceptance: undefined } as Partial<PlanRecord>) as PlanRecord | undefined) ?? record
-  event(rt.stateDir, id, { event: 'acceptance-start', stage: 'accept' })
-  const abort = new AbortController()
-  const tracked: { own: () => boolean; s?: ReturnType<typeof track>['s'] } = { own: () => false }
-  const own = () => tracked.own()
-  const fail = (note: string) => {
-    if (!own()) return
-    event(rt.stateDir, id, { event: 'acceptance-end', stage: 'accept', state: 'failed', note })
-    const failed = update(rt.stateDir, id, { state: 'failed', note, unseen: true })
-    if (failed) rt.announce(failed)
-  }
-  const done = Promise.resolve()
-    .then(async () => {
-      const s = tracked.s
-      if (!s) return
-      const repo = `${project.owner}/${project.name}`
-      await refresh(started, rt.fake)
-      if (!own() || s.abort.signal.aborted) return
-      const facts = await gather(rt.gh, repo, record.issue as number)
-      if (!own() || s.abort.signal.aborted) return
-      event(rt.stateDir, id, { event: 'acceptance-facts', tickets: facts.tickets.map((t) => ({ issue: t.number, prs: t.prs })), files: facts.files.length, deviations: facts.deviations.length, notes: facts.notes })
-      update(rt.stateDir, id, { note: 'the spec checker runs' })
-      const [ended] = await agents(started, rt, s, own, [{ run: checker, brief: checkerBrief(started, repo, facts) }])
-      if (!own()) return
-      if (ended.state !== 'complete' || !ended.items) return fail(`the acceptance failed: ${ended.note}`)
-      const all = itemsOf(ended.items)
-      if (all.length === 0) return fail('the spec checker reported no item in its format; check again')
-      // The checker is told the deviations accepted earlier, and one it reports again all the same is left out.
-      const items = all.filter((i) => !facts.accepted.includes(key(i.section, i.statement))).map((i, n) => ({ ...i, id: `item-${n + 1}` }))
-      const acceptance: Acceptance = {
-        spec: facts.spec,
-        tickets: facts.tickets,
-        files: facts.files.length,
-        deviations: facts.deviations,
-        notes: facts.notes,
-        items,
-        repeated: all.length - items.length,
-      }
-      const open = items.filter((i) => i.verdict !== 'met').length
-      const note = open > 0 ? `${items.length} item(s), ${open} not met; answer each in the process view` : `${items.length} item(s), all met; close the spec in the process view`
-      event(rt.stateDir, id, { event: 'acceptance-end', stage: 'accept', state: 'input', note, items: items.length, open })
-      update(rt.stateDir, id, { state: 'input', note, unseen: true, acceptance } as Partial<PlanRecord>)
-    })
-    .catch((err: unknown) => fail(`the acceptance failed: ${(err as Error).message}`))
-    .catch((err: unknown) => {
-      process.stderr.write(`warning: ${id}: its acceptance ended unexpectedly: ${(err as Error).message}\n`)
-    })
-  Object.assign(tracked, track(id, abort, done, 'the spec checker runs'))
-  return started
+// waiting is the note of an acceptance that waits for its answers, by the items the checker reported.
+function waiting(items: Item[]): string {
+  const open = items.filter((i) => i.verdict !== 'met').length
+  return open > 0 ? `${items.length} item(s), ${open} not met; answer each in the process view` : `${items.length} item(s), all met; close the spec in the process view`
+}
+
+// gatherNode is the gather node of the plan graph. It moves the worktree to the base as origin has it now
+// and reads the facts of the spec. It hands the facts to the checker node. A throw fails the acceptance.
+export const gatherNode: Node = {
+  run: async (ctx) => {
+    const record = ctx.record as unknown as PlanRecord
+    const { rt, project } = ctx
+    await refresh(record, rt.fake)
+    if (!ctx.own() || ctx.signal.aborted) return { outcome: 'stopped' }
+    const facts = await gather(rt.gh, `${project.owner}/${project.name}`, record.issue as number)
+    if (!ctx.own() || ctx.signal.aborted) return { outcome: 'stopped' }
+    ctx.event({ event: 'acceptance-facts', tickets: facts.tickets.map((t) => ({ issue: t.number, prs: t.prs })), files: facts.files.length, deviations: facts.deviations.length, notes: facts.notes })
+    return { outcome: 'gathered', data: facts }
+  },
+}
+
+// checkerNode is the checker node of the plan graph: the spec checker's agent run, read-only, on the facts
+// the gather node read. It keeps the items it reported on the record, without the deviations accepted
+// earlier, and writes the end of the acceptance. A checker that ended otherwise, or reported no item in
+// its format, fails the acceptance.
+export const checkerNode: Node = {
+  run: async (ctx) => {
+    const record = ctx.record as unknown as PlanRecord
+    const { rt, project } = ctx
+    const facts = ctx.how.data as Facts | undefined
+    if (!facts) throw new Error('the spec checker has no facts; check again')
+    const repo = `${project.owner}/${project.name}`
+    const [ended] = await agents(record, rt, ctx.running, ctx.own, [{ run: checker, brief: checkerBrief(record, repo, facts) }])
+    if (!ctx.own()) return { outcome: 'stopped' }
+    if (ended.state !== 'complete' || !ended.items) return { outcome: 'failed', note: `the acceptance failed: ${ended.note}` }
+    const all = itemsOf(ended.items)
+    if (all.length === 0) return { outcome: 'failed', note: 'the spec checker reported no item in its format; check again' }
+    // The checker is told the deviations accepted earlier, and one it reports again all the same is left out.
+    const items = all.filter((i) => !facts.accepted.includes(key(i.section, i.statement))).map((i, n) => ({ ...i, id: `item-${n + 1}` }))
+    const acceptance: Acceptance = {
+      spec: facts.spec,
+      tickets: facts.tickets,
+      files: facts.files.length,
+      deviations: facts.deviations,
+      notes: facts.notes,
+      items,
+      repeated: all.length - items.length,
+    }
+    ctx.event({ event: 'acceptance-end', stage: 'accept', state: 'input', note: waiting(items), items: items.length, open: items.filter((i) => i.verdict !== 'met').length })
+    update(rt.stateDir, record.id, { acceptance } as Partial<PlanRecord>)
+    return { outcome: 'items' }
+  },
+}
+
+// decisionNode is the decision node of the plan graph: it parks the acceptance on input for the
+// maintainer's answers to its items, which decide takes as events on it.
+export const decisionNode: Node = {
+  run: (ctx) => {
+    const record = ctx.record as unknown as PlanRecord
+    return Promise.resolve({ outcome: 'input', note: waiting(record.acceptance?.items ?? []) })
+  },
 }
 
 // refresh moves the acceptance's worktree to the base as origin has it now, so a check run again judges
@@ -284,11 +294,13 @@ async function refresh(record: PlanRecord, fake: boolean) {
   }
 }
 
-// recheck checks a spec again whose acceptance failed or was stopped, before any answer was written.
+// recheck checks a spec again whose acceptance failed or was stopped, before any answer was written: the
+// event check on the node it stands on enters gather again.
 export function recheck(project: Project, rt: Runtime, id: string): PlanRecord {
   const r = acceptanceOf(rt.stateDir, id)
   if (r.state !== 'failed') throw new Refusal(`the acceptance of #${r.issue} is ${r.state}; only a failed one checks again`, 409)
-  return check(r, project, rt)
+  const stage = r as unknown as StageRecord
+  return (advance(graphOf(stage), planAt(r), { outcome: 'check' }, stage, project, rt) as PlanRecord | undefined) ?? r
 }
 
 export type Decision = { item: string } & ItemAnswer
@@ -374,12 +386,18 @@ function closing(spec: number, a: Acceptance): string {
 // deviation is posted on the spec. With a gap ticket the spec stays open; with nothing left open it
 // closes with its closing comment. The answers may come in batches: the items left wait for the next. A
 // write that is refused keeps what was written before it, and the same answers sent again go on from there.
-export function decide(project: Project, stateDir: string, gh: string, id: string, decisions: Decision[]): Promise<PlanRecord> {
-  const r = acceptanceOf(stateDir, id)
-  return held(project, `#${r.issue}`, () => decideHeld(project, stateDir, gh, id, decisions))
+// Each batch written is an event on the decision node: left, gaps or closed.
+export function decide(project: Project, rt: Runtime, id: string, decisions: Decision[]): Promise<PlanRecord> {
+  const r = acceptanceOf(rt.stateDir, id)
+  return held(project, `#${r.issue}`, async () => {
+    const { outcome, note } = await decideHeld(project, rt.stateDir, rt.gh, id, decisions)
+    const now = acceptanceOf(rt.stateDir, id)
+    const stage = now as unknown as StageRecord
+    return (advance(graphOf(stage), 'decision', { outcome, note }, stage, project, rt) as PlanRecord | undefined) ?? now
+  })
 }
 
-async function decideHeld(project: Project, stateDir: string, gh: string, id: string, decisions: Decision[]): Promise<PlanRecord> {
+async function decideHeld(project: Project, stateDir: string, gh: string, id: string, decisions: Decision[]): Promise<{ outcome: 'left' | 'gaps' | 'closed'; note: string }> {
   const r = acceptanceOf(stateDir, id)
   const spec = r.issue as number
   const a = r.acceptance
@@ -456,13 +474,15 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
   const left = items.filter((i) => i.verdict !== 'met' && !i.written)
   if (left.length > 0) {
     const note = `${left.length} item(s) left to answer: ${left.map((i) => i.id).join(', ')}; answer each in the process view`
-    return (update(stateDir, id, { note, acceptance: { ...a, items } } as Partial<PlanRecord>) as PlanRecord | undefined) ?? r
+    update(stateDir, id, { acceptance: { ...a, items } } as Partial<PlanRecord>)
+    return { outcome: 'left', note }
   }
   const gaps = items.flatMap((i) => (i.written?.startsWith('#') ? [Number(i.written.slice(1))] : []))
   if (items.some((i) => i.answer?.answer === 'gap')) {
     const note = `${gaps.length} gap ticket(s) ${gaps.map((g) => `#${g}`).join(' ')}: #${spec} stays open, and its acceptance runs again once they are closed; finish this process`
     event(stateDir, id, { event: 'acceptance-answered', gaps, closed: false })
-    return (update(stateDir, id, { note, unseen: false, acceptance: { ...a, items, gaps } } as Partial<PlanRecord>) as PlanRecord | undefined) ?? r
+    update(stateDir, id, { acceptance: { ...a, items, gaps } } as Partial<PlanRecord>)
+    return { outcome: 'gaps', note }
   }
   const done = { ...a, items }
   try {
@@ -481,5 +501,6 @@ async function decideHeld(project: Project, stateDir: string, gh: string, id: st
   }
   const note = `#${spec} closed: nothing is left open; finish this process`
   event(stateDir, id, { event: 'acceptance-answered', gaps: [], closed: true })
-  return (update(stateDir, id, { note, unseen: false, acceptance: { ...done, closed: true } } as Partial<PlanRecord>) as PlanRecord | undefined) ?? r
+  update(stateDir, id, { acceptance: { ...done, closed: true } } as Partial<PlanRecord>)
+  return { outcome: 'closed', note }
 }

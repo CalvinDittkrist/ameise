@@ -7,16 +7,16 @@ import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { address, defaults, readConfig, writeConfig } from './config.js'
 import { board, type ProjectBoard } from './board.js'
 import { abandon, abandonRequest, adopt, adoptRequest, claim, claimRequest, projectPath, resumable } from './claim.js'
-import { check, decide, decideRequest, recheck } from './acceptance.js'
-import { accept, merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
+import { decide, decideRequest, recheck } from './acceptance.js'
+import { merge, mergeRequest, release, releaseRequest, specRequest } from './actions.js'
 import { notify } from './notify.js'
 import { claimRuntime, type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './conversation.js'
 import { recover } from './running.js'
-import { type Announce, answer, begin, hold, type Runtime, say } from './session.js'
+import { type Announce, answer, hold, type Runtime, say } from './session.js'
 import { compactAt } from './settings.js'
 import { finishHunt, hunt, resumableHunt } from './hunt.js'
-import { capture, captureRequest, finish, plan, planRequest } from './plan.js'
+import { capture, captureRequest, finish, openPlan, planRequest } from './plan.js'
 import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
 import { open } from './terminal.js'
 import { enter, resumeAt } from './engine.js'
@@ -212,10 +212,9 @@ export function serve(o: Options): Server {
     const body = (await readJSON(req)) ?? {}
     const spec = specRequest(body)
     const project = await known(body)
-    const done = await accept(project, o.stateDir, o.gh, o.fake, spec)
-    log({ event: 'accept', project: project.path, issue: spec, branch: done.branch })
-    // The acceptance gathers its facts and runs its checker at once; the answer is its record as it runs.
-    const record = check(done, project, rt)
+    // The acceptance enters the gather node of the plan graph at once; the answer is its record as it runs.
+    const record = await openPlan(project, rt, { route: 'accept', spec })
+    log({ event: 'accept', project: project.path, issue: spec, branch: record.branch })
     send(res, 201, { record })
   }
 
@@ -235,20 +234,19 @@ export function serve(o: Options): Server {
     const r = recorded(body.id)
     const answers = decideRequest(body)
     const project = await known({ project: r.project })
-    const record = await decide(project, o.stateDir, o.gh, r.id, answers)
+    const record = await decide(project, rt, r.id, answers)
     log({ event: 'accept answered', process: r.id, issue: r.issue, gaps: record.acceptance?.gaps ?? [], closed: record.acceptance?.closed === true })
     send(res, 200, { record })
   }
 
-  // A plan opens a plan process from an idea, an issue or nothing and starts its planner session at once;
-  // the answer is its record as it runs.
+  // A plan opens a plan process from an idea, an issue or nothing and enters the planner node of the plan
+  // graph at once; the answer is its record as it runs.
   async function planned(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const request = planRequest(body)
     const project = await known(body)
-    const done = await plan(project, o.stateDir, o.gh, o.fake, request)
-    log({ event: 'planned', project: project.path, route: request.route, issue: done.issue, branch: done.branch })
-    const record = begin(done, project, rt)
+    const record = await openPlan(project, rt, request)
+    log({ event: 'planned', project: project.path, route: request.route, issue: record.issue, branch: record.branch })
     send(res, 201, { record })
   }
 

@@ -15,15 +15,23 @@
 // mapping of an old record (huntResume) reads a record without workflow, or one with the delivery
 // workflow, by its stage.
 //
+// The plan graph (planning.ts) is registered for a plan process: the planner node runs the planner
+// session, and the gather, checker and decision nodes run the acceptance of a spec. Its request reader
+// and open function start a plan or, with a spec, an acceptance (plan.ts), and its mapping names the node
+// a plan process goes on at after a restart (planResume).
+//
 // The standardize graph (standardize.ts) is registered for a standardize process: its nodes audit, apply
 // and finalize run the standardize steps and the auditor and apply sessions. A record of a release before
 // the graph is on the node its stage names (standardizeNode). A restart fails the node that ran, by the
 // interrupt rules of the registry of running processes (running.ts), so no resume enters this graph.
+import { checkerNode, decisionNode, gatherNode } from './acceptance.js'
 import { addressNode, ciFixNode, ciNode } from './ci.js'
 import { delivery, deliveryContext, deliveryResume, huntGraph, huntResume } from './delivery.js'
 import type { Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
 import { hunt, huntNode, huntRecordNode, huntRequest } from './hunt.js'
+import { openPlan, plannerNode, planStart } from './plan.js'
+import { planContext, planGraph, planResume } from './planning.js'
 import { prNode } from './pr.js'
 import { reviewFixNode, reviewNode } from './review.js'
 import { implementNode } from './session.js'
@@ -56,6 +64,17 @@ const registrations = (): Map<string, Registration> => {
         open: hunt,
         old: huntResume,
         nodes: { hunt: huntNode, 'hunt-record': huntRecordNode, ...tail },
+      },
+    ],
+    [
+      'plan',
+      {
+        machine: planGraph,
+        context: planContext,
+        old: planResume,
+        request: planStart,
+        open: openPlan,
+        nodes: { planner: plannerNode, gather: gatherNode, checker: checkerNode, decision: decisionNode },
       },
     ],
     [
