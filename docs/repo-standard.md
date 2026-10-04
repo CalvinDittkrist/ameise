@@ -57,7 +57,7 @@ The check fails on each of these and names it, such as `.claude/skills/<name>` o
 An `.mcp.json` only warns, because it stays when something uses it. Notes, planning material and dated reports need judgement and are left to the auditors.
 
 ## Instruction files
-`AGENTS.md` is the source; `CLAUDE.md` imports it with `@AGENTS.md`, because Claude Code reads `CLAUDE.md` and not `AGENTS.md` ([ADR 0007](adr/0007-agents-md-is-the-instruction-source.md)). Both stay under 200 lines.
+`AGENTS.md` is the source; `CLAUDE.md` imports it with `@AGENTS.md`, because Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Both stay under 200 lines.
 
 - A monorepo may keep one such pair per area (`services/api/AGENTS.md` and `services/api/CLAUDE.md`).
 - An area's pair loads only when an agent works there, and the check holds each pair to the same rules.
@@ -75,7 +75,7 @@ An ADR records a decision that holds today and is hard to reverse or surprising 
 - A comment or document cites an ADR that exists, or states the reason itself.
 
 ## Writing rules
-The rules for prose in documents, prompts and comments ([ADR 0048](adr/0048-writing-rules-are-part-of-the-standard-and-the-gate-checks-the-mechanical-ones.md)):
+These rules hold for prose in documents, prompts and comments. The check fails on the mechanical ones, because documents grew without a limit and every agent that loads one pays for it:
 
 - No em dash, in any text file.
 - A paragraph has at most 80 words; longer content becomes bullets.
@@ -102,7 +102,7 @@ The templates in `plugins/repo-standards/templates/` are the fixed form of each 
 Every repository has a `Makefile`, and `make check` runs everything CI gates on ([ADR 0008](adr/0008-make-check-is-the-single-gate.md)). Agents run `make check` instead of guessing a per-repository test command. CI runs it in a job named `check`, and `check` is the one required status check. A repository with several CI jobs keeps them parallel, each calling its own make target, and adds an aggregating job named `check`.
 
 ## GitHub workspace
-Set by an idempotent script that shows the difference first and keeps a snapshot of the previous state ([ADR 0011](adr/0011-github-workspace-configured-by-an-idempotent-script.md)).
+Set by an idempotent script that shows the difference first and keeps a snapshot of the previous state ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 
 - `workspace.sh` prints one `diff:` line per difference and changes nothing. The plugin's copy does only this.
 - The controller's `workspace.sh --apply` writes the previous state as JSON to a snapshot file, then makes exactly those changes.
@@ -115,7 +115,7 @@ Set by an idempotent script that shows the difference first and keeps a snapshot
 The standard settings:
 
 - Merges: squash only, PR title as commit title, branches deleted on merge; wiki and discussions off.
-- With `dev` plus `main`, merge commits are allowed too. Only the promotion pull request uses them, so `dev` stays an ancestor of `main` ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
+- With `dev` plus `main`, merge commits are allowed too. Only the promotion pull request uses them, so `dev` stays an ancestor of `main` ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 - One branch ruleset on `main`, and on `dev` when present. The rulesets are named `standard: main` and `standard: dev`.
 - The branch ruleset requires a pull request, zero approvals, resolved conversations and the check `check`, and allows no force push, no deletion and no bypass.
 - It requires linear history, except on `main` with `dev` plus `main`.
@@ -153,12 +153,12 @@ The rest is printed as `manual:` steps:
 ## Milestones and releases
 Milestones are named `vX.Y.Z` and their description states the goal. Tickets are attached to one when they are cut. The spec they refine belongs to the same milestone, so a release waits for its acceptance.
 
-A release is manual and closes a milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)):
+A release is manual and closes a milestone, so it never happens by accident and repositories that stage work on `dev` fit:
 
 - It refuses while the milestone has open issues.
 - In the two-level model it opens the promotion pull request from `dev` to `main`.
 - Then it tags, creates the GitHub release with generated notes and closes the milestone.
-- The promotion is merged with a merge commit, and the tag goes on that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
+- The promotion is merged with a merge commit, and the tag goes on that commit ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 
 Standardisation creates no milestone and closes only empty or orphaned open milestones. Empty ones have no issues. Orphaned ones have no open issues and a title that is not `vX.Y.Z`, so no release would ever close them.
 
@@ -175,7 +175,7 @@ It then opens one catalogue issue labelled `skill-candidate`, with one row per r
 ## Applying the findings
 The apply of the standardize process runs after the audit and refuses while a category with findings is pending. Every step finds what an earlier run created. So a run that stopped anywhere continues when started again, and a run on a conforming repository changes nothing. Rejected categories are left untouched and named at the end.
 
-Approval is per category, never per finding ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)):
+Approval is per category, never per finding, because a setting left out of an approval would be reported as drift on every run:
 
 - Within an approved category the run works through the `delete`, `replace` and `create` findings one by one, exactly as the report lists them.
 - `issue` findings become issues.
@@ -183,7 +183,7 @@ Approval is per category, never per finding ([ADR 0016](adr/0016-approval-is-per
 - `scaffold.sh` has templates for `agent-config`, `docs`, `tests-ci` and `workspace`. Approving one of them also creates every missing baseline file of it, listed or not.
 - Approving `agent-config` also brings `.claude/settings.json` to the template.
 
-Only a rejected category is left alone. So the report asks about a scaffolded category even when no auditor reported anything for it ([ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)):
+Only a rejected category is left alone. So the report asks about a scaffolded category even when no auditor reported anything for it, because otherwise its files would be scaffolded unasked:
 
 - Approving it creates its missing baseline files, and rejecting it keeps the apply phase out.
 - Leaving it unanswered scaffolds it as an approval would.
