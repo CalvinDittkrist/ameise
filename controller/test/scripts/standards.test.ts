@@ -533,6 +533,7 @@ test('each document fails over its word cap and is named with its count', () => 
   const s = box()
   scaffold(s)
   // Each document one word over its cap: the heading and the Status line count too, a code block does not.
+  nextFree(s, 2)
   s.write('docs/adr/0001-big.md', '# 0001. Big\n\nStatus: accepted\n\n' + paragraphs(247) + '```\n' + words(60, 'code') + '\n```\n')
   s.write('docs/architecture.md', '# Architecture\n\n' + paragraphs(2000))
   s.write('README.md', '# shop\n\n' + paragraphs(1200))
@@ -587,4 +588,148 @@ test('new-adr cuts a long title without a trailing hyphen', () => {
   scaffold(s)
   const r = s.run(join(standards, 'new-adr.sh'), ['make check is the single gate and check the single required status check'])
   expect(r.stdout).toContain('created: docs/adr/0001-make-check-is-the-single-gate-and-check-the-single-required.md')
+})
+
+test('new-adr takes the next free number after a deletion and raises it', () => {
+  const s = box()
+  scaffold(s)
+  s.run(join(standards, 'new-adr.sh'), ['Use', 'Postgres'])
+  s.run(join(standards, 'new-adr.sh'), ['Drop Redis'])
+  s.remove('docs/adr/0002-drop-redis.md')
+  const r = s.run(join(standards, 'new-adr.sh'), ['Use Kafka'])
+  expect(r.code, r.stderr).toBe(0)
+  expect(r.stdout).toContain('created: docs/adr/0003-use-kafka.md')
+  expect(s.read('docs/adr/README.md')).toContain('\nNext free number: 0004\n')
+  expect(r.stderr).toBe('')
+})
+
+test('new-adr warns on a full set and names the fix', () => {
+  const s = box()
+  scaffold(s)
+  for (const t of ['One', 'Two']) expect(s.run(join(standards, 'new-adr.sh'), [t], { env: { WF_ADR_MAX: '2' } }).stderr).toBe('')
+  const r = s.run(join(standards, 'new-adr.sh'), ['Three'], { env: { WF_ADR_MAX: '2' } })
+  expect(r.code).toBe(0)
+  expect(r.stdout).toContain('created: docs/adr/0003-three.md')
+  expect(r.stderr).toContain('warn: 3 ADRs (>2); remove one, or move it as a rule with its reason into the document of its area')
+})
+
+// The ADR rule: the check fails on each finding, and warns instead with WF_ADR_LENIENT set. References to an ADR are
+// built at run time, so this file never trips the check of this repository.
+const num = (n: number) => String(n).padStart(4, '0')
+const ADR = 'ADR'
+// nextFree sets the index's next free number.
+function nextFree(s: Sandbox, n: number) {
+  s.write('docs/adr/README.md', s.read('docs/adr/README.md').replace(/^Next free number: \d{4}$/m, `Next free number: ${num(n)}`))
+}
+// decision writes ADR n with the given status and further lines.
+function decision(s: Sandbox, n: number, status = 'Status: accepted', more = '') {
+  s.write(`docs/adr/${num(n)}-d${n}.md`, `# ${num(n)}. D${n}\n\n${status}\n${more}\n## Decision\nA decision.\n`)
+}
+const adrCheck = (s: Sandbox, env: Record<string, string> = {}) => check(s, undefined, env)
+// adrRule expects the findings to fail without the lenient variable and to warn with it.
+function adrRule(s: Sandbox, findings: string[], env: Record<string, string> = {}) {
+  let r = adrCheck(s, env)
+  expect(r.code, r.stdout).toBe(1)
+  for (const f of findings) expect(r.stdout).toContain(`fail: ${f}\n`)
+  r = adrCheck(s, { ...env, WF_ADR_LENIENT: '1' })
+  expect(r.code, r.stdout).toBe(0)
+  for (const f of findings) expect(r.stdout).toContain(`warn: ${f}\n`)
+  expect(r.stdout).not.toContain('fail: ')
+}
+
+test('an empty ADR set passes without a warning', () => {
+  const s = box()
+  scaffold(s)
+  const r = adrCheck(s)
+  expect(r.code, r.stdout).toBe(0)
+  expect(r.stdout).toContain('ok: ADRs: 0 of at most 20\n')
+  expect(r.stdout).toContain('ok: every ADR reference has its file\n')
+  expect(r.stdout).not.toMatch(/^warn: .*ADR/im)
+})
+
+test('the ADRs may not outnumber WF_ADR_MAX, 20 by default, and an invalid value fails', () => {
+  const s = box()
+  scaffold(s)
+  for (let n = 1; n <= 20; n++) decision(s, n)
+  nextFree(s, 22)
+  expect(adrCheck(s).stdout).toContain('ok: ADRs: 20 of at most 20\n')
+  decision(s, 21)
+  const full = '21 ADRs (>20); remove one, or move it as a rule with its reason into the document of its area'
+  adrRule(s, [full])
+  expect(adrCheck(s, { WF_ADR_MAX: '21' }).code).toBe(0)
+  adrRule(s, ['21 ADRs (>5); remove one, or move it as a rule with its reason into the document of its area'], { WF_ADR_MAX: '5' })
+  for (const bad of ['abc', '0', '-3', '2x'])
+    adrRule(s, [`WF_ADR_MAX=${bad} is not a positive integer; set it to the most ADRs the repository keeps, such as 20`], { WF_ADR_MAX: bad })
+})
+
+test('a status is exactly proposed or accepted, and an ADR names no relation', () => {
+  const s = box()
+  scaffold(s)
+  nextFree(s, 10)
+  decision(s, 1, 'Status: proposed')
+  decision(s, 2, 'Status: accepted  ')
+  expect(adrCheck(s).code).toBe(0)
+  decision(s, 3, 'Status: accepted, amended')
+  decision(s, 4, 'Status: superseded')
+  decision(s, 5, 'Date: today')
+  decision(s, 6, 'Status: accepted', `Amended by: [${num(7)}](${num(7)}-d7.md)\nSupersedes: nothing\n`)
+  decision(s, 7)
+  adrRule(s, [
+    `docs/adr/0003-d3.md has "Status: accepted, amended"; a status is exactly proposed or accepted`,
+    `docs/adr/0004-d4.md has "Status: superseded"; a status is exactly proposed or accepted`,
+    'docs/adr/0005-d5.md has no Status line; add Status: proposed or Status: accepted',
+    'docs/adr/0006-d6.md:4: a relation line; an ADR names no relation to another, edit or delete the other ADR instead',
+    'docs/adr/0006-d6.md:5: a relation line; an ADR names no relation to another, edit or delete the other ADR instead',
+  ])
+})
+
+test('an ADR number lies below the index\'s next free number, and the index carries one', () => {
+  const s = box()
+  scaffold(s)
+  decision(s, 1)
+  decision(s, 2)
+  nextFree(s, 3)
+  expect(adrCheck(s).code).toBe(0)
+  nextFree(s, 2)
+  adrRule(s, ['docs/adr/0002-d2.md: number 0002 is at or above the next free number 0002; raise Next free number in docs/adr/README.md'])
+  nextFree(s, 1)
+  adrRule(s, [
+    'docs/adr/0001-d1.md: number 0001 is at or above the next free number 0001; raise Next free number in docs/adr/README.md',
+    'docs/adr/0002-d2.md: number 0002 is at or above the next free number 0001; raise Next free number in docs/adr/README.md',
+  ])
+  s.write('docs/adr/README.md', s.read('docs/adr/README.md').replace(/^Next free number: .*\n/m, ''))
+  adrRule(s, ['docs/adr/README.md has no line Next free number: NNNN; add it above the table, one above the highest number ever used'])
+})
+
+test('a reference to an ADR with no file fails, and URLs with a scheme and changelogs are not read', () => {
+  const s = box()
+  scaffold(s)
+  decision(s, 1)
+  nextFree(s, 10)
+  const live = `${num(1)}-d1.md`
+  const gone = `${num(9)}-gone.md`
+  // Live references in every form: a relative link, a link definition, a link inside docs/adr, the bare form.
+  s.write('docs/notes.md', `See [the rule](adr/${live}#decision) and ${ADR} ${num(1)}.\n\n[rule]: ./adr/${live}\n`)
+  s.write('src/main.go', `// See [${ADR} ${num(1)}].\n//\n// [${ADR} ${num(1)}]: ../docs/adr/${live}\npackage main\n`)
+  s.write('docs/adr/0001-d1.md', s.read(`docs/adr/${live}`) + `\nSee [itself](${live}).\n`)
+  // Not read: a URL with a scheme, a changelog, an ${ADR}-like word, a link to a numbered file outside docs/adr.
+  s.write('docs/links.md', `[old](https://example.com/docs/adr/${gone}) https://example.com/${ADR}-${num(9)} x${ADR} ${num(9)} [n](notes/${gone})\n`)
+  s.write('CHANGELOG.md', `- dropped ${ADR} ${num(9)}, see [it](docs/adr/${gone})\n`)
+  s.write('pkg/CHANGELOG', `- ${ADR} ${num(8)}\n`)
+  let r = adrCheck(s)
+  expect(r.code, r.stdout).toBe(0)
+  expect(r.stdout).toContain('ok: every ADR reference has its file\n')
+  s.write('docs/dangling.md', `Read [this](adr/${gone}).\n\n[def]: adr/${gone}\n\nAs ${ADR} ${num(9)} says.\n`)
+  s.write('src/app.go', `// [${ADR} ${num(8)}]: ../docs/adr/${num(8)}-x.md\npackage main\n`)
+  adrRule(s, [
+    `docs/dangling.md:1: links docs/adr/${gone}, an ADR with no file; link an ADR that exists or state the reason`,
+    `docs/dangling.md:3: links docs/adr/${gone}, an ADR with no file; link an ADR that exists or state the reason`,
+    `docs/dangling.md:5: cites ${ADR} ${num(9)}, which has no file; cite an ADR that exists or state the reason`,
+    `src/app.go:1: links docs/adr/${num(8)}-x.md, an ADR with no file; link an ADR that exists or state the reason`,
+    `src/app.go:1: cites ${ADR} ${num(8)}, which has no file; cite an ADR that exists or state the reason`,
+  ])
+  r = adrCheck(s)
+  expect(r.stdout).not.toContain('docs/links.md')
+  expect(r.stdout).not.toContain('CHANGELOG')
+  expect(r.stdout).not.toContain('ok: every ADR reference has its file')
 })
