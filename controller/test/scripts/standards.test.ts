@@ -658,7 +658,7 @@ test('the ADRs may not outnumber WF_ADR_MAX, 20 by default, and an invalid value
   adrRule(s, [full])
   expect(adrCheck(s, { WF_ADR_MAX: '21' }).code).toBe(0)
   adrRule(s, ['21 ADRs (>5); remove one, or move it as a rule with its reason into the document of its area'], { WF_ADR_MAX: '5' })
-  for (const bad of ['abc', '0', '-3', '2x'])
+  for (const bad of ['', 'abc', '0', '-3', '2x'])
     adrRule(s, [`WF_ADR_MAX=${bad} is not a positive integer; set it to the most ADRs the repository keeps, such as 20`], { WF_ADR_MAX: bad })
 })
 
@@ -713,15 +713,17 @@ test('a reference to an ADR with no file fails, and URLs with a scheme and chang
   s.write('src/main.go', `// See [${ADR} ${num(1)}].\n//\n// [${ADR} ${num(1)}]: ../docs/adr/${live}\npackage main\n`)
   s.write('docs/adr/0001-d1.md', s.read(`docs/adr/${live}`) + `\nSee [itself](${live}).\n`)
   // Not read: a URL with a scheme, a changelog, an ${ADR}-like word, a link to a numbered file outside docs/adr.
-  s.write('docs/links.md', `[old](https://example.com/docs/adr/${gone}) https://example.com/${ADR}-${num(9)} x${ADR} ${num(9)} [n](notes/${gone})\n`)
+  s.write('docs/links.md', `[old](https://example.com/docs/adr/${gone}) https://example.com/${ADR}-${num(9)} x${ADR} ${num(9)} [n](notes/${gone}) mailto:${ADR}-${num(9)}@example.com urn:${ADR}-${num(9)}\n`)
   s.write('CHANGELOG.md', `- dropped ${ADR} ${num(9)}, see [it](docs/adr/${gone})\n`)
   s.write('pkg/CHANGELOG', `- ${ADR} ${num(8)}\n`)
   let r = adrCheck(s)
   expect(r.code, r.stdout).toBe(0)
   expect(r.stdout).toContain('ok: every ADR reference has its file\n')
-  s.write('docs/dangling.md', `Read [this](adr/${gone}).\n\n[def]: adr/${gone}\n\nAs ${ADR} ${num(9)} says.\n`)
+  s.write('docs/dangling.md', `Read [this](adr/${gone}?plain=1).\n\n[def]: adr/${gone}\n\nAs ${ADR} ${num(9)} says.\n`)
   s.write('src/app.go', `// [${ADR} ${num(8)}]: ../docs/adr/${num(8)}-x.md\npackage main\n`)
+  s.write('-notes.md', `As ${ADR} ${num(7)} says.\n`)
   adrRule(s, [
+    `-notes.md:1: cites ${ADR} ${num(7)}, which has no file; cite an ADR that exists or state the reason`,
     `docs/dangling.md:1: links docs/adr/${gone}, an ADR with no file; link an ADR that exists or state the reason`,
     `docs/dangling.md:3: links docs/adr/${gone}, an ADR with no file; link an ADR that exists or state the reason`,
     `docs/dangling.md:5: cites ${ADR} ${num(9)}, which has no file; cite an ADR that exists or state the reason`,

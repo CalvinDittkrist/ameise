@@ -69,7 +69,7 @@ skill-candidate|C5DEF5|A removed skill that could move into the marketplace'
 # The ADR rule's shared parts: check.sh enforces the rule, new-adr.sh warns on a full set.
 # adr_max: the most ADRs a repository keeps, WF_ADR_MAX or 20. Prints the value and returns 1 when it is not a
 # positive integer.
-adr_max() { local m=${WF_ADR_MAX:-20}; printf '%s' "$m"; case "$m" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
+adr_max() { local m=${WF_ADR_MAX-20}; printf '%s' "$m"; case "$m" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 # adr_next_free <index>: the number of the index's line "Next free number: NNNN"; empty when the index has none.
 adr_next_free() {
   [ -f "$1" ] || return 0
@@ -80,7 +80,7 @@ adr_next_free() {
 adr_refs() {
   local awk_file
   awk_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/adr-refs.awk"
-  grep -Eiv '(^|/)changelog[^/]*$' | grep . | (cd "$1" && tr '\n' '\0' \
+  grep -Eiv '(^|/)changelog[^/]*$' | grep . | sed 's|^|./|' | (cd "$1" && tr '\n' '\0' \
     | xargs -0 grep -IlE -e 'ADR[ -]?[0-9]{4}' -e '[0-9]{4}-[^/[:space:]]*\.md' -- 2>/dev/null \
     | tr '\n' '\0' | xargs -0 awk -v adrs="$2" -f "$awk_file")
 }
