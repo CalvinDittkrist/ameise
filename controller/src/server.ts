@@ -20,7 +20,7 @@ import { acceptStart, capture, captureRequest, finish, planRequest } from './pla
 import { apply, applyRequest, auditAgain, finalize, finishStandardize } from './standardize.js'
 import { open } from './terminal.js'
 import { enter, type Opening, resumeAt } from './engine.js'
-import { graphOf, graphs, startOf } from './graphs.js'
+import { graphOf, graphs, parkedAt, startOf } from './graphs.js'
 import { followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 import type { SessionRecord } from './records.js'
@@ -337,7 +337,7 @@ export function serve(o: Options): Server {
     const record = recorded(body.id)
     const text = typeof body.text === 'string' ? body.text.trim() : ''
     if (text === '') throw new Refusal('text is empty; write the message to send')
-    const how = await say(record, text, rt, () => known({ project: record.project }))
+    const how = await say(record, text, rt, () => known({ project: record.project }), parkedAt)
     send(res, 200, { id: record.id, delivered: how })
   }
 

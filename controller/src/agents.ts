@@ -6,10 +6,13 @@
 // the spec checker and the apply session run as no agent, on their brief alone. A plugin agent is named by
 // its Agent SDK name; its prompt, tools, model and effort stay in the plugin's agent file.
 //
-// This module imports no stage module, so each stage imports it without a cycle.
+// This module imports no stage module, so each stage imports it without a cycle. It reads the report
+// schema of a work session from the session runtime (session.ts), which imports this module for its types
+// alone.
 import type { JsonSchemaOutputFormat, Options } from '@anthropic-ai/claude-agent-sdk'
 import { confidences, sections, verdicts } from './checkitems.js'
 import type { Finding, Fix } from './records.js'
+import { report } from './session.js'
 import type { Category } from './standard/lib.js'
 
 // Ended is how a session ended: the state and the note its process ends with. A planner session that
@@ -54,18 +57,6 @@ export interface AgentRun {
   // in the auto mode and with every tool. A run that does not write runs in the default mode with the
   // read-only tools denied.
   writes: boolean
-}
-
-// The result a session of a work process reports through, as a JSON schema.
-export const report = {
-  type: 'object',
-  properties: {
-    outcome: { type: 'string', enum: ['complete', 'blocked'], description: 'complete when the task of the brief is done and committed, blocked when it cannot be done without a person' },
-    commits: { type: 'array', items: { type: 'string' }, description: 'the commits of the session, each a short hash and a subject; empty when it committed nothing' },
-    message: { type: 'string', description: 'for complete, one line on what was done; for blocked, the question a person has to answer' },
-  },
-  required: ['outcome', 'commits', 'message'],
-  additionalProperties: false,
 }
 
 // The result a reviewer reports through: its verdict and its findings.

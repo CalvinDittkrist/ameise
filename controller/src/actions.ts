@@ -6,6 +6,7 @@ import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { run } from './exec.js'
 import { checksOf, ghApi, issueFromBranch, labels, recordFiles, worktrees, type GitHubIssue } from './board.js'
+import { version } from './github.js'
 import { held, slug } from './claim.js'
 import { addWorktree, exists, fetch, git } from './git.js'
 import { type Project, Refusal } from './project.js'
@@ -206,9 +207,6 @@ interface Milestone {
 export type Released =
   | { status: 'released'; milestone: string; model: 'main' | 'dev+main'; target: string; release: string; promotion: string | null }
   | { status: 'waiting'; milestone: string; model: 'dev+main'; promotion: string; reason: string }
-
-// The shape of a milestone a release tags, as the orchestrator's release takes it.
-export const version = /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 // releaseRequest reads the milestone of a release's body, or refuses it.
 export function releaseRequest(body: Record<string, unknown>): string {

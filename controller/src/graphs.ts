@@ -30,6 +30,10 @@
 // So a graph added here is started with no change to the server.
 // Delivery opens a claim, hunt a hunt, standardize a standardize, and plan a plan or, with a spec, an acceptance.
 //
+// The graph registry, the server and the entry point are the modules that import graphs and nodes. The
+// engine and the session runtime import none, and are handed them as data: a registration, or the graph
+// and node a message is an event on (parkedAt).
+//
 // The graph read (GET /api/graphs) answers every graph of the registry in its order, each mapped by the
 // engine (describe) into nodes and edges.
 import { claimRequest, openClaim } from './claim.js'
@@ -40,10 +44,11 @@ import { describe, type Graph, type Registration } from './engine.js'
 import { gateFixNode, gateNode } from './gate.js'
 import { huntNode, huntRecordNode, huntRequest, openHunt } from './hunt.js'
 import { plannerNode, planStart, startPlan } from './plan.js'
-import { planContext, planGraph, planResume } from './planning.js'
+import { planAt, planContext, planGraph, planResume } from './planning.js'
 import { prNode } from './pr.js'
 import { reviewFixNode, reviewNode } from './review.js'
-import { implementNode } from './session.js'
+import type { PlanRecord, SessionRecord, StageRecord } from './records.js'
+import { implementNode, type Parked } from './session.js'
 import { Refusal } from './project.js'
 import { applyNode, auditNode, finalizeNode, openStandardize, standardizeContext, standardizeGraph, standardizeRequest } from './standardize.js'
 
@@ -117,6 +122,21 @@ export function graphOf(record: { kind: string }): Registration {
   if (!g) throw new Error(`no process graph is registered for a ${record.kind} process`)
   return g
 }
+
+// parkedNode is the node of the delivery graph a message to a parked work process is an event on. Until
+// the record's node decides it, it is read from the stage and the fixing flag.
+function parkedNode(record: StageRecord): string {
+  if (record.stage === 'gate' || record.stage === 'review' || record.stage === 'ci') return record.fixing ? `${record.stage}-fix` : record.stage
+  return record.stage
+}
+
+// parkedAt is the graph and the node a message to a parked process is an event on: the node a plan
+// process stands on (planAt), else the node of its stage. The server hands it to the session runtime's
+// say (session.ts), which imports no graph.
+export const parkedAt: Parked = (record: SessionRecord) => ({
+  graph: graphOf(record),
+  node: record.kind === 'plan' ? planAt(record as PlanRecord) : parkedNode(record as StageRecord),
+})
 
 // A start is a registration that a process is started on: its request reader and its open function.
 export type Start = Required<Pick<Registration, 'request' | 'open'>>

@@ -37,15 +37,18 @@
 // plugins and agent of a session. The registry of the running processes, with stop, stop all and recover, is running.ts; the
 // settings of a session, its runtime environment, the knobs, the rules an allowance grants and the hook
 // against a direct GitHub write are settings.ts.
+//
+// The imports run one way: this module imports no graph, no node, no agent run and no stage module but
+// their types, and no module it imports reaches one. A message to a parked process takes its graph and
+// node from the caller of say (parkedAt in graphs.ts). The report schema of a work session is held here,
+// and the agent runs (agents.ts) read it from here. The lint and test/imports.test.ts hold this.
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import { type Addressed, type AgentRun, type Ended, report } from './agents.js'
+import type { Addressed, AgentRun, Ended } from './agents.js'
 import { brief, safeRef } from './briefs.js'
-import { advance, type Entry, type Node, type NodeContext, type Outcome } from './engine.js'
-import { graphOf } from './graphs.js'
-import { planAt } from './planning.js'
+import { advance, type Entry, type Node, type NodeContext, type Outcome, type Registration } from './engine.js'
 import { githubServer, githubTools } from './github.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from './project.js'
@@ -89,6 +92,18 @@ export const sessionAgent = (record: SessionRecord): 'planner' | 'worker' | unde
 // plugin of its agent first, then repo-standards, whose skills every session may call. The marketplace
 // copies are switched off (see workSettings), so these are the only copies it loads.
 export const sessionPlugins = (dir: string, record: SessionRecord): string[] => [join(dir, agentOf(record)), join(dir, 'repo-standards')]
+
+// The result a session of a work process reports through, as a JSON schema.
+export const report = {
+  type: 'object',
+  properties: {
+    outcome: { type: 'string', enum: ['complete', 'blocked'], description: 'complete when the task of the brief is done and committed, blocked when it cannot be done without a person' },
+    commits: { type: 'array', items: { type: 'string' }, description: 'the commits of the session, each a short hash and a subject; empty when it committed nothing' },
+    message: { type: 'string', description: 'for complete, one line on what was done; for blocked, the question a person has to answer' },
+  },
+  required: ['outcome', 'commits', 'message'],
+  additionalProperties: false,
+}
 
 // The result a fix session of the review reports through: the report, and what it did with each finding.
 const fixReport = {
@@ -262,18 +277,16 @@ export const implementNode: Node = {
   run: (ctx) => talk(ctx),
 }
 
-// parkedNode is the node of the delivery graph a message to a parked work process is an event on. Until
-// the record's node decides it, it is read from the stage and the fixing flag.
-function parkedNode(record: StageRecord): string {
-  if (record.stage === 'gate' || record.stage === 'review' || record.stage === 'ci') return record.fixing ? `${record.stage}-fix` : record.stage
-  return record.stage
-}
+// Parked is the graph and the node a message to a parked process is an event on. The caller of say reads
+// it from the registry of the graphs (graphs.ts), which the session runtime does not import.
+export type Parked = (record: SessionRecord) => { graph: Registration; node: string }
 
 // say writes the maintainer's message to the process's session and answers where it went.
 // A question that waits takes it as its answer. A session that runs takes it as its next turn.
 // A message to a process whose session has ended is an event on its node of its graph, whose edge
-// resumes a session by its id with the message. A planner resumes its session directly.
-export async function say(record: SessionRecord, text: string, rt: Runtime, project: () => Promise<Project>): Promise<'answered' | 'sent' | 'resumed'> {
+// resumes a session by its id with the message. A planner resumes its session directly. parked names
+// that graph and node.
+export async function say(record: SessionRecord, text: string, rt: Runtime, project: () => Promise<Project>, parked: Parked): Promise<'answered' | 'sent' | 'resumed'> {
   const id = record.id
   const s = runningOf(id)
   if (s?.busy && !s.over) throw new Refusal(`${s.busy} and no session runs to write to; write once they have ended`, 409)
@@ -291,22 +304,23 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   if (s) await s.done
   const p = await project()
   // Another message may have resumed the session meanwhile; this one is then its next turn.
-  if (busy(id)) return say(record, text, rt, project)
+  if (busy(id)) return say(record, text, rt, project, parked)
   const now = readRecord(rt.stateDir, id)
   if (!now) throw new Refusal(`${id} is not a process of this machine`, 404)
   if (!now.session_id) throw new Refusal('the process has no session to write to yet; wait until its session has started', 409)
   // A standardize process runs its apply session once per apply, which an apply again starts afresh.
   if (now.kind === 'standardize') throw new Refusal('the apply session of this standardize process has ended; apply again to start it afresh', 409)
   event(rt.stateDir, id, { event: 'message', text })
+  const at = parked(now)
   if (now.kind === 'plan') {
-    advance(graphOf(now), planAt(now), { outcome: 'message', message: text }, now as unknown as StageRecord, p, rt)
+    advance(at.graph, at.node, { outcome: 'message', message: text }, now as unknown as StageRecord, p, rt)
     return 'resumed'
   }
   // A follow-up to a ready process is new work on it: its session goes on as its first session, implement
   // or hunt, whose complete runs the gate and a review with every reviewer again. A message to a process
   // the ci stage left blocked has its session take the review on, a fix session of the ci stage.
   const ready = now.state === 'ready' && now.stage !== firstStage(now)
-  advance(graphOf(now), parkedNode(now), { outcome: 'message', ready, message: text }, now, p, rt)
+  advance(at.graph, at.node, { outcome: 'message', ready, message: text }, now, p, rt)
   return 'resumed'
 }
 

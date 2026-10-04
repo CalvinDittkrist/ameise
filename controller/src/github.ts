@@ -8,11 +8,17 @@
 //
 // Every call goes through gh api with the endpoint last, so the scripted gh of fake mode answers it by
 // its endpoint.
+//
+// The tools import no stage module and no module that reaches one, so the session runtime (session.ts)
+// imports them without a cycle. The shape of a milestone's version is held here, and the release
+// (actions.ts) reads it from here.
 import { createSdkMcpServer, type McpSdkServerConfigWithInstance, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { version } from './actions.js'
 import { labels as named, pages } from './board.js'
 import { run } from './exec.js'
+
+// The shape of a milestone a release tags, as the orchestrator's release takes it.
+export const version = /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 export interface Label {
   name: string
