@@ -61,9 +61,8 @@ else bad "no CI job named check in .github/workflows; add one that runs make che
 if [ -f "$root/docs/architecture.md" ]; then
   if [ "$(lines "$root/docs/architecture.md")" -ge 15 ]; then ok "docs/architecture.md"; else bad "docs/architecture.md is a stub ($(lines "$root/docs/architecture.md") lines)"; fi
 else bad "docs/architecture.md missing"; fi
-# The ADR rule (docs/repo-standard.md#adrs): at most WF_ADR_MAX ADRs, a plain status, no relation lines, numbers below
-# the index's next free number, and no reference to an ADR without a file. With WF_ADR_LENIENT set, which the check
-# at the end of a standardisation sets, each finding warns instead, so reducing the set becomes an issue of its own.
+# The ADR rule is in docs/repo-standard.md#adrs. With WF_ADR_LENIENT set, each finding warns instead of failing.
+# The check at the end of a standardisation sets it, so reducing the set becomes an issue of its own.
 adr() { if [ -n "${WF_ADR_LENIENT:-}" ]; then warn "$@"; else bad "$@"; fi; }
 if [ -d "$root/docs/adr" ]; then
   idx="$root/docs/adr/README.md"
@@ -71,14 +70,11 @@ if [ -d "$root/docs/adr" ]; then
   adrs=$(cd "$root/docs/adr" && for f in [0-9][0-9][0-9][0-9]-*.md; do [ -f "$f" ] && printf '%s\n' "$f"; done)
   nums=$(printf '%s\n' "$adrs" | sed -nE 's#^([0-9]{4})-.*#\1#p' | sort)
   count=$(printf '%s\n' "$nums" | grep -c . || true)
-  max=${WF_ADR_MAX:-20}
-  case "$max" in
-    '' | *[!0-9]* | 0*) adr "WF_ADR_MAX=$max is not a positive integer; set it to the most ADRs the repository keeps, such as 20" ;;
-    *) if [ "$count" -gt "$max" ]; then adr "$count ADRs (>$max); remove one, or move it as a rule with its reason into the document of its area"
-       else ok "ADRs: $count of at most $max"; fi ;;
-  esac
+  if ! max=$(adr_max); then adr "WF_ADR_MAX=$max is not a positive integer; set it to the most ADRs the repository keeps, such as 20"
+  elif [ "$count" -gt "$max" ]; then adr "$count ADRs (>$max); remove one, or move it as a rule with its reason into the document of its area"
+  else ok "ADRs: $count of at most $max"; fi
   dups=$(printf '%s\n' "$nums" | uniq -d); [ -z "$dups" ] || adr "duplicate ADR numbers: $(printf '%s' "$dups" | tr '\n' ' ')"
-  next=""; [ -f "$idx" ] && next=$(sed -nE 's/^Next free number: ([0-9]{4})[[:space:]]*$/\1/p' "$idx" | head -n1)
+  next=$(adr_next_free "$idx")
   [ -f "$idx" ] && [ -z "$next" ] && adr "docs/adr/README.md has no line Next free number: NNNN; add it above the table, one above the highest number ever used"
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -96,36 +92,7 @@ if [ -d "$root/docs/adr" ]; then
       adr "$p: number $n is at or above the next free number $next; raise Next free number in docs/adr/README.md"
     fi
   done <<<"$adrs"
-  # References: a relative Markdown link or a link definition to an ADR file, and the bare form ADR plus four digits.
-  # URLs with a scheme and changelogs are not read.
-  refs=$(printf '%s\n' "$all" | grep -Eiv '(^|/)changelog[^/]*$' | grep . | (cd "$root" && tr '\n' '\0' \
-    | xargs -0 grep -IlE -e 'ADR[ -]?[0-9]{4}' -e '[0-9]{4}-[^/[:space:]]*\.md' -- 2>/dev/null) \
-    | (cd "$root" && tr '\n' '\0' | xargs -0 awk -v adrs="$adrs" '
-    BEGIN { n = split(adrs, a, "\n"); for (i = 1; i <= n; i++) { have["docs/adr/" a[i]] = 1; num[substr(a[i], 1, 4)] = 1 } }
-    function norm(p,   parts, out, n, i, k, s) {
-      n = split(p, parts, "/"); k = 0
-      for (i = 1; i <= n; i++) { s = parts[i]; if (s == "" || s == ".") continue; if (s == "..") { if (k == 0) return ""; k--; continue }; out[++k] = s }
-      p = ""; for (i = 1; i <= k; i++) p = p (i > 1 ? "/" : "") out[i]; return p
-    }
-    function target(t,   d, p) {
-      sub(/^</, "", t); sub(/>.*$/, "", t); sub(/#.*$/, "", t)
-      if (t ~ /^[A-Za-z][A-Za-z0-9+.-]*:/ || t !~ /(^|\/)[0-9][0-9][0-9][0-9]-[^\/]*\.md$/) return
-      if (t ~ /^\//) p = norm(t)
-      else { d = FILENAME; if (d ~ /\//) sub(/\/[^\/]*$/, "", d); else d = "."; p = norm(d "/" t) }
-      if (p ~ /^docs\/adr\/[0-9][0-9][0-9][0-9]-[^\/]*\.md$/ && !(p in have)) printf "%s:%d: links %s, an ADR with no file; link an ADR that exists or state the reason\n", FILENAME, FNR, p
-    }
-    {
-      s = $0
-      while (match(s, /\]\([^) \t]+/)) { target(substr(s, RSTART + 2, RLENGTH - 2)); s = substr(s, RSTART + RLENGTH) }
-      s = $0
-      while (match(s, /\]:[ \t]+[^ \t]+/)) { t = substr(s, RSTART + 2, RLENGTH - 2); sub(/^[ \t]+/, "", t); target(t); s = substr(s, RSTART + RLENGTH) }
-      s = $0; gsub(/[A-Za-z][A-Za-z0-9+.-]*:\/\/[^ \t)>]*/, "", s)
-      while (match(s, /ADR[ -]?[0-9][0-9][0-9][0-9]/)) {
-        pre = RSTART > 1 ? substr(s, RSTART - 1, 1) : ""; post = substr(s, RSTART + RLENGTH, 1); d = substr(s, RSTART + RLENGTH - 4, 4)
-        if (pre !~ /[A-Za-z0-9_]/ && post !~ /[0-9]/ && !(d in num)) printf "%s:%d: cites ADR %s, which has no file; cite an ADR that exists or state the reason\n", FILENAME, FNR, d
-        s = substr(s, RSTART + RLENGTH)
-      }
-    }'))
+  refs=$(printf '%s\n' "$all" | adr_refs "$root" "$adrs")
   if [ -z "$refs" ]; then ok "every ADR reference has its file"
   else while IFS= read -r r; do adr "$r"; done <<<"$refs"; fi
 else bad "docs/adr/ missing"; fi
