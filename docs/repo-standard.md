@@ -30,7 +30,7 @@ A repository's profile is its visibility plus its branch model. Both are derived
 | `Makefile` | The gate: a `check` target | fails without a `check` target; warns with `<fill in>` left |
 | `.github/workflows/*.yml` | A job named `check` that runs `make check` | fails without one |
 | `docs/architecture.md` | Map: purpose, components, data flow, boundaries, decisions | fails if missing, under 15 lines or over its word cap |
-| `docs/adr/README.md` + `NNNN-title.md` | Decisions, MADR-trimmed, numbered, each with a Status line | fails on a missing index, duplicate numbers, a missing Status or an ADR over its word cap |
+| `docs/adr/README.md` + `NNNN-title.md` | At most 20 decisions that hold today, MADR-trimmed, numbered, each with a Status line | fails on a missing index, duplicate numbers, a missing Status or an ADR over its word cap |
 | `docs/glossary.md` | Terms the code and issues use, one row each | warns if missing; fails on an entry over its word cap |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Closes, what and why, verification, limits | warns if missing |
 | `.github/dependabot.yml` | Grouped version updates, one entry per package manager | warns if missing |
@@ -64,6 +64,16 @@ An `.mcp.json` only warns, because it stays when something uses it. Notes, plann
 - Claude Code loads every nested `CLAUDE.md` it passes. So a `CLAUDE.md` or `AGENTS.md` kept as data, such as a template or a fixture, is instructions too.
 - Such a file must form a valid pair or be renamed.
 
+## ADRs
+An ADR records a decision that holds today and is hard to reverse or surprising without context ([ADR 0071](adr/0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)). Examples are security, a public interface, core architecture, or a choice an agent would plausibly undo.
+
+- A repository keeps at most `WF_ADR_MAX` ADRs, default 20. A new ADR on a full set removes or moves one in the same change.
+- A changed decision edits its ADR in place. A decision that no longer holds is deleted, and git keeps the history.
+- A status is proposed or accepted, and nothing else. An ADR names no relation to another: no amends, extends or supersedes line.
+- A number is never reused. The index carries the next free number. A merged ADR keeps the number and file name of its target.
+- A smaller decision is one rule with its reason, at most 30 words, in the document of its area: a runbook, a README, this standard.
+- A comment or document cites an ADR that exists, or states the reason itself.
+
 ## Writing rules
 The rules for prose in documents, prompts and comments ([ADR 0048](adr/0048-writing-rules-are-part-of-the-standard-and-the-gate-checks-the-mechanical-ones.md)):
 
@@ -84,7 +94,7 @@ The check counts the em dash in every text file and the word caps in Markdown. S
 - Code blocks (fenced or indented), closed front matter, thematic breaks and tables are no paragraphs.
 - A document's count skips code blocks and front matter. A README that is not Markdown is counted whole.
 
-Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of a standardisation warns on them too, because rewriting the documents is an issue of its own. An accepted ADR may be shortened in wording; its decision is never edited ([ADR 0049](adr/0049-an-accepted-adr-may-be-shortened-in-wording-its-decision-is-never-edited.md)).
+Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of a standardisation warns on them too, because rewriting the documents is an issue of its own.
 
 The templates in `plugins/repo-standards/templates/` are the fixed form of each document: `README.md.tpl`, `plugin-README.md`, `architecture.md`, `adr-template.md` and `glossary.md`.
 
