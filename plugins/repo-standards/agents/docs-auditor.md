@@ -21,7 +21,9 @@ Your area: the documentation the standard defines. Category `docs`. Start from `
 The standard:
 - `README.md`: what the repository is and how to use it.
 - `docs/architecture.md`: a one-page map with components, data flow and boundaries, at least 15 lines, matching the code that exists.
-- `docs/adr/README.md` plus numbered `NNNN-title.md` decisions, each with a `Status:` line.
+- `docs/adr/README.md` plus numbered `NNNN-title.md` decisions, each with a `Status:` line of proposed or accepted.
+- The ADRs are the capped set of current decisions: at most 20, each true today, edited in place.
+- A dead decision is deleted, and a smaller one is a rule with its reason in the document of its area.
 - `docs/glossary.md`: the terms the code and issues use.
 - `.github/PULL_REQUEST_TEMPLATE.md`: closes, what and why, verification, limits.
 - Public repositories only (`visibility: public` in the facts): `LICENSE` and `SECURITY.md`. With another or an unknown visibility, do not propose them.

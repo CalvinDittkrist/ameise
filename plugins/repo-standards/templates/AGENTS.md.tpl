@@ -8,7 +8,9 @@
 
 ## Conventions
 - Branches: `<type>/<issue>-<slug>` (type: feat, fix, docs, chore). Conventional commits. No agent co-authors.
-- Docs: `docs/architecture.md` is the map; decisions go to `docs/adr/`. Update both when a change makes them stale.
+- Docs: `docs/architecture.md` is the map. Update it when a change makes it stale.
+- `docs/adr/` holds at most 20 hard decisions that hold today. Edit one in place when it changes, and delete one that no longer holds.
+- A smaller rule goes with its reason into the document of its area.
 - Tests prove behaviour through public interfaces; no source-grepping tests.
 
 ## Gotchas
