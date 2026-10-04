@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// Change classes ([ADR 0041]): an ordered list of rules a connected repository writes, each with a
+// Change classes ([runbook]): an ordered list of rules a connected repository writes, each with a
 // name, the path patterns it covers, the gate command it runs before the pull request and, optionally,
 // the reviewers it asks. The factory determines the class from the files changed between the merge base
 // and the head: the first class whose patterns cover every changed file applies, and when none does the
@@ -21,7 +21,7 @@ import (
 // the final head, because a fix can add a file the first class does not cover. CI runs the full gate
 // on every pull request all the same, so what a class leaves out is caught in the ci stage.
 //
-// [ADR 0041]: ../docs/adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md
+// [runbook]: ../docs/factory-runbook.md#change-classes
 
 // classFull is the built-in class, which applies when no class of the repository does.
 const classFull = "full"

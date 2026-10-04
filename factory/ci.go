@@ -18,7 +18,7 @@ import (
 	"unicode/utf8"
 )
 
-// The ci stage, which the factory runs itself ([ADR 0043], step 2): once the pr stage has opened the
+// The ci stage, which the factory runs itself ([ADR 0040]): once the pr stage has opened the
 // pull request (pr.go), the factory waits for GitHub the way the worker's pr-wait.sh does.
 // Mergeability is read first, because GitHub runs no workflow for a branch that does not merge and an
 // empty rollup would read as green; then the checks, the bot reviews the configuration lists, the
@@ -26,7 +26,7 @@ import (
 // merge of the base in the worktree, failed checks by a fix session, review comments by an
 // address-reviews session, and every such round counts against the repair budget.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // stageCI is the stage a run is in while the factory waits on the pull request and repairs it, and
 // stageAddressReviews the one it is in while a session answers what the reviewers ask for.

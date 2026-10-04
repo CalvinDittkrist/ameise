@@ -524,9 +524,9 @@ func scriptedWorker(args []string, stdout, stderr io.Writer) int {
 	s.tool("Bash", map[string]any{"command": fmt.Sprintf("gh issue view %d --repo %s --comments", issue, repository), "description": "Read the issue and its comments"},
 		"title:\tthe canned issue\nstate:\tOPEN")
 	if scenario == "blocked" {
-		s.say("The brief contradicts ADR 0012.")
-		summary := fmt.Sprintf("the brief asks the worker to tag the release itself, and ADR 0012 keeps releases manual.\n\n"+
-			"decision needed: drop the tagging step from issue #%d, or supersede ADR 0012.", issue)
+		s.say("The brief contradicts the release rule.")
+		summary := fmt.Sprintf("the brief asks the worker to tag the release itself, and the release rule keeps releases manual.\n\n"+
+			"decision needed: drop the tagging step from issue #%d, or change the release rule.", issue)
 		s.result("success", "", false, "completed", map[string]any{"outcome": resultBlocked, "summary": summary})
 		return 0
 	}

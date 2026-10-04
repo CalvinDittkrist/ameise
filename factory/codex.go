@@ -12,12 +12,12 @@ import (
 	"time"
 )
 
-// Every session runs on a runtime ([ADR 0052]): Claude Code in print mode, which every stage has run on
+// Every session runs on a runtime ([ADR 0039]): Claude Code in print mode, which every stage has run on
 // from the start, or Codex, which a reviewer of the panel runs on when its definition names it. The
 // factory builds the call from the runtime, reads the events that runtime prints, and holds the result
 // to the same schema and the same checks whichever runtime wrote it.
 //
-// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
+// [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
 const (
 	runtimeClaude = "claude"
 	runtimeCodex  = "codex"
