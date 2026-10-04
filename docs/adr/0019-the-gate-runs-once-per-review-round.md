@@ -17,6 +17,6 @@ The gate runs once per review through `gate.sh run`, which runs `make check` ([A
 - A review round costs no gate; CI gates repair pushes and is the one independent gate.
 - `gate.sh verdict` answers for a clean current head only, and nobody types the gate by hand, so the record cannot drift.
 - Reviewers get the block verbatim, verify with single tests and report a missing result as a finding.
-- The gate runs detached past a tool call's [ceiling](https://code.claude.com/docs/en/env-vars.md) (#106, #108), in `WF_WAIT_SLICE` slices like `/worker:ci` ([ADR 0017](0017-worker-subagents-run-in-the-foreground.md)).
+- The gate runs detached past a tool call's [ceiling](https://code.claude.com/docs/en/env-vars.md) (#106, #108), in `WF_WAIT_SLICE` slices like `/worker:ci`.
 - It ends with its worker, so the factory leaves none behind.
 - Rejected: raising `BASH_MAX_TIMEOUT_MS`, which a [plugin](https://code.claude.com/docs/en/plugins-reference.md) cannot set.

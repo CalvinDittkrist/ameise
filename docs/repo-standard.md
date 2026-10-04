@@ -12,7 +12,7 @@ The local workflow that works a repository on this standard is the controller, i
 
 - `claude plugin marketplace add CalvinDittkrist/ameise --scope project` registers it.
 - `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner` and `repo-standards`.
-- A repository with the marketplace under its old name first runs `claude plugin marketplace remove <old name> --scope project`, so its settings hold one source key ([the maintainer's list](factory-runbook.md#the-maintainers-list)).
+- A repository with the marketplace under its old name first runs `claude plugin marketplace remove <old name> --scope project`, so its settings hold one source key.
 
 ## Profile
 A repository's profile is its visibility plus its branch model. Both are derived from GitHub, never configured per repository ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).

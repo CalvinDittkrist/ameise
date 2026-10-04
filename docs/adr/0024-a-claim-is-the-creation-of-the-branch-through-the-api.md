@@ -1,8 +1,7 @@
 # 0024. A claim is the creation of the branch through the GitHub API
 
 Date: 2026-09-21
-Status: accepted; amended 2026-09-23 (the factory's own orphaned branch, and a lost claim answers one routing)
-Amends: [0003](0003-herdr-worktree-per-issue.md) (the branch name stays the contract; this says who may create it and when)
+Status: accepted
 
 ## Context
 - With a second claimer, two can start the same issue, and the loser wastes a session and leaves a branch behind.

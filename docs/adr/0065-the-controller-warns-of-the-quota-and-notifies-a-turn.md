@@ -3,11 +3,11 @@
 Date: 2026-09-28
 Status: accepted, amended
 Amended by: [0069](0069-the-controller-reads-claude-and-codex-and-warns-a-claim-of-claude.md) (the quota reads Claude and Codex, a claim warns of Claude alone, and a switched-off check says off)
-Extends: [0038](0038-the-local-workflow-and-the-factory-are-peers.md) (the peers may differ outside the contract fixture)
+Extends: [0062](0062-the-peers-share-a-contract-fixture-not-code.md) (the peers may differ outside the contract fixture)
 
 ## Context
 - Issue #263 gives the controller the quota and native notifications.
-- The factory works unattended, so its quota check waits below the minimum ([ADR 0037](0037-the-quota-check-waits-below-12-percent-of-the-workers-scope.md), [ADR 0053](0053-the-quota-check-reads-every-runtime-a-run-spends.md)).
+- The factory works unattended, so its quota check waits below the minimum ([ADR 0028](0028-the-quota-check-is-a-courtesy-not-a-guard.md)).
 - A controller claim is made by a person at the machine, who can judge the quota themselves.
 
 ## Decision
