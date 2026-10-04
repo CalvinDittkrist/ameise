@@ -96,7 +96,19 @@ func implementSession(brief string) session {
 // worker plugin's issue facts are: the body to issueBodyLimit characters and the last issueComments
 // comments to issueCommentLimit each, so a long or hostile discussion cannot fill the context before
 // the work starts.
-func implementBrief(entry Entry, claim claimed) string {
+//
+// With simplify on, the brief also has the session run the bundled /simplify skill on its diff before
+// it reports. The target is named, because the skill reads the diff against the upstream, or against
+// main without one, and neither is the run's base. A session without the skill goes on and reports:
+// the step never ends a run blocked, and the result schema stays as it is.
+func implementBrief(entry Entry, claim claimed, simplify bool) string {
+	step := ""
+	if simplify {
+		step = fmt.Sprintf("Once your change is committed and before you report, run the skill /simplify with the target `git diff origin/%s...HEAD`, the branch's diff against its base. "+
+			"Apply what it finds, verify the fixes with the single test or linter of the files they touch, and commit them as refactor commits of their own. "+
+			"Say in one sentence of the summary what it changed, that it found nothing, or that the skill was unavailable; an unavailable skill is no reason to report blocked.\n\n",
+			claim.base)
+	}
 	return fmt.Sprintf("Implement issue #%d of %s. The branch %s is checked out in this worktree, cut from origin/%s.\n\n"+
 		"Read the issue and its latest comments with `gh issue view %d --repo %s --json title,body,comments --jq %s`, then the repository's instructions: "+
 		"AGENTS.md or CLAUDE.md at its root and the documents they point to for the part you change. "+
@@ -104,10 +116,11 @@ func implementBrief(entry Entry, claim claimed) string {
 		"Make the smallest complete change that closes the issue. For a bug, reproduce it before you fix it. Update the documentation the change makes stale. "+
 		"Verify with the single test or linter for the files you touched, and commit in conventional commits without a co-author. "+
 		"Do only that: never push, and run no full gate, no reviewer and no pull request; the factory runs the gate, the review, the pull request and CI after you.\n\n"+
+		"%s"+
 		"Report complete with the commits of the branch beyond origin/%s in commits, each as its short hash and subject, once everything you changed is committed. "+
 		"Report blocked with what you need from a person and why when the issue cannot be done as written: it is ambiguous in a way that changes the work, "+
 		"contradicts a decision of the repository, or needs access or a choice only a person has.\n",
-		entry.Number, entry.Repository, claim.branch, claim.base, entry.Number, entry.Repository, issueRead, claim.base, claim.base)
+		entry.Number, entry.Repository, claim.branch, claim.base, entry.Number, entry.Repository, issueRead, claim.base, step, claim.base)
 }
 
 // issueBodyLimit, issueComments and issueCommentLimit bound the issue the implement session reads, and

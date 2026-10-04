@@ -1074,7 +1074,7 @@ func (f *Factory) roundsOn(r *Run, pull string) int {
 // its summary as the reason the issue comment quotes.
 func (f *Factory) implement(parent, ctx context.Context, r *Run, entry Entry, claim claimed) {
 	f.runs.update(r, func() { r.stage(stageImplement) })
-	s := implementSession(implementBrief(entry, claim))
+	s := implementSession(implementBrief(entry, claim, f.simplifyFor(entry.Repository)))
 	f.runs.event(r, Event{Kind: "factory", Title: "briefed the implement session", Body: s.prompt})
 	got, ok := f.session(parent, ctx, r, s, entry, claim)
 	if !ok {

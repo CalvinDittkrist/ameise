@@ -210,3 +210,46 @@ func TestAnImplementSessionThatCommitsNothingFailsTheRun(t *testing.T) {
 		t.Errorf("the run went through %v, ran the gates %+v and %d reviewers, want the implement stage alone", run.Stages, run.Gates, len(gh.reviewerSessions(t)))
 	}
 }
+
+// The simplify switch decides whether the implement session of a repository is told to run /simplify
+// on its diff before it reports: the repository's switch over the host's, true when neither names
+// one. No fix session is told to, whatever the switch says.
+func TestTheSimplifySwitchDecidesWhichImplementSessionRunsTheSkill(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name         string
+		host         any
+		repositories []any
+		on           map[string]bool
+	}{
+		{"by default", nil, []any{"acme/edge-sensors", "acme/backtest"}, map[string]bool{"acme/edge-sensors": true, "acme/backtest": true}},
+		{"off for the host and on for one repository", false, []any{map[string]any{"name": "acme/edge-sensors", "simplify": true}, "acme/backtest"},
+			map[string]bool{"acme/edge-sensors": true, "acme/backtest": false}},
+		{"off for one repository", nil, []any{map[string]any{"name": "acme/edge-sensors", "simplify": false}, "acme/backtest"},
+			map[string]bool{"acme/edge-sensors": false, "acme/backtest": true}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			conf := config{"poll": "100ms", "repositories": c.repositories}
+			if c.host != nil {
+				conf["simplify"] = c.host
+			}
+			f := start(t, conf)
+			// The first two runs of the canned queue are #104 of the first repository, ready after a
+			// review round and its fix session, and #109 of the second.
+			for id := 1; id <= 2; id++ {
+				run := f.ended(t, id)
+				for _, e := range run.Events {
+					if e.Kind != "factory" || !strings.HasPrefix(e.Title, "briefed ") {
+						continue
+					}
+					implement := e.Title == "briefed the implement session"
+					want := implement && c.on[run.Repository]
+					if got := strings.Contains(e.Body, "/simplify"); got != want {
+						t.Errorf("run %d of %s: %q runs /simplify: %v, want %v; the brief:\n%s", run.ID, run.Repository, e.Title, got, want, e.Body)
+					}
+				}
+			}
+		})
+	}
+}
