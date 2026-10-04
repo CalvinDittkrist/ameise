@@ -133,13 +133,14 @@ var issueRead = fmt.Sprintf(`'"# " + .title, "", .body[:%d], (.comments[-%d:][] 
 const workerAgent = "worker"
 
 // workerTools is the built-in tools of the worker agent: it reads, edits and runs commands, and hands
-// a search of the code to a built-in subagent so the search stays out of its own context. It runs no
-// skill: every plugin is off in its session.
+// a search of the code to a built-in subagent so the search stays out of its own context. Its Skill
+// tool reaches /simplify alone: every plugin is off in its session, and so is every other bundled
+// skill (skillAllowlist).
 // Agent(Explore) is an allowlist: the session runs as the main thread with --agent, so it can start
 // the built-in Explore and no other subagent, none of which could reach the web on its behalf
 // (https://code.claude.com/docs/en/sub-agents.md, "Restrict which subagents can be spawned", checked
 // on 2026-09-25 and tried with Claude Code: another type is refused).
-const workerTools = "Bash,Read,Write,Edit,Grep,Glob,Agent(Explore)," + resultTool
+const workerTools = "Bash,Read,Write,Edit,Grep,Glob,Skill,Agent(Explore)," + resultTool
 
 // resultTool is the tool through which a session run with --json-schema hands over its result. An agent
 // definition with a tools list has only the tools it names, and an agent without this one ends with text
