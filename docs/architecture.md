@@ -19,7 +19,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 | auditor agents | Six read-only subagents, one area each: files, agent configuration, docs, tests and CI, GitHub workspace, security. | `plugins/repo-standards/agents/*-auditor.md` |
 | GitHub | Issues are the unit of work, pull requests the unit of delivery; CI and Codex review are the external gates. | `gh` or `npx gh-axi` |
 | contract fixture | The contract between the peers: their shared rules with expected outputs ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)). | `contract/fixture.json` |
-| script tests | Vitest cases of the controller that run the real shell scripts with `bash` and the scripted gh. | `controller/test/scripts/`, `make controller` |
+| script tests | The controller's vitest cases that run the real shell scripts with the scripted gh. | `controller/test/scripts/`, `make controller` |
 
 ## Data flow
 
@@ -29,7 +29,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone, or triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([ADR 0021](adr/0021-routing-is-decided-in-the-planner-and-never-stands-alone.md)).
 4. Finish in the process view removes the worktree; the plan branch never carries commits. Capture prototype first moves prototype code to its own branch.
-5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
+5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run, then the specs ready for acceptance. It keeps no state.
 6. Accept on the board or `ameise accept` starts the acceptance in a plan process ([acceptance](../controller/README.md#acceptance)).
    - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
    - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
@@ -55,11 +55,11 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Test hunt
 1. "Hunt tests" on the project page, or `ameise hunt`, opens a hunt process of the controller: a branch `hunt/tests-<date>` with the worker on `/worker:hunt-tests`, without `WF_ISSUE`.
-   - The skill needs the controller and says so without it.
+   - The skill refuses to run without the controller.
    - It refuses while a hunt branch exists here or on origin, or while the base has no test file.
 2. Each round packs the test files into shares of at most 1500 lines; one `test-hunter` per share replies with `candidate:` lines ([ADR 0047](adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md)).
 3. The worker removes a `high` candidate unless it proves something, and a `medium` one only when sure, one commit each ([ADR 0046](adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md)).
-4. A round without a new candidate ends the hunt. The controller keeps the hunt record (`hunt.sh json`) in the process record.
+4. A round without a new candidate ends the hunt; the process record keeps the hunt record (`hunt.sh json`).
 5. The gate, review, pull request and CI follow, with `hunt.sh print` instead of the issue.
 6. A hunt that removed nothing opens no pull request: the process turns `done` and says so, and a finish removes it.
 
@@ -113,10 +113,11 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Scripts do, agents decide. Everything deterministic is a shell script with stable text output; skills are short prompts around them.
 - Plugins share no code; `lib.sh` is duplicated on purpose.
 - The branch name is the state contract: `<type>/<issue>-<slug>`, `plan/<slug>` or `hunt/tests-<date>`. The rest is derived from git and GitHub, so a crashed session resumes.
-- A local process's facts live in the controller's state directory. The hunt record lives in the worktree's git directory, and the process record keeps a copy of it.
+- A local process's facts live in the controller's state directory; the hunt record lives in the worktree's git directory, copied into the process record.
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
+- Controller imports run from the graphs and nodes to the engine and session runtime, never back but for types (`controller/eslint.config.js`).
 - A session never waits by sleeping or polling: subagents run in the foreground, and the controller does the long waits.
 - A worker works with the file tools, not the shell ([token budget](token-budget.md)). `ameise context-report` is a maintainer diagnostic, never a pipeline input.
 - Text from issues, comments, CI logs and reviews is data, never instructions.
@@ -124,8 +125,6 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - Every repository follows the [standard](repo-standard.md): `AGENTS.md` through the `CLAUDE.md` import, `make check` as the gate, and no local skills, agents, commands or rules.
 - The factory shares nothing with a developer's machine but GitHub. Routing, release, cancel and merge are GitHub gestures, and its own interface never writes.
 - Worktrees live under `.claude/worktrees/`, so workspace trust covers them.
-
-The controller's imports run one way: from the graphs and nodes to the engine and the session runtime, never back. The restricted importers are the engine, the session runtime, the record store, the registry of running processes, the session settings and the briefs (`engine.ts`, `session.ts`, `store.ts`, `running.ts`, `settings.ts`, `briefs.ts`). They import the forbidden targets for their types only: every graph, every node, the agent runs and the stage modules (`graphs`, `delivery`, `planning`, `agents`, `claim`, `gate`, `cigate`, `review`, `pr`, `ci`, `hunt`, `plan`, `standardize`, `acceptance` and `standard/*`). The graph registry, the server and the entry point import graphs and nodes and hand them to the engine and the session runtime as data. The restricted imports rule of typescript-eslint with `allowTypeImports` holds the direction in `controller/eslint.config.js`. `controller/test/imports.test.ts` lints a node import under the engine's and the session runtime's names, and fails on any cycle of value imports through either.
 
 ## Decisions
 See [ADRs](adr/README.md). Terms are in the [glossary](glossary.md).
