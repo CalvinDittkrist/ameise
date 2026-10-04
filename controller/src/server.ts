@@ -20,7 +20,7 @@ import { capture, captureRequest, finish, openPlan, planRequest } from './plan.j
 import { apply, applyRequest, audit, auditAgain, finalize, finishStandardize, standardize } from './standardize.js'
 import { open } from './terminal.js'
 import { enter, resumeAt } from './engine.js'
-import { graphOf } from './graphs.js'
+import { graphOf, graphs } from './graphs.js'
 import { followUps } from './ci.js'
 import { checkout, derive, type Listed, type Project, Refusal } from './project.js'
 import type { SessionRecord } from './records.js'
@@ -519,6 +519,8 @@ export function serve(o: Options): Server {
           return terminal(req, res)
         case 'GET /api/quota':
           return send(res, 200, await quota())
+        case 'GET /api/graphs':
+          return send(res, 200, { graphs: graphs() })
         default:
           if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return page(res, o.dashboard, url.pathname)
           return send(res, 404, { error: `no route ${route}` })

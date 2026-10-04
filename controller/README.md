@@ -648,6 +648,13 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `GET /api/quota`: the [quota](#quota), `{minimum, runtimes: [...]}` with `claude` then `codex`.
   - Each runtime is `{runtime, known: true, remaining, reset, below}`, or `{runtime, known: false, reason, below: false}`.
   - With the check off it is `{minimum, off: true, runtimes: []}`. With a command configured it has no `off`.
+- `GET /api/graphs`: every process graph of the registry, `{graphs: [...]}` in its order: `delivery`, `hunt`, `standardize`, `plan`.
+  - Each graph is `{id, start, nodes: [...]}`. Its `id` is the `workflow` its records carry, `start` its first node.
+  - Each node is `{id, stage, final, edges: [...]}`: its `id` is the record's `node`, `stage` the stage it writes, or `null` for `done`.
+  - Only `done` is final. A park (ready, blocked, input, failed) is no node: the process stays on its node.
+  - A plain edge is `{on, next}`, a guarded one `{on, guard, next, otherwise}`. `on` is an outcome, or an event on a park such as `message` or `follow-up`.
+  - `next` and `otherwise` name a node, `parked <state>` for a park on the node itself, or `parked <state> on <node>` for one on another node.
+  - An `otherwise` of `null` means the event has no edge while the guard fails, which parks the process failed.
 - `DELETE /api/processes` with `{"project": "<path>", "issue": <n>, "force": false}`: abandons the issue's process and answers `200` with `{issue, branch, worktree}`.
   - `404` says the issue has no process, `409` refuses work not on origin.
 - `POST /api/processes/resume` with `{"project": "<path>", "issue": <n>}`: resumes the issue's interrupted process and answers `200` with `{record}`.
