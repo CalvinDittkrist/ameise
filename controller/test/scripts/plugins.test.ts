@@ -192,6 +192,15 @@ describe('the plugins', () => {
     expect([...allowed!].sort()).toEqual(own.sort())
   })
 
+  // The controller registers its tool ask, a question round to the maintainer, as the in-process server controller
+  // in every session of a process. A main-thread agent's tools are an allowlist that drops an MCP server it does not
+  // name, so the agents the controller runs as a process's session name it.
+  test('the session agents reach the controller tool ask', () => {
+    for (const path of ['plugins/planner/agents/planner.md', 'plugins/worker/agents/worker.md']) {
+      expect(declaredTools(path), `${path} does not list mcp__controller; its session cannot ask a question round`).toHaveProperty(['mcp__controller'])
+    }
+  })
+
   test('every planner skill is user-invoked only', () => {
     expect(skills('planner')).toContain('accept')
     for (const skill of skills('planner')) expect(frontmatter(`plugins/planner/skills/${skill}/SKILL.md`), skill).toContain('disable-model-invocation: true\n')
