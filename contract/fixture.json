@@ -406,6 +406,53 @@
       ]
     }
   },
+  "pr_body": {
+    "about": "The body of the pull request the peer opens, or finishes from the gate's draft. The author session reports summary, door (one-way or two-way), blast_radius (one word), rollback (one sentence) and an optional evidence_note. The peer records the evidence: the gate result with the end of its output, the review panel, and the commits no reviewer read. The body starts with Closes #N when there is an issue. Then comes ## Summary. Then comes ## Evidence, with the note before the evidence. Last comes ## Merge Danger with **Door:**, **Blast Radius:** and the rollback. A blank line separates each block.",
+    "cases": [
+      {
+        "case": "an issue and a two-way door",
+        "issue": 104,
+        "summary": "```text\nupload(file)\n  on broker drop\n    retry with backoff\n```",
+        "door": "two-way",
+        "blast_radius": "sensors",
+        "rollback": "Revert the merge.",
+        "evidence": "The gate `make check` passed at 1a2b3c4.\n\nThe end of its output:\n\n```\nok  all tests\n```\n\nThe review panel passed in round 1: code pass.",
+        "body": "Closes #104\n\n## Summary\n\n```text\nupload(file)\n  on broker drop\n    retry with backoff\n```\n\n## Evidence\n\nThe gate `make check` passed at 1a2b3c4.\n\nThe end of its output:\n\n```\nok  all tests\n```\n\nThe review panel passed in round 1: code pass.\n\n## Merge Danger\n\n**Door:** two-way\n\n**Blast Radius:** sensors\n\nRevert the merge."
+      },
+      {
+        "case": "no issue",
+        "issue": null,
+        "summary": "Removes two tests that proved nothing.",
+        "door": "two-way",
+        "blast_radius": "tests",
+        "rollback": "Revert the merge to bring the tests back.",
+        "evidence": "The gate `make check` passed at 1a2b3c4.\n\nThe end of its output:\n\n```\nok  all tests\n```\n\nThe review panel passed in round 1: code pass.",
+        "body": "## Summary\n\nRemoves two tests that proved nothing.\n\n## Evidence\n\nThe gate `make check` passed at 1a2b3c4.\n\nThe end of its output:\n\n```\nok  all tests\n```\n\nThe review panel passed in round 1: code pass.\n\n## Merge Danger\n\n**Door:** two-way\n\n**Blast Radius:** tests\n\nRevert the merge to bring the tests back."
+      },
+      {
+        "case": "a one-way door with an evidence note",
+        "issue": 105,
+        "summary": "Moves the records to the new schema.",
+        "door": "one-way",
+        "blast_radius": "storage",
+        "rollback": "Restore the records from the backup the migration writes.",
+        "evidence_note": "The migration ran against a copy of the production records.",
+        "evidence": "The gate `make check` passed at 1a2b3c4.\nThe review panel failed: it spent its 1 round(s) with code not passing (code fix).\n\nThe findings of the last round, which no fix session took:\n\n- code-1-1 S1 `src/upload.ts:12`: Nothing tests the retry limit",
+        "body": "Closes #105\n\n## Summary\n\nMoves the records to the new schema.\n\n## Evidence\n\nThe migration ran against a copy of the production records.\n\nThe gate `make check` passed at 1a2b3c4.\nThe review panel failed: it spent its 1 round(s) with code not passing (code fix).\n\nThe findings of the last round, which no fix session took:\n\n- code-1-1 S1 `src/upload.ts:12`: Nothing tests the retry limit\n\n## Merge Danger\n\n**Door:** one-way\n\n**Blast Radius:** storage\n\nRestore the records from the backup the migration writes."
+      },
+      {
+        "case": "an evidence note without an issue",
+        "issue": null,
+        "summary": "Renames the setting.",
+        "door": "two-way",
+        "blast_radius": "config",
+        "rollback": "Revert the merge.",
+        "evidence_note": "The old name is read no more.",
+        "evidence": "No gate result was recorded for this branch.\nNo review panel was recorded for this branch.",
+        "body": "## Summary\n\nRenames the setting.\n\n## Evidence\n\nThe old name is read no more.\n\nNo gate result was recorded for this branch.\nNo review panel was recorded for this branch.\n\n## Merge Danger\n\n**Door:** two-way\n\n**Blast Radius:** config\n\nRevert the merge."
+      }
+    ]
+  },
   "frontier": {
     "about": "The agent-ready issues nobody works on. With the routing label on every issue the factory takes the free ones and the local board offers none. Without it, the board offers them and the factory takes none. Both ask GitHub for the list with the query below, the factory with the routing label added after ready-for-agent.",
     "query": "issues?labels=ready-for-agent&state=open&per_page=100",

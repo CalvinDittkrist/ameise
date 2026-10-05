@@ -1,12 +1,14 @@
 // The pr stage of a work process, which the controller runs once the review has ended, with a passed or
-// a failed panel. It pushes the branch and has a read-only author session write the pull request's title
-// and body from the diff, the commits and the issue. It appends the verification section: the gate
-// result, the review panel, and the reviewers that did not pass when the panel failed. It opens the pull
-// request against the base, never as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a
-// review. A pull request of the branch into the base that is open already, as for a follow-up, is pushed
-// to, asked of the bots and kept. The gate's draft the gate on CI opened, while it is open, gets the
-// author's title and body with the verification section, is marked ready for review and is asked of the
-// bots, and the record notes when it was readied and drops its draft flag.
+// a failed panel. It pushes the branch and has a read-only author session report the pull request's title,
+// its summary and its merge danger from the diff, the commits and the issue. The controller composes the
+// body: Closes #N when the process has an issue, then Summary, Evidence and Merge Danger. Evidence holds
+// the author's note, the gate result with the end of its output, the review panel with the findings left
+// open when it failed, and the commits no reviewer read. It opens the pull request against the base, never
+// as a draft, and asks the bot reviewers of WF_PR_BOT_REVIEWERS for a review. A pull request of the branch
+// into the base that is open already, as for a follow-up, is pushed to, asked of the bots and kept. The
+// gate's draft the gate on CI opened, while it is open, gets the author's title and the composed body, is
+// marked ready for review and is asked of the bots, and the record notes when it was readied and drops its
+// draft flag.
 // The stage is the pr node of the delivery graph, which the engine (engine.ts) runs. The opening is an
 // attempt in the record's history, and its outcome takes the process to the ci stage (ci.ts). A push, an
 // author session, or a gh pr create or edit that fails returns failed with the reason, which parks the
@@ -16,8 +18,8 @@ import { join } from 'node:path'
 import { git, push } from '../github/git.js'
 import { botsOf } from './ci.js'
 import { run } from '../exec.js'
-import { defaultGate } from './gate.js'
-import { author } from '../sessions/agents.js'
+import { defaultGate, tailOf } from './gate.js'
+import { author, type Authored } from '../sessions/agents.js'
 import { authorBrief } from '../sessions/briefs.js'
 import type { Node, NodeContext, Outcome } from '../engine/engine.js'
 import { agents, type Runtime } from '../sessions/session.js'
@@ -75,8 +77,8 @@ async function open({ record, project, rt, running: s, own, attempt, event }: No
   if (!own()) return stopped
   if (ended.state !== 'complete' || !ended.pull) return failed(`the author session wrote no pull request: ${ended.note}`)
   const title = ended.pull.title
-  // A hunt closes no issue, so its body is the author's as it is.
-  const body = [record.issue === null ? ended.pull.body : closing(ended.pull.body, record.issue), '', verification(record, commit)].join('\n')
+  // A hunt closes no issue, so its body has no closing line.
+  const body = prBody(record.issue, ended.pull, evidence(record, commit))
   const file = join(rt.stateDir, 'processes', `${id}.pr.md`)
   let pull: Pull
   try {
@@ -149,25 +151,50 @@ async function openPull(gh: string, repo: string, branch: string, base: string):
   return p ? { number: p.number, url: p.url } : undefined
 }
 
-// closing is the author's body with a line that closes the issue, unless it names the issue already.
-function closing(body: string, issue: number): string {
-  if (new RegExp(`\\b(close[sd]?|fix(e[sd])?|resolve[sd]?) #${issue}\\b`, 'i').test(body)) return body
-  return `Closes #${issue}\n\n${body}`
+// prBody is the body of the pull request the controller composes, as the contract fixture's pr_body rule
+// states it: Closes #N when there is an issue, then the author's summary, the evidence with the author's
+// note before it, and the merge danger.
+export function prBody(issue: number | null, a: Omit<Authored, 'title'>, evidence: string): string {
+  return [
+    ...(issue === null ? [] : [`Closes #${issue}`]),
+    '## Summary',
+    a.summary,
+    '## Evidence',
+    ...(a.evidence_note ? [a.evidence_note] : []),
+    evidence,
+    '## Merge Danger',
+    `**Door:** ${a.door}`,
+    `**Blast Radius:** ${a.blast_radius}`,
+    a.rollback,
+  ].join('\n\n')
 }
 
-// verification is the section the controller appends to the author's body: the last gate run, and the
-// review panel with each reviewer's last verdict. A failed panel names the reviewers that did not pass and
-// their findings of the last round. Commits since the last round are named, as no reviewer read them.
-export function verification(record: StageRecord, head: string): string {
+// fenced is the text in a fenced code block whose fence is longer than any run of backticks in it.
+function fenced(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length))
+  const fence = '`'.repeat(Math.max(3, longest + 1))
+  return `${fence}\n${text}\n${fence}`
+}
+
+// evidence is what the controller recorded for the Evidence section: the last gate run with the end of
+// its output, and the review panel with each reviewer's last verdict. A failed panel names the reviewers
+// that did not pass and their findings of the last round. Commits since the last round are named, as no
+// reviewer read them.
+export function evidence(record: StageRecord, head: string): string {
   const history = record.history ?? []
   const short = (c: string | undefined) => (c ?? '').slice(0, 7)
-  const lines = ['## Verification', '']
+  const lines: string[] = []
   const gated = [...history].reverse().find((h) => h.stage === 'gate' && h.kind === 'run')
   const command = gated?.gate ?? defaultGate
   if (!gated) lines.push(`No gate result was recorded for this branch.`)
   else if (gated.result === 'skipped') lines.push(`The gate form is none, so no gate ran at ${short(gated.commit)}.`)
   else if (gated.checks) lines.push(`The gate on CI \`${command}\` ${gated.result === 'pass' ? 'passed' : 'failed'} at ${short(gated.commit)}: ${gated.checks.map((c) => `${c.name} ${c.state}`).join(', ')}.`)
-  else lines.push(`The gate \`${command}\` ${gated.result === 'pass' ? 'passed' : `failed with exit ${gated.exit ?? 'none'}`} at ${short(gated.commit)}${gated.dirty ? ', with changes not committed' : ''}.`)
+  else {
+    lines.push(`The gate \`${command}\` ${gated.result === 'pass' ? 'passed' : `failed with exit ${gated.exit ?? 'none'}`} at ${short(gated.commit)}${gated.dirty ? ', with changes not committed' : ''}.`)
+    // The record keeps the end of the output capped already; a record of an older controller may not.
+    const tail = tailOf(gated.tail ?? '')
+    if (tail !== '') lines.push('', 'The end of its output:', '', fenced(tail), '')
+  }
 
   const since = history.map((h) => h.stage === 'implement' || h.stage === 'hunt').lastIndexOf(true)
   const rounds = history.slice(since + 1).filter((h) => h.stage === 'review' && h.kind === 'round')

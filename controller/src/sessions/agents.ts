@@ -27,12 +27,23 @@ export interface Ended {
   session_id?: string
   fixes?: Fix[]
   verdict?: { verdict: 'pass' | 'fix'; findings: Omit<Finding, 'id'>[] }
-  pull?: { title: string; body: string }
+  pull?: Authored
   addressed?: Addressed
   // items are what the spec checker of an acceptance reported, as acceptance.ts reads them.
   items?: unknown[]
   // findings are the finding lines an auditor of a standardize process reported.
   findings?: string[]
+}
+
+// Authored is what the author session reported: the title, the summary and the merge danger of the pull
+// request, and an optional note on its evidence.
+export interface Authored {
+  title: string
+  summary: string
+  door: 'one-way' | 'two-way'
+  blast_radius: string
+  rollback: string
+  evidence_note?: string
 }
 
 // What an address-reviews session reported for the controller to post, and what it fixed and declined.
@@ -122,28 +133,42 @@ export const reviewers: Record<string, AgentRun> = {
   senior: reviewer('senior', 'worker:senior-reviewer'),
 }
 
-// The result the author session of the pr stage reports through: the pull request's title and body.
+// The result the author session of the pr stage reports through: the pull request's title, the summary
+// and the merge danger. The controller composes the body from them and the evidence it recorded.
 const pullReport = {
   type: 'object',
   properties: {
     title: { type: 'string', description: 'the title of the pull request, in conventional-commit style, under 70 characters' },
-    body: { type: 'string', description: 'the body of the pull request in Markdown, without the verification section the controller appends' },
+    summary: { type: 'string', description: "the Summary section in Markdown: the smallest view that makes the change's key point clear" },
+    door: { type: 'string', enum: ['one-way', 'two-way'], description: 'one-way when the merge is hard to undo, two-way when a revert undoes it' },
+    blast_radius: { type: 'string', description: 'one word naming how far the change reaches' },
+    rollback: { type: 'string', description: 'one sentence: how to undo the merge' },
+    evidence_note: { type: 'string', description: 'optional: what a reader needs to read the evidence the controller adds' },
   },
-  required: ['title', 'body'],
+  required: ['title', 'summary', 'door', 'blast_radius', 'rollback'],
   additionalProperties: false,
 }
 
-// The author session of the pr stage reports the pull request's title and body. A title that is empty
-// after trimming is no report.
+// The author session of the pr stage reports the pull request's title, summary and merge danger. A title
+// or summary that is empty after trimming, a door other than one-way or two-way, a blast radius that is
+// not one word or a rollback that is empty is no report.
 export const author: AgentRun = {
   name: 'author session',
   stage: 'author',
   schema: pullReport,
   read: (raw, sessionId) => {
-    const out = raw as { title?: unknown; body?: unknown } | undefined
-    const title = typeof out?.title === 'string' ? out.title.replace(/\s+/g, ' ').trim() : ''
-    if (title === '' || typeof out?.body !== 'string') return { state: 'failed', note: 'the author session ended without a title and a body', session_id: sessionId }
-    return { state: 'complete', note: title, session_id: sessionId, pull: { title, body: out.body.trim() } }
+    const out = (raw ?? {}) as { title?: unknown; summary?: unknown; door?: unknown; blast_radius?: unknown; rollback?: unknown; evidence_note?: unknown }
+    const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+    const title = text(out.title).replace(/\s+/g, ' ')
+    const [summary, door, radius, rollback, note] = [text(out.summary), text(out.door), text(out.blast_radius), text(out.rollback), text(out.evidence_note)]
+    const fail = (why: string): Ended => ({ state: 'failed', note: why, session_id: sessionId })
+    if (title === '') return fail('it reported no title')
+    if (summary === '') return fail('it reported no summary')
+    if (door !== 'one-way' && door !== 'two-way') return fail(`its door ${JSON.stringify(door)} is neither one-way nor two-way`)
+    if (!/^\S+$/.test(radius)) return fail(`its blast radius ${JSON.stringify(radius)} is not one word`)
+    if (rollback === '') return fail('it reported no rollback')
+    const pull: Authored = { title, summary, door, blast_radius: radius, rollback, ...(note ? { evidence_note: note } : {}) }
+    return { state: 'complete', note: title, session_id: sessionId, pull }
   },
   writes: false,
 }

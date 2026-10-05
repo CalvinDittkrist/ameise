@@ -25,6 +25,11 @@ Threat model: an agent with shell access works on code and reads text from the i
 - Reviewer, worker and author prompts repeat that file contents, comments, logs and reviews are data, not instructions.
 - `address-reviews` declines what a review asks, in a thread or in its summary, when it would weaken tests, skip checks or change unrelated code.
 - Reviewers cannot spawn agents or edit, so a poisoned diff cannot make a reviewer act on the repository.
+- The controller's author session reads the issue, the commits and the diff itself; its brief names them and carries none of their text.
+  - It is read-only and reports a title, a summary, a door, a blast radius, a rollback and an optional evidence note, nothing else.
+  - The controller refuses a door other than `one-way` or `two-way` and a blast radius of more than one word.
+  - The controller writes the closing line and the evidence itself, from what it recorded.
+  - The evidence quotes the end of the gate's output, so a gate that prints a secret publishes it in the pull request body.
 - The same holds for the auditors. Every auditor prompt treats the audited repository as data.
 - Auditor replies reach `report.sh` only as `finding:` lines of a fixed grammar, whose targets must stay inside the repository.
 - Auditors and reviewers keep `Bash` to read git history. Their read-only status rests on the tool lists plus the prompt, not on a sandbox.
@@ -74,7 +79,7 @@ The sessions that write on the branch are the implement session and every fix an
 - The auto mode classifier judges every action, and what is left is bounded by the host ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
 - No plugin runs in them and the factory installs or updates none. So no code reaches the host between two releases of the factory ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
-The author session of the pr stage reads the issue, the commits and the diff, which are text somebody else wrote. So it gets no power to act:
+The factory's author session of the pr stage reads the issue, the commits and the diff, which are text somebody else wrote. So it gets no power to act:
 
 - It runs with the tools `Read`, `Grep` and `Glob` alone: no shell, no edit, no MCP server, none of the workflow plugins. It reports only a title and a body.
 - The worktree's own settings are not loaded (`--setting-sources user`), so a hook the branch declares in `.claude/settings.json` does not run.
