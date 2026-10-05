@@ -267,18 +267,25 @@ A message while the reviewers run is refused with `409`. A stop while they run m
 ## Pr stage
 After the review the controller opens the pull request, in the stage `pr`:
 1. It pushes the branch to origin, never forced. Fake mode pushes nothing.
-2. A read-only author session writes the title and the body from the diff, the commits and the issue.
-   - It runs beside the process's session as a reviewer does, without the worker's agent, and reports `{title, body}` through a schema.
-3. The controller adds `Closes #<issue>` where the body does not close the issue, and appends a `## Verification` section.
-   - The section names the last gate run and each reviewer's last verdict.
-   - A failed panel names the reviewers that did not pass and the findings of its last round.
+2. A read-only author session reads the diff, the commits and the issue, and reports the title, the summary and the merge danger.
+   - It runs beside the process's session as a reviewer does, without the worker's agent.
+   - It reports `{title, summary, door, blast_radius, rollback, evidence_note?}` through a schema.
+   - A door other than `one-way` or `two-way` fails the stage, and no pull request is opened.
+   - So does a blast radius that is not one word, or an empty title, summary or rollback.
+3. The controller composes the body, as the `pr_body` rule of the [contract fixture](../contract/fixture.json) states it:
+   - `Closes #<issue>` when the process has an issue; a hunt has none.
+   - `## Summary`: the author's summary.
+   - `## Evidence`: the author's evidence note, the last gate run, each reviewer's last verdict, and the commits no reviewer read.
+   - The gate run carries the end of its output in a fenced block, 20 lines and 4000 characters at most.
+   - A failed panel names the reviewers that did not pass and the findings of its last round there too.
+   - `## Merge Danger`: `**Door:**`, `**Blast Radius:**` and the rollback sentence.
 4. It runs `gh pr create` against the base, never as a draft.
 5. It asks each bot of `WF_PR_BOT_REVIEWERS` for a review with `gh pr edit --add-reviewer`. A refusal is a `pr-note` event and stops nothing.
 
 An open pull request of the branch into the base, as after a follow-up message, takes the push and is asked of the bots, and no other is opened. One into another base is left alone. The record's `pull` is `{number, url}`.
 
 The gate's draft of a [gate on CI](#gate-on-ci) is finished instead of a new one opened, while `gh pr view` reads it open.
-- It gets the author's title and the body with its verification section through `gh pr edit`.
+- It gets the author's title and the composed body through `gh pr edit`.
 - `gh pr ready` lifts its draft state, and the bots are asked for a review after that, as they skip drafts.
 - The record drops `draft` and notes the time in `readied`.
 - A draft closed or merged meanwhile is left, and the stage opens a pull request as above.

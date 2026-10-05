@@ -1,15 +1,19 @@
 // The controller's side of the contract fixture for the rules it spells without a claim: the spec branch a
-// spec run integrates on and the issue a branch belongs to. The claim's branch, the base branch rule, the
+// spec run integrates on, the issue a branch belongs to and the body of a pull request. The claim's branch, the base branch rule, the
 // gate's draft and the frontier are held to the fixture where the controller acts on them.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
 import { issueFromBranch } from '../src/github/board.js'
 import { slug } from '../src/github/claim.js'
+import { prBody } from '../src/stages/pr.js'
 
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL('../../contract/fixture.json', import.meta.url)), 'utf8')) as {
   spec_branch: { cases: { case: string; number: number; title: string; branch: string }[] }
   issue_from_branch: { cases: { branch: string; issue: string }[] }
+  pr_body: {
+    cases: { case: string; issue: number | null; summary: string; door: 'one-way' | 'two-way'; blast_radius: string; rollback: string; evidence_note?: string; evidence: string; body: string }[]
+  }
 }
 
 test('the spec branch follows the contract fixture', () => {
@@ -22,4 +26,10 @@ test('the issue a branch belongs to follows the contract fixture', () => {
   const cases = fixture.issue_from_branch.cases
   expect(cases.length).toBeGreaterThan(0)
   expect(Object.fromEntries(cases.map((c) => [c.branch, issueFromBranch(c.branch)]))).toEqual(Object.fromEntries(cases.map((c) => [c.branch, c.issue])))
+})
+
+test('the body of a pull request follows the contract fixture', () => {
+  const cases = fixture.pr_body.cases
+  expect(cases.length).toBeGreaterThan(0)
+  for (const c of cases) expect(prBody(c.issue, c, c.evidence), c.case).toBe(c.body)
 })

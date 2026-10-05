@@ -110,8 +110,10 @@ test('a hunt that removed a test keeps the hunt record and goes through the gate
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', hunt: { rounds: 2, ended: 'round 2 found no new candidate', removed: [{ path: 'tests/test_login.py', test: 'test_constant', why: 'it cannot fail' }], kept: [{ test: 'test_logout' }] } })
   expect(shape(done)).toEqual(['hunt session complete', 'gate run pass', 'review round pass', 'pr open opened', 'ci wait green'])
-  // The pull request closes no issue.
-  expect(read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.body'))).not.toMatch(/Closes #/)
+  // The pull request closes no issue and has the three sections.
+  const body = read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.body'))
+  expect(body).not.toMatch(/Closes #/)
+  expect(body).toMatch(/^## Summary\n\n[^]*\n\n## Evidence\n\n[^]*\n\n## Merge Danger\n\n\*\*Door:\*\* two-way\n\n\*\*Blast Radius:\*\* \S+\n\n.+$/)
 })
 
 test('a hunt session that reports complete before hunt.sh ended the hunt waits for input and opens no pull request', async () => {

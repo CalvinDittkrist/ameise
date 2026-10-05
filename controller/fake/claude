@@ -50,7 +50,12 @@
 #   declined <id> <note>  it declined the finding of that id, or the point
 #   reply <thread> <body>  an address-reviews session replies to the thread of that id
 #   answer <text>       an address-reviews session answers the requests for changes with the text
-#   body <line>         a line of the body of the pull request the author reports
+#   summary <line>      a line of the summary of the pull request the author reports; a summary step
+#                       with no line leaves the summary empty, and without any it is "The change."
+#   door <door>         the door the author reports; without it two-way
+#   radius <word>       the blast radius the author reports; without it controller
+#   rollback <sentence> the rollback the author reports; without it "Revert the merge."
+#   note <text>         the evidence note the author reports; without it none
 #   item <section> | <statement> | <verdict> | <evidence> | <confidence>
 #                       an item the spec checker reports, such as
 #                       item Testing | The board is tested | met | test/board.test.ts:1 | high
@@ -61,7 +66,8 @@
 #   ready <message>     it reports ready with the message, which is also the text of its result
 #   blocked <message>   it reports blocked with the message as its question and the commits it made
 #   verdict <pass|fix>  a reviewer reports the verdict with its findings
-#   pull <title>        the author reports the pull request with the title and its body lines
+#   pull <title>        the author reports the pull request with the title, its summary lines and its
+#                       merge danger
 #   items               the spec checker reports its items
 #   findings            an auditor reports its finding lines
 #   silent              it ends without a result
@@ -218,7 +224,13 @@ tokens=1
 # findings are a reviewer's findings, fixes what a fix session of the review did with each, as JSON.
 findings=''
 fixes=''
-body=''
+# summary, summarised, door, radius, rollback and note are what the author reports.
+summary=''
+summarised=''
+door=two-way
+radius=controller
+rollback='Revert the merge.'
+note=''
 # items are the items the spec checker reports, as JSON.
 items=''
 # found are the finding lines an auditor reports, as JSON.
@@ -366,11 +378,16 @@ play() {
         items="$items${items:+,}{$fields}" ;;
       found)
         found="$found${found:+,}$(json "$rest")" ;;
-      body)
+      summary)
         local line
         line=$(json "$rest")
         line=${line#\"}
-        body="$body${body:+\\n}${line%\"}" ;;
+        summary="$summary${summary:+\\n}${line%\"}"
+        summarised=1 ;;
+      door) door=$rest ;;
+      radius) radius=$rest ;;
+      rollback) rollback=$rest ;;
+      note) note=$rest ;;
       fixed | declined)
         fixes="$fixes${fixes:+,}{\"finding\":$(json "${rest%% *}"),\"outcome\":\"${step%% *}\",\"note\":$(json "${rest#* }")}"
         if [ "${step%% *}" = fixed ]; then fixedl="$fixedl${fixedl:+,}$(json "$rest")"; else declinedl="$declinedl${declinedl:+,}$(json "$rest")"; fi ;;
@@ -429,7 +446,8 @@ while next; do
           result "{\"findings\":[$found]}"
           exit 0 ;;
         pull)
-          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"body\":\"${body:-The change.}\"}}"
+          if [ -z "$summarised" ]; then summary='The change.'; fi
+          say "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"session_id\":\"$session\",\"uuid\":\"$session-result\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"result\":$(json "$message"),\"stop_reason\":\"end_turn\",\"total_cost_usd\":0,\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"modelUsage\":{},\"permission_denials\":[],\"structured_output\":{\"title\":$(json "$message"),\"summary\":\"$summary\",\"door\":$(json "$door"),\"blast_radius\":$(json "$radius"),\"rollback\":$(json "$rollback")${note:+,\"evidence_note\":$(json "$note")}}}"
           exit 0 ;;
         silent)
           exit 0 ;;

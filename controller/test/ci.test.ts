@@ -96,8 +96,10 @@ const body = () => read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.bod
 const board = async () =>
   ((await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: { issue: number; state: string; stage: string; action: string }[] }).processes
 
-test('the pr stage opens the pull request with the author title and body, the gate result and the panel, never as a draft, and asks the bot reviewers', async () => {
-  playAuthor('body Lists every project on the board.\npull feat: list every project on the board')
+test('the pr stage opens the pull request with the author title and the composed body, never as a draft, and asks the bot reviewers', async () => {
+  // The gate prints more lines than the record keeps of its output.
+  gated(dir, '@i=1; while [ $$i -le 30 ]; do echo "line $$i"; i=$$((i + 1)); done')
+  playAuthor('summary Lists every project on the board.\nradius board\nrollback Revert the merge.\npull feat: list every project on the board')
   canPull(m, 'owner/repo', 7, [reading(7)])
   const r = await claim()
   const done = await ended(r.id)
@@ -109,17 +111,30 @@ test('the pr stage opens the pull request with the author title and body, the ga
   expect(create).toMatch(/^pr create --repo owner\/repo --base main --head feat\/144-board-lists-every-project --title feat: list every project on the board --body-file /)
   expect(create).not.toContain('--draft')
   expect(ghCalls()).toContain('pr edit 7 --repo owner/repo --add-reviewer chatgpt-codex-connector')
-  const text = body()
-  expect(text).toContain('Closes #144')
-  expect(text).toContain('Lists every project on the board.')
-  expect(text).toContain(`## Verification\n\nThe gate \`make check\` passed at ${head(done).slice(0, 7)}.\nThe review panel passed in round 1: code pass.`)
+  const tail = Array.from({ length: 20 }, (_, i) => `line ${i + 11}`).join('\n')
+  expect(body()).toBe(
+    [
+      'Closes #144',
+      '## Summary',
+      'Lists every project on the board.',
+      '## Evidence',
+      `The gate \`make check\` passed at ${head(done).slice(0, 7)}.`,
+      'The end of its output:',
+      '```\n' + tail + '\n```',
+      'The review panel passed in round 1: code pass.',
+      '## Merge Danger',
+      '**Door:** two-way',
+      '**Blast Radius:** board',
+      'Revert the merge.',
+    ].join('\n\n'),
+  )
 
   // Ready shows the merge as the process's action.
   expect(await board()).toMatchObject([{ issue: 144, state: 'ready', stage: 'ci', action: 'Merge' }])
 })
 
 test('after the pr stage the record holds the delivery graph and its ci node', async () => {
-  playAuthor('body Lists every project on the board.\npull feat: list every project on the board')
+  playAuthor('summary Lists every project on the board.\npull feat: list every project on the board')
   canPull(m, 'owner/repo', 7, [reading(7)])
   const r = await claim()
   await ended(r.id)
@@ -132,8 +147,10 @@ test('a failed panel is named in the pull request, which is opened all the same'
   const r = await claim(['WF_REVIEW_ROUNDS=1', 'WF_PR_BOT_REVIEWERS='])
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'ready', stage: 'ci', note: green })
-  expect(body()).toContain('The review panel failed: it spent its 1 round(s) with code not passing (code fix).')
-  expect(body()).toContain('- code-1-1 S1 `test/board.test.ts:1`: Nothing tests the limit')
+  const text = body()
+  const evidence = text.slice(text.indexOf('## Evidence'), text.indexOf('## Merge Danger'))
+  expect(evidence).toContain('The review panel failed: it spent its 1 round(s) with code not passing (code fix).')
+  expect(evidence).toContain('- code-1-1 S1 `test/board.test.ts:1`: Nothing tests the limit')
   // With no bot reviewer, none is asked.
   expect(ghCalls().some((c) => c.startsWith('pr edit '))).toBe(false)
 })
@@ -394,6 +411,19 @@ test('an author session that reports no pull request ends the pr stage failed', 
   const r = await claim()
   const done = await ended(r.id)
   expect(done).toMatchObject({ state: 'failed', stage: 'pr', note: expect.stringMatching(/^the author session wrote no pull request: /) })
+  expect(ghCalls().some((c) => c.startsWith('pr create '))).toBe(false)
+})
+
+test.each([
+  ['a door other than one-way or two-way', 'door sideways', /^the author session wrote no pull request: its door "sideways" is neither one-way nor two-way$/],
+  ['a blast radius of two words', 'radius the board', /^the author session wrote no pull request: its blast radius "the board" is not one word$/],
+  ['no summary', 'summary', /^the author session wrote no pull request: it reported no summary$/],
+])('an author result with %s ends the pr stage failed and opens no pull request', async (_, step, note) => {
+  playAuthor(`${step}\npull feat: list every project on the board`)
+  canPull(m, 'owner/repo', 7, [reading(7)])
+  const r = await claim()
+  const done = await ended(r.id)
+  expect(done).toMatchObject({ state: 'failed', stage: 'pr', note: expect.stringMatching(note) })
   expect(ghCalls().some((c) => c.startsWith('pr create '))).toBe(false)
 })
 

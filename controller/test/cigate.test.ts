@@ -144,16 +144,15 @@ test('a gate on CI pushes, opens the draft and passes on two readings a poll apa
   expect(gateRun(done)).toMatchObject({ gate: 'ci', pr: 1, commit: head(done), checks: [{ name: 'gate', state: 'pass' }, { name: 'browser', state: 'pass' }] })
 
   expect(creates()).toEqual([expect.stringMatching(new RegExp(`^pr create --repo owner/repo --base main --head ${branch} --title Board lists every project --body-file \\S+ --draft$`))])
-  // The pr stage finishes the draft: the author's title, the body with its verification, out of draft.
+  // The pr stage finishes the draft: the author's title, the composed body, out of draft.
   expect(ghCalls()).toContain('pr view 1 --repo owner/repo --json state')
   expect(ghCalls()).toContainEqual(expect.stringMatching(/^pr edit 1 --repo owner\/repo --title Fake pull request --body-file \S+$/))
   expect(ghCalls()).toContain('pr ready 1 --repo owner/repo')
   expect(ghCalls()).toContain('pr edit 1 --repo owner/repo --add-reviewer chatgpt-codex-connector')
   expect(ghCalls().indexOf('pr edit 1 --repo owner/repo --add-reviewer chatgpt-codex-connector')).toBeGreaterThan(ghCalls().indexOf('pr ready 1 --repo owner/repo'))
   const body = read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '1.body'))
-  expect(body).toMatch(/^Closes #144\n/)
-  expect(body).toContain('## Verification')
-  expect(body).toContain('The gate on CI `ci` passed at')
+  expect(body).toMatch(/^Closes #144\n\n## Summary\n\nThe change\.\n\n## Evidence\n\nThe gate on CI `ci` passed at [0-9a-f]{7}: gate pass, browser pass\.\n[^]*\n\n## Merge Danger\n/)
+  expect(body).not.toContain('## Verification')
   // The reviewers get the checks read as the gate result.
   expect(read(m.claudeLog)).toContain('The gate on CI ci passed at')
 })
