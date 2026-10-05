@@ -184,6 +184,21 @@ test('a plan with nothing opens an open session', async () => {
   expect(prompt(sessions()[0] ?? { read: [] })).toContain('Open session: no topic')
 })
 
+test('a planner session asks a question round through the controller tool ask, and its answers reach it', async () => {
+  const round = { questions: [{ title: 'Scope', question: 'Offline reads only, or writes too?', options: ['Reads', 'Writes'], recommended: 'Reads', why: 'Writes need a merge.' }] }
+  play(m, `round ${JSON.stringify(round)}\nready What next?`)
+  const r = await planned({ idea: 'Offline mode' })
+  expect(await waiting(r.id)).toMatchObject({ state: 'input', note: 'Scope' })
+  const events = read(join(m.state, 'processes', `${r.id}.events.jsonl`)).trimEnd().split('\n').map((l) => JSON.parse(l) as { event: string; request?: string })
+  const asked = events.find((e) => e.event === 'round')
+  expect(asked).toMatchObject({ questions: [{ title: 'Scope', recommended: 'Reads', why: 'Writes need a merge.' }] })
+  expect(events.filter((e) => e.event === 'question')).toEqual([])
+  const answered = await api(m, 'POST', '/api/processes/answer', { id: r.id, request: asked?.request, answers: [{ recommended: true }] })
+  expect(answered.status, JSON.stringify(answered.body)).toBe(200)
+  for (let i = 0; i < 200 && !read(m.claudeLog).includes('Q1 Scope: Reads (recommended)'); i++) await new Promise((done) => setTimeout(done, 50))
+  expect(read(m.claudeLog)).toContain('Q1 Scope: Reads (recommended)')
+})
+
 test('a plan is refused with the reason before anything is created', async () => {
   const both = await api(m, 'POST', '/api/plans', { project: dir, idea: 'x', issue: 12 })
   expect(both.status).toBe(400)

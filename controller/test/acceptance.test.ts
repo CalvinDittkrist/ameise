@@ -360,15 +360,15 @@ test('a spec GitHub closed while the record missed it is recognised by its closi
   expect(calls()).toEqual([])
 })
 
-test('a controller killed while the checker asks a question fails the acceptance on restart', async () => {
+test('a controller killed while the checker waits for a permission fails the acceptance on restart', async () => {
   canSpec()
   mkdirSync(m.claude, { recursive: true })
-  writeFileSync(join(m.claude, 'checker'), 'ask Which base do you mean?')
+  writeFileSync(join(m.claude, 'checker'), 'permit git fetch origin')
   const r = await api(m, 'POST', '/api/acceptances', { project: dir, spec: 100 })
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   const id = (r.body as { record: Rec }).record.id
   await settled(id)
-  expect(now(id).state).toBe('input')
+  expect(now(id).state).toBe('approval')
   expect(now(id).acceptance).toBeUndefined()
 
   const exited = new Promise((done) => server.once('exit', done))

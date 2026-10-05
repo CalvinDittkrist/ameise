@@ -2,8 +2,8 @@
 // process's own session as the in-process MCP server controller, so the session calls
 // mcp__controller__ask. A round holds 1 to 12 questions, each with a title and its text, and optionally
 // up to 6 labels to choose from, a recommended answer with its reason, and whether several labels may be
-// chosen. AskUserQuestion takes at most 4 questions of 2 to 4 options and has no field for a
-// recommendation, which is why a round is a tool of its own.
+// chosen. Claude Code's own question tool takes at most 4 questions of 2 to 4 options and has no field
+// for a recommendation, which is why a round is a tool of its own.
 //
 // The call blocks until the process page answers the round, through the requests a question of the
 // session waits on (session.ts). Its result is one line per question, Q<n> <title>: <answer>, which ends
