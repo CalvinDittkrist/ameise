@@ -370,6 +370,9 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - `process` keeps the rules the runtime suggests for the call in the record's `allowed`, or the call itself when it suggests none.
   - A later call they cover runs without a card, as an `allowed` event.
   - Those rules reach the session for its own lifetime and never a settings file.
+- The read commands the briefs name (`gh issue view`, `git diff`, `git log`, `git status`, `git show`) never raise a card.
+  - A hook of every session the controller starts allows them in their reading forms: one command, without a shell character, with known options.
+  - Any other form, such as `git diff --no-index` or `--output`, goes to the permission layer, so no settings file holds a rule for them.
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
   - A call that asks several questions takes the one message as the answer to each.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.

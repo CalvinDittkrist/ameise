@@ -54,7 +54,7 @@ import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from '../project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from '../records/records.js'
 import { busy, firstStage, Input, type Request, type Running, runningOf } from './running.js'
-import { allowance, guard, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
+import { allowance, bash, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
 import { attempt, event, readRecord, update } from '../records/store.js'
 
 export interface Runtime {
@@ -611,7 +611,10 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
-      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`], hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [guard(rt.stateDir, id)] }] } } : {}),
+      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`] } : {}),
+      // Every session runs the read commands the briefs name without a card; a session with the
+      // controller's GitHub tools writes GitHub through them alone.
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [bash(rt.stateDir, id, run.tools !== undefined)] }] },
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

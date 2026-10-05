@@ -117,6 +117,43 @@ test('after the gate passes every reviewer runs in parallel, and a panel that pa
   expect(done.session_id).toBe(done.history?.[0]?.session_id)
 })
 
+// decided are the decisions of the PreToolUse hook of Bash the scripted claude logged, in log order.
+const decided = () =>
+  read(m.claudeLog)
+    .split('\n')
+    .filter((l) => l.startsWith('! The hook '))
+    .map((l) => l.slice(2))
+
+// The read commands the briefs name, in the forms the briefs and the reviewers use them.
+const reads = ['gh issue view 144 --repo owner/repo', 'gh issue view 144 --repo owner/repo --comments', 'git diff origin/main...HEAD', 'git diff origin/main...HEAD --stat', 'git log --oneline origin/main..HEAD', 'git status --short', 'git show HEAD~1:board.txt']
+// Calls that share a prefix with them but read a file of the host, write one, open a browser or run more
+// than one command.
+const others = [
+  'git diff --no-index /dev/null /etc/passwd',
+  'git diff --output=/tmp/out origin/main...HEAD',
+  'git log --output=/tmp/out',
+  'git show --ext-diff HEAD',
+  'git -C /etc diff',
+  'gh issue view 144 --web',
+  'git diff origin/main...HEAD; rm -rf .',
+  'git diff $(cat /etc/passwd)',
+  'git diff ~/.ssh/id_ed25519',
+]
+
+test('every session allows the read commands its brief names without a card, and no other form of them', async () => {
+  play(m, [...reads, ...others].map((c) => `bash ${c}`).join('\n') + '\ncommit board.txt\ncomplete Implemented the board')
+  playReviewer('', [...reads, ...others].map((c) => `bash ${c}`).join('\n') + '\nverdict pass')
+  const r = await claim(['WF_REVIEWERS=code,docs'])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', panel: 'pass' })
+  const allowed = (c: string) => `The hook allowed ${c}.`
+  const through = (c: string) => `The hook let ${c} through.`
+  // The implement session in the auto mode and both reviewers in the default mode.
+  for (const c of reads) expect(decided().filter((d) => d === allowed(c)), c).toHaveLength(3)
+  for (const c of others) expect(decided().filter((d) => d === through(c)), c).toHaveLength(3)
+  // The reads are allowed by the hook, not by a prefix rule that would allow every argument.
+  expect(read(m.claudeLog).split('\n')).not.toContain('--allowedTools')
+})
+
 test('with the gate form none a fix session of the review goes straight to the next round', async () => {
   // make check would fail, so no round would follow if it ran.
   gated(dir, 'false')
