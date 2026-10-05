@@ -110,6 +110,8 @@ test('a claim starts a session in the worktree with the worker plugin and the se
   expect(args[args.lastIndexOf('--agent') + 1]).toBe('worker:code-reviewer')
   expect(args[args.lastIndexOf('--disallowedTools') + 1]).toMatch(/Edit,Write/)
   expect(flag('--permission-mode')).toBe('auto')
+  // The implement session is allowed the read commands its brief names, beside the auto mode.
+  expect(flag('--allowedTools')).toBe('Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*)')
   // A reviewer runs in the default mode, where no classifier allows a write.
   expect(args[args.lastIndexOf('--permission-mode') + 1]).toBe('default')
   expect(args).toContain('--setting-sources=user,project,local')

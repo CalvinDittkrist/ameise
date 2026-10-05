@@ -89,12 +89,13 @@ test('a ticket is created with its labels, its parent and its milestone, and the
   ])
 })
 
-test('a planner session is started with the tools as its one server and allowed to call them', async () => {
+test('a planner session is started with the tools as its one server and allowed to call them and the read commands of its brief', async () => {
   await planner('say nothing to write')
   const lines = read(m.claudeLog).split('\n')
   const init = JSON.parse(lines.find((l) => l.startsWith('< ') && l.includes('"subtype":"initialize"'))?.slice(2) ?? '{}') as { request?: { sdkMcpServers?: string[] } }
   expect(init.request?.sdkMcpServers).toEqual(['github'])
-  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__github')
+  // The read commands of its brief are allowed beside the tools: the lists are merged.
+  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__github,Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*)')
   expect(lines).toContain('--strict-mcp-config')
 })
 

@@ -113,6 +113,7 @@ The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contra
 - The branch name is the state contract: `<type>/<issue>-<slug>`, `plan/<slug>` or `hunt/tests-<date>`. The rest is derived from git and GitHub, so a crashed session resumes.
 - A local process's facts live in the controller's state directory. The hunt record lives in the worktree's git directory, and the process record keeps a copy of it.
 - Reviewers and auditors never edit or run the gate. The worker never pushes or merges, the controller never edits code, the planner writes issues only.
+- Every session the controller starts is allowed the read commands its briefs name, one `gh` or `git` subcommand per prefix rule, so parallel reviewers raise no card for the same read.
 - Planner skills are user-invoked only (`disable-model-invocation`). The workflow owns the label vocabulary, not a configuration file per repository.
 - Every stage after implement is a fresh session; the implement session compacts at the pin and never hands over.
 - The controller's imports run one way: the engine, the record store and the session runtime take only types from the graphs, nodes, agent runs and stages.

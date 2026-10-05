@@ -1,8 +1,9 @@
 // The settings of a session: the plan and work settings over the repository's, the environment its
 // runtime runs in, the compact pin with the context size the process page measures against, the knobs
-// of a process as its claim and the repository's settings set them, the rules an allowance of the
-// maintainer grants, and the hook that keeps a session with the controller's GitHub tools from writing
-// GitHub past them. It imports neither the session module nor a stage module.
+// of a process as its claim and the repository's settings set them, the read commands every session may
+// run, the rules an allowance of the maintainer grants, and the hook that keeps a session with the
+// controller's GitHub tools from writing GitHub past them. It imports neither the session module nor a
+// stage module.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { HookCallback, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
@@ -112,6 +113,12 @@ export function knob(record: { env?: Record<string, string>; project: string }, 
   if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
   return n
 }
+
+// readRules are the allow rules of every session the controller starts: the read commands its briefs
+// name. The briefs name these commands, so no card asks for them, and parallel reviewers, which keep no
+// allowance of the process, do not each ask for the same read. Each rule is a prefix rule of one gh or
+// git subcommand, and none is written to a settings file.
+export const readRules: readonly string[] = ['Bash(gh issue view:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git status:*)', 'Bash(git show:*)']
 
 // allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the
 // call, or the call itself when it suggests none.

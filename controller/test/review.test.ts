@@ -117,6 +117,31 @@ test('after the gate passes every reviewer runs in parallel, and a panel that pa
   expect(done.session_id).toBe(done.history?.[0]?.session_id)
 })
 
+// starts are the argument lists of the sessions the scripted claude was started with, in the order they
+// started. Each list is one write to the log and opens with the same first argument.
+function starts(): string[][] {
+  const args = read(m.claudeLog).trimEnd().split('\n').filter((l) => !l.startsWith('< '))
+  return args.reduce<string[][]>((out, a) => (a === args[0] ? [...out, [a]] : (out.at(-1)?.push(a), out)), [])
+}
+const flag = (args: string[], name: string) => args[args.indexOf(name) + 1]
+
+test('every reviewer starts in the default mode with the read commands of its brief allowed, each one gh or git subcommand', async () => {
+  playReviewer('', 'verdict pass')
+  const r = await claim(['WF_REVIEWERS=code,docs'])
+  expect(await ended(r.id)).toMatchObject({ state: 'ready', panel: 'pass' })
+  const reviewers = starts().filter((a) => /^worker:.*-reviewer$/.test(flag(a, '--agent') ?? ''))
+  expect(reviewers.map((a) => flag(a, '--agent')).sort()).toEqual(['worker:code-reviewer', 'worker:docs-reviewer'])
+  for (const a of reviewers) {
+    expect(flag(a, '--permission-mode')).toBe('default')
+    const rules = (flag(a, '--allowedTools') ?? '').split(',')
+    expect(rules).toEqual(['Bash(gh issue view:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git status:*)', 'Bash(git show:*)'])
+  }
+  // No session is allowed more than one gh or git subcommand by a prefix rule: never Bash(gh:*) or Bash(*).
+  const bash = starts().flatMap((a) => (flag(a, '--allowedTools') ?? '').split(',').filter((t) => t.startsWith('Bash')))
+  expect(bash.length).toBeGreaterThan(0)
+  for (const rule of bash) expect(rule).toMatch(/^Bash\((gh [a-z-]+ [a-z-]+|git [a-z-]+):\*\)$/)
+})
+
 test('with the gate form none a fix session of the review goes straight to the next round', async () => {
   // make check would fail, so no round would follow if it ran.
   gated(dir, 'false')
