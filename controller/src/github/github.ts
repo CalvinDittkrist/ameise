@@ -428,84 +428,159 @@ const writeGroups = new Set(['issue', 'pr', 'label', 'release', 'repo', 'project
 // (commands), so a gh call is a word gh of a command, and quoted text, as a grep pattern, a commit
 // message or an echo, is one word and never names one. Quoted text that a command runs as a command
 // of its own, as the script of sh -c or the words of eval, is read as a command again (scripts).
+//
+// It is a guard against a session's mistake, not a sandbox: a gh call whose words exist only when the
+// command runs, as one read from a file or a pipe, stays unseen.
 export function directWrite(command: string): string | undefined {
+  return inspect(command, new Map())
+}
+
+// inspect is directWrite with the scripts it has read, so a script that many words hand on is read once.
+function inspect(command: string, seen: Map<string, string | undefined>): string | undefined {
+  if (seen.has(command)) return seen.get(command)
+  seen.set(command, undefined)
+  let why: string | undefined
   for (const words of commands(command)) {
-    for (const script of scripts(words)) {
-      const why = directWrite(script)
-      if (why !== undefined) return why
-    }
-    const why = ghWrite(words)
-    if (why !== undefined) return why
+    for (const script of scripts(words)) if (why === undefined) why = inspect(script, seen)
+    why ??= ghWrite(words)
+    if (why !== undefined) break
   }
-  return undefined
+  seen.set(command, why)
+  return why
 }
 
 // The shells whose -c takes a script, and the commands that run their arguments joined as a command:
 // eval here, and ssh and watch through a shell of their own.
 const shells = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'su'])
 const runners = new Set(['eval', 'ssh', 'watch'])
-const isShell = (word: string) => {
-  const name = word.slice(word.lastIndexOf('/') + 1)
-  return shells.has(name) || runners.has(name)
-}
+const base = (word: string) => word.slice(word.lastIndexOf('/') + 1)
+const isShell = (word: string) => shells.has(base(word)) || runners.has(base(word))
 
 // scripts answers the texts a command's words hand on to run as commands: the word after a -c of a
-// shell, and the words after eval, ssh or watch. It looks at every word, so a wrapper in front, as
-// sudo, env or xargs, does not hide one. Reading too much only refuses a command that writes nothing
-// for a word that looks like gh, while reading too little lets a write past the tools.
+// shell, the words after eval, ssh or watch, and the string env -S splits into words, with the words
+// after it. It looks at every word, so a wrapper in front, as sudo, env or xargs, does not hide one.
+// The first runner's words hold every later one, so the search ends there. Reading too much only
+// refuses a command that writes nothing for a word that looks like gh, while reading too little lets a
+// write past the tools.
 function scripts(words: string[]): string[] {
-  return words.flatMap((w, i) => {
-    const name = w.slice(w.lastIndexOf('/') + 1)
-    if (runners.has(name)) return [words.slice(i + 1).join(' ')]
-    if (!shells.has(name)) return []
-    const flag = words.findIndex((f, j) => j > i && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(f))
-    const script = flag < 0 ? undefined : words[flag + 1]
-    return script === undefined ? [] : [script]
-  })
+  const out = new Set<string>()
+  for (const [i, w] of words.entries()) {
+    const name = base(w)
+    if (runners.has(name)) {
+      out.add(words.slice(i + 1).join(' '))
+      break
+    }
+    if (name === 'env') {
+      const split = splitString(words.slice(i + 1))
+      if (split !== undefined) {
+        out.add(split)
+        break
+      }
+    }
+    if (shells.has(name)) {
+      const flag = words.findIndex((f, j) => j > i && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(f))
+      const script = flag < 0 ? undefined : words[flag + 1]
+      if (script !== undefined) out.add(script)
+    }
+  }
+  return [...out]
 }
 
-// ghWrite says why the gh call among a command's words writes GitHub, or undefined when it has none or
-// the call only reads.
-function ghWrite(words: string[]): string | undefined {
-  const at = words.findIndex((w) => w === 'gh' || w.endsWith('/gh'))
+// splitString answers the command env runs from the arguments after it when one is -S or
+// --split-string: the string, split again as a command, followed by the words after it.
+function splitString(args: string[]): string | undefined {
+  const at = args.findIndex((w) => /^(-[a-zA-Z0-9]*S|--split-string(=|$))/.test(w))
   if (at < 0) return undefined
-  const args = words.slice(at + 1)
+  const flag = args[at] ?? ''
+  const inline = flag.startsWith('--') ? flag.slice('--split-string='.length) : flag.slice(flag.indexOf('S') + 1)
+  return (inline === '' ? args.slice(at + 1) : [inline, ...args.slice(at + 1)]).join(' ')
+}
+
+// A word that holds an expansion, as $x, ${x}, $'\x67', $( ) or a backtick, carries this mark: its
+// text is known only when the command runs.
+const runTime = '\u0000'
+const atRunTime = (word: string) => word.includes(runTime)
+const shown = (word: string) => word.replaceAll(runTime, '')
+
+// ghWrite says why a gh call among a command's words writes GitHub, or undefined when it has none or
+// every one only reads. A command may run several, as find with an -exec each, so it reads every word
+// gh. A word built at run time may be gh too, so it is read as one when the words after it name a write.
+function ghWrite(words: string[]): string | undefined {
+  for (const [at, w] of words.entries()) {
+    const gh = w === 'gh' || w.endsWith('/gh')
+    if (!gh && !atRunTime(w)) continue
+    const why = ghCall(words.slice(at + 1), gh)
+    if (why !== undefined) return why
+  }
+  return undefined
+}
+
+// ghCall says why gh with these arguments writes GitHub. A group or verb built at run time may name a
+// write, so gh refuses it; a word that is only perhaps gh refuses its static writes alone.
+function ghCall(args: string[], gh: boolean): string | undefined {
   // The repository flag takes a value, which is neither a group nor a verb.
   const [group, verb] = args.filter((w, i) => !w.startsWith('-') && args[i - 1] !== '-R' && args[i - 1] !== '--repo')
   if (group === undefined) return undefined
+  if (atRunTime(group)) return gh ? 'gh with a group built at run time may write GitHub' : undefined
+  if (writeGroups.has(group) && verb !== undefined && atRunTime(verb)) return gh ? `gh ${group} with a verb built at run time may write GitHub` : undefined
   if (writeGroups.has(group) && verb !== undefined && !readVerbs.has(verb)) return `gh ${group} ${verb} writes GitHub`
   if (group !== 'api') return undefined
   const method = args.flatMap((w, i) => (w === '-X' || w === '--method' ? [args[i + 1] ?? ''] : /^(-X|--method=)(.+)$/.exec(w)?.slice(2, 3) ?? []))[0]
-  if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${method} writes GitHub`
+  if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${shown(method)} writes GitHub`
   if (args.includes('graphql')) return args.some((w) => /\bmutation\b/.test(w)) ? 'a graphql mutation writes GitHub' : undefined
   if (method === undefined && args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)|^-[fF]./.test(w))) return 'gh api with fields sends a POST, which writes GitHub'
   return undefined
 }
 
+// An expansion of a parameter: $ before a name, a digit, a brace or a special parameter.
+const parameter = /^\$[A-Za-z0-9_{@*#?$!-]/
+
 // commands splits a Bash command into its simple commands, each the list of its words with the quotes
-// removed. A command ends at &&, ||, ;, |, &, a newline, a parenthesis or a backtick outside quotes, so a
-// subshell, a $( ) and a backtick start commands of their own. Whitespace outside quotes ends a word,
-// single quotes keep everything, and a backslash outside single quotes escapes the next character. A $( )
-// or a backtick inside double quotes still runs, so its commands are read as well.
+// removed. A command ends at &&, ||, ;, |, &, a newline or a parenthesis outside quotes, so a subshell
+// starts commands of its own, as do a $( ) and a backtick, inside double quotes too, which mark the
+// word they stand in as built at run time. Whitespace outside quotes ends a word, single quotes keep
+// everything, and a backslash outside single quotes escapes the next character. A # that starts a word
+// starts a comment, whose quotes and substitutions are nothing, up to the end of its line or of the
+// backtick it stands in.
 //
 // A here-document's body is text, not commands: its lines up to the delimiter are skipped, except for
-// the $( ) and backticks of a body whose delimiter is unquoted, which the shell runs. When a shell or a
-// runner is among the words, the body may be its script, so it is read as commands too. Reading fails
-// closed: a quote that never closes is an ordinary character, and a here-document whose delimiter line
-// never comes is not one, so neither hides the commands after it.
+// the $( ) and backticks of a body whose delimiter is unquoted, which the shell runs. Inside $(( )),
+// (( )) and $[ ], << shifts and starts none. When a shell or a runner is among the words, a body or a
+// here-string may be its script, so it is read as commands too. Reading fails closed: a quote that
+// never closes is an ordinary character, and a here-document whose delimiter line never comes is not
+// one, so neither hides the commands after it.
 function commands(command: string): string[][] {
   const out: string[][] = []
   const bodies: string[] = []
   let pending: { delimiter: string; tabs: boolean; expands: boolean }[] = []
   let i = 0
-  // read reads commands until the end, or until the backtick or the parenthesis that closes a
-  // substitution opened inside double quotes, and answers past it.
+  // The open parentheses and brackets of the arithmetic around i, and the backticks around it.
+  let arithmetic = 0
+  let backticks = 0
+  // substitution reads a $( ) from its $ past its closing parenthesis; a $(( )) is arithmetic.
+  const substitution = () => {
+    if (arithmetic > 0 || command[i + 2] === '(') arithmetic++
+    i += 2
+    read(')')
+  }
+  const backtick = () => {
+    i++
+    read('`')
+  }
+  // read reads commands until the end, or until the backtick or the parenthesis that closes the
+  // substitution it reads, and answers past it.
   const read = (close?: '`' | ')') => {
     let words: string[] = []
     let word: string | undefined
     let depth = 0
+    let hereString = false
+    if (close === '`') backticks++
     const endWord = () => {
-      if (word !== undefined) words.push(word)
+      if (word !== undefined) {
+        words.push(word)
+        if (hereString) bodies.push(word)
+        hereString = false
+      }
       word = undefined
     }
     const endCommand = () => {
@@ -515,31 +590,60 @@ function commands(command: string): string[][] {
     }
     while (i < command.length) {
       const c = command[i]
+      const next = command[i + 1] ?? ''
       if (c === close && (close === '`' || depth === 0)) {
+        if (close === ')' && arithmetic > 0) arithmetic--
         i++
         break
       }
-      if (c === '(' || (c === '$' && command[i + 1] === '(')) {
+      if (c === '$' && next === '(') {
+        word = (word ?? '') + runTime
+        substitution()
+      } else if (c === '`') {
+        word = (word ?? '') + runTime
+        backtick()
+      } else if (c === '$' && next === '[') {
+        arithmetic++
+        word = (word ?? '') + runTime + '$['
+        i += 2
+      } else if (c === '$' && next === "'") {
+        word = (word ?? '') + ansi()
+      } else if (parameter.test(c + next)) {
+        word = (word ?? '') + runTime + c
+        i++
+      } else if (c === '(') {
+        if (arithmetic > 0 || next === '(') arithmetic++
         if (close === ')') depth++
-        i += c === '$' ? 2 : 1
+        i++
         endCommand()
       } else if (c === ')') {
+        if (arithmetic > 0) arithmetic--
         if (close === ')') depth--
         i++
         endCommand()
+      } else if (arithmetic > 0 && (c === '[' || c === ']')) {
+        arithmetic += c === '[' ? 1 : -1
+        word = (word ?? '') + c
+        i++
+      } else if (c === '#' && word === undefined) {
+        while (i < command.length && command[i] !== '\n' && !(backticks > 0 && command[i] === '`')) i++
       } else if (c === '\n') {
         i++
         endCommand()
         hereDocuments()
-      } else if (c === '&' || c === '|' || c === ';' || c === '`') {
+      } else if (c === '&' || c === '|' || c === ';') {
         i++
         endCommand()
       } else if (c === ' ' || c === '\t' || c === '\r') {
         i++
         endWord()
+      } else if (c === '\\' && next === '`' && backticks > 0) {
+        // An escaped backtick inside a backtick opens or closes one nested in it, so what follows is a command.
+        i += 2
+        endCommand()
       } else if (c === '\\') {
         // A backslash before a newline continues the line.
-        if (command[i + 1] !== '\n') word = (word ?? '') + (command[i + 1] ?? '')
+        if (next !== '\n') word = (word ?? '') + next
         i += 2
       } else if (c === "'") {
         const end = command.indexOf("'", i + 1)
@@ -548,9 +652,13 @@ function commands(command: string): string[][] {
       } else if (c === '"') {
         word = (word ?? '') + quoted()
       } else if (command.startsWith('<<<', i)) {
-        word = (word ?? '') + '<<<'
+        endWord()
+        hereString = true
         i += 3
-      } else if (command.startsWith('<<', i)) {
+      } else if (c === '<' && next === '<' && arithmetic > 0) {
+        word = (word ?? '') + '<<'
+        i += 2
+      } else if (c === '<' && next === '<') {
         endWord()
         hereDocument()
       } else {
@@ -559,26 +667,50 @@ function commands(command: string): string[][] {
       }
     }
     endCommand()
+    if (close === '`') backticks--
+  }
+  // ansi reads a $'' string from its $ past its closing quote, where a backslash escapes the quote, and
+  // answers its text; one with an escape is built at run time. One that never closes is the $ itself.
+  const ansi = () => {
+    let end = i + 2
+    while (end < command.length && command[end] !== "'") end += command[end] === '\\' ? 2 : 1
+    if (end >= command.length) {
+      i++
+      return '$'
+    }
+    const text = command.slice(i + 2, end)
+    i = end + 1
+    return text.includes('\\') ? runTime + text : text
   }
   // quoted reads a double-quoted string from its opening quote past its closing one and answers its
   // text; the commands of a substitution inside it go into out. A quote that never closes is the
-  // character itself, and what follows it is read again as unquoted text.
+  // character itself, and what follows it is read again as unquoted text; it stays one when a later
+  // reading meets it again, so nested quotes that never close are read once each and not once per path.
+  const unclosed = new Set<number>()
   const quoted = () => {
     const start = i
-    const [commandsBefore, pendingBefore] = [out.length, pending.length]
+    if (unclosed.has(start)) {
+      i++
+      return '"'
+    }
+    const before = { commands: out.length, pending: pending.length, bodies: bodies.length, arithmetic }
     let text = ''
     i++
     while (i < command.length && command[i] !== '"') {
       const c = command[i]
-      if (c === '\\' && '"\\$`\n'.includes(command[i + 1] ?? '')) {
-        text += command[i + 1]
+      const next = command[i + 1] ?? ''
+      if (c === '\\' && '"\\$`\n'.includes(next) && next !== '') {
+        text += next
         i += 2
       } else if (c === '`') {
+        text += runTime
+        backtick()
+      } else if (c === '$' && next === '(') {
+        text += runTime
+        substitution()
+      } else if (parameter.test(c + next)) {
+        text += runTime + c
         i++
-        read('`')
-      } else if (c === '$' && command[i + 1] === '(') {
-        i += 2
-        read(')')
       } else {
         text += c
         i++
@@ -588,8 +720,11 @@ function commands(command: string): string[][] {
       i++
       return text
     }
-    out.length = commandsBefore
-    pending.length = pendingBefore
+    out.length = before.commands
+    pending.length = before.pending
+    bodies.length = before.bodies
+    arithmetic = before.arithmetic
+    unclosed.add(start)
     i = start + 1
     return '"'
   }
@@ -641,13 +776,9 @@ function commands(command: string): string[][] {
       if (expands) {
         while (i < line) {
           if (command[i] === '\\') i += 2
-          else if (command[i] === '`') {
-            i++
-            read('`')
-          } else if (command[i] === '$' && command[i + 1] === '(') {
-            i += 2
-            read(')')
-          } else i++
+          else if (command[i] === '`') backtick()
+          else if (command[i] === '$' && command[i + 1] === '(') substitution()
+          else i++
         }
       }
       i = Math.max(i, next)

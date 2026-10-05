@@ -255,8 +255,55 @@ test('a here-document body is text, and neither it nor an unclosed quote hides a
     ['x=$((1<<2))\ngh pr merge 1', 'gh pr merge writes GitHub'],
     ["echo it's && gh pr merge 1", 'gh pr merge writes GitHub'],
     ['echo "it && gh pr merge 1', 'gh pr merge writes GitHub'],
+    ['x=$((1<<2))\ngh issue close 1\n2', 'gh issue close writes GitHub'],
+    ['echo "$((1<<2))"\ngh issue close 1\n2', 'gh issue close writes GitHub'],
+    ['(( x = 1<<2 ))\ngh pr merge 1\n2', 'gh pr merge writes GitHub'],
+    ['x=$[1<<2]\ngh pr merge 1\n2]', 'gh pr merge writes GitHub'],
+    ["bash <<< 'gh issue close 1'", 'gh issue close writes GitHub'],
   ]
   for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('a comment is nothing, and every gh of a command is read', () => {
+  for (const command of ['gh issue view 1 # then gh issue close 1', "gh pr list # don't merge", 'echo a#b && gh pr view 1'])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['true # "\ngh issue close 1\ntrue # "', 'gh issue close writes GitHub'],
+    ["true # it's\ngh pr merge 1\necho '", 'gh pr merge writes GitHub'],
+    ['echo `true # `; gh pr merge 1', 'gh pr merge writes GitHub'],
+    ['find . -maxdepth 0 -exec gh issue view 1 \\; -exec gh issue close 1 \\;', 'gh issue close writes GitHub'],
+    ["env -S 'gh issue close 1'", 'gh issue close writes GitHub'],
+    ["env -S'gh pr' merge 1", 'gh pr merge writes GitHub'],
+    ["env --split-string='gh issue close 1'", 'gh issue close writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('a gh call built at run time is refused when its group or verb may write', () => {
+  for (const command of [
+    'gh issue view "$n" --comments',
+    'cd "$dir" && gh pr list --repo "$repo"',
+    '"$(command -v gh)" issue view 1',
+    'gh api "repos/$repo/pulls/$n/comments"',
+    "IFS=$'\\n' read -r x",
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['gh pr "$(printf re)view" 1 --approve', 'gh pr with a verb built at run time may write GitHub'],
+    ['gh pr $(printf re)view 1 --approve', 'gh pr with a verb built at run time may write GitHub'],
+    ['g=issue; gh $g close 1', 'gh with a group built at run time may write GitHub'],
+    ['$(command -v gh) issue close 1', 'gh issue close writes GitHub'],
+    ["$'\\x67h' issue close 1", 'gh issue close writes GitHub'],
+    ["echo $'it\\'s' && gh pr merge 1", 'gh pr merge writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('repeated runners, shells and unclosed quotes are read without blowing up', () => {
+  expect(directWrite(`${'eval '.repeat(200)}gh issue view 1`)).toBeUndefined()
+  expect(directWrite(`${'eval '.repeat(200)}gh issue close 1`)).toBe('gh issue close writes GitHub')
+  expect(directWrite(`${'bash '.repeat(200)}-c 'gh pr view 1'`)).toBeUndefined()
+  expect(directWrite(`${'"$('.repeat(200)}gh pr merge 1`)).toBe('gh pr merge writes GitHub')
 })
 
 test('a ticket of a spec run that cannot become a sub-issue loses the spec-run label and is refused', async () => {
