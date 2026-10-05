@@ -1,4 +1,4 @@
-// The maintainer's diagnostic over worker transcripts: fixture in, one line per session out.
+// The maintainer's diagnostic over planning and worker transcripts: fixture in, one line per session out.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,7 @@ afterEach(cleanup)
 const fixtures = fileURLToPath(new URL('./fixtures/context-report', import.meta.url))
 const workerSession = join(fixtures, 'f1a7e3aa-0000-4000-8000-000000000001.jsonl')
 const unknownFormat = join(fixtures, 'deadbeef-0000-4000-8000-000000000002.jsonl')
+const planningSession = join(fixtures, '5a1e0000-0000-4000-8000-00000000000d.jsonl')
 
 type Rec = Record<string, unknown>
 
@@ -96,8 +97,9 @@ test('it reports one line per session with the peak context and the tool mix', a
   const m = await machine()
   const r = report(m, [workerSession])
   expect(r.code, r.stderr).toBe(0)
-  expect(row(r.stdout)).toEqual({
+  expect(row(r.stdout)).toMatchObject({
     session: 'f1a7e3aa',
+    kind: 'work',
     version: '2.1.278',
     turns: '9',
     // The peak is the session maximum; the subagent turn in the fixture carries 900k and must not count
@@ -113,6 +115,53 @@ test('it reports one line per session with the peak context and the tool mix', a
     sleep: '1',
     label: '#42',
   })
+})
+
+test('a planning session is a row of kind plan with what its cost is made of', async () => {
+  const m = await machine()
+  const r = report(m, [planningSession])
+  expect(r.code, r.stderr).toBe(0)
+  expect(row(r.stdout)).toMatchObject({
+    session: '5a1e0000',
+    kind: 'plan',
+    // Four model messages, two of them written as two records, one per content block.
+    turns: '4',
+    // Two maintainer messages after the first turn; the opening prompt and the tool result are none.
+    answers: '2',
+    peak: '24.0k',
+    cached: '64.6k',
+    uncached: '22.4k',
+    output: '1.5k',
+    // 220 of 22 000 and 1 200 of 24 000 re-cached after the answers: 1.0 and 5.0 percent.
+    resume: '3.0%',
+    read: '1',
+    label: 'plan/small-idea',
+  })
+})
+
+test('a model message repeated over its content blocks counts one turn', async () => {
+  const m = await machine()
+  const rs = records(shellSession(m.root, ['ls']))
+  const turn = rs.find((r) => r.type === 'assistant') as Rec
+  const text = { ...turn, uuid: 'a1b', message: { ...(turn.message as Rec), content: [{ type: 'text', text: 'done' }] } }
+  rs.splice(rs.indexOf(turn) + 1, 0, text)
+  const r = report(m, [write(m.root, '0badc0de-0000-4000-8000-00000000000e.jsonl', rs)])
+  expect(r.code, r.stderr).toBe(0)
+  const got = row(r.stdout)
+  expect(got.turns).toBe('2')
+  expect(got.cached).toBe('19.0k') // 9 000 and 10 000, the repeated usage counted once
+})
+
+test('a directory with a planning and a worker session lists both', async () => {
+  const m = await machine()
+  const dir = join(m.root, 'transcripts')
+  mkdirSync(dir)
+  copyFileSync(workerSession, join(dir, 'f1a7e3aa-0000-4000-8000-000000000001.jsonl'))
+  copyFileSync(planningSession, join(dir, '5a1e0000-0000-4000-8000-00000000000d.jsonl'))
+  const r = report(m, [dir])
+  expect(r.code, r.stderr).toBe(0)
+  expect(rows(r.stdout).map((x) => x.kind)).toEqual(['work', 'plan'])
+  expect(r.stdout).not.toContain('session found')
 })
 
 test('its header says it is a diagnostic over an internal format', async () => {
@@ -266,7 +315,7 @@ test('no worker session is reported as such instead of as an empty table', async
   mkdirSync(join(m.root, 'claude', 'projects'), { recursive: true })
   const r = report(m, [], { CLAUDE_CONFIG_DIR: join(m.root, 'claude') })
   expect(r.code, r.stderr).toBe(0)
-  expect(r.stdout).toContain('no worker session found')
+  expect(r.stdout).toContain('no planning or worker session found')
 })
 
 test('a worker skill the maintainer types as a slash command makes a worker session', async () => {

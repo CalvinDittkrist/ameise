@@ -28,7 +28,8 @@ Terms the code, the issues and the docs use, one row each.
 | promotion | The pull request from `dev` to `main` that carries a release in the two-level branch model. |
 | acceptance | The check of a whole spec against the code on the base branch after its tickets are closed; it ends with gap tickets or the spec closed ([the local workflow](local-workflow.md)). |
 | foreground subagent | A subagent whose report is the result of the Agent call, because background tasks are disabled; worker sessions run this way. |
-| context report | `ameise context-report`, the maintainer's diagnostic over finished worker sessions: peak context, tool mix, sleep calls. Never an input to the pipeline. |
+| context report | `ameise context-report`, the maintainer's diagnostic: one line per finished session, kind `plan` or `work`, with turns, answers, peak context, cached and uncached input, output, resume share, tool mix and sleep calls. Never a pipeline input. |
+| resume share | The share of a session's context re-cached at the first model turn after a maintainer message, the median over the session. Near zero means the prompt cache survives the controller's resume. |
 | spec checker | The read-only session that judges each checkable statement of a spec during an acceptance: the controller runs it beside the acceptance's plan process. |
 | item | One checkable statement of a spec with its verdict: `item: <section> \| <statement> \| <verdict> \| <evidence> \| <confidence>`. |
 | accepted deviation | A difference between spec and code the maintainer keeps. A writer records it on the spec in a comment that opens with `> Accepted deviation (spec acceptance).` An acceptance does not report it again. |
