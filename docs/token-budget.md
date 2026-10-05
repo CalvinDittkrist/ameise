@@ -4,7 +4,7 @@ Every context of the pipeline holds only what its job needs.
 
 | Context | Loaded at start | Loaded on demand | Never |
 | --- | --- | --- | --- |
-| planner (fable; its research subagent runs in the foreground on sonnet) | its agent prompt (≈800 tokens), eight tools (Bash, Read, Write, Edit, Grep, Glob, Agent, WebFetch; ≈10k). CLAUDE.md with the imported AGENTS.md, topic or issue from the brief | one stage skill body per invocation; templates (spec, ticket, brief) only when that stage runs; a research subagent's report | worker skills; other stages' bodies |
+| planner (fable; its `reader` subagent runs in the foreground on sonnet) | its agent prompt (≈800 tokens), eight tools (Bash, Read, Write, Edit, Grep, Glob, Agent limited to `planner:reader`, WebFetch; ≈10k). CLAUDE.md with the imported AGENTS.md, topic or issue from the brief | one stage skill body per invocation; templates (spec, ticket, brief) only when that stage runs; a `reader` report | worker skills; other stages' bodies |
 | worker (opus), the implement session | eight tools (the planner's set with Skill instead of WebFetch; ≈13k), CLAUDE.md with the imported AGENTS.md, the controller's brief | the issue it reads itself: body capped at 6 000 chars, last 8 comments at 1 500 chars; skill bodies when invoked | the gate output, the reviews and the stages after it |
 | a stage session of the controller (fix, repair, address-reviews) | its brief: the failure, the findings or the review points it answers, quoted as data | the files and logs it reads | the implement session's transcript and every stage before |
 | `docs-lookup` (sonnet, high effort) | its prompt (≈400 tokens), the question and the script path | the documentation pages it reads through `claude-docs.sh` | CLAUDE.md (`omitClaudeMd`), the worker's conversation, the open web |
@@ -27,7 +27,7 @@ File access:
 - Without it a worker reads and writes through the shell, and file contents read with `cat`, `sed -n` or `head` fill the context.
 - The worker prompt states how to work with files: read with a range, search with the search tools, change with edits, write only new files.
 - It also rules out whole-file shell reads and heredoc rewrites, and asks for independent reads in parallel.
-- The planner prompt carries the same reading rules and hands a document of thousands of tokens to a subagent that answers in under 300 words.
+- The planner prompt carries the same reading rules and hands a document of thousands of tokens to its `reader` subagent, which answers in under 300 words.
 - `ameise context-report` measures whether that holds. The reviewer prompts do not carry the guidance yet, and the report does not measure subagent turns.
 
 The gate:
