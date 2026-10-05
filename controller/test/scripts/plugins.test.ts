@@ -69,7 +69,7 @@ describe('the plugins', () => {
   test('the models and efforts of the agents match their role', () => {
     const expected: Record<string, [string, string | null]> = {
       'worker/agents/worker.md': ['opus', null],
-      'planner/agents/planner.md': ['fable', null],
+      'planner/agents/planner.md': ['opus', 'high'],
     }
     for (const rel of [
       'worker/agents/code-reviewer.md',

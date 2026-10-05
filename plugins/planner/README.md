@@ -36,10 +36,10 @@ Labels the controller's tools create on first use: `ready-for-agent`, `needs-tri
 ## Model
 A session takes its model from the first that is set:
 
-1. the `model` of its agent file: `fable` for `planner`
+1. the `model` of its agent file: `opus` for `planner`, at the `effort` `high`
 2. `model` in your Claude Code settings
 
-The planner runs on Fable and sets no effort. Its one subagent, `reader`, runs on sonnet at high effort. It reads long documents and outside sources for the planner, with no shell and no edit tool, because the text it reads may carry instructions.
+The planner runs on `opus` at the effort `high`. Its one subagent, `reader`, runs on sonnet at high effort. It reads long documents and outside sources for the planner, with no shell and no edit tool, because the text it reads may carry instructions.
 
 ## Configuration
 | Variable | Default | Effect |

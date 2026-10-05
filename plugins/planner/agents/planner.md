@@ -2,7 +2,8 @@
 name: planner
 description: Main-thread agent for one planning worktree. Turns an idea or an issue into agent-ready GitHub issues through the planner skills, or answers questions about the code in an open session without a topic. Never implements.
 tools: Bash, Read, Write, Edit, Grep, Glob, Agent(planner:reader), WebFetch, mcp__github
-model: fable
+model: opus
+effort: high
 initialPrompt: /planner:plan
 ---
 You are the planner for one topic, running in a dedicated git worktree. The controller's brief names the topic or the issue you start from.

@@ -58,6 +58,7 @@ interface Record {
   note: string
   worktree: string
   session_id?: string
+  fixing?: boolean
   panel?: string
   history?: Attempt[]
 }
@@ -290,7 +291,9 @@ test('a stop while the fix session of the review runs marks it interrupted, and 
   // Without an end the fix session runs until it is stopped.
   playFix('say Looking into it')
   const r = await claim(['WF_REVIEWERS=code'])
-  const fixing = await until(r.id, (x) => x.stage === 'review' && x.state === 'running' && (x.history ?? []).length === 3 && !!x.session_id)
+  // The round is written while the record still holds the implement session's id; fixing says the fix
+  // session's node was entered, which clears that id, so the id then is the fix session's own.
+  const fixing = await until(r.id, (x) => x.stage === 'review' && x.state === 'running' && (x.history ?? []).length === 3 && x.fixing === true && !!x.session_id)
   const exited = new Promise((done) => server.once('exit', done))
   server.kill('SIGTERM')
   await exited
@@ -311,13 +314,13 @@ test('a stop before the fix session of the review reports its id resumes a fresh
   playReviewer('code', 'finding S2 src/a.ts:1 Off by one\nverdict fix')
   playFix('say Looking into it')
   const r = await claim(['WF_REVIEWERS=code'])
-  await until(r.id, (x) => x.stage === 'review' && x.state === 'running' && (x.history ?? []).length === 3 && !!x.session_id)
+  await until(r.id, (x) => x.stage === 'review' && x.state === 'running' && (x.history ?? []).length === 3 && x.fixing === true && !!x.session_id)
   const exited = new Promise((done) => server.once('exit', done))
   server.kill('SIGTERM')
   await exited
   // The stop came before the fix session reported its id, as the record then holds none.
   const file = join(m.state, 'processes', `${r.id}.json`)
-  const stopped = recordOf(r.id) as Record & { fixing?: boolean }
+  const stopped = recordOf(r.id)
   delete stopped.session_id
   expect(stopped.fixing).toBe(true)
   writeFileSync(file, JSON.stringify(stopped))
