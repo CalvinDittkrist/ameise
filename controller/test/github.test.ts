@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { skillCandidate, vocabulary } from '../src/github/github.js'
+import { directWrite, skillCandidate, vocabulary } from '../src/github/github.js'
 import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
@@ -189,12 +189,41 @@ test('a planner session cannot write GitHub with gh in Bash, and reads it', asyn
     'bash gh api repos/owner/repo/issues/3 -f title=T',
     'bash gh issue view 3 --comments',
     "bash gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title'",
+    'bash grep -rn "gh issue view\\|git diff origin" plugins controller/src',
   )
   expect(events.filter((e) => e.event === 'github-refused').map((e) => [e.tool, (e.reason as string).split(';')[0]])).toEqual([
     ['Bash', 'gh issue create writes GitHub'],
     ['Bash', 'gh api --method PATCH writes GitHub'],
     ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
   ])
+})
+
+test('a gh call is a word gh of a command, and quoted text never names one', () => {
+  for (const command of [
+    'grep -rn "gh issue view\\|git diff origin" src',
+    'git commit -m "gh issue close is refused"',
+    "echo 'gh pr merge 1'",
+    "gh issue view 3 --jq '.body | length'",
+    'gh -R owner/repo pr list && echo "done; gh pr merge 1"',
+    'gh issue view 3 \\\n  --comments',
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['echo x | gh issue close 1', 'gh issue close writes GitHub'],
+    ['gh issue close 1 --body "a | b"', 'gh issue close writes GitHub'],
+    ['(gh pr merge 1)', 'gh pr merge writes GitHub'],
+    ['x=$(gh issue edit 1 --add-label bug)', 'gh issue edit writes GitHub'],
+    ['echo "$(gh issue close 1)"', 'gh issue close writes GitHub'],
+    ['echo "`gh pr merge 1`"', 'gh pr merge writes GitHub'],
+    ['"gh" issue \'close\' 1', 'gh issue close writes GitHub'],
+    ['gh issue \\\nclose 1', 'gh issue close writes GitHub'],
+    ['gh --repo owner/repo label create x', 'gh label create writes GitHub'],
+    ['gh api -X PATCH repos/owner/repo/issues/3', 'gh api --method PATCH writes GitHub'],
+    ["gh api graphql -f query='mutation { x }'", 'a graphql mutation writes GitHub'],
+    ['gh api repos/owner/repo/issues -f "title=a; b"', 'gh api with fields sends a POST, which writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+  expect(directWrite("gh api graphql -f query='query { viewer { login } }'")).toBeUndefined()
 })
 
 test('a ticket of a spec run that cannot become a sub-issue loses the spec-run label and is refused', async () => {

@@ -424,10 +424,11 @@ const writeGroups = new Set(['issue', 'pr', 'label', 'release', 'repo', 'project
 // directWrite says why a Bash command writes GitHub past the tools, or undefined when it does not. It
 // reads every gh in the command: a subcommand of a group that writes and does not only read, and a gh
 // api call that sends a method other than GET or, without one, fields, which gh sends as a POST. A
-// graphql call writes when it carries a mutation.
+// graphql call writes when it carries a mutation. It reads the command's words as the shell does
+// (commands), so a gh call is a word gh of a command, and quoted text, as a grep pattern, a commit
+// message or an echo, is one word and never names one.
 export function directWrite(command: string): string | undefined {
-  for (const segment of command.split(/&&|\|\||[;|&\n()`]|\$\(/)) {
-    const words = segment.trim().split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, ''))
+  for (const words of commands(command)) {
     const at = words.findIndex((w) => w === 'gh' || w.endsWith('/gh'))
     if (at < 0) continue
     const args = words.slice(at + 1)
@@ -439,12 +440,100 @@ export function directWrite(command: string): string | undefined {
     const method = args.flatMap((w, i) => (w === '-X' || w === '--method' ? [args[i + 1] ?? ''] : /^(-X|--method=)(.+)$/.exec(w)?.slice(2, 3) ?? []))[0]
     if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${method} writes GitHub`
     if (args.includes('graphql')) {
-      if (/\bmutation\b/.test(segment)) return 'a graphql mutation writes GitHub'
+      if (args.some((w) => /\bmutation\b/.test(w))) return 'a graphql mutation writes GitHub'
       continue
     }
     if (method === undefined && args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)|^-[fF]./.test(w))) return 'gh api with fields sends a POST, which writes GitHub'
   }
   return undefined
+}
+
+// commands splits a Bash command into its simple commands, each the list of its words with the quotes
+// removed. A command ends at &&, ||, ;, |, &, a newline, a parenthesis or a backtick outside quotes, so a
+// subshell, a $( ) and a backtick start commands of their own. Whitespace outside quotes ends a word,
+// single quotes keep everything, and a backslash outside single quotes escapes the next character. A $( )
+// or a backtick inside double quotes still runs, so its commands are read as well.
+function commands(command: string): string[][] {
+  const out: string[][] = []
+  let i = 0
+  // read reads commands until the end, or until the backtick or the parenthesis that closes a
+  // substitution opened inside double quotes, and answers past it.
+  const read = (close?: '`' | ')') => {
+    let words: string[] = []
+    let word: string | undefined
+    let depth = 0
+    const endWord = () => {
+      if (word !== undefined) words.push(word)
+      word = undefined
+    }
+    const endCommand = () => {
+      endWord()
+      if (words.length > 0) out.push(words)
+      words = []
+    }
+    while (i < command.length) {
+      const c = command[i]
+      if (c === close && (close === '`' || depth === 0)) {
+        i++
+        break
+      }
+      if (c === '(' || (c === '$' && command[i + 1] === '(')) {
+        if (close === ')') depth++
+        i += c === '$' ? 2 : 1
+        endCommand()
+      } else if (c === ')') {
+        if (close === ')') depth--
+        i++
+        endCommand()
+      } else if (c === '&' || c === '|' || c === ';' || c === '\n' || c === '`') {
+        i++
+        endCommand()
+      } else if (c === ' ' || c === '\t' || c === '\r') {
+        i++
+        endWord()
+      } else if (c === '\\') {
+        // A backslash before a newline continues the line.
+        if (command[i + 1] !== '\n') word = (word ?? '') + (command[i + 1] ?? '')
+        i += 2
+      } else if (c === "'") {
+        const end = command.indexOf("'", i + 1)
+        word = (word ?? '') + command.slice(i + 1, end < 0 ? undefined : end)
+        i = end < 0 ? command.length : end + 1
+      } else if (c === '"') {
+        word = (word ?? '') + quoted()
+      } else {
+        word = (word ?? '') + c
+        i++
+      }
+    }
+    endCommand()
+  }
+  // quoted reads a double-quoted string from its opening quote past its closing one and answers its
+  // text; the commands of a substitution inside it go into out.
+  const quoted = () => {
+    let text = ''
+    i++
+    while (i < command.length && command[i] !== '"') {
+      const c = command[i]
+      if (c === '\\' && '"\\$`\n'.includes(command[i + 1] ?? '')) {
+        text += command[i + 1]
+        i += 2
+      } else if (c === '`') {
+        i++
+        read('`')
+      } else if (c === '$' && command[i + 1] === '(') {
+        i += 2
+        read(')')
+      } else {
+        text += c
+        i++
+      }
+    }
+    i++
+    return text
+  }
+  read()
+  return out
 }
 
 const issueNumber = z.number().int().positive()
