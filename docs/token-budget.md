@@ -79,6 +79,8 @@ It reads Claude Code's session transcripts, a format that is internal and change
 
 A planning session's cost is cached input, uncached input and output in about equal thirds.
 
+The planner's reading rules moved its shell-read share from a median of 68 percent over 87 planning sessions to 2 percent over 5 sessions run with them. They did not lower its median peak context: 66.9k before and 49.6k after, but 39.9k over the 20 earlier sessions of at most two answers, the length of the five.
+
 A parked session's process exits; the next message resumes it by id, because a parked plan waits minutes to days and a live process holds memory and dies on restart. The resume keeps the prompt cache: a median of 0.9 percent of the context was re-cached at 679 measured resumes.
 
 It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.
