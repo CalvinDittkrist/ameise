@@ -184,24 +184,6 @@ test('allow for this process lets the same call run again without a card, and ne
   page.close()
 })
 
-test('a question is a card, and the chat answer lets the session go on', async () => {
-  play(m, 'ask Keep the old flag, or drop it?\nblocked done')
-  const r = await claim()
-  const page = await follow(r.id)
-  const question = await card(page, 'question')
-  expect(question.questions).toMatchObject([{ question: 'Keep the old flag, or drop it?', options: [{ label: 'Keep' }, { label: 'Drop' }] }])
-  expect(await inState(r.id, 'input')).toMatchObject({ note: 'Keep the old flag, or drop it?' })
-  const board = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: { needs: boolean; action: string }[] }
-  expect(board.processes).toMatchObject([{ needs: true, action: 'Continue' }])
-
-  const s = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Drop' })
-  expect(s.body).toMatchObject({ delivered: 'answered' })
-  await said(page, 'You answered: Drop.')
-  await inState(r.id, 'blocked')
-  expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: question.request, text: 'Drop' }))
-  page.close()
-})
-
 // A round of three questions: one with options and a recommendation among them, one whose recommendation
 // is no option, and one that takes several options.
 const round = {

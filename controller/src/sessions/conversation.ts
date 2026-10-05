@@ -6,14 +6,6 @@
 // Tool results, subagents' messages and thinking stay in the log and out of the conversation.
 import { askTool } from './round.js'
 
-// A question as the session asks it through AskUserQuestion, with the options it offers.
-export interface Question {
-  question: string
-  header: string
-  options: { label: string; description: string }[]
-  multiSelect: boolean
-}
-
 // A question of a question round, as the session asks it through the controller tool ask (round.ts):
 // its title, its text, the labels it offers, the recommended answer with its reason, and whether it takes
 // several labels.
@@ -42,10 +34,9 @@ export type Entry = { seq: number } & (
   | { kind: 'tool'; name: string; detail: string }
   | { kind: 'you'; text: string }
   | { kind: 'permission'; request: string; tool: string; detail: string; title: string; reason: string }
-  | { kind: 'question'; request: string; questions: Question[] }
   | { kind: 'round'; request: string; questions: RoundQuestion[] }
-  // An answer settles the request it names: a permission by one of the answers, a question by the text,
-  // a round by one answer per question or by the text of a chat message.
+  // An answer settles the request it names: a permission by one of the answers, a round by one answer
+  // per question or by the text of a chat message.
   | { kind: 'answer'; request: string; answer?: Answer; text?: string; answers?: RoundAnswer[] }
   // A call the maintainer had allowed for this process, which ran without a card.
   | { kind: 'allowed'; tool: string; detail: string }
@@ -105,23 +96,6 @@ export function detail(tool: string, input: unknown, worktree = ''): string {
   return clip(oneLine(d), detailLimit)
 }
 
-// questions reads the questions of an AskUserQuestion input, and drops what is not a question.
-export function questions(input: unknown): Question[] {
-  const list = (input as { questions?: unknown } | null)?.questions
-  if (!Array.isArray(list)) return []
-  return list.flatMap((q: unknown): Question[] => {
-    const o = (q ?? {}) as Record<string, unknown>
-    if (typeof o.question !== 'string') return []
-    const options = Array.isArray(o.options)
-      ? o.options.flatMap((x: unknown) => {
-          const p = (x ?? {}) as Record<string, unknown>
-          return typeof p.label === 'string' ? [{ label: p.label, description: str(p.description) }] : []
-        })
-      : []
-    return [{ question: o.question, header: str(o.header), options, multiSelect: o.multiSelect === true }]
-  })
-}
-
 // roundQuestions reads the questions of a round as its event holds them, and drops what is not one.
 export function roundQuestions(list: unknown): RoundQuestion[] {
   if (!Array.isArray(list)) return []
@@ -157,9 +131,9 @@ interface Block {
   input?: unknown
 }
 
-// The tool calls a card of their own stands for, which are no chips: the session's question, its question
-// round through the controller tool ask, and its structured result.
-const carded = ['AskUserQuestion', askTool, 'StructuredOutput']
+// The tool calls a card of their own stands for, which are no chips: the session's question round
+// through the controller tool ask, and its structured result.
+const carded = [askTool, 'StructuredOutput']
 
 // main is whether a stream message is the main session's own assistant message, not a subagent's.
 function main(m: { type?: string; parent_tool_use_id?: unknown }): boolean {
@@ -176,7 +150,7 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
       const content = Array.isArray(m.message?.content) ? (m.message.content as Block[]) : []
       return content.flatMap((b): Entry[] => {
         if (b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '') return [{ seq, kind: 'text', text: clip(b.text, textLimit) }]
-        // A question and a round are shown as cards of their own, so their calls are no chips.
+        // A round and a result are shown as cards of their own, so their calls are no chips.
         if (b.type === 'tool_use' && typeof b.name === 'string' && !carded.includes(b.name)) {
           return [{ seq, kind: 'tool', name: b.name, detail: detail(b.name, b.input, worktree) }]
         }
@@ -187,8 +161,6 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
       return [{ seq, kind: 'you', text: clip(str(e.text), textLimit) }]
     case 'permission':
       return [{ seq, kind: 'permission', request: str(e.request), tool: str(e.tool), detail: str(e.detail), title: str(e.title), reason: str(e.reason) }]
-    case 'question':
-      return [{ seq, kind: 'question', request: str(e.request), questions: questions({ questions: e.questions }) }]
     case 'round':
       return [{ seq, kind: 'round', request: str(e.request), questions: roundQuestions(e.questions) }]
     case 'answer': {

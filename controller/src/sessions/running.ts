@@ -49,10 +49,10 @@ export class Input implements AsyncIterable<SDKUserMessage> {
 }
 
 // A request of the session that waits for the maintainer: a permission, answered by one of the answers,
-// a question, answered by the text of a message, or a question round of the controller tool ask,
-// answered by one reply per question or by the text of a message.
+// or a question round of the controller tool ask, answered by one reply per question or by the text of
+// a message.
 export interface Request {
-  kind: 'permission' | 'question' | 'round'
+  kind: 'permission' | 'round'
   note: string
   // answer throws a Refusal for an answer the request does not take, and then leaves it waiting.
   answer: (a: Answer | { text: string } | { replies: unknown }) => void
@@ -194,7 +194,7 @@ export async function stopAll(stateDir: string) {
 }
 
 // The events of a request that waits for the maintainer, and those that settle one.
-const asks = ['permission', 'question', 'round']
+const asks = ['permission', 'round']
 const settles = ['answer', 'closed']
 
 // closeOpen closes the requests of a process's event log that its session left waiting. A stop closes

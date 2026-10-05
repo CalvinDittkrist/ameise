@@ -15,9 +15,9 @@
 //
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
-// A permission the classifier does not settle and a question of the session reach the controller
-// through the SDK's permission callback. A question round reaches it through the controller tool ask
-// (round.ts), which the process's own session has beside its other tools. The session waits until the
+// A permission the classifier does not settle reaches the controller through the SDK's permission
+// callback. A question reaches it as a question round of the controller tool ask (round.ts), which the
+// process's own session has beside its other tools. The session waits until the
 // process page answers them.
 // A message to a work process whose session has ended is an event on its node, whose edge resumes a
 // session by its id.
@@ -53,7 +53,7 @@ import type { Addressed, AgentRun, Ended } from './agents.js'
 import { brief, safeRef } from './briefs.js'
 import { advance, type Entry, type Node, type NodeContext, type Outcome, type Registration } from '../engine/engine.js'
 import { githubServer, githubTools } from '../github/github.js'
-import { type Answer, context, detail, questions } from './conversation.js'
+import { type Answer, context, detail } from './conversation.js'
 import { type Project, Refusal } from '../project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from '../records/records.js'
 import { answered, controllerServer, controllerTools, type Round, type Settled } from './round.js'
@@ -286,7 +286,7 @@ export const implementNode: Node = {
 export type Parked = (record: SessionRecord) => { graph: Registration; node: string }
 
 // say writes the maintainer's message to the process's session and answers where it went.
-// A question or a question round that waits takes it as its answer. A session that runs takes it as its
+// A question round that waits takes it as its answer. A session that runs takes it as its
 // next turn.
 // A message to a process whose session has ended is an event on its node of its graph, whose edge
 // resumes a session by its id with the message. A planner resumes its session directly. parked names
@@ -296,9 +296,9 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   const s = runningOf(id)
   if (s?.busy && !s.over) throw new Refusal(`${s.busy} and no session runs to write to; write once they have ended`, 409)
   if (s && !s.over && !s.input.closed) {
-    const question = [...s.requests.values()].find((r) => r.kind !== 'permission')
-    if (question) {
-      question.answer({ text })
+    const round = [...s.requests.values()].find((r) => r.kind === 'round')
+    if (round) {
+      round.answer({ text })
       return 'answered'
     }
     event(rt.stateDir, id, { event: 'message', text })
@@ -521,7 +521,7 @@ async function session(
   }
 
   // waiting shows the process as waiting for the maintainer while a request of its session waits.
-  // A question or a round goes before a permission. Once none waits, the process is running again.
+  // A round goes before a permission. Once none waits, the process is running again.
   const waiting = () => {
     if (!live()) return
     const open = [...s.requests.values()]
@@ -571,7 +571,7 @@ async function session(
       )
     })
 
-  // closed is what a permission or a question tells the session once it ended without an answer.
+  // closed is what a permission tells the session once it ended without an answer.
   const closed: PermissionResult = { behavior: 'deny', message: 'The session ended before the maintainer answered.' }
 
   const canUseTool = async (
@@ -580,13 +580,6 @@ async function session(
     o: { signal: AbortSignal; suggestions?: PermissionUpdate[]; toolUseID: string; requestId: string; title?: string; description?: string; decisionReason?: string; blockedPath?: string },
   ): Promise<PermissionResult> => {
     const request = o.toolUseID || o.requestId
-    if (tool === 'AskUserQuestion') {
-      const asked = questions(input)
-      return ask<PermissionResult>(request, { kind: 'question', note: asked[0]?.question ?? 'The session asks a question' }, { event: 'question', questions: asked }, (a) => {
-        const text = typeof a === 'string' ? a : 'text' in a ? a.text : ''
-        return { result: { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(asked.map((q) => [q.question, text])) } }, logged: { text } }
-      }, closed, o.signal)
-    }
     const keys = allowance(tool, input, o.suggestions)
     // A reviewer neither uses nor keeps the process's allowances: a grant for one call of a reviewer
     // widens neither the process's own session nor another reviewer.
@@ -609,8 +602,8 @@ async function session(
     }, closed, o.signal)
   }
 
-  // round asks a question round of the controller tool ask. It waits like a question: the process is
-  // input with the first title as its note. A chat message settles it as a reply in the maintainer's
+  // round asks a question round of the controller tool ask. It waits like a permission, but the process
+  // is input with the first title as its note. A chat message settles it as a reply in the maintainer's
   // words. A stop of the session, or of the call, closes it.
   const round: Round = (asked, signal) =>
     ask<Settled>(

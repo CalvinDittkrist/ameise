@@ -8,7 +8,17 @@ Interview the user about $ARGUMENTS (or the session topic) until you share one u
 
 Model the design as a tree: every decision opens the decisions that depend on it. The frontier is every question whose prerequisites are settled. Ask the whole frontier in one round, numbered, each with your recommended answer. Wait for the answers. Then recompute the frontier and ask the next round. A question that depends on another question still open in this round belongs to the next round.
 
-Round format:
+Ask each round with the controller tool `ask` (`mcp__controller__ask`), one entry per frontier question. Each entry holds these fields:
+
+- `title`: a few words.
+- `question`: the question.
+- `options`: a few options, when there are some.
+- `recommended`: your answer.
+- `why`: one line on why.
+
+Fill `recommended` and `why` for every question. Then the maintainer can accept them all at once. The tool waits for the answers and returns one line per question. A reply in the maintainer's own words answers the whole round.
+
+In a session without the tool, as one started by hand, write the round in this format and wait for the reply:
 
     **Q1 <title>**
     <question; options when there are a few>

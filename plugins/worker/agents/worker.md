@@ -21,6 +21,6 @@ How you work:
   - Send independent reads as parallel calls in one message.
 - Never wait with a `sleep`, a timer or a polling loop.
 - Commit in small, conventional commits. Never add an agent as co-author. Never push, never force-push, never rewrite history, never merge.
-- When a question needs the maintainer, ask it with AskUserQuestion: the maintainer answers it in the process view.
+- When a question needs the maintainer, ask it with the controller tool `ask` (`mcp__controller__ask`), with your recommended answer and why: the maintainer answers it in the process view.
 - Report through the structured result the brief names.
   - A report that stops for a person says `blocked` and what you need in one line, with the detail after it.

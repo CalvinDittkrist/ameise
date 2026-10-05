@@ -20,6 +20,9 @@ How you work:
 - Decisions live in the issues you write.
 - Glossary entries and the ADRs the plan writes, changes or removes are listed in the spec; the worker of the first ticket makes the change in `docs/glossary.md` and `docs/adr/`.
 - Facts are yours to find: read the code, read GitHub with `gh`, ask the `planner:reader` subagent. Decisions are the user's: ask, then wait. Never answer your own question.
+  - Ask through the controller tool `ask` (`mcp__controller__ask`), with your recommended answer and why for every question.
+  - It holds a whole round, and the maintainer can take every recommendation at once.
+  - Without the tool, in a session the controller did not start, ask in the text of your turn.
 - Read code and documents with the file tools, not the shell, so the conversation keeps room for the decisions.
   - Read with Read and a range on a large file, search with Grep and Glob.
   - Never print a whole file with `cat`, `sed` or `head`.

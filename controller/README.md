@@ -374,8 +374,10 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 - The read commands the briefs name (`gh issue view`, `git diff`, `git log`, `git status`, `git show`) never raise a card.
   - A hook of every session the controller starts allows them in their reading forms: one command, without a shell character, with known options.
   - Any other form, such as `git diff --no-index` or `--output`, goes to the permission layer, so no settings file holds a rule for them.
-- A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
-  - A call that asks several questions takes the one message as the answer to each.
+- Sessions ask the maintainer only through the controller tool `ask`, never with `AskUserQuestion`.
+  - `AskUserQuestion` holds at most 4 questions of 2 to 4 options, and has no field for a recommendation or its reason.
+  - The briefs, the worker and planner agents and the planner's grill and triage name `ask` alone, with a recommendation and its reason for every question.
+  - The controller hands no `AskUserQuestion` call to the maintainer. A session started by hand, without the tool, asks in the text of its turn.
 - A process's own session has the controller tool `ask`, an in-process MCP server `controller` allowed without a card, so it calls `mcp__controller__ask`.
   - It asks a question round: 1 to 12 questions, each with a `title` and its `question`.
   - A question may add up to 6 `options`, a `recommended` answer with its reason `why`, and `multiSelect`.
@@ -385,7 +387,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A multi-select answer joins the chosen labels with `, ` in the order offered, the recommendation first.
   - A message while the round waits settles it instead: the session reads `The maintainer replied: <text>`.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
-- A message to a running session with no question waiting is its next turn, as a `message` event.
+- A message to a running session with no round waiting is its next turn, as a `message` event.
 - A message to a process whose session has ended is an event on its node of its graph, read from its stage and its `fixing` flag.
   - Its edge resumes the session by its id in the next node, with the message as its first turn:
 
@@ -660,7 +662,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - It sends `record` with the record and `compact_at`, the context size at which the session compacts.
   - Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
   - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from.
-  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
+  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.
