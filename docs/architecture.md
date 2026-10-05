@@ -46,7 +46,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 5. The controller drives the stages after implement, each session fresh with a structured result ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)):
    - gate: merges the base and runs the gate command, or hands it to CI through a draft; a failure gets a fix session,
    - review: the reviewers run in parallel, read-only; a `fix` gets a fix session,
-   - pr: a read-only author session writes the title and body; the controller pushes and opens the pull request,
+   - pr: a read-only author session reports summary and merge danger; the controller adds evidence and opens the PR,
    - ci: conflicts, checks, the bot's review and standing requests; a failure gets a repair session within `WF_CI_REPAIR_ROUNDS`,
    - address-reviews: a session fixes or declines each point of writers and bots; the controller posts the replies.
 6. Manual mode: the process ends `ready`, and a merge on the dashboard squash-merges, deletes the branch and removes the worktree ([merge](../controller/README.md#merge)).
@@ -96,7 +96,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 19. Writing sessions run in auto permission mode, without `WF_` variables. The host is the isolation boundary ([ADR 0027](adr/0027-the-factorys-isolation-boundary-is-the-host.md)).
 
 ### The contract fixture
-1. `contract/fixture.json` is the one thing the peers share. It states their shared rules as cases: branch contract, base branch, gate's draft, frontier, labels.
+1. `contract/fixture.json` is the one thing the peers share. It states their shared rules as cases: branch contract, base branch, gate's draft, PR body, frontier, labels.
 2. The Go tests and the controller's tests read it, never each other's code. Rules change there first.
 
 The compact pin is each peer's own ([ADR 0062](adr/0062-the-peers-share-a-contract-fixture-not-code.md)).
