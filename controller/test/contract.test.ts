@@ -1,6 +1,7 @@
 // The controller's side of the contract fixture for the rules it spells without a claim: the spec branch a
-// spec run integrates on, the issue a branch belongs to and the body of a pull request. The claim's branch, the base branch rule, the
-// gate's draft and the frontier are held to the fixture where the controller acts on them.
+// spec run integrates on, the issue a branch belongs to and the body of a pull request. The claim's branch,
+// the base branch rule, the gate's draft and the frontier are held to the fixture where the controller acts
+// on them.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'

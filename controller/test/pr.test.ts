@@ -34,6 +34,14 @@ test('the evidence holds the end of the gate output in a fence no line of it clo
   expect(text).not.toContain('line 22\n')
 })
 
+test('the evidence holds at most 4000 characters of the gate output when its lines are long', () => {
+  const out = Array.from({ length: 5 }, (_, i) => `${i}`.repeat(2000)).join('\n')
+  const text = evidence(record(out, 'passed', head), head)
+  const block = /\n(`{3,})\n([^]*?)\n\1\n/.exec(text)
+  expect(block?.[2]?.length).toBe(4000)
+  expect(block?.[2]?.endsWith('4'.repeat(2000))).toBe(true)
+})
+
 test('the evidence of a failed panel holds the open findings and the commits no reviewer read', () => {
   const text = evidence(record('ok', 'failed', 'abcdef1234'), head)
   expect(text).toContain('- code-1-1 S1 `a.ts:1`: Nothing tests it')

@@ -161,7 +161,7 @@ export const author: AgentRun = {
     const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
     const title = text(out.title).replace(/\s+/g, ' ')
     const [summary, door, radius, rollback, note] = [text(out.summary), text(out.door), text(out.blast_radius), text(out.rollback), text(out.evidence_note)]
-    const fail = (note: string): Ended => ({ state: 'failed', note, session_id: sessionId })
+    const fail = (why: string): Ended => ({ state: 'failed', note: why, session_id: sessionId })
     if (title === '') return fail('it reported no title')
     if (summary === '') return fail('it reported no summary')
     if (door !== 'one-way' && door !== 'two-way') return fail(`its door ${JSON.stringify(door)} is neither one-way nor two-way`)
