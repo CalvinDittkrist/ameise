@@ -28,8 +28,8 @@ import { broken, label, type Board, type Process, type Projects, type Quota } fr
 import { cn } from "@/lib/utils"
 import { href, type Route } from "@/route"
 
-// The sidebar collapses to its icons. It holds the Orchestrator entry, the projects of this machine and
-// the action that adds one; the quota sits in its footer, which the icon state hides. The Orchestrator
+// The sidebar collapses to its icons. It holds the Board entry, the projects of this machine and
+// the action that adds one; the quota sits in its footer, which the icon state hides. The Board
 // entry counts the processes that turned blocked, ready or failed and whose page is not opened yet.
 // Under each project stand its processes once the board has loaded, in the board's order; the icon state
 // hides them too.
@@ -63,7 +63,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href={href({ page: "orchestrator" })}>
+              <a href={href({ page: "board" })}>
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <WorkflowIcon className="size-4" />
                 </div>
@@ -81,10 +81,10 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={route.page === "orchestrator"} tooltip="Orchestrator">
-                  <a href={href({ page: "orchestrator" })}>
+                <SidebarMenuButton asChild isActive={route.page === "board"} tooltip="Board">
+                  <a href={href({ page: "board" })}>
                     <LayoutDashboardIcon />
-                    <span>Orchestrator</span>
+                    <span>Board</span>
                   </a>
                 </SidebarMenuButton>
                 {unseen > 0 && (
