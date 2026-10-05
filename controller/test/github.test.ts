@@ -196,10 +196,12 @@ test('a planner session cannot write GitHub with gh in Bash, and reads the issue
     ['Bash', 'gh api --method PATCH writes GitHub'],
     ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
   ])
-  // The read its brief names runs without a card; a read in another form goes to the permission layer.
+  // The read its brief names runs without a card; a read in another form, and a grep whose quoted
+  // pattern holds a gh command, go to the permission layer.
   expect(read(m.claudeLog).split('\n').filter((l) => l.startsWith('! ') && !l.includes('denied'))).toEqual([
     '! The hook allowed gh issue view 3 --comments.',
     "! The hook let gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title' through.",
+    '! The hook let grep -rn "gh issue view\\|git diff origin" plugins controller/src through.',
   ])
 })
 
