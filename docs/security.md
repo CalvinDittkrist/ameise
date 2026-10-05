@@ -9,6 +9,8 @@ Threat model: an agent with shell access works on code and reads text from the i
    - It allows the git and gh commands the pipeline needs, and denies force-push, hard reset and secret files.
    - The controller runs writing sessions in `auto` mode, where Claude Code's classifier blocks scope escalation and hostile content.
    - A permission the classifier does not settle reaches the process view as a card; reviewers run in `default` mode, so each call they make that is not read-only is one.
+   - A hook of every controller session allows the read commands the briefs name, in forms that read the repository or one issue.
+   - No prefix rule allows them: one would allow `git diff --no-index` and `--output` too.
 3. **Isolation per issue.** Each worker has its own worktree, branch and process. A broken worker cannot touch another issue's files; abandon removes it.
 4. **Built-in OS sandbox.** Enable Claude Code's Bash sandbox (macOS Seatbelt, Linux bubblewrap) in the repo settings when the project tolerates it:
    ```json

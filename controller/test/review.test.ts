@@ -117,29 +117,41 @@ test('after the gate passes every reviewer runs in parallel, and a panel that pa
   expect(done.session_id).toBe(done.history?.[0]?.session_id)
 })
 
-// starts are the argument lists of the sessions the scripted claude was started with, in the order they
-// started. Each list is one write to the log and opens with the same first argument.
-function starts(): string[][] {
-  const args = read(m.claudeLog).trimEnd().split('\n').filter((l) => !l.startsWith('< '))
-  return args.reduce<string[][]>((out, a) => (a === args[0] ? [...out, [a]] : (out.at(-1)?.push(a), out)), [])
-}
-const flag = (args: string[], name: string) => args[args.indexOf(name) + 1]
+// decided are the decisions of the PreToolUse hook of Bash the scripted claude logged, in log order.
+const decided = () =>
+  read(m.claudeLog)
+    .split('\n')
+    .filter((l) => l.startsWith('! The hook '))
+    .map((l) => l.slice(2))
 
-test('every reviewer starts in the default mode with the read commands of its brief allowed, each one gh or git subcommand', async () => {
-  playReviewer('', 'verdict pass')
+// The read commands the briefs name, in the forms the briefs and the reviewers use them.
+const reads = ['gh issue view 144 --repo owner/repo', 'gh issue view 144 --repo owner/repo --comments', 'git diff origin/main...HEAD', 'git diff origin/main...HEAD --stat', 'git log --oneline origin/main..HEAD', 'git status --short', 'git show HEAD~1:board.txt']
+// Calls that share a prefix with them but read a file of the host, write one, open a browser or run more
+// than one command.
+const others = [
+  'git diff --no-index /dev/null /etc/passwd',
+  'git diff --output=/tmp/out origin/main...HEAD',
+  'git log --output=/tmp/out',
+  'git show --ext-diff HEAD',
+  'git -C /etc diff',
+  'gh issue view 144 --web',
+  'git diff origin/main...HEAD; rm -rf .',
+  'git diff $(cat /etc/passwd)',
+  'git diff ~/.ssh/id_ed25519',
+]
+
+test('every session allows the read commands its brief names without a card, and no other form of them', async () => {
+  play(m, [...reads, ...others].map((c) => `bash ${c}`).join('\n') + '\ncommit board.txt\ncomplete Implemented the board')
+  playReviewer('', [...reads, ...others].map((c) => `bash ${c}`).join('\n') + '\nverdict pass')
   const r = await claim(['WF_REVIEWERS=code,docs'])
   expect(await ended(r.id)).toMatchObject({ state: 'ready', panel: 'pass' })
-  const reviewers = starts().filter((a) => /^worker:.*-reviewer$/.test(flag(a, '--agent') ?? ''))
-  expect(reviewers.map((a) => flag(a, '--agent')).sort()).toEqual(['worker:code-reviewer', 'worker:docs-reviewer'])
-  for (const a of reviewers) {
-    expect(flag(a, '--permission-mode')).toBe('default')
-    const rules = (flag(a, '--allowedTools') ?? '').split(',')
-    expect(rules).toEqual(['Bash(gh issue view:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git status:*)', 'Bash(git show:*)'])
-  }
-  // No session is allowed more than one gh or git subcommand by a prefix rule: never Bash(gh:*) or Bash(*).
-  const bash = starts().flatMap((a) => (flag(a, '--allowedTools') ?? '').split(',').filter((t) => t.startsWith('Bash')))
-  expect(bash.length).toBeGreaterThan(0)
-  for (const rule of bash) expect(rule).toMatch(/^Bash\((gh [a-z-]+ [a-z-]+|git [a-z-]+):\*\)$/)
+  const allowed = (c: string) => `The hook allowed ${c}.`
+  const through = (c: string) => `The hook let ${c} through.`
+  // The implement session in the auto mode and both reviewers in the default mode.
+  for (const c of reads) expect(decided().filter((d) => d === allowed(c)), c).toHaveLength(3)
+  for (const c of others) expect(decided().filter((d) => d === through(c)), c).toHaveLength(3)
+  // The reads are allowed by the hook, not by a prefix rule that would allow every argument.
+  expect(read(m.claudeLog).split('\n')).not.toContain('--allowedTools')
 })
 
 test('with the gate form none a fix session of the review goes straight to the next round', async () => {

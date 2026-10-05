@@ -89,13 +89,12 @@ test('a ticket is created with its labels, its parent and its milestone, and the
   ])
 })
 
-test('a planner session is started with the tools as its one server and allowed to call them and the read commands of its brief', async () => {
+test('a planner session is started with the tools as its one server and allowed to call them', async () => {
   await planner('say nothing to write')
   const lines = read(m.claudeLog).split('\n')
   const init = JSON.parse(lines.find((l) => l.startsWith('< ') && l.includes('"subtype":"initialize"'))?.slice(2) ?? '{}') as { request?: { sdkMcpServers?: string[] } }
   expect(init.request?.sdkMcpServers).toEqual(['github'])
-  // The read commands of its brief are allowed beside the tools: the lists are merged.
-  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__github,Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*),Bash(git show:*)')
+  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__github')
   expect(lines).toContain('--strict-mcp-config')
 })
 
@@ -183,7 +182,7 @@ test('a parent that cannot be read refuses the ticket before it is created', asy
   expect(writes(events)).toEqual([])
 })
 
-test('a planner session cannot write GitHub with gh in Bash, and reads it', async () => {
+test('a planner session cannot write GitHub with gh in Bash, and reads the issue its brief names without a card', async () => {
   const events = await planner(
     'bash gh issue create --title T --body B',
     'bash gh issue view 3 --comments && gh api -X PATCH repos/owner/repo/issues/3 -f state=closed',
@@ -195,6 +194,11 @@ test('a planner session cannot write GitHub with gh in Bash, and reads it', asyn
     ['Bash', 'gh issue create writes GitHub'],
     ['Bash', 'gh api --method PATCH writes GitHub'],
     ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
+  ])
+  // The read its brief names runs without a card; a read in another form goes to the permission layer.
+  expect(read(m.claudeLog).split('\n').filter((l) => l.startsWith('! ') && !l.includes('denied'))).toEqual([
+    '! The hook allowed gh issue view 3 --comments.',
+    "! The hook let gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title' through.",
   ])
 })
 
