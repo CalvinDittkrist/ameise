@@ -173,8 +173,7 @@ export const seen = (id: string) => call<{ id: string }>("POST", "/api/processes
 export const abandon = (path: string, issue: number, force: boolean) =>
   call<{ branch: string }>("DELETE", "/api/processes", { project: path, issue, force })
 
-// An entry of a process's conversation as the controller derives it from the event log: seq is the line
-// of the log it comes from.
+// An Answer settles a permission request: allow once, allow for the process, or deny.
 export type Answer = "once" | "process" | "deny"
 // A question of a question round, which a session asks through the controller tool ask, and the answer to
 // one as the log holds it: its text, and whether it is the recommendation.
@@ -182,6 +181,8 @@ export type RoundQuestion = { title: string; question: string; options: string[]
 export type RoundAnswer = { answer: string; recommended: boolean }
 // A Reply answers one question of a round: by its recommendation, or by a text or the labels chosen.
 export type Reply = { recommended: true } | { answer: string | string[] }
+// An entry of a process's conversation as the controller derives it from the event log: seq is the line
+// of the log it comes from.
 export type Entry = { seq: number } & (
   | { kind: "text"; text: string }
   | { kind: "tool"; name: string; detail: string }

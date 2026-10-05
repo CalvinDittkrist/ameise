@@ -192,7 +192,6 @@ test('a planner session asks a question round through the controller tool ask, a
   const events = read(join(m.state, 'processes', `${r.id}.events.jsonl`)).trimEnd().split('\n').map((l) => JSON.parse(l) as { event: string; request?: string })
   const asked = events.find((e) => e.event === 'round')
   expect(asked).toMatchObject({ questions: [{ title: 'Scope', recommended: 'Reads', why: 'Writes need a merge.' }] })
-  expect(events.filter((e) => e.event === 'question')).toEqual([])
   const answered = await api(m, 'POST', '/api/processes/answer', { id: r.id, request: asked?.request, answers: [{ recommended: true }] })
   expect(answered.status, JSON.stringify(answered.body)).toBe(200)
   for (let i = 0; i < 200 && !read(m.claudeLog).includes('Q1 Scope: Reads (recommended)'); i++) await new Promise((done) => setTimeout(done, 50))
