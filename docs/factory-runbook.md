@@ -153,6 +153,8 @@ Run the following as root unless it says otherwise.
 5. **No plugin.** Every session the factory starts runs on the factory's own prompts, compiled into the binary ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
    - It switches the `worker`, `planner`, `orchestrator` and `repo-standards` plugins of the `ameise` marketplace off.
    - Its session settings carry a skill allowlist: `skillOverrides` switches every skill bundled with Claude Code off but `/simplify`.
+   - It also switches off every personal and project skill and command file it finds for the session's worktree, since a skill `skillOverrides` leaves out is on.
+   - A local skill named `simplify` replaces the bundled one, so the session then has no `/simplify`.
    - So a session sees that one skill alone ([skills](https://code.claude.com/docs/en/skills.md)).
    - The list of bundled skills is `bundledSkills` in `factory/factory.go`, with the Claude Code version it was read from.
    - A skill a later version bundles shows up in the `skills` of a session's `init` message; add it there.

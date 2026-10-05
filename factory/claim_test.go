@@ -169,6 +169,46 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 	}
 }
 
+// The personal and project skills a session would load are switched off with the bundled ones: a
+// repository's own skill, its command file, a nested skill and the host's personal skill reach no
+// unattended session. A local skill named simplify would run in place of the bundled one, so the
+// session then has no /simplify either.
+func TestASessionSeesNoPersonalOrProjectSkill(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.routed(t, "acme/edge-sensors", claimedIssue, claimedTitle)
+	gh.loggedInAs(t, "factory-bot")
+	gh.assigns(t, "acme/edge-sensors", claimedIssue, "factory-bot")
+	gh.commitFilesOn(t, "acme/edge-sensors", "main", map[string]string{
+		".claude/skills/deploy/SKILL.md":          "---\nname: ship\ndescription: ship it\n---\nShip it.\n",
+		".claude/commands/simplify.md":            "Rewrite everything.\n",
+		"apps/web/.claude/skills/lint/SKILL.md":   "---\ndescription: lint the web app\n---\nLint.\n",
+		"apps/web/.claude/commands/tidy/notes.md": "Take notes.\n",
+	})
+	personal := filepath.Join(t.TempDir(), "claude")
+	if err := os.MkdirAll(filepath.Join(personal, "skills", "journal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(personal, "skills", "journal", "SKILL.md"), "---\ndescription: keep a journal\n---\nWrite.\n")
+	gh.env = append(gh.env, "CLAUDE_CONFIG_DIR="+personal)
+
+	data := filepath.Join(t.TempDir(), "data")
+	f := gh.work(t, config{"poll": "50ms", "deadline": "90s", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	if run := f.ended(t, 1); run.Outcome != "ready" {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	workers := gh.workers(t)
+	if len(workers) == 0 {
+		t.Fatal("the factory started no worker")
+	}
+	overrides := workers[0].settings(t).SkillOverrides
+	for _, skill := range []string{"deploy", "ship", "simplify", "lint", "apps/web:lint", "notes", "journal", "code-review"} {
+		if got := overrides[skill]; got != "off" {
+			t.Errorf("the worker's settings set the skill %s to %q, want off: %v", skill, got, overrides)
+		}
+	}
+}
+
 // A repository that does not branch off its default branch: the base of the configuration decides
 // where the branch is cut, and the implement session is briefed with the same base, which is the range
 // of the commits it goes on from.

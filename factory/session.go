@@ -148,8 +148,8 @@ const workerAgent = "worker"
 
 // workerTools is the built-in tools of the worker agent: it reads, edits and runs commands, and hands
 // a search of the code to a built-in subagent so the search stays out of its own context. Its Skill
-// tool reaches /simplify alone: every plugin is off in its session, and so is every other bundled
-// skill (skillAllowlist).
+// tool reaches /simplify alone: every plugin is off in its session, and so is every other bundled,
+// personal and project skill (skillAllowlist).
 // Agent(Explore) is an allowlist: the session runs as the main thread with --agent, so it can start
 // the built-in Explore and no other subagent, none of which could reach the web on its behalf
 // (https://code.claude.com/docs/en/sub-agents.md, "Restrict which subagents can be spawned", checked
@@ -259,7 +259,7 @@ func (f *Factory) command(ctx context.Context, s session, entry Entry, claim cla
 	if s.on() == runtimeCodex {
 		return codexCommand(ctx, s, claim), nil
 	}
-	settings, err := sessionSettings()
+	settings, err := sessionSettings(claim.worktree)
 	if err != nil {
 		return nil, err
 	}

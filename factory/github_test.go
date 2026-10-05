@@ -1114,6 +1114,24 @@ func (g *ghShim) commitOn(t *testing.T, repository, branch string) string {
 	return commit
 }
 
+// commitFilesOn commits files, each a path in the repository and its content, onto a branch of the
+// shim's GitHub.
+func (g *ghShim) commitFilesOn(t *testing.T, repository, branch string, files map[string]string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "work")
+	g.git(t, filepath.Dir(work), "clone", "-q", "-b", branch, g.remotePath(repository), work)
+	for path, body := range files {
+		full := filepath.Join(work, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, full, body)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", "add files"}, {"push", "-q", "origin", branch}} {
+		g.git(t, work, args...)
+	}
+}
+
 // cloneInto makes the clone of a repository in a data directory before the factory starts, so a test
 // can let the remote move on afterwards: a factory that finds its clone does not clone again, and
 // what it works from then depends on its own fetch.

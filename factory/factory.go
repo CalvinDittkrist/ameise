@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -1548,21 +1549,24 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // name is not switched off: the host uninstalls it (docs/factory-runbook.md).
 //
 // Of the skills bundled with Claude Code the session sees only /simplify: skillOverrides switches every
-// other one off (skillAllowlist), so none is listed to the model on every turn. The factory calls claude
-// in print mode, where the Agent SDK's skill allowlist does not exist and no flag replaces it. Sources:
+// other one off, and every personal and project skill the session would load with them
+// (skillAllowlist), so none is listed to the model on every turn and no instruction of a repository's
+// or the host's own skill reaches an unattended session. A skill absent from skillOverrides is on, so
+// the factory names each one it finds. The factory calls claude in print mode, where the Agent SDK's
+// skill allowlist does not exist and no flag replaces it. Sources:
 // https://code.claude.com/docs/en/skills.md, https://code.claude.com/docs/en/agent-sdk/skills.md,
-// checked on 2026-10-04. skillOverrides leaves a plugin's skills alone, and disableBundledSkills would
+// checked on 2026-10-05. skillOverrides leaves a plugin's skills alone, and disableBundledSkills would
 // take /simplify with the rest.
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 // [token budget]: ../docs/token-budget.md
-func sessionSettings() (string, error) {
+func sessionSettings(worktree string) (string, error) {
 	settings, err := json.Marshal(map[string]any{
 		"env":               sessionVariables,
 		"enabledPlugins":    map[string]bool{"worker@" + marketplace: false, "planner@" + marketplace: false, "orchestrator@" + marketplace: false, "repo-standards@" + marketplace: false},
 		"autoCompactWindow": compactWindow,
-		"skillOverrides":    skillAllowlist(),
+		"skillOverrides":    skillAllowlist(localSkills(worktree)),
 	})
 	if err != nil {
 		return "", fmt.Errorf("the session's settings could not be written: %w", err)
@@ -1593,15 +1597,117 @@ const bundledSkillsVersion = "2.1.284"
 // on the committed branch diff before it reports (spec #418, issue #422).
 const allowedSkill = "simplify"
 
-// skillAllowlist is the skillOverrides of the session's settings: every bundled skill off but
-// allowedSkill, which stays on.
-func skillAllowlist() map[string]string {
-	overrides := make(map[string]string, len(bundledSkills))
+// skillAllowlist is the skillOverrides of the session's settings: every bundled skill and every local
+// skill off, and allowedSkill on unless a local skill of that name would run in place of the bundled
+// one. The implement session then has no /simplify, which its brief says is no reason to stop.
+func skillAllowlist(local []string) map[string]string {
+	overrides := make(map[string]string, len(bundledSkills)+len(local))
 	for _, skill := range bundledSkills {
 		overrides[skill] = "off"
 	}
 	overrides[allowedSkill] = "on"
+	for _, skill := range local {
+		overrides[skill] = "off"
+	}
 	return overrides
+}
+
+// localSkills is the name of every personal and project skill a session in the worktree would load:
+// the skills and the command files of the host's Claude configuration, with the skills it syncs from
+// claude.ai, and those of the worktree's .claude and of every .claude below it. A skill is named by its
+// directory and by the name its frontmatter gives it, a command file by its file name, and a nested
+// skill also by its directory-qualified name. A location that cannot be read holds no skill.
+func localSkills(worktree string) []string {
+	config := os.Getenv("CLAUDE_CONFIG_DIR")
+	if config == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			config = filepath.Join(home, ".claude")
+		}
+	}
+	names := map[string]bool{}
+	if config != "" {
+		skillsIn(filepath.Join(config, "skills"), "", names)
+		skillsIn(filepath.Join(config, "skills", "synced"), "", names)
+		commandsIn(filepath.Join(config, "commands"), names)
+	}
+	_ = filepath.WalkDir(worktree, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		switch d.Name() {
+		case ".git", "node_modules":
+			return filepath.SkipDir
+		case ".claude":
+			prefix := ""
+			if rel, err := filepath.Rel(worktree, filepath.Dir(path)); err == nil && rel != "." {
+				prefix = filepath.ToSlash(rel) + ":"
+			}
+			skillsIn(filepath.Join(path, "skills"), prefix, names)
+			commandsIn(filepath.Join(path, "commands"), names)
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	list := make([]string, 0, len(names))
+	for name := range names {
+		list = append(list, name)
+	}
+	sort.Strings(list)
+	return list
+}
+
+// skillsIn adds the skills of one skills directory to names: each by its directory, by the name of its
+// frontmatter, and with prefix, the directory a nested skill is qualified by, before its directory.
+func skillsIn(dir, prefix string, names map[string]bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		skill := filepath.Join(dir, entry.Name())
+		if info, err := os.Stat(skill); err != nil || !info.IsDir() {
+			continue
+		}
+		names[entry.Name()] = true
+		if prefix != "" {
+			names[prefix+entry.Name()] = true
+		}
+		if name := frontmatterName(filepath.Join(skill, "SKILL.md")); name != "" {
+			names[name] = true
+		}
+	}
+}
+
+// commandsIn adds every command file below one commands directory to names, by its file name.
+func commandsIn(dir string, names map[string]bool) {
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
+			names[strings.TrimSuffix(d.Name(), ".md")] = true
+		}
+		return nil
+	})
+}
+
+// frontmatterName is the name field of a SKILL.md's frontmatter, or empty without one.
+func frontmatterName(file string) string {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(raw), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "---" {
+			return ""
+		}
+		if value, ok := strings.CutPrefix(line, "name:"); ok {
+			return strings.Trim(strings.TrimSpace(value), `"'`)
+		}
+	}
+	return ""
 }
 
 // marketplace is the marketplace the workflow's plugins are distributed from, whose plugins every
