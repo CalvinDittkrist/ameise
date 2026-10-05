@@ -28,11 +28,11 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Without an idea or an issue it opens an open session.
 2. The planner writes a `spec` issue and cuts it into `ready-for-agent` sub-issues with blocking edges and an optional milestone, or triages an issue into an agent brief.
 3. The maintainer answers once: spec run (spec and agent tickets get `factory:spec-run`) or normal run (named tickets get `factory`) ([the local workflow](local-workflow.md)).
-4. Finish in the process view removes the worktree; the plan branch never carries commits. Capture prototype first moves prototype code to its own branch.
+4. Finish in the process view removes the worktree; the plan branch never carries commits. Capture prototype first moves prototype code to a branch.
 5. The controller's board lists the frontier: agent-ready issues without open blocker, assignee, worktree, routing or spec run. Then the specs ready for acceptance, keeping no state.
 6. Accept on the board or `ameise accept` starts the acceptance in a plan process ([acceptance](../controller/README.md#acceptance)).
    - The controller gathers the spec, its tickets, their pull requests and files, and the deviations accepted earlier.
-   - It runs the spec checker as a read-only session, which reports each item with verdict, evidence and confidence, and shows the items in the process view.
+   - A read-only spec checker reports each item with verdict, evidence and confidence, shown in the process view.
 7. Per item not met the maintainer picks a gap ticket, an accepted deviation or nothing.
    - The controller writes them through its github tools and closes the spec once nothing is open ([the local workflow](local-workflow.md)).
 
@@ -41,7 +41,9 @@ This repository holds the local workflow, a controller with plugins, and the fac
    - Force overrides those refusals.
 2. It creates `<repo>/.claude/worktrees/<branch>` for `<type>/<N>-<slug>`, assigns the issue and starts the implement session headless with the `worker` agent ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
    - A spec-run ticket branches from and targets its spec branch.
+   - Last, it runs the bundled /simplify on the branch diff and commits the fixes, unless `WF_SIMPLIFY=off` ([ADR 0072](adr/0072-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
 3. The session's settings disable background tasks, so subagents run in the foreground ([token budget](token-budget.md)). They pin the compact trigger at 250 000 tokens and mark the session with `WF_CONTROLLER=1`.
+   - Its skill allowlist names every skill it sees ([ADR 0073](adr/0073-a-session-sees-only-the-skills-its-process-kind-names.md)).
 4. Worker knobs given to the claim reach that process alone ([claim](../controller/README.md#claim-and-abandon)).
 5. The controller drives the stages after implement, each session fresh with a structured result ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)):
    - gate: merges the base and runs the gate command, or hands it to CI through a draft; a failure gets a fix session,
@@ -64,7 +66,7 @@ This repository holds the local workflow, a controller with plugins, and the fac
 
 ### Standardisation
 1. "Standardize" on the project page opens a standardize process of the controller ([controller](../controller/README.md#standardize-process)).
-   - Its steps are code in `controller/src/stages/standard/`, named for the scripts they replaced, such as `report.sh`.
+   - Its steps are code in `controller/src/stages/standard/`, named for the scripts they replaced.
    - It runs on the engine's standardize graph: audit, apply, finalize.
 2. The audit runs `facts.sh` and `workspace.sh` as a dry run and the six auditors in parallel, which report through their structured results.
 3. `report.sh` merges their `finding:` lines per category, and the process view takes the approval per category, which `approve.sh` records ([applying the findings](repo-standard.md#applying-the-findings)).

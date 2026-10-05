@@ -261,3 +261,36 @@ test('a second resume while the first runs is refused', async () => {
   expect(again.status).toBe(409)
   expect((again.body as { error: string }).error).toBe('#144 is running, not interrupted; only an interrupted session resumes')
 })
+
+// resumedBrief waits for the first message of the resumed session and answers its lines.
+async function resumedBrief(): Promise<string[]> {
+  for (let i = 0; i < 200 && !claudeLog().includes('"type":"user"'); i++) await new Promise((d) => setTimeout(d, 50))
+  const prompt = claudeLog()
+    .split('\n')
+    .find((l) => l.startsWith('< ') && l.includes('"type":"user"'))
+  expect(prompt).toBeDefined()
+  const content = (JSON.parse(prompt!.slice(2)) as { message: { content: string | { text?: string }[] } }).message.content
+  return (typeof content === 'string' ? content : content.map((c) => c.text ?? '').join('')).split('\n')
+}
+
+// The simplify step runs on the diff against the base, which no other line of a resumed brief names.
+const diffTarget = 'origin/main...HEAD'
+
+test.each([
+  ['on', true],
+  ['off', false],
+  ['sometimes', true],
+])('a resumed implement session with WF_SIMPLIFY=%s carries the simplify step: %s', async (value, carried) => {
+  interrupted({ stage: 'implement', session_id: session, env: { WF_SIMPLIFY: value } })
+  await resume('session-start')
+  const lines = await resumedBrief()
+  expect(lines.some((l) => l.includes(diffTarget))).toBe(carried)
+})
+
+test('a resumed fix session of the gate carries no simplify step while WF_SIMPLIFY is on', async () => {
+  interrupted({ stage: 'gate', fixing: true, session_id: session, env: { WF_SIMPLIFY: 'on' } })
+  await resume('session-start')
+  const lines = await resumedBrief()
+  expect(lines.length).toBeGreaterThan(0)
+  expect(lines.some((l) => l.includes(diffTarget))).toBe(false)
+})

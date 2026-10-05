@@ -50,6 +50,10 @@ type Config struct {
 	Review   *reviewKnobs   `json:"review"`
 	Gate     *gateKnobs     `json:"gate"`
 	Validate *validateKnobs `json:"validate"`
+	// Simplify switches the implement session's /simplify step for every connected repository, and a
+	// repository's own simplify stands over it. It is kept raw so a value that is no boolean is refused
+	// with the field's own reason (switchOver).
+	Simplify json.RawMessage `json:"simplify"`
 }
 
 // Connected is one repository the factory works: its name on GitHub and, optionally, the branch a
@@ -59,19 +63,22 @@ type Config struct {
 //
 // [contract fixture]: ../contract/fixture.json
 type Connected struct {
-	Name     string         `json:"name"`
-	Base     string         `json:"base"`
-	CI       *ciKnobs       `json:"ci"`
-	Review   *reviewKnobs   `json:"review"`
-	Gate     *gateKnobs     `json:"gate"`
-	Validate *validateKnobs `json:"validate"`
+	Name     string          `json:"name"`
+	Base     string          `json:"base"`
+	CI       *ciKnobs        `json:"ci"`
+	Review   *reviewKnobs    `json:"review"`
+	Gate     *gateKnobs      `json:"gate"`
+	Validate *validateKnobs  `json:"validate"`
+	Simplify json.RawMessage `json:"simplify"`
 	// wait is the ci stage's knobs for this repository, panel the review stage's, gate the gate stage's
 	// and validate the validate stage's: the host's, with what the repository's own ci, review, gate and
-	// validate objects name written over them. Load fills them in.
+	// validate objects name written over them. simplify is whether its implement session runs /simplify
+	// before it reports: the repository's simplify, else the host's. Load fills them in.
 	wait     ciSettings
 	panel    reviewSettings
 	gate     gateSettings
 	validate validateSettings
+	simplify bool
 }
 
 // UnmarshalJSON takes a connected repository as the name alone or as an object with its settings, so
@@ -91,7 +98,7 @@ func (c *Connected) UnmarshalJSON(raw []byte) error {
 	decoder.DisallowUnknownFields()
 	var read settings
 	if err := decoder.Decode(&read); err != nil {
-		return fmt.Errorf(`%w; a repository is "owner/name" or {"name": "owner/name", "base": "dev", "ci": {"repair_rounds": 2}, "review": {"rounds": 2}, "gate": {"rounds": 2}}`, err)
+		return fmt.Errorf(`%w; a repository is "owner/name" or {"name": "owner/name", "base": "dev", "ci": {"repair_rounds": 2}, "review": {"rounds": 2}, "gate": {"rounds": 2}, "simplify": false}`, err)
 	}
 	*c = Connected(read)
 	return nil
@@ -121,6 +128,9 @@ type Settings struct {
 	Gate   gateSettings
 	// Validate is the host's knobs of the validate stage, which is off unless they name validators.
 	Validate validateSettings
+	// Simplify is the host's switch of the implement session's /simplify step, true unless the file
+	// says otherwise.
+	Simplify bool
 	// WorkerModel is the model the worker runs on, one of those whose quota scope the check reads
 	// (Factory.spends): the worker agent's own unless worker_args names another with --model.
 	WorkerModel string
@@ -133,8 +143,9 @@ const (
 	defaultPoll         = 60 * time.Second
 	defaultOutageWait   = 15 * time.Minute
 	defaultQuotaMinimum = 12
+	defaultSimplify     = true
 
-	configFields = "listen, label, deadline, poll, outage_wait, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate, validate"
+	configFields = "listen, label, deadline, poll, outage_wait, data_dir, worker_args, paused, auto_update, notify, repositories, quota_axi, quota_minimum, ci, review, gate, validate, simplify"
 )
 
 // A repository is named as owner/name; the factory never takes a URL or a local path, because the
@@ -356,6 +367,9 @@ func Load(path string) (Settings, error) {
 		return bad("validate: %v", err)
 	}
 	s.Validate = validate
+	if s.Simplify, err = switchOver(defaultSimplify, c.Simplify); err != nil {
+		return bad("%v", err)
+	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return bad("data_dir is missing; name the directory the runs are written to, such as \"/var/lib/factory\"")
 	}
@@ -397,7 +411,34 @@ func Load(path string) (Settings, error) {
 		if r.validate, err = validate.over(r.Validate); err != nil {
 			return bad("the validate of %s: %v", r.Name, err)
 		}
+		if r.simplify, err = switchOver(s.Simplify, r.Simplify); err != nil {
+			return bad("the simplify of %s: %v", r.Name, err)
+		}
 		s.Repositories = append(s.Repositories, r)
 	}
 	return s, nil
+}
+
+// switchOver is the simplify switch as written over the one above it: the value the file names, and
+// the one above when it names none. Anything but true or false is refused, null included, because a
+// switch the operator wrote and the factory read as something else would run the step against the
+// operator's word.
+func switchOver(above bool, raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 {
+		return above, nil
+	}
+	var on bool
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &on) != nil {
+		return false, fmt.Errorf("simplify %s is not a boolean; write it as true or false, or leave it out to take the switch above it", raw)
+	}
+	return on, nil
+}
+
+// simplifyFor is whether the implement session of a connected repository runs /simplify, and the
+// host's switch for one that is no longer connected.
+func (f *Factory) simplifyFor(repository string) bool {
+	if connected, ok := f.connected(repository); ok {
+		return connected.simplify
+	}
+	return f.settings.Simplify
 }

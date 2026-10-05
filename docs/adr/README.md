@@ -6,7 +6,7 @@ An ADR records a decision that holds today and is hard to reverse or surprising 
 - A changed decision edits its ADR in place, and a decision that no longer holds is deleted.
 - A status is proposed or accepted. A number is never reused.
 
-Next free number: 0072
+Next free number: 0074
 
 | ADR | Title | Status |
 | --- | --- | --- |
@@ -28,3 +28,5 @@ Next free number: 0072
 | [0062](0062-the-peers-share-a-contract-fixture-not-code.md) | The peers share a contract fixture, not code | accepted |
 | [0070](0070-processes-run-on-process-graphs.md) | Processes run on process graphs | accepted |
 | [0071](0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md) | ADRs are a capped set of decisions that hold today | accepted |
+| [0072](0072-the-implement-session-runs-the-bundled-simplify-before-it-reports.md) | The implement session runs the bundled /simplify before it reports | accepted |
+| [0073](0073-a-session-sees-only-the-skills-its-process-kind-names.md) | A session sees only the skills its process kind names | accepted |

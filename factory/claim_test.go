@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -145,6 +146,19 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 		t.Errorf("the worker compacts at %q%% of %d, want %s%% of %d, the factory's pin",
 			settings.Env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], settings.AutoCompactWindow, compactPercentage, compactWindow)
 	}
+	// Of the bundled skills the session sees /simplify alone, and its agent has the Skill tool to run it.
+	for _, skill := range bundledSkills {
+		want := "off"
+		if skill == "simplify" {
+			want = "on"
+		}
+		if got := settings.SkillOverrides[skill]; got != want {
+			t.Errorf("the worker's settings set the bundled skill %s of Claude Code %s to %q, want %q: %v", skill, bundledSkillsVersion, got, want, settings.SkillOverrides)
+		}
+	}
+	if !slices.Contains(agent.Tools, "Skill") {
+		t.Errorf("the worker agent has the tools %v, want the Skill tool among them", agent.Tools)
+	}
 
 	// Its own process group, so that the deadline and the stop reach everything the session starts.
 	if worker.pid != worker.pgid {
@@ -152,6 +166,46 @@ func TestAClaimCutsTheBranchFromTheFreshlyFetchedBaseAndRunsTheWorkerInItsWorktr
 	}
 	if worker.pgid == f.cmd.Process.Pid {
 		t.Errorf("the worker is in the factory's own process group (%d); ending it would end the factory", worker.pgid)
+	}
+}
+
+// The personal and project skills a session would load are switched off with the bundled ones: a
+// repository's own skill, its command file, a nested skill and the host's personal skill reach no
+// unattended session. A local skill named simplify would run in place of the bundled one, so the
+// session then has no /simplify either.
+func TestASessionSeesNoPersonalOrProjectSkill(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.routed(t, "acme/edge-sensors", claimedIssue, claimedTitle)
+	gh.loggedInAs(t, "factory-bot")
+	gh.assigns(t, "acme/edge-sensors", claimedIssue, "factory-bot")
+	gh.commitFilesOn(t, "acme/edge-sensors", "main", map[string]string{
+		".claude/skills/deploy/SKILL.md":          "---\nname: ship\ndescription: ship it\n---\nShip it.\n",
+		".claude/commands/simplify.md":            "Rewrite everything.\n",
+		"apps/web/.claude/skills/lint/SKILL.md":   "---\ndescription: lint the web app\n---\nLint.\n",
+		"apps/web/.claude/commands/tidy/notes.md": "Take notes.\n",
+	})
+	personal := filepath.Join(t.TempDir(), "claude")
+	if err := os.MkdirAll(filepath.Join(personal, "skills", "journal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(personal, "skills", "journal", "SKILL.md"), "---\ndescription: keep a journal\n---\nWrite.\n")
+	gh.env = append(gh.env, "CLAUDE_CONFIG_DIR="+personal)
+
+	data := filepath.Join(t.TempDir(), "data")
+	f := gh.work(t, config{"poll": "50ms", "deadline": "90s", "data_dir": data, "repositories": []string{"acme/edge-sensors"}})
+	if run := f.ended(t, 1); run.Outcome != "ready" {
+		t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
+	}
+	workers := gh.workers(t)
+	if len(workers) == 0 {
+		t.Fatal("the factory started no worker")
+	}
+	overrides := workers[0].settings(t).SkillOverrides
+	for _, skill := range []string{"deploy", "ship", "simplify", "lint", "apps/web:lint", "notes", "journal", "code-review"} {
+		if got := overrides[skill]; got != "off" {
+			t.Errorf("the worker's settings set the skill %s to %q, want off: %v", skill, got, overrides)
+		}
 	}
 }
 
@@ -189,6 +243,11 @@ func TestAClaimOfARepositoryWithItsOwnBaseCutsAndWorksFromThatBase(t *testing.T)
 		t.Errorf("%s was cut at %s, want the head of dev (%s) and not of main", claimedBranch, workers[0].head, dev)
 	}
 	workers[0].briefedOn(t, "dev")
+	// The branch tracks its base, so /simplify without a target reviews the diff against dev and not
+	// against main.
+	if workers[0].upstream != "origin/dev" {
+		t.Errorf("the worker ran on a branch that tracks %q, want origin/dev, the base /simplify reviews against", workers[0].upstream)
+	}
 }
 
 // A repository moves its line of work after this host cloned it: it declares another base in its own
@@ -892,6 +951,7 @@ func inProcess(t *testing.T, gh *ghShim) {
 // group, the command line it was given and the names in its environment.
 type workerStart struct {
 	cwd, branch, head string
+	upstream          string // the branch the worktree's branch tracks, none when it tracks none
 	pid, pgid         int
 	longest           int // the size of the longest argument in bytes
 	args              []string
@@ -968,6 +1028,7 @@ type startedSettings struct {
 	Env               map[string]string `json:"env"`
 	EnabledPlugins    map[string]bool   `json:"enabledPlugins"`
 	AutoCompactWindow int               `json:"autoCompactWindow"`
+	SkillOverrides    map[string]string `json:"skillOverrides"`
 }
 
 // settings is the session settings the worker was started with.
@@ -1042,7 +1103,7 @@ func sessionsIn(t *testing.T, log string) []workerStart {
 		}
 		w := &started[len(started)-1]
 		switch field {
-		case "cwd", "branch", "head", "pid", "pgid", "longest", "arg", "env":
+		case "cwd", "branch", "head", "upstream", "pid", "pgid", "longest", "arg", "env":
 			last = field
 		default:
 			// A line of no field is the next line of an argument that has more than one, a brief's.
@@ -1058,6 +1119,8 @@ func sessionsIn(t *testing.T, log string) []workerStart {
 			w.branch = value
 		case "head":
 			w.head = value
+		case "upstream":
+			w.upstream = value
 		case "pid", "pgid", "longest":
 			number, err := strconv.Atoi(value)
 			if err != nil {

@@ -113,7 +113,15 @@ A claim takes an issue of a project into a work process. It refuses, with the re
 
 Force lifts the first four and never the last. Each refusal it lifts comes back as a warning. On a branch on origin it adopts that branch, so the worktree goes on from its work. A closed issue is refused always.
 
-The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`: `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT` and `WF_DOCS_TIMEOUT`, and the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`. A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form, whether an override or the checkout's settings set it.
+The mode is `manual` or `yolo`. The overrides set worker knobs for the process, each `NAME=VALUE`:
+- `WF_REVIEWERS`, `WF_REVIEW_ROUNDS`, `WF_CI_REPAIR_ROUNDS`, `WF_PR_BOT_REVIEWERS`, `WF_PR_REVIEW_WAIT` and `WF_DOCS_TIMEOUT`,
+- the [gate's](#gate-stage) `WF_GATE`, `WF_GATE_ROUNDS`, `WF_GATE_TIMEOUT`, `WF_CHECKS_GRACE` and `WF_STAGE_TIMEOUT`,
+- `WF_SIMPLIFY`, `on` (the default) or `off`, which switches the simplify step of the implement session.
+  - Before it reports complete, the session runs the bundled /simplify on the branch diff against the base and commits the fixes as refactor commits.
+
+A malformed override, another name or a name given twice is refused with `400` before anything is created. So is a `WF_GATE` that is no gate form and a `WF_SIMPLIFY` override that is neither `on` nor `off`.
+
+Without the override, the claim reads `WF_SIMPLIFY` from the settings the worktree starts with, which its session loads. It refuses a value other than `on` or `off` with `400` before the worktree is created, and pins the value on the process, which the brief and the session's settings follow.
 
 A claim then:
 1. names the branch by the branch contract of the [contract fixture](../contract/fixture.json): `<type>/<number>-<slug>`,

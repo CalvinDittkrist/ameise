@@ -164,6 +164,9 @@ export interface WorkRecord extends CreatedRecord {
   issue: number
   mode: Mode
   env: Record<string, string>
+  // simplify is the WF_SIMPLIFY the claim read, on as true: the override, else the settings the worktree
+  // started with. The brief and the session's settings both follow it. An adopted process has none.
+  simplify?: boolean
   // hold says the next complete report of the implement session keeps it open instead of starting the gate.
   hold?: boolean
   // held says the implement session reported complete under a hold and waits for the maintainer's next

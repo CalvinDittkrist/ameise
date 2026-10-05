@@ -107,6 +107,9 @@ test('a plan from an idea opens a plan branch and starts the planner with its pl
   // The brief carries the plan's context; no hook or script of the planner reads it from the environment.
   expect(Object.keys(settings.env).filter((k) => k.startsWith('WF_PLAN'))).toEqual([])
   expect(settings.enabledPlugins).toEqual({ 'worker@ameise': false, 'planner@ameise': false, 'orchestrator@ameise': false, 'repo-standards@ameise': false })
+  // Its skill allowlist, sent in the initialize request, is the planner's skills and no other.
+  const init = JSON.parse(s?.read.find((l) => l.includes('"subtype":"initialize"')) ?? '{}') as { request?: { skills?: string[] } }
+  expect(init.request?.skills).toEqual(['accept', 'finish', 'grill', 'plan', 'prototype', 'research', 'spec', 'tickets', 'triage'].map((n) => `planner:${n}`))
   const brief = prompt(s ?? { read: [] })
   expect(brief).toContain('/planner:plan')
   expect(brief).toContain('Planner session: offline-mode')

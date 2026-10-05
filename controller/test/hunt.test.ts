@@ -114,6 +114,34 @@ test('a hunt that removed a test keeps the hunt record and goes through the gate
   expect(read(join(m.github, 'repos', 'owner', 'repo', 'pulls', '7.body'))).not.toMatch(/Closes #/)
 })
 
+test('a hunt session is started with the skill allowlist of a work session and the hunt skill, and no other skill', async () => {
+  tested()
+  playHunt('no candidates', 'complete hunt: nothing removed')
+  const r = await hunted()
+  await ended(r.id)
+  const init = read(m.claudeLog)
+    .split('\n')
+    .find((l) => l.startsWith('< ') && l.includes('"subtype":"initialize"'))
+  const request = (JSON.parse(init?.slice(2) ?? '{}') as { request?: { skills?: string[] } }).request
+  expect(request?.skills).toEqual(['simplify', 'worker:docs', 'repo-standards:adr', 'repo-standards:docs-check', 'worker:hunt-tests'])
+})
+
+for (const value of ['on', 'off']) {
+  test(`a hunt session is briefed without the simplify step when WF_SIMPLIFY is ${value}`, async () => {
+    tested()
+    mkdirSync(join(dir, '.claude'), { recursive: true })
+    writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: value } }))
+    playHunt('no candidates', 'complete hunt: nothing removed')
+    const r = await hunted()
+    await ended(r.id)
+    const prompt = read(m.claudeLog)
+      .split('\n')
+      .find((l) => l.startsWith('< ') && l.includes('"type":"user"'))
+    expect(prompt).toContain('/worker:hunt-tests')
+    expect(prompt).not.toMatch(/simplify/)
+  })
+}
+
 test('a hunt session that reports complete before hunt.sh ended the hunt waits for input and opens no pull request', async () => {
   tested()
   playHunt('no candidates', 'complete hunt: nothing removed')

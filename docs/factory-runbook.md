@@ -152,6 +152,13 @@ Run the following as root unless it says otherwise.
    - Then quota-axi has nothing to read, and every run carries a warning that the check could not answer.
 5. **No plugin.** Every session the factory starts runs on the factory's own prompts, compiled into the binary ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
    - It switches the `worker`, `planner`, `orchestrator` and `repo-standards` plugins of the `ameise` marketplace off.
+   - Its session settings carry a skill allowlist: `skillOverrides` switches every skill bundled with Claude Code off but `/simplify`.
+   - It also switches off every personal and project skill and command file it finds for the session's worktree, since a skill `skillOverrides` leaves out is on.
+   - A local skill named `simplify` replaces the bundled one, so the session then has no `/simplify`.
+   - So a session sees that one skill alone ([skills](https://code.claude.com/docs/en/skills.md)).
+   - The list of bundled skills is `bundledSkills` in `factory/factory.go`, with the Claude Code version it was read from.
+   - A skill a later version bundles shows up in the `skills` of a session's `init` message; add it there.
+   - The codex runtime takes no such settings.
    - So the host needs Claude Code, `git`, `gh`, the factory binary and the tools of the gates above, and no plugin of this repository.
    - A host that carries the plugin from an earlier factory moves over in [Moving a host off the plugin](#moving-a-host-off-the-plugin).
 6. **The factory binary** from a release. The tag `factory/v<version>` carries `factory-linux-amd64`, `factory-linux-arm64`, `checksums.txt` and `factory-v<version>.sigstore.json`.
@@ -231,6 +238,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 | `gate` | see below | The knobs of the gate stage ([The gate stage](#the-gate-stage)). |
 | `review` | see below | The knobs of the review stage ([The review stage](#the-review-stage)). |
 | `validate` | see below | The knobs of the validate stage ([The validate stage](#the-validate-stage)). Without it the stage is off. |
+| `simplify` | `true` | Whether the implement session runs the bundled `/simplify` skill on its diff before it reports. See below the table. |
 | `paused` | `true` | A paused factory shows the line and claims, resumes and writes nothing. A file that does not name `paused` is paused, so an unattended line is always something you wrote down. It is read again on every poll, so it takes no restart ([Pausing](#pausing)). |
 | `auto_update` | `false` | Lets the host's update tick install factory releases on this host. It is read again on every poll like `paused`, and `/api/line` reports it. |
 | `notify` | `[]` | GitHub logins, without the `@`. They are asked for a review when a run ends `ready`, and mentioned on the issue when a run waits for a person. Empty: nobody is notified, and the log says so on start. |
@@ -284,11 +292,22 @@ The factory is configured by one JSON file and nothing else: no environment vari
 - `rounds` (default `2`): the fix sessions a validation that does not pass may take.
 - Past them the run ends `ready` all the same, and the pull request says the validation did not pass.
 
+`simplify`:
+
+- `true` (the default): the implement session runs `/simplify` on the branch's diff against its base once its change is committed.
+  - It applies what the skill finds, verifies the fixes with the single test or linter of the files they touch, and commits them as refactor commits of their own.
+  - Its summary says in one sentence what the skill changed, that it found nothing, or that the skill was unavailable.
+  - A session without the skill goes on and reports, so the step never blocks a run.
+- `false`: the implement session runs no `/simplify`.
+- The fix sessions and the address-reviews session never run it.
+- Anything but `true` or `false` is refused, `null` included.
+
 `repositories`:
 
 - An entry is `"owner/name"`, or `{"name": "owner/name", "base": "dev"}` when this host branches off something other than the repository's base.
 - The repository's base is its `WF_BASE_BRANCH`, else its default branch.
 - The object may also carry `"gate"`, `"ci"`, `"review"` and `"validate"` with any of their knobs, which then stand for that repository over the host's.
+- It may carry `"simplify"` too, which stands over the host's the same way.
 - A repository's `classes` replace the host's as a whole. An unknown knob, reviewer or validator is refused, and so is a `rounds` below 1.
 
 A session's error triggers one more check. A scope below 1 % ends the run `quota`, which resumes after the reset once in a row; a second stop waits for you.
@@ -318,12 +337,13 @@ A complete configuration, written to `/etc/factory/factory.json` (root owns it, 
   "gate": {"command": ["make", "check"], "rounds": 3, "timeout": "45m"},
   "review": {"rounds": 3, "reviewers": ["code", "security", "docs", "tests", "senior"], "gate_rounds": 2},
   "ci": {"repair_rounds": 3, "bot_reviewers": [], "review_wait": "20m", "checks_grace": "10m"},
+  "simplify": true,
   "paused": false,
   "notify": ["yourname"],
   "quota_axi": "/usr/bin/quota-axi",
   "quota_minimum": 12,
   "repositories": [
-    {"name": "yourname/service", "gate": {"command": "ci"}},
+    {"name": "yourname/service", "gate": {"command": "ci"}, "simplify": false},
     {"name": "yourname/app", "base": "dev", "review": {"rounds": 2}, "ci": {"repair_rounds": 2},
      "validate": {"validators": ["codex", "senior"], "rounds": 2}},
     {"name": "yourname/handbook", "review": {"classes": [
@@ -588,7 +608,8 @@ A run starts with the version of Claude Code it is made with, written on the run
 
 The session runs as the factory's own agent (`--agents`, `--agent worker`), whose prompt is compiled into the binary:
 
-- the tools `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob` and `Agent(Explore)`, which can start the built-in Explore and no other subagent
+- the tools `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Skill` and `Agent(Explore)`, which can start the built-in Explore and no other subagent
+- `Skill` reaches `/simplify` alone, through the skill allowlist of the session's settings
 - `StructuredOutput`, through which the session hands over its result
 - the model `opus` unless `worker_args` names another, and the auto permission mode
 - no MCP server and none of the workflow plugins; the worktree's own settings apply

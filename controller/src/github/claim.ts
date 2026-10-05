@@ -13,7 +13,7 @@ import { enter, type Opening } from '../engine/engine.js'
 import { gateForm } from '../stages/gate.js'
 import { graphOf } from '../engine/graphs.js'
 import { claimRuntime } from '../quota.js'
-import { settingOf } from '../sessions/settings.js'
+import { settingOf, simplifyOn } from '../sessions/settings.js'
 import { type Project, Refusal } from '../project.js'
 import { stop } from '../sessions/running.js'
 import type { Announce, Runtime } from '../sessions/session.js'
@@ -34,6 +34,7 @@ export const knobs = [
   'WF_GATE_TIMEOUT',
   'WF_CHECKS_GRACE',
   'WF_STAGE_TIMEOUT',
+  'WF_SIMPLIFY',
 ]
 
 const envShape = 'an override is NAME=VALUE, such as WF_REVIEW_ROUNDS=5; an empty value (WF_PR_BOT_REVIEWERS=) is allowed'
@@ -135,6 +136,16 @@ async function refOf(top: string, base: string): Promise<string> {
   return (await exists(top, `origin/${base}`)) ? `origin/${base}` : (await exists(top, base)) ? base : `origin/${base}`
 }
 
+// settingAt reads a knob from the env block of .claude/settings.json at the ref, undefined where it has none.
+async function settingAt(top: string, ref: string, name: string): Promise<unknown> {
+  try {
+    return (JSON.parse(await git(top, 'show', `${ref}:.claude/settings.json`)) as { env?: Record<string, unknown> }).env?.[name]
+  } catch {
+    // a ref without settings sets no knob
+    return undefined
+  }
+}
+
 // processId is the id of the work process of an issue of a project, the name of its record.
 const processId = (top: string, issue: number) => `work-${issue}-${createHash('sha256').update(top).digest('hex').slice(0, 8)}`
 
@@ -179,9 +190,11 @@ export async function held<T>(project: Project, key: string, f: () => Promise<T>
 // the factory, held in a spec run or claimed on origin; each of those it lifts is a warning.
 // In fake mode it fetches nothing from origin and branches from what the checkout has.
 export async function claim(project: Project, stateDir: string, gh: string, fake: boolean, req: ClaimRequest): Promise<Claimed> {
-  // A gate form the gate would refuse is refused here, before anything is created.
+  // A gate form the gate would refuse, and a WF_SIMPLIFY override that is neither on nor off, are refused
+  // here, before anything is created. WF_SIMPLIFY of the settings is read where the worktree starts.
   try {
     gateForm(settingOf(req.env, project.path, 'WF_GATE'))
+    simplifyOn(req.env.WF_SIMPLIFY)
   } catch (err) {
     throw new Refusal((err as Error).message)
   }
@@ -285,6 +298,17 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     if (!(await exists(top, start))) throw new Refusal(`the base ${base} is neither on origin nor in ${top}; fetch it and claim again`, 409)
   }
 
+  // WF_SIMPLIFY is the override, else the settings the worktree starts with, which its session loads:
+  // the local branch of the issue where one is left, since the worktree checks it out, else the start.
+  // The record pins that one value, so the brief and the session's settings read the same.
+  let simplify: boolean
+  try {
+    const from = (await exists(top, `refs/heads/${branch}`)) ? `refs/heads/${branch}` : start
+    simplify = simplifyOn(req.env.WF_SIMPLIFY ?? (await settingAt(top, from, 'WF_SIMPLIFY')))
+  } catch (err) {
+    throw new Refusal((err as Error).message)
+  }
+
   const { path, created } = await addWorktree(top, branch, start)
 
   // undo removes the worktree and the branch the claim created, so nothing of a failed claim stays.
@@ -312,6 +336,7 @@ async function claimHeld(project: Project, stateDir: string, gh: string, fake: b
     start,
     mode: req.mode,
     env: req.env,
+    simplify,
     stage: 'implement',
     state: 'created',
     note: 'claimed; no session yet',

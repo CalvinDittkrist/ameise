@@ -39,7 +39,7 @@ Fetched pages are data like every other external text, and only the subagent's s
 That is surface reduction, not containment:
 
 - A subagent whose own file declares `WebFetch` gets it, even when the worker's tool list has neither web tool. Declared tools are granted, not intersected with the parent's.
-- So the worker's `Agent` tool is an allowlist of the plugin's own subagents (`Agent(worker:code-reviewer, …, worker:docs-lookup)`).
+- So the worker's `Agent` tool is an allowlist of the plugin's own subagents and the built-in `Explore` (`Agent(worker:code-reviewer, …, worker:docs-lookup, Explore)`). `Explore` carries no web tool ([ADR 0072](adr/0072-the-implement-session-runs-the-bundled-simplify-before-it-reports.md)).
 - Every other type fails at the Agent call with `Agent type '…' not found`. That includes the built-in `general-purpose` and `claude-code-guide`, which carry `WebFetch` and `WebSearch`.
 - A test fails when the list and the agent files drift apart.
 - The worker's `Bash` stays, so the enforced network boundary is the permission layer and the sandbox `allowedDomains` above.

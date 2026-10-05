@@ -1,9 +1,11 @@
-// The settings of a session: the plan and work settings over the repository's, the environment its
-// runtime runs in, the compact pin with the context size the process page measures against, the knobs
-// of a process as its claim and the repository's settings set them, the rules an allowance of the
-// maintainer grants, and the hook that keeps a session with the controller's GitHub tools from writing
-// GitHub past them. It imports neither the session module nor a stage module.
-import { readFileSync } from 'node:fs'
+// The settings of a session: the plan and work settings over the repository's, its skill
+// allowlist, the environment its runtime runs in, the compact pin with the context size the process
+// page measures against, the knobs of a process as its claim and the repository's settings set
+// them, the rules an allowance of the maintainer grants, and the hook that keeps a session with the
+// controller's GitHub tools from writing GitHub past them. It imports neither the session module
+// nor a stage module.
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { HookCallback, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import { directWrite } from '../github/github.js'
@@ -32,6 +34,30 @@ export type Settings = {
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
 
+// The skill allowlist of a session (ADR 0073): the exact set of skills the Agent SDK lets the session see
+// and invoke, by its process kind. The model sees no other skill, so the runtime's bundled skills and
+// the maintainer's personal ones cost no context, and the Skill tool rejects them. A skill a brief
+// dispatches by its slash command, as the hunt brief does, runs whether or not it is listed.
+const workSkills = ['simplify', 'worker:docs', 'repo-standards:adr', 'repo-standards:docs-check']
+const planSkills = ['accept', 'finish', 'grill', 'plan', 'prototype', 'research', 'spec', 'tickets', 'triage'].map((s) => `planner:${s}`)
+
+// skills is the skill allowlist of a session of the record's process kind: a plan session the planner's
+// skills, a hunt session the work list and the hunt skill, every other session the work list. A work
+// list leaves simplify out where a personal or project skill of that name shadows the bundled one, which
+// the runtime would run in its place: the session then has no /simplify and says so in its report.
+export const skills = (record: SessionRecord): string[] => {
+  if (record.kind === 'plan') return planSkills
+  const work = shadowsSimplify(record.worktree) ? workSkills.filter((s) => s !== 'simplify') : workSkills
+  return record.kind === 'hunt' ? [...work, 'worker:hunt-tests'] : work
+}
+
+// shadowsSimplify is whether a personal skill or command file, or one of the worktree, is named
+// simplify: the runtime prefers either to its bundled skill of that name.
+const shadowsSimplify = (worktree: string): boolean =>
+  [process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), join(worktree, '.claude')].some(
+    (dir) => existsSync(join(dir, 'skills', 'simplify')) || existsSync(join(dir, 'commands', 'simplify.md')),
+  )
+
 // planSettings are a planner session's own settings: the base, the foreground subagents, whose report is
 // the tool result rather than a wait in sleep turns, and WF_CONTROLLER, the mark that the controller runs
 // the session. The brief carries the plan's context.
@@ -56,12 +82,13 @@ export function planSettings(record: PlanRecord): Settings {
 }
 
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
-// has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
+// has none of, the base and the knob overrides of the claim with the WF_SIMPLIFY it pinned, the mark that the controller runs the session, which a worker skill that
 // needs the controller reads (ADR 0057), the foreground subagents and the compact pin.
 export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {
       ...record.env,
+      ...(record.kind === 'work' && record.simplify !== undefined ? { WF_SIMPLIFY: record.simplify ? 'on' : 'off' } : {}),
       WF_MODE: record.mode,
       ...(record.kind === 'work' ? { WF_ISSUE: String(record.issue) } : {}),
       WF_BASE_BRANCH: record.base.replace(/^origin\//, ''),
@@ -111,6 +138,20 @@ export function knob(record: { env?: Record<string, string>; project: string }, 
   const n = Number(value)
   if (typeof value === 'boolean' || !Number.isInteger(n) || n < min) throw new Error(`${name}=${String(value)} is not a whole number of at least ${min}; set it as such, or leave it out for ${fallback}`)
   return n
+}
+
+// simplifyOn reads WF_SIMPLIFY, the switch of the simplify step of an implement session: on, the
+// default where it is not set, or off. Any other value is refused with the values it accepts.
+export function simplifyOn(value: unknown): boolean {
+  if (value === undefined || value === 'on') return true
+  if (value === 'off') return false
+  throw new Error(`WF_SIMPLIFY=${JSON.stringify(value)} is neither on nor off; set on, off, or leave it out for on`)
+}
+
+// simplifyOrOn reads WF_SIMPLIFY as simplifyOn does, but answers the default on for a value it would
+// refuse: the claim refused it, so only a later change of the settings sets one.
+export function simplifyOrOn(value: unknown): boolean {
+  return value !== 'off'
 }
 
 // allowance is what an answer "allow for this process" allows: the rules the runtime suggests for the

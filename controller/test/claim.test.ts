@@ -281,6 +281,29 @@ test('a claim refuses a WF_GATE that is no gate form, as an override or in the s
   expect(read(m.ghLog)).not.toContain('144')
 })
 
+test('a claim refuses a WF_SIMPLIFY that is neither on nor off, as an override or in the settings the worktree starts with, before anything is created', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  for (const value of ['maybe', '', 'ON']) {
+    const r = await claim({ issue: 144, env: [`WF_SIMPLIFY=${value}`] })
+    expect(r.status, value).toBe(400)
+    expect((r.body as { error: string }).error).toMatch(/^WF_SIMPLIFY=.* is neither on nor off; set on, off/)
+  }
+  nothing()
+  expect(read(m.ghLog)).not.toContain('144')
+  // The settings the worktree would start with are read, not the checkout's: a bad value there is
+  // refused before the worktree is created, while the checkout's own value does not count.
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'maybe' } }))
+  git(dir, 'add', '.claude/settings.json')
+  git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'settings')
+  git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+  writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: 'on' } }))
+  const r = await claim({ issue: 144 })
+  expect(r.status).toBe(400)
+  expect((r.body as { error: string }).error).toMatch(/^WF_SIMPLIFY="maybe" is neither on nor off/)
+  nothing()
+})
+
 test('a claim records the mode and the accepted overrides on the process', async () => {
   can(144, 'Board lists every project', ['ready-for-agent'])
   const r = await claim({ issue: 144, mode: 'yolo', env: ['WF_REVIEWERS=2', 'WF_PR_BOT_REVIEWERS=', 'WF_DOCS_TIMEOUT=a=b'] })
@@ -345,6 +368,32 @@ test('abandon removes worktree and process, leaves branch and issue, and refuses
   expect(again.status, JSON.stringify(again.body)).toBe(201)
   expect(git((again.body as Claimed).record.worktree, 'log', '-1', '--format=%s')).toBe('work')
   expect((await abandon({ issue: 144 })).status).toBe(200)
+})
+
+test('a claim that reuses a local branch of the issue pins the WF_SIMPLIFY of that branch, not of the base', async () => {
+  can(144, 'Board lists every project', ['ready-for-agent'])
+  const branch = 'feat/144-board-lists-every-project'
+  // A branch an abandon left behind, whose settings differ from the base's, which sets no knob.
+  const commit = (value: string) => {
+    writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({ env: { WF_SIMPLIFY: value } }))
+    git(dir, 'add', '.claude/settings.json')
+    git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'settings')
+  }
+  mkdirSync(join(dir, '.claude'), { recursive: true })
+  git(dir, 'checkout', '-q', '-b', branch)
+  commit('maybe')
+  git(dir, 'checkout', '-q', 'main')
+  const refused = await claim({ issue: 144 })
+  expect(refused.status).toBe(400)
+  expect((refused.body as { error: string }).error).toMatch(/^WF_SIMPLIFY="maybe" is neither on nor off/)
+  expect(worktrees()).toBe(0)
+
+  git(dir, 'checkout', '-q', branch)
+  commit('off')
+  git(dir, 'checkout', '-q', 'main')
+  const r = await claim({ issue: 144 })
+  expect(r.status, JSON.stringify(r.body)).toBe(201)
+  expect((r.body as Claimed).record).toMatchObject({ branch, simplify: false })
 })
 
 test('the CLI claims and abandons', async () => {

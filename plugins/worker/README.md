@@ -7,7 +7,7 @@ Skills and agents for the work on one issue: prompts that decide, while the cont
 | --- | --- | --- | --- |
 | `/worker:hunt-tests` | `facts.sh`, `hunt.sh` | yes | the hunt stage of a test hunt; without the controller it says so and stops |
 | `/worker:docs` | `claude-docs.sh` | no | a read-only `docs-lookup` subagent answers one Claude Code question from the current documentation, so the pages stay out of the worker's context, which has no `WebFetch` |
-| `/worker:gh-axi` | | no | the `gh-axi` discovery skill, so the worker prefers it over raw `gh` |
+| `/worker:gh-axi` | | no | the `gh-axi` discovery skill, so the worker prefers it over raw `gh`; a hand-started session only, since the controller's skill allowlist leaves it out |
 
 A skill that needs the controller reads the `controller:` line of `facts.sh`. The controller marks every session it starts with `WF_CONTROLLER=1`; without it the line says what to start, and the skill stops there.
 
