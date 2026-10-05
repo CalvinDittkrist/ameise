@@ -203,13 +203,16 @@ Run the following as root unless it says otherwise.
    - Configure the path `command -v` printed.
    - The factory runs it by that absolute path and never through `npx`, so nothing is fetched from npm at run time.
    - The script starts with `#!/usr/bin/env node`, so `node` has to be on the service's `PATH` (see [Service](#service)).
-8. **Codex**, only for a repository whose panel names the reviewer `codex` ([The Codex runtime](#the-codex-runtime)). As root, then log it in as the user `factory`:
+8. **Codex**, for a repository that names the reviewer `codex` and for a spec run ([The Codex runtime](#the-codex-runtime)). As root, then log it in as the user `factory`:
 
    ```sh
-   npm install -g @openai/codex   # the Codex CLI; the factory was tried with codex-cli 0.155.0
+   npm install -g @openai/codex   # the Codex CLI, at least 0.159.1
+   codex --version                # codex-cli 0.159.1 or later
    command -v codex               # /usr/bin/codex, on the service's PATH
    ```
 
+   - 0.159.1 is the first codex-cli whose model catalog has `gpt-6.1-sol`. An older one blocks every run that needs Codex.
+   - So update it before a factory release that runs `gpt-6.1-sol` is installed.
    - As the user `factory`, run `codex login` and sign in with the ChatGPT account the reviewer runs on ([authentication](https://learn.chatgpt.com/codex/auth)).
    - Over SSH, `codex login --device-auth` shows a URL to open on another machine and a code to enter there.
    - The credential lands in `~/.codex/auth.json`. `codex login status` exits 0 once it is there.
@@ -273,7 +276,7 @@ The factory is configured by one JSON file and nothing else: no environment vari
 `review`:
 
 - `rounds` (default `3`): the rounds the panel may take.
-- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round. `codex` adds the reviewer on Codex ([The Codex runtime](#the-codex-runtime)), `fable` the Claude reviewer on the Fable model.
+- `reviewers` (default `["code", "security", "docs", "tests", "senior"]`): the panel of the first round. `codex` adds the reviewer on Codex ([The Codex runtime](#the-codex-runtime)).
 - `gate_rounds` (default `2`): the fix sessions a gate that fails on the final head may take; `0` blocks on the first failure.
 - `classes` (default none): the change classes ([Change classes](#change-classes)).
 
@@ -537,7 +540,7 @@ The tickets of a held spec are worked one at a time on the spec branch.
   - It merges only when the merge is clean. A conflicting merge leaves the spec branch as it is, with a warning on the spec run.
 - A ticket run is a first run whose base is the spec branch. Its branch is cut from it, its gate merges it and its pull request targets it.
   - The run records the spec's number, and the spec run's record lists the ticket with its runs.
-- Validate is on in a ticket run, with the repository's `validate` knobs. When they name no validator, `codex` and `fable` validate.
+- Validate is on in a ticket run, with the repository's `validate` knobs. When they name no validator, `codex` validates alone.
 - A ticket run that ends `blocked`, `failed` or `timeout` holds its ticket until the release signal. Siblings its edges free are worked meanwhile.
 - A poll that was reading the line when a run ended starts nothing. The next poll follows at once and reads the tickets that run unblocked.
 - A resumed ticket run goes on from its record and its pull request: before validate, at merge, or done.
@@ -699,7 +702,6 @@ Each reviewer on Claude Code is a read-only session run as an inline agent of th
 - The code, security, docs, tests and senior reviewers run on `sonnet` at the effort `high`, both named in their definition ([subagents](https://code.claude.com/docs/en/sub-agents.md), checked 2026-09-28).
 - The model in `worker_args` moves the worker alone, and no reviewer runs on the account default of the host's Claude login.
 - The reviewer `codex` runs on Codex instead ([The Codex runtime](#the-codex-runtime)).
-- The reviewer `fable` runs on `fable`, the Fable model ([model configuration](https://code.claude.com/docs/en/model-config.md), checked 2026-09-27).
 
 Every reviewer of a round gets the same brief: the diff range, the base, the commits, the diff, the issue and the gate result. Each reports a verdict, `pass` or `fix`, and its findings.
 
@@ -736,16 +738,21 @@ Every session runs on a runtime, `claude` or `codex` ([ADR 0039](adr/0039-every-
 - A prompt in the arguments makes Codex print `Reading additional input from stdin...`, which the factory would record as an `error` event.
 - It would also bind a brief to the 128 KiB Linux holds an argument to.
 - It runs with `--ignore-user-config` and `--ignore-rules`: no MCP server, hook or rule of `~/.codex` or of the worktree reaches it. The login in `~/.codex` still holds.
-- Its model is `gpt-6-sol`, passed with `-m`, at the reasoning effort `high` (`-c model_reasoning_effort`). A ChatGPT login is refused `gpt-5.3-codex`.
+- Its model is `gpt-6.1-sol`, passed with `-m`, at the reasoning effort `high` (`-c model_reasoning_effort`). A ChatGPT login is refused `gpt-5.3-codex`.
 - quota-axi reports no scope of its own for that model, so the check reads its `all_models`. The reviewer schema goes to `--output-schema` as a file.
 - Its last message, written to the file of `-o`, is its result. The factory reads it with the checks of a Claude reviewer's result.
 - The run record lists every session under `sessions` with its stage, runtime and model.
 - The log names them on each `worker started`. A Codex session's entry shows its prompt after the call.
 - Codex reports tokens and no cost, so the run's `costUsd` leaves a Codex session out.
-- Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and that `codex login status` passes.
-- When either fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue. Install or log in ([Installation](#installation)), then release the issue.
+- Before each round it runs in, the factory checks that `codex` is on the service's `PATH` and at least 0.159.1 (`codex --version`).
+- It also checks that `codex login status` passes.
+- 0.159.1 is the first codex-cli whose model catalog has `gpt-6.1-sol`. A version the factory cannot read counts as too old.
+- When a check fails, the run ends `blocked` with that reason, and the logins in `notify` are mentioned on the issue.
+- Install, update or log in ([Installation](#installation)), then release the issue.
 - A Codex turn that fails on its usage limit ends the run `quota` when quota-axi reads the Codex quota used up. The factory resumes it after the reset.
 - A resumed review goes on with the reviewers its panel recorded.
+- A recorded reviewer the factory no longer knows, such as the retired `fable`, runs in no later round of the review or the validation.
+- The run says so in one event, and the recorded rounds keep its verdicts.
 - The quota check reads the Codex quota for it when that panel names `codex`, even if the configuration no longer does.
 
 #### Change classes

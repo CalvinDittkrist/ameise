@@ -25,18 +25,23 @@ const (
 
 // codexModel is the model a Codex session runs on, named in the call (-m): no event of `codex exec
 // --json` names the model, so the record knows it from the call alone (the prototype of 2026-09-27 on
-// #230, with codex-cli 0.155.0). GPT-6-Sol is the coding model of the catalog of codex-cli 0.155.0
-// that a ChatGPT login may run: on 2026-09-27 the host's login was refused gpt-5.3-codex ("not
-// supported when using Codex with a ChatGPT account"). quota-axi 0.1.55 reports no scope of its own for
-// it, so the check reads it on all_models.
-const codexModel = "gpt-6-sol"
+// #230, with codex-cli 0.155.0). GPT-6.1-Sol is the newest coding model of the catalog that a ChatGPT
+// login may run: on 2026-09-27 the host's login was refused gpt-5.3-codex ("not supported when using
+// Codex with a ChatGPT account"). quota-axi 0.1.55 reports no scope of its own for it, so the check
+// reads it on all_models.
+const codexModel = "gpt-6.1-sol"
+
+// codexMinimum is the oldest codex-cli that runs codexModel: 0.159.1 is the first release whose model
+// catalog has gpt-6.1-sol, and an older one fails the session on an unknown model from inside a review.
+const codexMinimum = "0.159.1"
 
 // codexReasoning is the reasoning effort a Codex session runs with, passed as a configuration override:
 // the catalog's default for the model is low, and a reviewer reads a whole change.
 const codexReasoning = "high"
 
-// codexLoginTimeout is how long `codex login status` may take before a run that needs Codex starts.
-const codexLoginTimeout = 30 * time.Second
+// codexCheckTimeout is how long `codex --version` and `codex login status` may each take before a run
+// that needs Codex starts.
+const codexCheckTimeout = 30 * time.Second
 
 // on is the runtime a session runs on.
 func (s session) on() string {
@@ -176,27 +181,54 @@ func (f *Factory) readLastMessage(r *Run, session *heard, s session) {
 	f.settle(r, session, bytes.TrimSpace(raw), string(raw), "result: last message")
 }
 
-// runtimeMissing says why this host cannot start a session on a runtime, and is empty when it can:
-// Codex is on the PATH of the factory's user and logged in there (`codex login status`,
-// https://learn.chatgpt.com/codex/auth, checked on 2026-09-27). Claude Code is the host's own and is not
-// asked. A check the context ended says nothing; the caller reads the context.
-func (f *Factory) runtimeMissing(ctx context.Context, runtime string) string {
+// runtimeMissing says why this host cannot start a session on a runtime and what fixes it, and both are
+// empty when it can: Codex is on the PATH of the factory's user, at least codexMinimum (`codex
+// --version`), and logged in there (`codex login status`, https://learn.chatgpt.com/codex/auth, checked
+// on 2026-09-27). Claude Code is the host's own and is not asked. A check the context ended says
+// nothing; the caller reads the context.
+func (f *Factory) runtimeMissing(ctx context.Context, runtime string) (why, fix string) {
 	if runtime != runtimeCodex || f.fake {
-		return ""
+		return "", ""
 	}
+	install := "Install the Codex CLI for the factory's user and log it in with `codex login` (the factory's runbook, the Codex runtime)"
 	path, err := exec.LookPath("codex")
 	if err != nil {
-		return "this host has no codex command on the PATH of the factory's user"
+		return "this host has no codex command on the PATH of the factory's user", install
 	}
-	out, said, err := command(ctx, codexLoginTimeout, path, "login", "status")
+	out, said, err := command(ctx, codexCheckTimeout, path, "--version")
+	if ctx.Err() != nil {
+		return "", ""
+	}
+	update := "Update the Codex CLI of the factory's user to " + codexMinimum + " or later (the factory's runbook, the Codex runtime)"
+	if err != nil {
+		return fmt.Sprintf("`codex --version` failed on this host (%v): %s, and %s needs codex-cli %s or later", err, firstLine(strings.TrimSpace(said)), codexModel, codexMinimum), update
+	}
+	version, ok := codexVersion(string(out))
+	if !ok {
+		return fmt.Sprintf("`codex --version` on this host printed %q, which names no version, and %s needs codex-cli %s or later", firstLine(strings.TrimSpace(string(out))), codexModel, codexMinimum), update
+	}
+	if minimum, _ := parseSemver(codexMinimum); version.less(minimum) {
+		return fmt.Sprintf("codex-cli %s on this host is older than %s, which %s needs", version, codexMinimum, codexModel), update
+	}
+	out, said, err = command(ctx, codexCheckTimeout, path, "login", "status")
 	if err == nil || ctx.Err() != nil {
-		return ""
+		return "", ""
 	}
-	why := strings.TrimSpace(said)
+	why = strings.TrimSpace(said)
 	if why == "" || why == err.Error() {
 		why = firstLine(strings.TrimSpace(string(out)))
 	}
-	return fmt.Sprintf("Codex is not logged in on this host: `codex login status` failed (%v): %s", err, why)
+	return fmt.Sprintf("Codex is not logged in on this host: `codex login status` failed (%v): %s", err, why), install
+}
+
+// codexVersion is the version `codex --version` prints, "codex-cli 0.155.0", read from the last word
+// of its first line.
+func codexVersion(out string) (semver, bool) {
+	words := strings.Fields(firstLine(strings.TrimSpace(out)))
+	if len(words) == 0 {
+		return semver{}, false
+	}
+	return parseSemver(words[len(words)-1])
 }
 
 // modelFor is the model a session runs on as the factory names it: the Codex model of a Codex

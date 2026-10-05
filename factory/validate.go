@@ -104,8 +104,8 @@ func (f *Factory) validateFor(repository string, spec int) validateSettings {
 }
 
 // ticketValidators is the validators of a ticket run whose repository names none: the reviewer on
-// Codex and the Claude reviewer on the Fable model.
-var ticketValidators = []string{"codex", "fable"}
+// Codex, a model of another family than the panel's.
+var ticketValidators = []string{"codex"}
 
 // Validation is what the validate stage recorded of a run: every round of the validators, each with
 // its verdicts, the report of its fix session and the commit that fix was pushed at, and whether the
@@ -176,6 +176,7 @@ func (f *Factory) validate(parent, ctx context.Context, r *Run, entry Entry, cla
 		v = *r.Validation
 		v.Rounds = slices.Clone(r.Validation.Rounds)
 	}
+	knobs.Validators = f.leaveOutUnknown(r, "validation", knobs.Validators, v.Rounds)
 	record := func() {
 		copied := v
 		copied.Rounds = slices.Clone(v.Rounds)

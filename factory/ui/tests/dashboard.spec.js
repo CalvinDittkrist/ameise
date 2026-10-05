@@ -329,7 +329,7 @@ test('a ticket run shows its validation and its merge, and links its spec run', 
     'pr',
     'ci',
     'address-reviews',
-    'validate, round 2, codex pass, fable pass',
+    'validate, round 2, codex pass',
     'merge',
   ])
   await expect(stages.nth(5)).toHaveClass('')

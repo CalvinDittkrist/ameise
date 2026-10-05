@@ -60,7 +60,7 @@ Terms the code, the issues and the docs use, one row each.
 | session | One call of a runtime inside a stage of the factory or a process of the controller, reporting a structured result. A controller session with a person in the loop is multi-turn ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md)). |
 | runtime | The program a session runs on: `claude` (Claude Code in print mode) or `codex` (`codex exec`). A reviewer definition names its runtime; every other session runs on `claude` ([ADR 0039](adr/0039-every-session-reports-through-a-structured-result.md)). |
 | validate | The factory's stage after a green ci stage: the validators review the pull request's diff. A `fix` gets a fix session and another ci pass, within `validate.rounds`. Off without validators. |
-| validator | A reviewer of the panel, `codex` and `fable` included, that a repository's `validate.validators` names to review the green pull request read-only. |
+| validator | A reviewer of the panel, `codex` included, that a repository's `validate.validators` names to review the green pull request read-only. |
 | ticket run | A factory run of one ticket of a spec run: cut from the spec branch, its pull request against it, validated, then merged into it. |
 | merge | The factory's stage after validate in a ticket run: a pull request with green ci, a `ready` panel and a passed validation is squash-merged into the spec branch. |
 | change class | An ordered rule of a connected repository: name, path patterns, gate command, optional reviewers. `full` is built in. |

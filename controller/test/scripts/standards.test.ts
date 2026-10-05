@@ -705,6 +705,8 @@ test('a reference to an ADR with no file fails, and URLs with a scheme and chang
   const s = box()
   scaffold(s)
   decision(s, 1)
+  // A second ADR makes the list of ADR files more than one line, which the BSD awk of macOS refuses as a -v value.
+  decision(s, 2)
   nextFree(s, 10)
   const live = `${num(1)}-d1.md`
   const gone = `${num(9)}-gone.md`

@@ -82,5 +82,5 @@ adr_refs() {
   awk_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/adr-refs.awk"
   grep -Eiv '(^|/)changelog[^/]*$' | grep . | sed 's|^|./|' | (cd "$1" && tr '\n' '\0' \
     | xargs -0 grep -IlE -e 'ADR[ -]?[0-9]{4}' -e '[0-9]{4}-[^/[:space:]]*\.md' -- 2>/dev/null \
-    | tr '\n' '\0' | xargs -0 awk -v adrs="$2" -f "$awk_file")
+    | tr '\n' '\0' | ADR_FILES="$2" xargs -0 awk -f "$awk_file")
 }

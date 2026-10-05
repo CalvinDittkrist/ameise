@@ -264,17 +264,24 @@ func TestACodexReviewerWhoseLastMessageDoesNotFitFailsTheRun(t *testing.T) {
 	}
 }
 
-// A host without codex, or with codex and no login, cannot run the panel the repository names: the run
-// ends blocked with that reason before a reviewer starts, and the comment mentions the logins in notify.
+// A host without codex, with a codex too old for its model or one whose version cannot be read, or with
+// codex and no login, cannot run the panel the repository names: the run ends blocked with that reason
+// and its fix before a reviewer starts, and the comment mentions the logins in notify. A current codex
+// that is logged in runs (TestACodexReviewerRunsInThePanelBesideTheClaudeReviewers).
 func TestARunThatNeedsCodexOnAHostWithoutItIsBlocked(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
-		codex    bool
-		loggedIn bool
-		said     string
+		codex bool
+		env   string
+		said  string
+		fix   string
 	}{
-		"codex is missing":       {false, false, "no codex command on the PATH"},
-		"codex is not logged in": {true, false, "Codex is not logged in on this host"},
+		"codex is missing":       {false, "", "no codex command on the PATH", "codex login"},
+		"codex is not logged in": {true, "CODEX_SHIM_LOGGED_OUT=1", "Codex is not logged in on this host", "codex login"},
+		"codex is too old": {true, "CODEX_SHIM_VERSION=codex-cli 0.155.0",
+			"codex-cli 0.155.0 on this host is older than " + codexMinimum + ", which " + codexModel + " needs", "Update the Codex CLI"},
+		"codex names no version": {true, "CODEX_SHIM_VERSION=codex-cli (dev build)",
+			"`codex --version` on this host printed \"codex-cli (dev build)\", which names no version", "Update the Codex CLI"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -282,7 +289,7 @@ func TestARunThatNeedsCodexOnAHostWithoutItIsBlocked(t *testing.T) {
 			var codex *codexShim
 			if c.codex {
 				codex = gh.hasCodex(t)
-				gh.env = append(gh.env, "CODEX_SHIM_LOGGED_OUT=1")
+				gh.env = append(gh.env, c.env)
 			} else {
 				gh.lacksCodex(t)
 			}
@@ -291,15 +298,15 @@ func TestARunThatNeedsCodexOnAHostWithoutItIsBlocked(t *testing.T) {
 			cfg["notify"] = maintainers
 			f := gh.work(t, cfg)
 			run := f.ended(t, 1)
-			if run.Outcome != outcomeBlocked || run.Stage != stageReview || !strings.Contains(run.Reason, c.said) || !strings.Contains(run.Reason, "codex login") {
-				t.Fatalf("the run ended as %q in %q (%s), want blocked in the review saying %q and how to log in; the factory's log:\n%s",
-					run.Outcome, run.Stage, run.Reason, c.said, f.output(t))
+			if run.Outcome != outcomeBlocked || run.Stage != stageReview || !strings.Contains(run.Reason, c.said) || !strings.Contains(run.Reason, c.fix) {
+				t.Fatalf("the run ended as %q in %q (%s), want blocked in the review saying %q and %q; the factory's log:\n%s",
+					run.Outcome, run.Stage, run.Reason, c.said, c.fix, f.output(t))
 			}
 			if reviewers := gh.reviewerSessions(t); len(reviewers) != 0 {
 				t.Errorf("the factory started %d reviewers, want none: the panel the repository names cannot run", len(reviewers))
 			}
 			if codex != nil && len(codex.calls(t)) != 0 {
-				t.Errorf("the factory started a Codex session on a host where it is not logged in")
+				t.Errorf("the factory started a Codex session on a host that cannot run it")
 			}
 			f.notified(t, 1)
 			said := gh.commented(t, "acme/edge-sensors", claimedIssue)
@@ -340,7 +347,7 @@ func codexChecks(t *testing.T, q *quotaShim) []quotaCall {
 func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	t.Parallel()
 	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
-	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 gpt-6-sol=5 reset=+3", "all=80 gpt-6-sol=60 reset=+3600"})
+	f, codex := claimsWithCodexQuota(t, q, []string{"all=80 gpt-6.1-sol=5 reset=+3", "all=80 gpt-6.1-sol=60 reset=+3600"})
 	until := f.waitsForQuota(t)
 	if !f.missing(t, 1) {
 		t.Fatalf("a run started while the factory waits for the Codex quota; the factory's log:\n%s", f.output(t))
@@ -353,8 +360,8 @@ func TestTheCodexQuotaHoldsARunWhosePanelNamesCodexBack(t *testing.T) {
 	if checks := codexChecks(t, q); len(checks) != 2 {
 		t.Errorf("the factory asked quota-axi for Codex %d times, want twice: before the reset and after it", len(checks))
 	}
-	if !strings.Contains(f.output(t), "5 % of codex model:gpt-6-sol is left") {
-		t.Errorf("the factory's log does not say it waited for the Codex scope model:gpt-6-sol of %s:\n%s", codexModel, f.output(t))
+	if !strings.Contains(f.output(t), "5 % of codex model:gpt-6.1-sol is left") {
+		t.Errorf("the factory's log does not say it waited for the Codex scope model:gpt-6.1-sol of %s:\n%s", codexModel, f.output(t))
 	}
 	if len(codex.calls(t)) != 1 {
 		t.Errorf("the run started %d Codex sessions, want its one reviewer", len(codex.calls(t)))
@@ -446,7 +453,7 @@ func TestTheCodexQuotaHoldsBackAResumedReviewWhosePanelRecordedCodex(t *testing.
 
 	q := newQuotaShim(t, "all=80 opus=80 sonnet=80 reset=+3600")
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 gpt-6-sol=5 reset=+3600\n")
+	writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 gpt-6.1-sol=5 reset=+3600\n")
 	c := ciConfig(data, nil)
 	c["quota_axi"] = q.path
 	f := launch(t, c, append(append(gh.env, q.env...), "QUOTA_SHIM_CODEX_PLAN="+filepath.Join(dir, "codex-plan")))
