@@ -324,7 +324,9 @@ test('a question round that breaks a rule is refused with the rule, and the sess
   page.close()
 })
 
-test('a question round still open when the controller stops is closed', async () => {
+// A stop closes the round as its session ends. A kill leaves it open in the log, and the controller closes
+// it as it starts again, since no session of its own runs then.
+test.each(['SIGTERM', 'SIGKILL'] as const)('a question round still open when the controller stops by %s is closed', async (signal) => {
   play(m, `${asking(round)}\nblocked done`)
   const r = await claim()
   const page = await follow(r.id)
@@ -332,10 +334,15 @@ test('a question round still open when the controller stops is closed', async ()
   await inState(r.id, 'input')
   page.close()
   const exited = new Promise((done) => server.process.once('exit', done))
-  server.process.kill('SIGTERM')
+  server.process.kill(signal)
   await exited
+  if (signal === 'SIGKILL') {
+    server = await start(m)
+    expect(server.running, server.stderr).toBe(true)
+  }
   const log = read(join(m.state, 'processes', `${r.id}.events.jsonl`)).trim().split('\n').map((l) => JSON.parse(l) as { event?: string; request?: string })
-  expect(log).toContainEqual(expect.objectContaining({ event: 'closed', request: card.request }))
+  expect(log.filter((e) => e.event === 'closed')).toEqual([expect.objectContaining({ request: card.request })])
+  expect(log.findIndex((e) => e.event === 'closed')).toBeLessThan(log.findIndex((e) => e.event === 'session-end'))
   expect(recordOf(r.id)).toMatchObject({ state: 'interrupted' })
 })
 

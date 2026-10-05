@@ -403,7 +403,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A record without a session id refuses the message with `409`.
   - A message to a plan is an event on the planner node of the plan graph, which resumes the planner session by its id.
   - A hunt parked in its hunt stage, or in pr, goes on as its hunt session. Its next complete reads the hunt record again.
-- A request its session leaves unanswered as it ends is `closed`.
+- A request its session leaves unanswered as it ends is `closed`. One a killed controller left open is closed as the controller starts again.
 
 ## Open in terminal
 The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the plugins and agent of its kind, `worker` or `planner`, and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
@@ -660,7 +660,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - It sends `record` with the record and `compact_at`, the context size at which the session compacts.
   - Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
   - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from.
-  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
+  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.

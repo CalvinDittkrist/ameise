@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { Answer } from './conversation.js'
 import type { SessionRecord, StageRecord, StandardizeRecord } from '../records/records.js'
-import { event, recordFile, update, warn } from '../records/store.js'
+import { event, eventsFile, recordFile, update, warn } from '../records/store.js'
 
 // firstStage is the stage whose session a process of the record's kind starts with: implement for a
 // work process, hunt for a hunt process.
@@ -193,6 +193,31 @@ export async function stopAll(stateDir: string) {
   }
 }
 
+// The events of a request that waits for the maintainer, and those that settle one.
+const asks = ['permission', 'question', 'round']
+const settles = ['answer', 'closed']
+
+// closeOpen closes the requests of a process's event log that its session left waiting. A stop closes
+// them as the session ends; a kill leaves them open, and none can be answered once its session is gone.
+function closeOpen(stateDir: string, id: string) {
+  const file = eventsFile(stateDir, id)
+  if (!existsSync(file)) return
+  const open = new Set<string>()
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line.trim() === '') continue
+    let e: { event?: unknown; request?: unknown }
+    try {
+      e = JSON.parse(line) as typeof e
+    } catch {
+      continue
+    }
+    if (typeof e.request !== 'string' || typeof e.event !== 'string') continue
+    if (asks.includes(e.event)) open.add(e.request)
+    else if (settles.includes(e.event)) open.delete(e.request)
+  }
+  for (const request of open) event(stateDir, id, { event: 'closed', request })
+}
+
 // recover reads the records as the controller starts, when no session of its own runs yet. A work
 // process whose record says its session runs, is about to, or waits for an answer or on its pull request, lost it when the
 // controller last stopped without stopping it. Such a process is marked interrupted. One held open after
@@ -201,7 +226,7 @@ export async function stopAll(stateDir: string) {
 // A running acceptance fails, and so does one whose checker asked a question; it checks again on request.
 // A standardize process whose audit, apply or finalize ran fails, and runs that stage again on request.
 // A plan that waits for input waits for a message or for its answers either way. Every other record
-// stays as it was.
+// stays as it was. A request any session left waiting is closed first, since no session runs yet.
 export function recover(stateDir: string) {
   let names: string[]
   try {
@@ -213,6 +238,7 @@ export function recover(stateDir: string) {
     const id = name.slice(0, -'.json'.length)
     try {
       const r = JSON.parse(readFileSync(recordFile(stateDir, id), 'utf8')) as SessionRecord
+      closeOpen(stateDir, id)
       if ((r.kind === 'work' || r.kind === 'hunt') && ['running', 'waiting', 'created', 'approval', 'input'].includes(r.state) && !(r.state === 'input' && r.held)) interrupt(stateDir, id)
       // A checker that asked a question waits in input with no items yet, and it is gone as well.
       const asking = r.kind === 'plan' && r.route === 'accept' && r.state === 'input' && !r.acceptance
