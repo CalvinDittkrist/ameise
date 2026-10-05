@@ -47,7 +47,7 @@ Terms the code, the issues and the docs use, one row each.
 | handoff note | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the page a handing-over context wrote for the next: decisions, rejected, verified, open, plus base, commits and diffstat. |
 | resume stage | Retired ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)): the stage a handed-over pipeline continued at, `review` or `ci`, printed by `facts.sh` as `resume_stage:`. |
 | implement session | The first session of a factory run, the inline agent `worker` on the factory's own prompt ([ADR 0040](adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)). It commits the change, pushes nothing and reports its commits or `blocked`. |
-| author session | The read-only session of a pr stage. The controller's reports the title, the summary and the merge danger fields, and the controller composes the body. The factory's reports the title and the body. |
+| author session | The read-only session of a pr stage. The controller's author session reports the title, the summary and the merge danger fields, and the controller composes the body. The factory's author session reports the title and the body. |
 | summary | The first section of a pull request body the controller composes: the smallest sketch that shows the change's key point. |
 | evidence | The second section of a pull request body the controller composes: the gate output, the panel result and the commits no reviewer read, as the controller recorded them. |
 | merge danger | The third section of a pull request body the controller composes: door, blast radius and rollback. |

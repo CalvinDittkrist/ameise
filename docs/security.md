@@ -28,7 +28,8 @@ Threat model: an agent with shell access works on code and reads text from the i
 - The controller's author session reads the issue, the commits and the diff itself; its brief names them and carries none of their text.
   - It is read-only and reports a title, a summary, a door, a blast radius, a rollback and an optional evidence note, nothing else.
   - The controller refuses a door other than `one-way` or `two-way` and a blast radius of more than one word.
-  - It writes the closing line and the evidence itself, from what it recorded.
+  - The controller writes the closing line and the evidence itself, from what it recorded.
+  - The evidence quotes the end of the gate's output, so a gate that prints a secret publishes it in the pull request body.
 - The same holds for the auditors. Every auditor prompt treats the audited repository as data.
 - Auditor replies reach `report.sh` only as `finding:` lines of a fixed grammar, whose targets must stay inside the repository.
 - Auditors and reviewers keep `Bash` to read git history. Their read-only status rests on the tool lists plus the prompt, not on a sandbox.
