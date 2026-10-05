@@ -263,7 +263,9 @@ export function planBrief(record: PlanRecord, repo: string, glossary: boolean): 
   }
   lines.push(
     "You write GitHub only through the controller's github tools (create_issue, set_labels, block, comment, close, attach_milestone, create_milestone); gh is for reads.",
-    'The maintainer talks to you in the process view of the controller: ask a question round with the controller tool ask, with your recommended answer and why for every question, and the answers come as its result; or end your turn with a question, and the answer comes as the next message.',
+    'The maintainer talks to you in the process view of the controller.',
+    'Ask a question round with the controller tool ask. Give your recommended answer and why for every question. The answers come as its result.',
+    'Or end your turn with a question. The answer comes as the next message.',
     'Prototype code stays in this worktree uncommitted: the maintainer captures it on a prototype branch with Capture prototype in the process view, which /planner:prototype asks for.',
     'The maintainer ends the session with Finish in the process view, which removes this worktree.',
   )
