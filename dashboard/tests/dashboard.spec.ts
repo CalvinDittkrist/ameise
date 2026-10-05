@@ -486,7 +486,7 @@ test("a process page shows the facts, the stages and the session as a conversati
   await expect(main(page).getByRole("list", { name: "Stages" }).getByRole("listitem")).toHaveText(["implement", "gate", "review", "pr", "ci"])
 
   const turns = main(page).getByLabel("Conversation").getByRole("article")
-  expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question", "Session", "You", "Session", "Permission"])
+  expect(await turns.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Session", "Question round", "Session", "You", "Session", "Permission"])
   // The tool calls are chips under the text, paths inside the worktree relative to it.
   await expect(turns.nth(0).getByRole("list", { name: "Tool calls" }).getByRole("listitem")).toHaveText([
     "Readsrc/config.ts",
@@ -495,8 +495,9 @@ test("a process page shows the facts, the stages and the session as a conversati
   ])
   // A call the maintainer allowed for the process is marked on its chip.
   await expect(turns.nth(2).getByRole("listitem").nth(1).locator("[title]")).toHaveAttribute("title", "Bash npx vitest run: allowed for this process")
-  // A question that was answered keeps its answer and offers no options.
-  await expect(turns.nth(1).getByRole("status")).toHaveText("You answered: Keep it, marked unusable, and say why on the board.")
+  // A round that was answered keeps its answers and offers no options.
+  await expect(turns.nth(1).getByRole("status")).toHaveText("You answered")
+  await expect(turns.nth(1).locator("summary")).toHaveText(/Keep, marked unusable/)
   await expect(turns.nth(1).getByRole("button")).toHaveCount(0)
   await expect(turns.nth(3)).toHaveText("Read the URL, never change it. An ssh URL and an https URL name the same repository.")
   // The session, the maintainer and a question write markdown, which reads as written.
@@ -562,10 +563,10 @@ test("open in terminal has the terminal resume the session by its id", async ({ 
   await expect(main(page).getByRole("alert")).toHaveCount(0)
 })
 
-test("a running session's permission, question and chat are answered on its page, which follows it live", async ({ page }) => {
+test("a running session's permission and chat are answered on its page, which follows it live", async ({ page }) => {
   const project = process.env.AMEISE_SENSORS!
   const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
-  writeFileSync(play, "permit npm test\nask Keep the old flag, or drop it?\nchoose Which of the flags go?\nwait\nblocked Which name should the flag take?\n")
+  writeFileSync(play, "permit npm test\nwait\nblocked Which name should the flag take?\n")
   try {
     const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
     expect(claimed.status).toBe(201)
@@ -578,24 +579,6 @@ test("a running session's permission, question and chat are answered on its page
     await permission.getByRole("button", { name: "Allow once" }).click()
     await expect(permission.getByRole("status")).toHaveText("Allowed once")
     await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "Ran npm test." })).toHaveCount(1)
-
-    const question = conversation.getByRole("article", { name: "Question" }).first()
-    await expect(question).toContainText("Keep the old flag, or drop it?")
-    await expect(main(page).getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Answer the question…")
-    await question.getByRole("button", { name: "Drop" }).click()
-    await expect(question.getByRole("status")).toHaveText("You answered: Drop")
-    await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "You answered: Drop." })).toHaveCount(1)
-
-    // A question that takes several options sends the ones chosen together, in the order it offers them.
-    const choice = conversation.getByRole("article", { name: "Question" }).filter({ hasText: "Which of the flags go?" })
-    const send = choice.getByRole("button", { name: "Send" })
-    await expect(send).toBeDisabled()
-    await choice.getByRole("button", { name: "Drop" }).click()
-    await choice.getByRole("button", { name: "Keep" }).click()
-    await expect(choice.getByRole("button", { name: "Keep" })).toHaveAttribute("aria-pressed", "true")
-    await expect(choice.getByRole("status")).toHaveText("Answer below")
-    await send.click()
-    await expect(choice.getByRole("status")).toHaveText("You answered: Keep, Drop")
 
     const message = main(page).getByRole("textbox", { name: "Message" })
     await message.fill("Name it --keep")
@@ -1406,9 +1389,9 @@ for (const scheme of ["light", "dark"] as const) {
         if (name === "process") {
           await section(page, "Needs you").getByRole("link", { name: "feat/118-refuse-a-project-without-origin" }).click()
           await expect(page.getByRole("heading", { level: 1 })).toHaveText("#118 feat/118-refuse-a-project-without-origin")
-          // The process page holds a question card and a permission card that waits for its answer.
+          // The process page holds an answered question round and a permission card that waits for its answer.
           await expect(main(page).getByRole("article", { name: "Permission" }).getByRole("button")).toHaveCount(3)
-          await expect(main(page).getByRole("article", { name: "Question" })).toHaveCount(1)
+          await expect(main(page).getByRole("article", { name: "Question round" })).toHaveCount(1)
         }
         await page.evaluate(() => document.fonts.ready)
         await expect(page).toHaveScreenshot(`${name}-${scheme}.png`, {

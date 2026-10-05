@@ -220,7 +220,7 @@ function board(root: string, github: string, sensors: string, backtest: string) 
   )
 }
 
-// conversation writes the event log of a session that asked a question, was answered, went on and now
+// conversation writes the event log of a session that asked a question round, was answered, went on and now
 // waits for a permission, so the process page shows every kind of turn.
 function conversation(file: string, tree: string) {
   const said = (text: string, ...tools: [string, object][]) => ({
@@ -242,18 +242,20 @@ function conversation(file: string, tree: string) {
       ["Bash", { command: "npx vitest run test/config.test.ts" }],
     ),
     {
-      event: "question",
-      request: "toolu-ask",
+      event: "round",
+      request: "round-ask",
       questions: [
         {
+          title: "Origin",
           question,
-          header: "Origin",
-          options: [{ label: "Keep, marked unusable", description: "The board shows why." }, { label: "Drop it", description: "The file loses the path." }],
+          options: ["Keep, marked unusable", "Drop it"],
+          recommended: "Keep, marked unusable",
+          why: "The board can say why.",
           multiSelect: false,
         },
       ],
     },
-    { event: "answer", request: "toolu-ask", text: "Keep it, marked unusable, and say why on the board." },
+    { event: "answer", request: "round-ask", answers: [{ answer: "Keep, marked unusable", recommended: true }] },
     said("Keeping it in the file and marking it unusable. Adding the case to the test.", ["Edit", { file_path: `${tree}/src/config.ts` }], ["Bash", { command: "npx vitest run" }]),
     { event: "allowed", tool: "Bash", detail: "npx vitest run" },
     { event: "message", text: "Read the URL, **never** change it. An ssh URL and an https URL name the same repository." },

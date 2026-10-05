@@ -1,5 +1,5 @@
 import { MessageScroller } from "@shadcn/react/message-scroller"
-import { ArrowDownIcon, BotIcon, MessageCircleQuestionIcon, PauseIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
+import { ArrowDownIcon, BotIcon, PauseIcon, SendIcon, ShieldAlertIcon, ShieldCheckIcon, TerminalIcon, UserIcon } from "lucide-react"
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,6 @@ import {
   type Process,
   type ProcessRecord,
   type ProjectBoard,
-  type Question,
   type RoundAnswer,
   say,
   seen,
@@ -49,7 +48,7 @@ const stagesOf: Record<Process["kind"], string[]> = {
 }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
-// for the permissions, questions and question rounds that wait for the maintainer, a chat that writes to the session and
+// for the permissions and question rounds that wait for the maintainer, a chat that writes to the session and
 // an action that opens it in a terminal. It follows the process's event log as it is written. Opening it
 // marks the process seen, which clears the badge it carries since it turned blocked, ready or failed.
 export function ProcessView({ id, board, reload }: { id: string; board: Board; reload: () => Promise<void> }) {
@@ -87,7 +86,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
   }
   const { record, entries } = followed
   const { list, settled } = turns(entries)
-  const asking = list.find((t) => (t.kind === "question" || t.kind === "round") && !settled.has(t.entry.request))?.kind
+  const asking = list.some((t) => t.kind === "round" && !settled.has(t.entry.request))
   // The page scrolls through shadcn's message scroller. It opens at the end of the conversation and
   // follows the end while the log grows; once the maintainer scrolled up it keeps their place and offers
   // the way back. The viewport stays hidden until it stands at the end, so a fresh page does not flash
@@ -116,7 +115,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
         <Chat
           id={record.id}
           disabled={!writable(record)}
-          placeholder={asking === "round" ? "Reply to the whole round in your own words…" : asking ? "Answer the question…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"}
+          placeholder={asking ? "Reply to the whole round in your own words…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"}
         />
       </MessageScroller.Root>
     </MessageScroller.Provider>
@@ -515,7 +514,6 @@ type Turn =
   | { kind: "session"; seq: number; text: string; tools: { name: string; detail: string; allowed: boolean }[] }
   | { kind: "you"; seq: number; text: string }
   | { kind: "permission"; seq: number; entry: Extract<Entry, { kind: "permission" }> }
-  | { kind: "question"; seq: number; entry: Extract<Entry, { kind: "question" }> }
   | { kind: "round"; seq: number; entry: Extract<Entry, { kind: "round" }> }
   | { kind: "line"; seq: number; text: string }
 
@@ -547,9 +545,6 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
         break
       case "permission":
         list.push({ kind: "permission", seq: e.seq, entry: e })
-        break
-      case "question":
-        list.push({ kind: "question", seq: e.seq, entry: e })
         break
       case "round":
         list.push({ kind: "round", seq: e.seq, entry: e })
@@ -602,8 +597,6 @@ function Turned({ record, turn: t, settled }: { record: ProcessRecord; turn: Tur
       return <Said text={t.text} you />
     case "permission":
       return <Permission id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
-    case "question":
-      return <Asked id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
     case "round":
       return <QuestionRound id={record.id} request={t.entry.request} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
     case "line":
@@ -701,73 +694,6 @@ function Permission({ id, entry, settled }: { id: string; entry: Extract<Entry, 
             {settled === "closed" ? "The session ended before it was answered" : settled.answer ? answered[settled.answer] : "Answered"}
           </span>
         )}
-        {error && (
-          <p role="alert" className="w-full text-sm text-destructive">
-            {error}
-          </p>
-        )}
-      </CardFooter>
-    </Card>
-  )
-}
-
-// Asked is a question of the session. An option answers it with a click, the chat below with any text.
-// A question that takes several options has them toggled, then sent together as the session reads them.
-function Asked({ id, questions, settled }: { id: string; questions: Question[]; settled?: Settled }) {
-  const [error, setError] = useState("")
-  const [sending, setSending] = useState(false)
-  const [chosen, setChosen] = useState<string[]>([])
-  const pick = async (label: string) => {
-    setSending(true)
-    setError("")
-    try {
-      await say(id, label)
-    } catch (err) {
-      setError((err as Error).message)
-      setSending(false)
-    }
-  }
-  const toggle = (label: string) => setChosen((c) => (c.includes(label) ? c.filter((l) => l !== label) : [...c, label]))
-  const open = settled === undefined
-  return (
-    <Card role="article" aria-label="Question" size="sm" className={cn(open && "bg-primary/5 ring-primary/40")}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <MessageCircleQuestionIcon className={cn("size-4", open ? "text-primary" : "text-muted-foreground")} />
-          The session asks
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 text-sm">
-        {questions.map((q) => (
-          <div key={q.question} className="flex flex-col gap-2">
-            <Prose text={q.question} />
-            {open && questions.length === 1 && q.options.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {q.options.map((o) =>
-                  q.multiSelect ? (
-                    <Button key={o.label} size="sm" variant={chosen.includes(o.label) ? "default" : "outline"} aria-pressed={chosen.includes(o.label)} title={o.description} disabled={sending} onClick={() => toggle(o.label)}>
-                      {o.label}
-                    </Button>
-                  ) : (
-                    <Button key={o.label} size="sm" variant="outline" title={o.description} disabled={sending} onClick={() => void pick(o.label)}>
-                      {o.label}
-                    </Button>
-                  ),
-                )}
-                {q.multiSelect && (
-                  <Button size="sm" disabled={sending || chosen.length === 0} onClick={() => void pick(q.options.map((o) => o.label).filter((l) => chosen.includes(l)).join(", "))}>
-                    Send
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </CardContent>
-      <CardFooter className="flex-wrap gap-2 text-xs text-muted-foreground">
-        <span role="status">
-          {open ? "Answer below" : settled === "closed" ? "The session ended before it was answered" : `You answered: ${settled.text ?? ""}`}
-        </span>
         {error && (
           <p role="alert" className="w-full text-sm text-destructive">
             {error}
