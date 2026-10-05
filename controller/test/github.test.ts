@@ -206,6 +206,10 @@ test('a gh call is a word gh of a command, and quoted text never names one', () 
     "gh issue view 3 --jq '.body | length'",
     'gh -R owner/repo pr list && echo "done; gh pr merge 1"',
     'gh issue view 3 \\\n  --comments',
+    `bash -c 'grep "gh issue view" x'`,
+    'sh -c "echo \'gh pr merge 1\'"',
+    'eval "gh issue view 3"',
+    'git commit -m "bash -c gh issue close 1"',
   ])
     expect(directWrite(command), command).toBeUndefined()
   const named: [string, string][] = [
@@ -221,6 +225,13 @@ test('a gh call is a word gh of a command, and quoted text never names one', () 
     ['gh api -X PATCH repos/owner/repo/issues/3', 'gh api --method PATCH writes GitHub'],
     ["gh api graphql -f query='mutation { x }'", 'a graphql mutation writes GitHub'],
     ['gh api repos/owner/repo/issues -f "title=a; b"', 'gh api with fields sends a POST, which writes GitHub'],
+    ["bash -c 'gh issue close 1'", 'gh issue close writes GitHub'],
+    ['sh -c "gh pr merge 1"', 'gh pr merge writes GitHub'],
+    ["sudo /bin/bash -lc 'cd x && gh issue edit 1 --add-label bug'", 'gh issue edit writes GitHub'],
+    ['eval "gh pr merge 1"', 'gh pr merge writes GitHub'],
+    ["echo 1 | xargs -I{} sh -c 'gh issue close {}'", 'gh issue close writes GitHub'],
+    [`bash -c "sh -c 'gh issue close 1'"`, 'gh issue close writes GitHub'],
+    ["ssh host 'gh release delete v1'", 'gh release delete writes GitHub'],
   ]
   for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
   expect(directWrite("gh api graphql -f query='query { viewer { login } }'")).toBeUndefined()

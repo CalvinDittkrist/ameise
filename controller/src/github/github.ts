@@ -426,25 +426,55 @@ const writeGroups = new Set(['issue', 'pr', 'label', 'release', 'repo', 'project
 // api call that sends a method other than GET or, without one, fields, which gh sends as a POST. A
 // graphql call writes when it carries a mutation. It reads the command's words as the shell does
 // (commands), so a gh call is a word gh of a command, and quoted text, as a grep pattern, a commit
-// message or an echo, is one word and never names one.
+// message or an echo, is one word and never names one. Quoted text that a command runs as a command
+// of its own, as the script of sh -c or the words of eval, is read as a command again (scripts).
 export function directWrite(command: string): string | undefined {
   for (const words of commands(command)) {
-    const at = words.findIndex((w) => w === 'gh' || w.endsWith('/gh'))
-    if (at < 0) continue
-    const args = words.slice(at + 1)
-    // The repository flag takes a value, which is neither a group nor a verb.
-    const [group, verb] = args.filter((w, i) => !w.startsWith('-') && args[i - 1] !== '-R' && args[i - 1] !== '--repo')
-    if (group === undefined) continue
-    if (writeGroups.has(group) && verb !== undefined && !readVerbs.has(verb)) return `gh ${group} ${verb} writes GitHub`
-    if (group !== 'api') continue
-    const method = args.flatMap((w, i) => (w === '-X' || w === '--method' ? [args[i + 1] ?? ''] : /^(-X|--method=)(.+)$/.exec(w)?.slice(2, 3) ?? []))[0]
-    if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${method} writes GitHub`
-    if (args.includes('graphql')) {
-      if (args.some((w) => /\bmutation\b/.test(w))) return 'a graphql mutation writes GitHub'
-      continue
+    for (const script of scripts(words)) {
+      const why = directWrite(script)
+      if (why !== undefined) return why
     }
-    if (method === undefined && args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)|^-[fF]./.test(w))) return 'gh api with fields sends a POST, which writes GitHub'
+    const why = ghWrite(words)
+    if (why !== undefined) return why
   }
+  return undefined
+}
+
+// The shells whose -c takes a script, and the commands that run their arguments joined as a command:
+// eval here, and ssh and watch through a shell of their own.
+const shells = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'su'])
+const runners = new Set(['eval', 'ssh', 'watch'])
+
+// scripts answers the texts a command's words hand on to run as commands: the word after a -c of a
+// shell, and the words after eval, ssh or watch. It looks at every word, so a wrapper in front, as
+// sudo, env or xargs, does not hide one. Reading too much only refuses a command that writes nothing
+// for a word that looks like gh, while reading too little lets a write past the tools.
+function scripts(words: string[]): string[] {
+  return words.flatMap((w, i) => {
+    const name = w.slice(w.lastIndexOf('/') + 1)
+    if (runners.has(name)) return [words.slice(i + 1).join(' ')]
+    if (!shells.has(name)) return []
+    const flag = words.findIndex((f, j) => j > i && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(f))
+    const script = flag < 0 ? undefined : words[flag + 1]
+    return script === undefined ? [] : [script]
+  })
+}
+
+// ghWrite says why the gh call among a command's words writes GitHub, or undefined when it has none or
+// the call only reads.
+function ghWrite(words: string[]): string | undefined {
+  const at = words.findIndex((w) => w === 'gh' || w.endsWith('/gh'))
+  if (at < 0) return undefined
+  const args = words.slice(at + 1)
+  // The repository flag takes a value, which is neither a group nor a verb.
+  const [group, verb] = args.filter((w, i) => !w.startsWith('-') && args[i - 1] !== '-R' && args[i - 1] !== '--repo')
+  if (group === undefined) return undefined
+  if (writeGroups.has(group) && verb !== undefined && !readVerbs.has(verb)) return `gh ${group} ${verb} writes GitHub`
+  if (group !== 'api') return undefined
+  const method = args.flatMap((w, i) => (w === '-X' || w === '--method' ? [args[i + 1] ?? ''] : /^(-X|--method=)(.+)$/.exec(w)?.slice(2, 3) ?? []))[0]
+  if (method !== undefined && method.toUpperCase() !== 'GET') return `gh api --method ${method} writes GitHub`
+  if (args.includes('graphql')) return args.some((w) => /\bmutation\b/.test(w)) ? 'a graphql mutation writes GitHub' : undefined
+  if (method === undefined && args.some((w) => /^(-f|-F|--field|--raw-field|--input)(=|$)|^-[fF]./.test(w))) return 'gh api with fields sends a POST, which writes GitHub'
   return undefined
 }
 
