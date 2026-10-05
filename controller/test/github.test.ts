@@ -237,6 +237,28 @@ test('a gh call is a word gh of a command, and quoted text never names one', () 
   expect(directWrite("gh api graphql -f query='query { viewer { login } }'")).toBeUndefined()
 })
 
+test('a here-document body is text, and neither it nor an unclosed quote hides a later gh call', () => {
+  for (const command of [
+    "git commit -m \"$(cat <<'EOF'\nfix: gh issue close 1 no longer fails\nEOF\n)\"",
+    "cat <<'EOF'\n$(gh issue close 1)\nEOF",
+    "cat <<<'gh pr merge 1'",
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ["cat <<EOF > f\nit's\nEOF\ngh issue close 1", 'gh issue close writes GitHub'],
+    ["git commit -m \"$(cat <<'EOF'\nfix don't\nEOF\n)\" && gh pr create --fill", 'gh pr create writes GitHub'],
+    ["cat <<-EOF\n\tit's\n\tEOF\ngh pr merge 1", 'gh pr merge writes GitHub'],
+    ["cat <<A <<B\na'\nA\nb\"\nB\ngh pr merge 1", 'gh pr merge writes GitHub'],
+    ['cat <<EOF\n$(gh issue close 1)\nEOF', 'gh issue close writes GitHub'],
+    ["bash <<'EOF'\ngh issue close 1\nEOF", 'gh issue close writes GitHub'],
+    ["cat <<'EOF' | ssh host\ngh issue close 1\nEOF", 'gh issue close writes GitHub'],
+    ['x=$((1<<2))\ngh pr merge 1', 'gh pr merge writes GitHub'],
+    ["echo it's && gh pr merge 1", 'gh pr merge writes GitHub'],
+    ['echo "it && gh pr merge 1', 'gh pr merge writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
 test('a ticket of a spec run that cannot become a sub-issue loses the spec-run label and is refused', async () => {
   canLabels(vocabulary.map((l) => l.name))
   canIssue(30, ['spec', 'factory:spec-run'])

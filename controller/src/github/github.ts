@@ -444,6 +444,10 @@ export function directWrite(command: string): string | undefined {
 // eval here, and ssh and watch through a shell of their own.
 const shells = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'su'])
 const runners = new Set(['eval', 'ssh', 'watch'])
+const isShell = (word: string) => {
+  const name = word.slice(word.lastIndexOf('/') + 1)
+  return shells.has(name) || runners.has(name)
+}
 
 // scripts answers the texts a command's words hand on to run as commands: the word after a -c of a
 // shell, and the words after eval, ssh or watch. It looks at every word, so a wrapper in front, as
@@ -483,8 +487,16 @@ function ghWrite(words: string[]): string | undefined {
 // subshell, a $( ) and a backtick start commands of their own. Whitespace outside quotes ends a word,
 // single quotes keep everything, and a backslash outside single quotes escapes the next character. A $( )
 // or a backtick inside double quotes still runs, so its commands are read as well.
+//
+// A here-document's body is text, not commands: its lines up to the delimiter are skipped, except for
+// the $( ) and backticks of a body whose delimiter is unquoted, which the shell runs. When a shell or a
+// runner is among the words, the body may be its script, so it is read as commands too. Reading fails
+// closed: a quote that never closes is an ordinary character, and a here-document whose delimiter line
+// never comes is not one, so neither hides the commands after it.
 function commands(command: string): string[][] {
   const out: string[][] = []
+  const bodies: string[] = []
+  let pending: { delimiter: string; tabs: boolean; expands: boolean }[] = []
   let i = 0
   // read reads commands until the end, or until the backtick or the parenthesis that closes a
   // substitution opened inside double quotes, and answers past it.
@@ -515,7 +527,11 @@ function commands(command: string): string[][] {
         if (close === ')') depth--
         i++
         endCommand()
-      } else if (c === '&' || c === '|' || c === ';' || c === '\n' || c === '`') {
+      } else if (c === '\n') {
+        i++
+        endCommand()
+        hereDocuments()
+      } else if (c === '&' || c === '|' || c === ';' || c === '`') {
         i++
         endCommand()
       } else if (c === ' ' || c === '\t' || c === '\r') {
@@ -527,10 +543,16 @@ function commands(command: string): string[][] {
         i += 2
       } else if (c === "'") {
         const end = command.indexOf("'", i + 1)
-        word = (word ?? '') + command.slice(i + 1, end < 0 ? undefined : end)
-        i = end < 0 ? command.length : end + 1
+        word = (word ?? '') + (end < 0 ? c : command.slice(i + 1, end))
+        i = end < 0 ? i + 1 : end + 1
       } else if (c === '"') {
         word = (word ?? '') + quoted()
+      } else if (command.startsWith('<<<', i)) {
+        word = (word ?? '') + '<<<'
+        i += 3
+      } else if (command.startsWith('<<', i)) {
+        endWord()
+        hereDocument()
       } else {
         word = (word ?? '') + c
         i++
@@ -539,8 +561,11 @@ function commands(command: string): string[][] {
     endCommand()
   }
   // quoted reads a double-quoted string from its opening quote past its closing one and answers its
-  // text; the commands of a substitution inside it go into out.
+  // text; the commands of a substitution inside it go into out. A quote that never closes is the
+  // character itself, and what follows it is read again as unquoted text.
   const quoted = () => {
+    const start = i
+    const [commandsBefore, pendingBefore] = [out.length, pending.length]
     let text = ''
     i++
     while (i < command.length && command[i] !== '"') {
@@ -559,10 +584,77 @@ function commands(command: string): string[][] {
         i++
       }
     }
-    i++
-    return text
+    if (i < command.length) {
+      i++
+      return text
+    }
+    out.length = commandsBefore
+    pending.length = pendingBefore
+    i = start + 1
+    return '"'
+  }
+  // hereDocument reads the operator << or <<- and the delimiter word after it, and keeps the
+  // here-document for the end of its line. A delimiter with any quote in it leaves the body unexpanded.
+  const hereDocument = () => {
+    i += 2
+    const tabs = command[i] === '-'
+    if (tabs) i++
+    while (command[i] === ' ' || command[i] === '\t') i++
+    let delimiter = ''
+    let expands = true
+    while (i < command.length && !/[\s;&|()<>`]/.test(command[i] ?? '')) {
+      const c = command[i]
+      const end = c === "'" || c === '"' ? command.indexOf(c, i + 1) : -1
+      if (end >= 0) {
+        delimiter += command.slice(i + 1, end)
+        expands = false
+        i = end + 1
+      } else if (c === '\\' && i + 1 < command.length) {
+        delimiter += command[i + 1]
+        expands = false
+        i += 2
+      } else {
+        delimiter += c
+        i++
+      }
+    }
+    if (delimiter !== '') pending.push({ delimiter, tabs, expands })
+  }
+  // hereDocuments reads the bodies of the here-documents of the line that just ended, in order. A body
+  // that expands has its substitutions read; every body is kept for a shell that may run it.
+  const hereDocuments = () => {
+    const documents = pending
+    pending = []
+    for (const { delimiter, tabs, expands } of documents) {
+      let line = i
+      let next = -1
+      while (line < command.length) {
+        const end = command.indexOf('\n', line)
+        const text = command.slice(line, end < 0 ? undefined : end)
+        next = end < 0 ? command.length : end + 1
+        if ((tabs ? text.replace(/^\t+/, '') : text) === delimiter) break
+        line = next
+        next = -1
+      }
+      if (next < 0) return
+      bodies.push(command.slice(i, line))
+      if (expands) {
+        while (i < line) {
+          if (command[i] === '\\') i += 2
+          else if (command[i] === '`') {
+            i++
+            read('`')
+          } else if (command[i] === '$' && command[i + 1] === '(') {
+            i += 2
+            read(')')
+          } else i++
+        }
+      }
+      i = Math.max(i, next)
+    }
   }
   read()
+  if (out.some((words) => words.some((w) => isShell(w)))) for (const body of bodies) out.push(...commands(body))
   return out
 }
 
