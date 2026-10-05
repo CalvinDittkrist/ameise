@@ -39,7 +39,7 @@ A session takes its model from the first that is set:
 1. the `model` of its agent file: `fable` for `planner`
 2. `model` in your Claude Code settings
 
-The planner runs on Fable and sets no effort. The research subagent has no agent file, so it follows the session.
+The planner runs on Fable and sets no effort. The research subagent has no agent file; the research skill starts it in the foreground on sonnet.
 
 ## Configuration
 | Variable | Default | Effect |
