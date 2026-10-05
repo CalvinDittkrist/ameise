@@ -602,6 +602,14 @@ func (f *Factory) letIssuesGo(ctx context.Context, letGo map[string]string) {
 			case mergedClosedDecision(h.pullRequest):
 				f.ticketMerged(pass, h.run.Repository, h.run.Spec, h.run.Issue, h.pullRequest, true)
 			}
+		} else if letGo[key] == mergedDecision(h.pullRequest) {
+			// The pull request of an issue of the line was merged and the issue is still open: GitHub did not
+			// close it. An issue that stays open, though its work is merged, is routed again by nothing but
+			// stays in the frontier's way, so the factory closes it. An issue that could not be closed stays
+			// held, and the next poll that reads the merge closes it again.
+			if !f.issueMerged(pass, h.run, h.pullRequest) {
+				continue
+			}
 		}
 		f.letGo(pass, held[key], letGo[key])
 	}

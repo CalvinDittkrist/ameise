@@ -141,6 +141,27 @@ func (f *Factory) ticketMerged(ctx context.Context, repository string, spec, tic
 	return true
 }
 
+// issueMerged closes an issue of the line whose pull request was merged and which GitHub left open. GitHub
+// closes an issue on a merge through the keyword in the pull request's body only when it linked the two,
+// and it did not link those of pull requests the factory opened as a draft and edited afterwards, so the
+// factory does not rely on it. It answers false when the issue could not be closed, which keeps the run
+// held for the next poll.
+func (f *Factory) issueMerged(ctx context.Context, r Run, pull string) bool {
+	comment := "The pull request " + pull + " is merged and GitHub left this issue open, so the factory closes it.\n"
+	err := f.source.commentOnIssue(ctx, r.Repository, r.Issue, comment)
+	if err == nil {
+		err = f.source.closeIssue(ctx, r.Repository, r.Issue)
+	}
+	if err != nil {
+		if record, ok := f.runs.find(r.ID); ok && ctx.Err() == nil {
+			f.warn(record, "issue not closed", fmt.Sprintf("issue #%d of %s is merged by %s and could not be closed: %v; close it by hand", r.Issue, r.Repository, pull, err))
+		}
+		return false
+	}
+	log.Printf("run %d (%s#%d): the issue is merged by %s and closed", r.ID, r.Repository, r.Issue, pull)
+	return true
+}
+
 // mergeRequest is the body of the call that squash-merges a pull request.
 type mergeRequest struct {
 	Method string `json:"merge_method"`
