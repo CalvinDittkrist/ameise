@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { skillCandidate, vocabulary } from '../src/github/github.js'
+import { directWrite, skillCandidate, vocabulary } from '../src/github/github.js'
 import { api, canApi, canPages, canPulls, checkout, cleanup, failApi, type Machine, machine, play, read, start } from './controller.js'
 
 afterEach(cleanup)
@@ -189,17 +189,128 @@ test('a planner session cannot write GitHub with gh in Bash, and reads the issue
     'bash gh api repos/owner/repo/issues/3 -f title=T',
     'bash gh issue view 3 --comments',
     "bash gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title'",
+    'bash grep -rn "gh issue view\\|git diff origin" plugins controller/src',
   )
   expect(events.filter((e) => e.event === 'github-refused').map((e) => [e.tool, (e.reason as string).split(';')[0]])).toEqual([
     ['Bash', 'gh issue create writes GitHub'],
     ['Bash', 'gh api --method PATCH writes GitHub'],
     ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
   ])
-  // The read its brief names runs without a card; a read in another form goes to the permission layer.
+  // The read its brief names runs without a card; a read in another form, and a grep whose quoted
+  // pattern holds a gh command, go to the permission layer.
   expect(read(m.claudeLog).split('\n').filter((l) => l.startsWith('! ') && !l.includes('denied'))).toEqual([
     '! The hook allowed gh issue view 3 --comments.',
     "! The hook let gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title' through.",
+    '! The hook let grep -rn "gh issue view\\|git diff origin" plugins controller/src through.',
   ])
+})
+
+test('a gh call is a word gh of a command, and quoted text never names one', () => {
+  for (const command of [
+    'grep -rn "gh issue view\\|git diff origin" src',
+    'git commit -m "gh issue close is refused"',
+    "echo 'gh pr merge 1'",
+    "gh issue view 3 --jq '.body | length'",
+    'gh -R owner/repo pr list && echo "done; gh pr merge 1"',
+    'gh issue view 3 \\\n  --comments',
+    `bash -c 'grep "gh issue view" x'`,
+    'sh -c "echo \'gh pr merge 1\'"',
+    'eval "gh issue view 3"',
+    'git commit -m "bash -c gh issue close 1"',
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['echo x | gh issue close 1', 'gh issue close writes GitHub'],
+    ['gh issue close 1 --body "a | b"', 'gh issue close writes GitHub'],
+    ['(gh pr merge 1)', 'gh pr merge writes GitHub'],
+    ['x=$(gh issue edit 1 --add-label bug)', 'gh issue edit writes GitHub'],
+    ['echo "$(gh issue close 1)"', 'gh issue close writes GitHub'],
+    ['echo "`gh pr merge 1`"', 'gh pr merge writes GitHub'],
+    ['"gh" issue \'close\' 1', 'gh issue close writes GitHub'],
+    ['gh issue \\\nclose 1', 'gh issue close writes GitHub'],
+    ['gh --repo owner/repo label create x', 'gh label create writes GitHub'],
+    ['gh api -X PATCH repos/owner/repo/issues/3', 'gh api --method PATCH writes GitHub'],
+    ["gh api graphql -f query='mutation { x }'", 'a graphql mutation writes GitHub'],
+    ['gh api repos/owner/repo/issues -f "title=a; b"', 'gh api with fields sends a POST, which writes GitHub'],
+    ["bash -c 'gh issue close 1'", 'gh issue close writes GitHub'],
+    ['sh -c "gh pr merge 1"', 'gh pr merge writes GitHub'],
+    ["sudo /bin/bash -lc 'cd x && gh issue edit 1 --add-label bug'", 'gh issue edit writes GitHub'],
+    ['eval "gh pr merge 1"', 'gh pr merge writes GitHub'],
+    ["echo 1 | xargs -I{} sh -c 'gh issue close {}'", 'gh issue close writes GitHub'],
+    [`bash -c "sh -c 'gh issue close 1'"`, 'gh issue close writes GitHub'],
+    ["ssh host 'gh release delete v1'", 'gh release delete writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+  expect(directWrite("gh api graphql -f query='query { viewer { login } }'")).toBeUndefined()
+})
+
+test('a here-document body is text, and neither it nor an unclosed quote hides a later gh call', () => {
+  for (const command of [
+    "git commit -m \"$(cat <<'EOF'\nfix: gh issue close 1 no longer fails\nEOF\n)\"",
+    "cat <<'EOF'\n$(gh issue close 1)\nEOF",
+    "cat <<<'gh pr merge 1'",
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ["cat <<EOF > f\nit's\nEOF\ngh issue close 1", 'gh issue close writes GitHub'],
+    ["git commit -m \"$(cat <<'EOF'\nfix don't\nEOF\n)\" && gh pr create --fill", 'gh pr create writes GitHub'],
+    ["cat <<-EOF\n\tit's\n\tEOF\ngh pr merge 1", 'gh pr merge writes GitHub'],
+    ["cat <<A <<B\na'\nA\nb\"\nB\ngh pr merge 1", 'gh pr merge writes GitHub'],
+    ['cat <<EOF\n$(gh issue close 1)\nEOF', 'gh issue close writes GitHub'],
+    ["bash <<'EOF'\ngh issue close 1\nEOF", 'gh issue close writes GitHub'],
+    ["cat <<'EOF' | ssh host\ngh issue close 1\nEOF", 'gh issue close writes GitHub'],
+    ['x=$((1<<2))\ngh pr merge 1', 'gh pr merge writes GitHub'],
+    ["echo it's && gh pr merge 1", 'gh pr merge writes GitHub'],
+    ['echo "it && gh pr merge 1', 'gh pr merge writes GitHub'],
+    ['x=$((1<<2))\ngh issue close 1\n2', 'gh issue close writes GitHub'],
+    ['echo "$((1<<2))"\ngh issue close 1\n2', 'gh issue close writes GitHub'],
+    ['(( x = 1<<2 ))\ngh pr merge 1\n2', 'gh pr merge writes GitHub'],
+    ['x=$[1<<2]\ngh pr merge 1\n2]', 'gh pr merge writes GitHub'],
+    ["bash <<< 'gh issue close 1'", 'gh issue close writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('a comment is nothing, and every gh of a command is read', () => {
+  for (const command of ['gh issue view 1 # then gh issue close 1', "gh pr list # don't merge", 'echo a#b && gh pr view 1'])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['true # "\ngh issue close 1\ntrue # "', 'gh issue close writes GitHub'],
+    ["true # it's\ngh pr merge 1\necho '", 'gh pr merge writes GitHub'],
+    ['echo `true # `; gh pr merge 1', 'gh pr merge writes GitHub'],
+    ['find . -maxdepth 0 -exec gh issue view 1 \\; -exec gh issue close 1 \\;', 'gh issue close writes GitHub'],
+    ["env -S 'gh issue close 1'", 'gh issue close writes GitHub'],
+    ["env -S'gh pr' merge 1", 'gh pr merge writes GitHub'],
+    ["env --split-string='gh issue close 1'", 'gh issue close writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('a gh call built at run time is refused when its group or verb may write', () => {
+  for (const command of [
+    'gh issue view "$n" --comments',
+    'cd "$dir" && gh pr list --repo "$repo"',
+    '"$(command -v gh)" issue view 1',
+    'gh api "repos/$repo/pulls/$n/comments"',
+    "IFS=$'\\n' read -r x",
+  ])
+    expect(directWrite(command), command).toBeUndefined()
+  const named: [string, string][] = [
+    ['gh pr "$(printf re)view" 1 --approve', 'gh pr with a verb built at run time may write GitHub'],
+    ['gh pr $(printf re)view 1 --approve', 'gh pr with a verb built at run time may write GitHub'],
+    ['g=issue; gh $g close 1', 'gh with a group built at run time may write GitHub'],
+    ['$(command -v gh) issue close 1', 'gh issue close writes GitHub'],
+    ["$'\\x67h' issue close 1", 'gh issue close writes GitHub'],
+    ["echo $'it\\'s' && gh pr merge 1", 'gh pr merge writes GitHub'],
+  ]
+  for (const [command, why] of named) expect(directWrite(command), command).toBe(why)
+})
+
+test('repeated runners, shells and unclosed quotes are read without blowing up', () => {
+  expect(directWrite(`${'eval '.repeat(200)}gh issue view 1`)).toBeUndefined()
+  expect(directWrite(`${'eval '.repeat(200)}gh issue close 1`)).toBe('gh issue close writes GitHub')
+  expect(directWrite(`${'bash '.repeat(200)}-c 'gh pr view 1'`)).toBeUndefined()
+  expect(directWrite(`${'"$('.repeat(200)}gh pr merge 1`)).toBe('gh pr merge writes GitHub')
 })
 
 test('a ticket of a spec run that cannot become a sub-issue loses the spec-run label and is refused', async () => {
