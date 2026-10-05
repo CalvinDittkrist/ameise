@@ -377,7 +377,8 @@ The session takes its input as a stream, so the maintainer talks to it from the 
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
   - A call that asks several questions takes the one message as the answer to each.
 - A process's own session has the controller tool `ask`, an in-process MCP server `controller` allowed without a card, so it calls `mcp__controller__ask`.
-  - It asks a question round: 1 to 12 questions, each with a `title` and its `question`, and optionally up to 6 `options`, a `recommended` answer with its reason `why`, and `multiSelect`.
+  - It asks a question round: 1 to 12 questions, each with a `title` and its `question`.
+  - A question may add up to 6 `options`, a `recommended` answer with its reason `why`, and `multiSelect`.
   - A call that breaks one of these rules is refused with the rule, and nothing waits.
   - The round becomes a `round` event, and the process turns `input` with the first title as its note.
   - The process page answers it with one answer per question. The session reads one line per question, `Q<n> <title>: <answer>`, which ends in ` (recommended)` where the maintainer took the recommendation.

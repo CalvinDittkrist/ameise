@@ -692,9 +692,9 @@ test("a running session's question round is answered question by question on its
     await expect(card.getByRole("status")).toHaveText("You answered")
     const lines = card.getByRole("group")
     await expect(lines.locator("summary")).toHaveText(["Q1FlagDroprecommended", "Q2NameRename it to --stay", "Q3Shellsbash, fish"])
-    await expect(lines.nth(0).getByText("Recommended: Drop — Nobody sets it.")).toBeHidden()
+    await expect(lines.nth(0).getByText("Recommended: Drop. Nobody sets it.")).toBeHidden()
     await lines.nth(0).locator("summary").click()
-    await expect(lines.nth(0).getByText("Recommended: Drop — Nobody sets it.")).toBeVisible()
+    await expect(lines.nth(0).getByText("Recommended: Drop. Nobody sets it.")).toBeVisible()
     await expect(lines.nth(0).locator("strong")).toHaveText("old")
 
     // A chat message while a round is open settles it in the maintainer's words.

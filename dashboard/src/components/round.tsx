@@ -180,7 +180,7 @@ function Answered({ questions, settled }: { questions: RoundQuestion[]; settled:
               {q.recommended && (
                 <p className="text-xs">
                   Recommended: {q.recommended}
-                  {q.why && ` — ${q.why}`}
+                  {q.why && `. ${q.why}`}
                 </p>
               )}
             </div>

@@ -48,11 +48,14 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The lines between turns and the process's note stay plain.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
   - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
-  - A question round card, headed Question round with its count, shows one question at a time under tabs Q1 to Qn. The current tab is filled, and an answered one carries a check.
-    - The question shows its title, its text as markdown, its options as rows with the recommendation first, badged Recommended with its reason, and a field for an answer of one's own.
+  - A question round card, headed Question round with its count, shows one question at a time under tabs Q1 to Qn.
+    - The current tab is filled, and an answered one carries a check.
+    - The question shows its title, its text as markdown and its options as rows, then a field for an answer of one's own.
+    - The recommendation comes first among the options, badged Recommended with its reason.
     - Choosing an option answers its question and moves to the next tab. A question that takes several options toggles them and stays.
     - Accept all recommendations fills every question that has one. Send stays disabled until every question has an answer.
-    - Answered, the card shows one line per question: Q<n>, the title, the answer and a recommended badge where it was taken. Each line opens to the question and the recommendation with its reason.
+    - Answered, the card shows one line per question: Q<n>, the title, the answer and a recommended badge where it was taken.
+    - Each line opens to the question and the recommendation with its reason.
     - A chat message while the round is open answers the whole round instead, and the card says You replied.
   - Open in terminal resumes the session in a terminal window of this machine.
   - A plan's page adds Capture prototype, which asks for a name and says where the prototype went.
