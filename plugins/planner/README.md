@@ -15,7 +15,7 @@ It writes GitHub only through the controller's tools, so every write passes the 
 | `/planner:tickets [spec]` | `create_milestone`, `create_issue` with parent and milestone, `block`, `set_labels`, `attach_milestone` | yes | asks once for a `vX.Y.Z` milestone, once spec run or normal run, then per ticket who works it; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
 | `/planner:triage [issue]` | `comment`, `set_labels`, `close` | yes | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |
 | `/planner:accept [spec]` | Accept on the board | yes | points to the acceptance the controller runs; writes nothing |
-| `/planner:research <question>` | | no | background subagent, primary sources, answer lands in the issue |
+| `/planner:research <question>` | | no | foreground subagent on sonnet, primary sources, answer lands in the issue |
 | `/planner:prototype <question>` | Capture prototype in the process view | yes, for the capture | throwaway code, moved to `prototype/<plan>-<name>` by the controller and linked |
 | `/planner:finish` | Finish in the process view | yes | lists what the session wrote; the controller's finish removes worktree and branch |
 
