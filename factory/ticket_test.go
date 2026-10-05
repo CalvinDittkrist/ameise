@@ -98,8 +98,8 @@ func (f *factory) specRunNow(t *testing.T) apiSpecRun {
 }
 
 // The lowest-numbered ticket that may be taken comes before a routed issue: the base is merged into
-// the spec branch, the ticket's branch is cut from it, its pull request goes against it, Codex and the
-// Claude reviewer on Fable validate it, and it is squash-merged into the spec branch under its title.
+// the spec branch, the ticket's branch is cut from it, its pull request goes against it, Codex on
+// GPT-6.1-Sol alone validates it, and it is squash-merged into the spec branch under its title.
 // The ticket is closed with a comment, the spec run lists the run and the merge, and a ticket added
 // to the spec afterwards is taken next, before the routed issue still.
 func TestTheTicketsOfAHeldSpecAreWorkedOnTheSpecBranchAndMergedIntoIt(t *testing.T) {
@@ -146,12 +146,11 @@ func TestTheTicketsOfAHeldSpecAreWorkedOnTheSpecBranchAndMergedIntoIt(t *testing
 		t.Fatalf("the factory opened the pull requests %+v, want one from %s against %s", opened, ticketBranch, specBranch)
 	}
 	v := run.Validation
-	if v == nil || !v.Passed || len(v.Rounds) != 1 || len(v.Rounds[0].Verdicts) != 2 ||
-		v.Rounds[0].Verdicts[0].Reviewer != "codex" || v.Rounds[0].Verdicts[1].Reviewer != "fable" {
-		t.Errorf("run 1 recorded the validation %+v, want one round codex and fable passed", v)
+	if v == nil || !v.Passed || len(v.Rounds) != 1 || len(v.Rounds[0].Verdicts) != 1 || v.Rounds[0].Verdicts[0].Reviewer != "codex" {
+		t.Errorf("run 1 recorded the validation %+v, want one round of codex alone, passed", v)
 	}
-	if len(codex.calls(t)) == 0 {
-		t.Errorf("the Codex validator was never called")
+	if calls := codex.calls(t); len(calls) == 0 || calls[0].arg("-m") != "gpt-6.1-sol" {
+		t.Errorf("the Codex validator was called %+v, want on the model gpt-6.1-sol", calls)
 	}
 	merge := "api --method PUT repos/acme/edge-sensors/pulls/231/merge --input -"
 	if gh.made(t, merge) != 1 {

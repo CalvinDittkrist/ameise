@@ -553,6 +553,56 @@ func TestAResumeDuringTheReviewGoesOnFromTheRecordedRounds(t *testing.T) {
 	}
 }
 
+// A resumed review whose recorded round has a fix verdict of a reviewer the factory no longer knows,
+// fable, goes on without it: its next round runs the known reviewers that asked for a fix, the run says
+// once that it left fable out, and the recorded round keeps fable's verdict.
+func TestAResumedReviewLeavesOutARecordedReviewerTheFactoryNoLongerKnows(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	head := gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+
+	round := Round{Number: 1, Head: head, Verdicts: []Verdict{
+		{Reviewer: "code", Verdict: verdictFix, Findings: []Finding{{ID: "F1", Severity: "S2", Path: "a.go", Line: 3, Claim: "Off by one.", Why: "It skips the last.", Fix: "Use <=."}}},
+		{Reviewer: "fable", Verdict: verdictFix, Findings: []Finding{{ID: "F2", Severity: "S2", Path: "a.go", Line: 9, Claim: "The error is dropped.", Why: "It hides the failure.", Fix: "Return it."}}},
+	}, Repair: &Repair{Fixed: []string{"F1", "F2"}, Disputed: []Excuse{}, Skipped: []Excuse{}, Summary: "Fixed."}}
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	interrupted := record(1, claimedIssue, claimedTitle, signalRouted, outcomeInterrupted, true, began, began.Add(30*time.Minute))
+	interrupted.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	interrupted.Stages = []string{"implement", "review"}
+	interrupted.Panel = &Panel{Gate: "gate_result: pass (exit 0) at " + head[:7], GatedAt: head, Head: head, Round: 1, Rounds: []Round{round},
+		Classes: []Classed{{Class: "full", For: classForReview, Head: head, Reviewers: []string{"code", "fable"}}}}
+	records(t, data, interrupted)
+	gh.issues(t, "acme/edge-sensors")
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+	gh.openPullsListed(t, "acme/edge-sensors", claimedBranch)
+	gh.ciReads(t, "acme/edge-sensors", claimedIssue, ciPull{})
+
+	f := gh.work(t, ciConfig(data, nil))
+	resumed := f.ended(t, 2)
+	if resumed.Outcome != outcomeReady {
+		t.Fatalf("run 2 ended as %q (%s), want ready; the factory's log:\n%s", resumed.Outcome, resumed.Reason, f.output(t))
+	}
+	reviewers := gh.reviewerSessions(t)
+	if len(reviewers) != 1 {
+		t.Fatalf("the resume started %d reviewer sessions, want the code reviewer of round 2 alone", len(reviewers))
+	}
+	if agent, _ := agentOf(t, reviewers[0]); agent != "code-reviewer" {
+		t.Errorf("the resume started the %s, want the code reviewer", agent)
+	}
+	if left := factoryTitles(resumed, "left out the reviewer"); !equal(left, []string{"left out the reviewer fable, which the factory no longer knows"}) {
+		t.Errorf("the resume said %v, want one event that it left fable out", left)
+	}
+	if p := resumed.Panel; p == nil || len(p.Rounds) != 2 || len(p.Rounds[0].Verdicts) != 2 || p.Rounds[0].Verdicts[1].Reviewer != "fable" ||
+		len(p.Rounds[1].Verdicts) != 1 || p.Rounds[1].Verdicts[0].Reviewer != "code" {
+		t.Errorf("the resume recorded the panel %+v, want round 1 as recorded, fable included, and round 2 of the code reviewer alone", p)
+	}
+}
+
 // anyStrings is a JSON array of strings as Go reads it into an any.
 func anyStrings(v any) []string {
 	list, _ := v.([]any)

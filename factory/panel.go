@@ -128,9 +128,8 @@ func (r reviewer) on() string {
 }
 
 // knownReviewers is every reviewer the review knobs may name, in the order an error lists them: the
-// default panel, then the reviewer on Codex and the one on the Fable model, which a repository adds by
-// naming them.
-var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex", "fable")
+// default panel, then the reviewer on Codex, which a repository adds by naming it.
+var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex")
 
 // reviewers are the factory's own reviewer prompts, by the name the panel knows them by. Their focus is
 // the worker plugin's reviewers' ([ADR 0040]): the factory carries its own copy, written for a session
@@ -176,13 +175,6 @@ var reviewers = map[string]reviewer{
 		"Focus: correctness, security and fit of the whole change, read by a model of another family than the other reviewers. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
 			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", runtimeCodex},
-	// The reviewer on the Fable model reads the whole change as the most capable Claude model does, and it
-	// validates the pull request of a ticket run beside the reviewer on Codex
-	// (https://code.claude.com/docs/en/model-config.md, checked 2026-09-27: the fable alias names it).
-	"fable": {"Fresh-context review of the branch diff on the Fable model.", "fable", "",
-		"Focus: correctness, security and fit of the whole change, read on the most capable Claude model. " +
-			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +
-			"behaviour that contradicts the issue, and tests that cannot fail. Ignore style.", ""},
 }
 
 // reviewerPrompt is the system prompt of a reviewer: what every reviewer is, and its focus.
@@ -537,7 +529,7 @@ func (f *Factory) review(parent, ctx context.Context, r *Run, entry Entry, claim
 	// The gate's determination reads the repository's panel, not the review's class, so the class full
 	// it may come to asks every configured reviewer.
 	configured := knobs
-	knobs.Reviewers = classed.Reviewers
+	knobs.Reviewers = f.leaveOutUnknown(r, "review", classed.Reviewers, panel.Rounds)
 	record()
 	for {
 		if n := len(panel.Rounds); n > 0 {
@@ -579,7 +571,8 @@ func (f *Factory) review(parent, ctx context.Context, r *Run, entry Entry, claim
 }
 
 // dueReviewers is the reviewers the next round runs: the whole panel before the first round, then the
-// reviewers whose last verdict was fix, in the panel's order.
+// reviewers whose last verdict was fix, in the panel's order. A reviewer the factory no longer knows
+// runs in no round (leaveOutUnknown).
 func dueReviewers(panel Panel, knobs reviewSettings) []string {
 	if len(panel.Rounds) == 0 {
 		return slices.Clone(knobs.Reviewers)
@@ -587,11 +580,40 @@ func dueReviewers(panel Panel, knobs reviewSettings) []string {
 	last := lastVerdicts(panel)
 	due := []string{}
 	for _, name := range order(panel, knobs) {
-		if last[name] == verdictFix {
+		if _, known := reviewers[name]; known && last[name] == verdictFix {
 			due = append(due, name)
 		}
 	}
 	return due
+}
+
+// leaveOutUnknown is the reviewers of names that the factory knows. A reviewer of names or of the
+// recorded rounds that it no longer knows, one a release removed, runs in no later round of the stage:
+// the run says so once, and the rounds keep the verdicts they recorded.
+func (f *Factory) leaveOutUnknown(r *Run, stage string, names []string, rounds []Round) []string {
+	unknown := []string{}
+	note := func(name string) {
+		if _, known := reviewers[name]; !known && !slices.Contains(unknown, name) && !slices.Contains(r.leftOut, name) {
+			unknown = append(unknown, name)
+		}
+	}
+	for _, name := range names {
+		note(name)
+	}
+	for _, round := range rounds {
+		for _, v := range round.Verdicts {
+			note(v.Reviewer)
+		}
+	}
+	if len(unknown) > 0 {
+		f.runs.update(r, func() { r.leftOut = append(r.leftOut, unknown...) })
+		f.runs.event(r, Event{Kind: "factory", Title: "left out the reviewer " + strings.Join(unknown, ", ") + ", which the factory no longer knows",
+			Body: fmt.Sprintf("the recorded rounds keep its verdicts, and the %s goes on without it", stage)})
+	}
+	return slices.DeleteFunc(slices.Clone(names), func(name string) bool {
+		_, known := reviewers[name]
+		return !known
+	})
 }
 
 // lastVerdicts is each reviewer's verdict of the last round it ran in.
@@ -731,8 +753,8 @@ func (f *Factory) verdicts(parent, ctx context.Context, r *Run, entry Entry, cla
 
 // runtimesReady says whether this host can start every reviewer due on the runtime it runs on, and
 // ends the run blocked and answers false when it cannot: a reviewer the repository names, in the panel
-// or as a validator (the role), is never skipped, so a host without Codex, or without its login, waits
-// for a person to give it one.
+// or as a validator (the role), is never skipped, so a host without Codex, with one too old for its
+// model, or without its login, waits for a person to give it one.
 func (f *Factory) runtimesReady(parent, ctx context.Context, r *Run, due []string, role string) bool {
 	runtimes := []string{}
 	for _, name := range due {
@@ -744,8 +766,8 @@ func (f *Factory) runtimesReady(parent, ctx context.Context, r *Run, due []strin
 		if runtime == runtimeClaude {
 			continue // the host's own runtime, which every run starts on
 		}
-		missing := f.runtimeMissing(ctx, runtime)
-		if f.halted(parent, ctx, r, "checked the "+providerName(runtime)+" login") {
+		missing, fix := f.runtimeMissing(ctx, runtime)
+		if f.halted(parent, ctx, r, "checked the "+providerName(runtime)+" runtime") {
 			return false
 		}
 		if missing == "" {
@@ -758,8 +780,8 @@ func (f *Factory) runtimesReady(parent, ctx context.Context, r *Run, due []strin
 			}
 		}
 		f.runs.update(r, func() {
-			r.Reason = fmt.Sprintf("the %s %s runs on %s, and %s. Install the Codex CLI for the factory's user and log it in with `codex login` "+
-				"(the factory's runbook, the Codex runtime), then remove the machine user as the issue's assignee to resume it.", role, strings.Join(names, ", "), providerName(runtime), missing)
+			r.Reason = fmt.Sprintf("the %s %s runs on %s, and %s. %s, then remove the machine user as the issue's assignee to resume it.",
+				role, strings.Join(names, ", "), providerName(runtime), missing, fix)
 		})
 		f.finish(r, outcomeBlocked, "", nil)
 		return false

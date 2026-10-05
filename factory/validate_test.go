@@ -247,7 +247,8 @@ func TestAValidationThatFailsPastItsRoundsEndsReadyNamingIt(t *testing.T) {
 func TestAnInvalidValidateObjectIsRefusedWithTheFix(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct{ config, want string }{
-		"unknown validator":              {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex","style"]}}`, `validate: validators carries "style", which is no reviewer; the validators are any of code, security, docs, tests, senior, codex, fable`},
+		"unknown validator":              {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex","style"]}}`, `validate: validators carries "style", which is no reviewer; the validators are any of code, security, docs, tests, senior, codex`},
+		"the retired validator fable":    {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex","fable"]}}`, `validate: validators carries "fable", which is no reviewer; the validators are any of code, security, docs, tests, senior, codex`},
 		"unknown validator of a repo":    {`{"data_dir":"data","repositories":[{"name":"a/b","validate":{"validators":["lint"]}}]}`, `the validate of a/b: validators carries "lint"`},
 		"no fix round":                   {`{"data_dir":"data","repositories":["a/b"],"validate":{"validators":["codex"],"rounds":0}}`, `validate: rounds 0 is not a positive number of fix rounds; write it as 2`},
 		"negative rounds of a repo":      {`{"data_dir":"data","repositories":[{"name":"a/b","validate":{"rounds":-1}}]}`, `the validate of a/b: rounds -1 is not a positive number`},
@@ -284,6 +285,51 @@ func TestAValidatorOnCodexOnAHostWithoutItBlocksTheRun(t *testing.T) {
 	}
 	if senior := validatorSessionsOf(t, gh, "senior"); len(senior) != 0 {
 		t.Errorf("the factory started the senior validator %d times, want none: the validators the repository names cannot all run", len(senior))
+	}
+}
+
+// A resumed validation whose recorded round has a verdict of a validator the factory no longer knows,
+// fable, validates again with the validators the repository names: the run says once that it left fable
+// out, and the recorded round keeps fable's verdict.
+func TestAResumedValidationLeavesOutARecordedValidatorTheFactoryNoLongerKnows(t *testing.T) {
+	t.Parallel()
+	gh := newGhShim(t)
+	gh.remote(t, "acme/edge-sensors")
+	gh.loggedInAs(t, "factory-bot")
+	data := filepath.Join(t.TempDir(), "data")
+	clone := gh.cloneInto(t, data, "acme/edge-sensors")
+	gh.branchAt(t, "acme/edge-sensors", claimedBranch, gh.head(t, "acme/edge-sensors", "main"))
+	gh.commitOn(t, "acme/edge-sensors", claimedBranch)
+
+	began := time.Now().UTC().Add(-2 * time.Hour)
+	interrupted := record(1, claimedIssue, claimedTitle, signalRouted, outcomeInterrupted, true, began, began.Add(30*time.Minute))
+	interrupted.Worktree = filepath.Join(clone, ".claude", "worktrees", claimedWorktree)
+	interrupted.PullRequest = pullOfTheClaim
+	interrupted.Stages = []string{"implement", "gate", "review", "pr", "ci", "validate"}
+	interrupted.Validation = &Validation{Rounds: []Round{{Number: 1, Head: "0ld", Verdicts: []Verdict{
+		{Reviewer: "senior", Verdict: verdictPass, Findings: []Finding{}},
+		{Reviewer: "fable", Verdict: verdictFix, Findings: []Finding{{ID: "F1", Severity: "S2", Path: "worked.md", Line: 1, Claim: "The retry is unbounded.", Why: "It never gives up.", Fix: "Bound it."}}},
+	}, Repair: &Repair{Fixed: []string{"F1"}, Disputed: []Excuse{}, Skipped: []Excuse{}, Summary: "bounded"}, Pushed: "0ld"}}}
+	records(t, data, interrupted)
+	gh.issues(t, "acme/edge-sensors")
+	gh.issue(t, "acme/edge-sensors", assignedTo(openIssue(claimedIssue, claimedTitle, began.Add(-72*time.Hour)), "factory-bot"))
+	gh.openPullsListed(t, "acme/edge-sensors", claimedBranch, claimedIssue)
+
+	f := gh.work(t, validateConfig(data, []string{"senior"}, nil))
+	resumed := f.ended(t, 2)
+	if resumed.Outcome != outcomeReady || resumed.Stage != stageValidate {
+		t.Fatalf("run 2 ended as %q in %q (%s), want ready in the validate stage; the factory's log:\n%s", resumed.Outcome, resumed.Stage, resumed.Reason, f.output(t))
+	}
+	if senior := validatorSessionsOf(t, gh, "senior"); len(senior) != 1 {
+		t.Errorf("the resume started the senior validator %d times, want once in round 2", len(senior))
+	}
+	if left := factoryTitles(resumed, "left out the reviewer"); !equal(left, []string{"left out the reviewer fable, which the factory no longer knows"}) {
+		t.Errorf("the resume said %v, want one event that it left fable out", left)
+	}
+	v := resumed.Validation
+	if v == nil || !v.Passed || len(v.Rounds) != 2 || v.Rounds[0].Verdicts[1].Reviewer != "fable" ||
+		len(v.Rounds[1].Verdicts) != 1 || v.Rounds[1].Verdicts[0].Reviewer != "senior" {
+		t.Errorf("the resume recorded the validation %+v, want round 1 as recorded, fable included, and a passed round 2 of senior alone", v)
 	}
 }
 

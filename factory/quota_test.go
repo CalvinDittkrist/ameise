@@ -200,8 +200,8 @@ func TestTooLittleQuotaWaitsForTheResetAndStartsAfterIt(t *testing.T) {
 
 // A run spends the models of its reviewers as well as the worker's: the default panel runs all five
 // on sonnet, so a sonnet scope below the minimum holds the run back while the worker's opus has plenty,
-// and so does a panel on the Fable model with a change class that asks a reviewer on sonnet. A panel
-// of the reviewer on the Fable model alone spends no sonnet, and starts.
+// and so does a panel on Codex with a change class that asks a reviewer on sonnet. A panel of the
+// reviewer on Codex alone spends no sonnet, and starts.
 func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
@@ -209,13 +209,13 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 		validate map[string]any
 		waits    bool
 	}{
-		"the default panel":          {nil, nil, true},
-		"a panel on the Fable model": {map[string]any{"reviewers": []string{"fable"}}, nil, false},
+		"the default panel": {nil, nil, true},
+		"a panel on Codex":  {map[string]any{"reviewers": []string{"codex"}}, nil, false},
 		// A change class may ask a reviewer the panel does not have.
-		"a change class with a reviewer on sonnet": {map[string]any{"reviewers": []string{"fable"},
+		"a change class with a reviewer on sonnet": {map[string]any{"reviewers": []string{"codex"},
 			"classes": []map[string]any{{"name": "code", "paths": []string{"src/**"}, "gate": []string{}, "reviewers": []string{"code"}}}}, nil, true},
 		// A validator runs after ci, and its model is spent all the same.
-		"a validator on sonnet": {map[string]any{"reviewers": []string{"fable"}},
+		"a validator on sonnet": {map[string]any{"reviewers": []string{"codex"}},
 			map[string]any{"validators": []string{"code"}}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -228,7 +228,11 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 			if c.validate != nil {
 				settings["validate"] = c.validate
 			}
-			f, _ := claimsWithQuota(t, q, settings)
+			// The host has codex, and quota-axi answers for it with plenty left.
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "codex-plan"), "all=80 reset=+3600\n")
+			path := "PATH=" + abs(t, filepath.Join("testdata", "runtimes")) + string(os.PathListSeparator) + abs(t, "testdata") + string(os.PathListSeparator) + os.Getenv("PATH")
+			f, _ := claimsWithQuota(t, q, settings, path, "QUOTA_SHIM_CODEX_PLAN="+filepath.Join(dir, "codex-plan"))
 			if c.waits {
 				until := f.waitsForQuota(t)
 				if !strings.Contains(f.output(t), "5 % of model:sonnet is left") {
@@ -244,8 +248,8 @@ func TestTheQuotaOfTheReviewersModelsHoldsARunBack(t *testing.T) {
 			if run.Outcome != "ready" {
 				t.Fatalf("the run ended as %q (%s), want ready; the factory's log:\n%s", run.Outcome, run.Reason, f.output(t))
 			}
-			if calls := q.calls(t); len(calls) != 1 {
-				t.Errorf("the factory asked quota-axi %d times, want once: a panel on fable alone has no sonnet to wait for", len(calls))
+			if calls, codex := len(q.calls(t)), len(codexChecks(t, q)); calls-codex != 1 {
+				t.Errorf("the factory asked quota-axi for Claude %d times, want once: a panel on codex alone has no sonnet to wait for", calls-codex)
 			}
 		})
 	}

@@ -219,6 +219,9 @@ type Run struct {
 	// lock is the factory's copy of the run's lock while the run lasts, which every session's process
 	// group inherits (Store.lock).
 	lock *os.File
+	// leftOut is the reviewers the run left out of its rounds because the factory no longer knows them
+	// (leaveOutUnknown), so it says so once whichever stage meets them first.
+	leftOut []string
 }
 
 // release lets go of the factory's copy of the run's lock once the run is over. Callers hold the lock

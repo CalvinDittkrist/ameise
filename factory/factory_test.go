@@ -811,6 +811,7 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"unknown review knob", `{"data_dir":"data","repositories":["a/b"],"review":{"round":2}}`, `json: unknown field "round"; the review knobs are rounds, reviewers, gate_rounds`},
 		{"no review round", `{"data_dir":"data","repositories":["a/b"],"review":{"rounds":0}}`, `review: rounds 0 is not a positive number of review rounds`},
 		{"a reviewer the panel does not have", `{"data_dir":"data","repositories":[{"name":"a/b","review":{"reviewers":["code","style"]}}]}`, `the review of a/b: reviewers carries "style", which is no reviewer; the reviewers are code, security, docs, tests, senior`},
+		{"the retired reviewer fable", `{"data_dir":"data","repositories":["a/b"],"review":{"reviewers":["code","fable"]}}`, `review: reviewers carries "fable", which is no reviewer; the reviewers are code, security, docs, tests, senior, codex`},
 		{"a reviewer named twice", `{"data_dir":"data","repositories":["a/b"],"review":{"reviewers":["code","code"]}}`, `reviewers names "code" twice`},
 		{"no reviewer", `{"data_dir":"data","repositories":["a/b"],"review":{"reviewers":[]}}`, `reviewers is empty`},
 		// A change class decides the gate and the reviewers before the pull request, so one the factory
@@ -834,7 +835,8 @@ func TestAnInvalidConfigurationIsRefusedWithTheFix(t *testing.T) {
 		{"a gate on CI that names no check", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":{"ci":[]}}]}}`, `the gate {"ci":[]} is none of the forms of a gate`},
 		{"a gate on CI with a field it does not have", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":{"ci":["check"],"wait":"5m"}}]}}`, `is none of the forms of a gate`},
 		{"a gate on CI that names a check twice", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":{"ci":["check","check"]}}]}}`, `names the check "check" twice`},
-		{"a class with a reviewer the panel does not have", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":[],"reviewers":["docs","style"]}]}}`, `the class "docs": reviewers carries "style", which is no reviewer; the reviewers are code, security, docs, tests, senior, codex, fable, or leave reviewers out`},
+		{"a class with a reviewer the panel does not have", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":[],"reviewers":["docs","style"]}]}}`, `the class "docs": reviewers carries "style", which is no reviewer; the reviewers are code, security, docs, tests, senior, codex, or leave reviewers out`},
+		{"a class with the retired reviewer fable", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":[],"reviewers":["fable"]}]}}`, `the class "docs": reviewers carries "fable", which is no reviewer; the reviewers are code, security, docs, tests, senior, codex, or leave reviewers out`},
 		{"a class without reviewers", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","paths":["docs/**"],"gate":[],"reviewers":[]}]}}`, `the class "docs": reviewers is empty`},
 		{"a class with a field it does not have", `{"data_dir":"data","repositories":["a/b"],"review":{"classes":[{"name":"docs","patterns":["docs/**"],"gate":[]}]}}`, `unknown field "patterns"; its fields are name, paths, gate, reviewers`},
 		// And those of the gate stage.
