@@ -182,7 +182,7 @@ test('a parent that cannot be read refuses the ticket before it is created', asy
   expect(writes(events)).toEqual([])
 })
 
-test('a planner session cannot write GitHub with gh in Bash, and reads it', async () => {
+test('a planner session cannot write GitHub with gh in Bash, and reads the issue its brief names without a card', async () => {
   const events = await planner(
     'bash gh issue create --title T --body B',
     'bash gh issue view 3 --comments && gh api -X PATCH repos/owner/repo/issues/3 -f state=closed',
@@ -195,6 +195,11 @@ test('a planner session cannot write GitHub with gh in Bash, and reads it', asyn
     ['Bash', 'gh issue create writes GitHub'],
     ['Bash', 'gh api --method PATCH writes GitHub'],
     ['Bash', 'gh api with fields sends a POST, which writes GitHub'],
+  ])
+  // The read its brief names runs without a card; a read in another form goes to the permission layer.
+  expect(read(m.claudeLog).split('\n').filter((l) => l.startsWith('! ') && !l.includes('denied'))).toEqual([
+    '! The hook allowed gh issue view 3 --comments.',
+    "! The hook let gh api 'repos/owner/repo/milestones?state=open&per_page=100' --jq '.[].title' through.",
   ])
 })
 

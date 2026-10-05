@@ -79,6 +79,7 @@ describe('the plugins', () => {
       'worker/agents/senior-reviewer.md',
       'worker/agents/test-hunter.md',
       'worker/agents/docs-lookup.md',
+      'planner/agents/reader.md',
       'repo-standards/agents/agent-config-auditor.md',
       'repo-standards/agents/docs-auditor.md',
       'repo-standards/agents/files-auditor.md',
@@ -126,6 +127,26 @@ describe('the plugins', () => {
     expect(f.tools!.split(', ')).toEqual(['Read', 'Grep', 'Glob'])
     expect(f.disallowedTools!.split(', ')).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'NotebookEdit', 'Agent']))
     expect(f).not.toHaveProperty('mcpServers')
+  })
+
+  // The reader takes the long documents and outside sources of a planning session. Without a shell, an edit tool
+  // or an MCP tool, a text that carries instructions can steer its answer and nothing else.
+  test('the planner reader is read-only and has no shell by its declared tools', () => {
+    const f = fields('plugins/planner/agents/reader.md')
+    expect(f.tools!.split(', ')).toEqual(['Read', 'Grep', 'Glob', 'WebFetch'])
+    expect(f.disallowedTools!.split(', ')).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'NotebookEdit', 'Agent']))
+    expect(f).not.toHaveProperty('mcpServers')
+  })
+
+  // A bare `Agent` hands the planner every built-in type, which runs under its own prompt with the planner's MCP
+  // tools. The allowlist names the plugin's own subagents and nothing else.
+  test('the planner spawns its own subagents and no other type', () => {
+    const own = agents('planner')
+      .filter((a) => a !== 'planner')
+      .map((a) => `planner:${a}`)
+    const allowed = declaredTools('plugins/planner/agents/planner.md').Agent
+    expect(allowed, 'planner.md has no Agent(...) allowlist; a bare Agent spawns every built-in type').toBeTruthy()
+    expect([...allowed!].sort()).toEqual(own.sort())
   })
 
   test('the test hunt skill is user-invoked only', () => {
