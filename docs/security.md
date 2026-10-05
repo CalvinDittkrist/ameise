@@ -29,6 +29,9 @@ Threat model: an agent with shell access works on code and reads text from the i
 - Auditor replies reach `report.sh` only as `finding:` lines of a fixed grammar, whose targets must stay inside the repository.
 - Auditors and reviewers keep `Bash` to read git history. Their read-only status rests on the tool lists plus the prompt, not on a sandbox.
 - The tests-ci auditor judges the repository's test commands without running them.
+- The planner hands long documents and outside sources to its `reader` subagent and spawns no other type (`Agent(planner:reader)`).
+  - The reader has Read, Grep, Glob and WebFetch and no shell, edit or GitHub tool, so a poisoned page can steer its answer and nothing else.
+  - A built-in type would run under its own prompt with the planner's MCP tools, outside the planner's rules on commits and GitHub writes.
 
 The worker's main context receives issue bodies, PR comments, CI logs and review comments, so it carries no `WebFetch` and no `WebSearch`. It reads the documentation with `/worker:docs`, which runs `claude-docs.sh` in a read-only `docs-lookup` subagent. The script:
 
