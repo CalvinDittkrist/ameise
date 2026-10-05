@@ -40,14 +40,14 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - In ci follow what the stage waits for, the repair rounds it spent of its budget, and the checks it read last.
   - Each check shows its state and a link to its run.
   - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
-  - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request, question and question round.
+  - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question round.
   - The page scrolls below the header, with the chat under it. It opens at the end of the conversation and follows the end while the session writes.
   - Once the maintainer scrolled up, their place holds as the log grows, and Back to the end takes them there.
-  - The session's text, the maintainer's messages and the text of a question render as markdown with GitHub's extensions. Raw HTML reads as text.
+  - The session's text, the maintainer's messages and the text of a round's question render as markdown with GitHub's extensions. Raw HTML reads as text.
   - A link opens in a new tab for http and https alone; any other link reads as its text, and an image as its alternative text.
   - The lines between turns and the process's note stay plain.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
-  - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
+  - The chat answers a waiting question round in the maintainer's own words. It also sends a message mid-work, or resumes a session that has ended.
   - A question round card, headed Question round with its count, shows one question at a time under tabs Q1 to Qn.
     - The current tab is filled, and an answered one carries a check.
     - The question shows its title, its text as markdown and its options as rows, then a field for an answer of one's own.
@@ -89,8 +89,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The checkouts hold worktrees and process records. The canned GitHub answers their pull requests, issues and specs, so the board has a row of every kind.
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
-  - A process record carries a fixture event log with an answered question and an open permission request, so the process page shows both cards.
-  - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and a question, which the live test answers from the page.
+  - A process record carries a fixture event log with an answered question round and an open permission request, so the process page shows both cards.
+  - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and waits for a message, which the live test answers from the page.
   - Another plays two question rounds: the page answers the first question by question, and a chat message settles the second.
   - The screenshots of a question round, open and answered, come from a record with a fixture event log, written for the test and removed again.
   - Another plays a session longer than the window, whose page the scroll test scrolls up and back to the end, and reloads.
