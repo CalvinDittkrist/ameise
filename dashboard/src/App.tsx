@@ -8,6 +8,7 @@ import { useRoute } from "@/route"
 import { BoardView } from "@/views/board"
 import { ProcessView } from "@/views/process"
 import { ProjectView } from "@/views/project"
+import { PrototypeQuestionRound } from "@/views/prototype-question-round"
 
 export default function App() {
   const route = useRoute()
@@ -40,7 +41,9 @@ export default function App() {
             )}
           </header>
           <div className={cn("flex flex-1 flex-col gap-4", route.page === "process" ? "min-h-0" : "p-4 lg:p-6")}>
-            {route.page === "board" ? (
+            {location.hash === "#prototype" ? (
+              <PrototypeQuestionRound />
+            ) : route.page === "board" ? (
               <BoardView board={board} reload={reloadBoard} />
             ) : route.page === "process" ? (
               <ProcessView id={route.id} board={board} reload={reloadBoard} />
