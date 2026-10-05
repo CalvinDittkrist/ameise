@@ -3,7 +3,7 @@
 The browser interface of the [controller](../controller/README.md): React, Vite and TypeScript on shadcn/ui with Tailwind, base colour neutral. It talks to the controller's API alone.
 
 ## Pages
-- The sidebar holds the Orchestrator entry, the projects of `GET /api/projects` and the action that adds one.
+- The sidebar holds the Board entry, the projects of `GET /api/projects` and the action that adds one.
 - Under each project it lists the project's processes in the board's order, once the board has loaded.
   - A project that does not derive and a board that could not be read list none.
   - An entry shows the state as the row's dot, the issue and the branch, and the badge `new` while the row carries it.
@@ -19,9 +19,9 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - While it is read, and when it could not be, a line says so and names the quota.
   - It is read when the page opens, on focus and every minute.
 - The sidebar collapses to its icons, which hides the processes under the projects and the footer.
-- A process that turned blocked, ready or failed carries a badge, `new`, on its row until its page is opened. The Orchestrator entry counts them.
+- A process that turned blocked, ready or failed carries a badge, `new`, on its row until its page is opened. The Board entry counts them.
 - The pages read the board of `GET /api/board` when they open, when the window comes back into focus and every half minute.
-- The Orchestrator page, at `#`, has the sections needs you, running and ready to start over every project.
+- The Board page, at `#`, has the sections needs you, running and ready to start over every project.
   - Needs you holds the processes that wait for a person and the specs ready for acceptance. Running holds every other process.
   - A process row shows its state as a dot, its issue and branch, its note, stage and age, and its one primary action.
 - A project's page, at `#project=<path of its checkout>`, has its actions and the sections processes and ready to start.

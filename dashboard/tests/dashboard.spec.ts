@@ -36,7 +36,7 @@ const test = base.extend<{ quiet: void }>({
   ],
 })
 
-test("the sidebar lists the projects of the API under the Orchestrator entry", async ({ page }) => {
+test("the sidebar lists the projects of the API under the Board entry", async ({ page }) => {
   await page.goto(url())
   await expect(page).toHaveTitle("ameise controller")
   const listed = await (await fetch(url("/api/projects"))).json()
@@ -45,8 +45,8 @@ test("the sidebar lists the projects of the API under the Orchestrator entry", a
   await expect(projectLinks(page)).toHaveText(["edge-sensors", "backtest", "notes"])
   await expect(projects(page).getByRole("button")).toHaveText(["Add project"])
   const links = sidebar(page).locator("a[data-sidebar=menu-button]")
-  await expect(links).toHaveText(["ameise controllerthis machine", "Orchestrator", "edge-sensors", "backtest", "notes"])
-  await expect(sidebar(page).getByRole("link", { name: "Orchestrator" })).toHaveAttribute("data-active", "true")
+  await expect(links).toHaveText(["ameise controllerthis machine", "Board", "edge-sensors", "backtest", "notes"])
+  await expect(sidebar(page).getByRole("link", { name: "Board" })).toHaveAttribute("data-active", "true")
   // The footer carries no label: the list of the quota names itself.
   await expect(sidebar(page).getByText("Quota", { exact: true })).toHaveCount(0)
   await expect(sidebar(page).getByRole("list", { name: "Quota" })).toBeVisible()
@@ -178,7 +178,7 @@ test("a quota the controller cannot read shows as unknown with the reason", asyn
   await expect(page.getByRole("dialog", { name: "Claim #144" }).getByRole("status", { name: "Warnings" })).toHaveText(line)
 })
 
-test("a process that turned blocked carries a badge on its row and on the Orchestrator entry until its page is opened", async ({ page }) => {
+test("a process that turned blocked carries a badge on its row and on the Board entry until its page is opened", async ({ page }) => {
   const file = join(process.env.AMEISE_RECORDS!, "p78.json")
   writeFileSync(file, JSON.stringify({
     project: process.env.AMEISE_BACKTEST!, kind: "work", branch: "fix/78-keep-the-order-book", issue: 78,
@@ -188,15 +188,15 @@ test("a process that turned blocked carries a badge on its row and on the Orches
     await page.goto(url())
     const row = section(page, "Needs you").locator("[data-slot=item][aria-label='fix/78-keep-the-order-book']")
     await expect(row.getByText("new", { exact: true })).toBeVisible()
-    const orchestrator = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Orchestrator" }) })
-    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    const boardEntry = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Board" }) })
+    await expect(boardEntry.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
     const entry = entries(page, "backtest").filter({ hasText: "fix/78-keep-the-order-book" })
     await expect(entry).toHaveText("#78 fix/78-keep-the-order-booknew")
 
     await entry.getByRole("link").click()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("#78 fix/78-keep-the-order-book")
     await expect(main(page).getByLabel("Note")).toHaveText("Which exchange first?")
-    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0)
+    await expect(boardEntry.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0)
     await expect(entry).toHaveText("#78 fix/78-keep-the-order-book")
     // On the process's page its entry is active, and its project's entry is not.
     await expect(entry.getByRole("link")).toHaveAttribute("data-active", "true")
@@ -206,7 +206,7 @@ test("a process that turned blocked carries a badge on its row and on the Orches
     const p = board.projects.flatMap((b: { processes?: { id: string; unseen: boolean }[] }) => b.processes ?? []).find((x: { id: string }) => x.id === "p78")
     expect(p).toMatchObject({ unseen: false })
 
-    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await sidebar(page).getByRole("link", { name: "Board" }).click()
     await expect(section(page, "Needs you").locator("[aria-label='fix/78-keep-the-order-book']").getByText("new", { exact: true })).toHaveCount(0)
   } finally {
     rmSync(file, { force: true })
@@ -224,13 +224,13 @@ test("a process page whose mark fails tries it again until the badge clears", as
     let marks = 0
     await page.route("**/api/processes/seen", (r) => (++marks === 1 ? r.abort() : r.continue()))
     await page.goto(url())
-    const orchestrator = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Orchestrator" }) })
-    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    const boardEntry = sidebar(page).locator("li", { has: page.getByRole("link", { name: "Board" }) })
+    await expect(boardEntry.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
     await section(page, "Needs you").getByRole("link", { name: "fix/79-retry-the-mark" }).click()
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("#79 fix/79-retry-the-mark")
     await expect.poll(() => marks).toBe(1)
-    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
-    await expect(orchestrator.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0, { timeout: 10_000 })
+    await expect(boardEntry.locator("[data-slot=sidebar-menu-badge]")).toHaveText("1")
+    await expect(boardEntry.locator("[data-slot=sidebar-menu-badge]")).toHaveCount(0, { timeout: 10_000 })
     expect(marks).toBe(2)
   } finally {
     rmSync(file, { force: true })
@@ -243,9 +243,9 @@ const rows = (page: Page, title: string) => section(page, title).locator("[data-
 // actions are the primary actions of rows: every button but the one that abandons a work process.
 const actions = (page: Page, title: string) => rows(page, title).getByRole("button", { name: /^(?!Abandon #)/ })
 
-test("the Orchestrator page sorts the processes of every project into needs you and running, beside the frontier", async ({ page }) => {
+test("the Board page sorts the processes of every project into needs you and running, beside the frontier", async ({ page }) => {
   await page.goto(url())
-  await expect(page.locator("header")).toHaveText(/Orchestrator3 projects$/)
+  await expect(page.locator("header")).toHaveText(/Board3 projects$/)
   await expect(sections(page).locator("[data-slot=card-title]")).toHaveText(["Needs you4", "Running3", "Ready to start3"])
   expect(await rows(page, "Needs you").evaluateAll((r) => r.map((x) => x.getAttribute("aria-label")))).toEqual([
     "feat/118-refuse-a-project-without-origin",
@@ -315,7 +315,7 @@ test("the age of an idle process advances while its page and the board stay open
     // A mark on the window survives only while the page is not reloaded.
     await page.evaluate(() => Object.assign(window, { kept: true }))
     await advances(main(page).locator(`[title="${at}"]`))
-    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await sidebar(page).getByRole("link", { name: "Board" }).click()
     await advances(section(page, "Needs you").locator("[aria-label='fix/73-keep-the-clock'] [data-slot=age]"))
     expect(await page.evaluate(() => "kept" in window)).toBe(true)
   } finally {
@@ -726,8 +726,8 @@ test("a project opens its page from the sidebar, and the page survives a reload"
 
   await page.reload()
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("backtest")
-  await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
-  await expect(page.locator("header")).toHaveText(/Orchestrator3 projects$/)
+  await sidebar(page).getByRole("link", { name: "Board" }).click()
+  await expect(page.locator("header")).toHaveText(/Board3 projects$/)
 })
 
 test("on a phone the sidebar closes on the page a project or a process opens, and the project page fits the width", async ({ page }) => {
@@ -791,7 +791,7 @@ test("add project refuses a path with the controller's reason and adds a checkou
     // GitHub does not answer the open specs of firmware, and both pages say so above the sections.
     const note = "firmware: could not read the open specs; ready for acceptance is empty, not idle"
     await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
-    await sidebar(page).getByRole("link", { name: "Orchestrator" }).click()
+    await sidebar(page).getByRole("link", { name: "Board" }).click()
     await expect(main(page).getByRole("list", { name: "Notes" })).toHaveText(note)
   } finally {
     await fetch(url("/api/projects"), {
@@ -1226,7 +1226,7 @@ for (const scheme of ["light", "dark"] as const) {
   test.describe(`in ${scheme}`, () => {
     test.use({ colorScheme: scheme })
 
-    for (const name of ["orchestrator", "project", "process"] as const) {
+    for (const name of ["board", "project", "process"] as const) {
       test(`the ${name} page holds its layout`, async ({ page }) => {
         // Tall enough for every section of the board the fake mode serves.
         await page.setViewportSize({ width: 1440, height: 1040 })
