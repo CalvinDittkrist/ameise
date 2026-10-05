@@ -49,11 +49,13 @@ export class Input implements AsyncIterable<SDKUserMessage> {
 }
 
 // A request of the session that waits for the maintainer: a permission, answered by one of the answers,
-// or a question, answered by the text of a message.
+// a question, answered by the text of a message, or a question round of the controller tool ask,
+// answered by one reply per question or by the text of a message.
 export interface Request {
-  kind: 'permission' | 'question'
+  kind: 'permission' | 'question' | 'round'
   note: string
-  answer: (a: Answer | { text: string }) => void
+  // answer throws a Refusal for an answer the request does not take, and then leaves it waiting.
+  answer: (a: Answer | { text: string } | { replies: unknown }) => void
   // close settles the request without an answer, as its session ends.
   close: () => void
 }

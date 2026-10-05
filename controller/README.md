@@ -163,6 +163,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 - `tool <name> <json>` calls a github tool of a planner session with the arguments.
+- `round <json>` asks a question round through the controller tool `ask` with the arguments and says the result.
 - `auditor-<category>` says what the auditor of that category of a [standardize process](#standardize-process) reports, `auditor` what every other one reports.
   - It plays `found <line>` per finding line, then `findings`. Without either file each auditor reports one finding of its category.
 - `apply` says what the apply session of a standardize process does. Without it, it reports `complete`.
@@ -375,6 +376,13 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - Any other form, such as `git diff --no-index` or `--output`, goes to the permission layer, so no settings file holds a rule for them.
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
   - A call that asks several questions takes the one message as the answer to each.
+- A process's own session has the controller tool `ask`, an in-process MCP server `controller` allowed without a card, so it calls `mcp__controller__ask`.
+  - It asks a question round: 1 to 12 questions, each with a `title` and its `question`, and optionally up to 6 `options`, a `recommended` answer with its reason `why`, and `multiSelect`.
+  - A call that breaks one of these rules is refused with the rule, and nothing waits.
+  - The round becomes a `round` event, and the process turns `input` with the first title as its note.
+  - The process page answers it with one answer per question. The session reads one line per question, `Q<n> <title>: <answer>`, which ends in ` (recommended)` where the maintainer took the recommendation.
+  - A multi-select answer joins the chosen labels with `, ` in the order offered, the recommendation first.
+  - A message while the round waits settles it instead: the session reads `The maintainer replied: <text>`.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
 - A message to a process whose session has ended is an event on its node of its graph, read from its stage and its `fixing` flag.
@@ -658,6 +666,9 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
 - `POST /api/processes/hold` with `{"id": "<id>", "hold": true|false}`: sets whether the implement session's next `complete` keeps it open, and answers `200` with `{id, hold}`.
   - `409` refuses a process that is no work process, and a hold of one past implement.
 - `POST /api/processes/answer` with `{"id": "<id>", "request": "<request>", "answer": "once"|"process"|"deny"}`: answers a permission request and answers `200`. `409` says no such request waits.
+  - With `"answers"` in place of `"answer"` it answers a question round, one answer per question in its order.
+  - An answer is `{"recommended": true}`, which takes the recommendation, or `{"answer": "<text>"}`, or `{"answer": ["<label>", ...]}` with the labels chosen.
+  - `400` refuses answers that do not answer every question, with the question and the rule.
 - `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`.
   - `409` refuses a process without a session, `502` a terminal that fails.
   - `501` refuses on a platform without a known terminal while no `terminal` is configured.
