@@ -16,7 +16,9 @@
 // The session takes its input as a stream, so the maintainer writes to it while it runs.
 // A message is its next turn.
 // A permission the classifier does not settle and a question of the session reach the controller
-// through the SDK's permission callback. The session waits until the process page answers them.
+// through the SDK's permission callback. A question round reaches it through the controller tool ask
+// (round.ts), which the process's own session has beside its other tools. The session waits until the
+// process page answers them.
 // A message to a work process whose session has ended is an event on its node, whose edge resumes a
 // session by its id.
 //
@@ -43,6 +45,7 @@
 // node from the caller of say (parkedAt in graphs.ts). The report schema of a work session is held here,
 // and the agent runs (agents.ts) read it from here. The lint and test/imports.test.ts hold this.
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
@@ -53,6 +56,7 @@ import { githubServer, githubTools } from '../github/github.js'
 import { type Answer, context, detail, questions } from './conversation.js'
 import { type Project, Refusal } from '../project.js'
 import type { Attempt, CreatedRecord, Fix, PlanRecord, SessionRecord, StageRecord } from '../records/records.js'
+import { answered, controllerServer, controllerTools, type Round, type Settled } from './round.js'
 import { busy, firstStage, Input, type Request, type Running, runningOf } from './running.js'
 import { allowance, bash, knob, runtimeEnv, sessionScoped, settings } from './settings.js'
 import { attempt, event, readRecord, update } from '../records/store.js'
@@ -282,7 +286,8 @@ export const implementNode: Node = {
 export type Parked = (record: SessionRecord) => { graph: Registration; node: string }
 
 // say writes the maintainer's message to the process's session and answers where it went.
-// A question that waits takes it as its answer. A session that runs takes it as its next turn.
+// A question or a question round that waits takes it as its answer. A session that runs takes it as its
+// next turn.
 // A message to a process whose session has ended is an event on its node of its graph, whose edge
 // resumes a session by its id with the message. A planner resumes its session directly. parked names
 // that graph and node.
@@ -291,7 +296,7 @@ export async function say(record: SessionRecord, text: string, rt: Runtime, proj
   const s = runningOf(id)
   if (s?.busy && !s.over) throw new Refusal(`${s.busy} and no session runs to write to; write once they have ended`, 409)
   if (s && !s.over && !s.input.closed) {
-    const question = [...s.requests.values()].find((r) => r.kind === 'question')
+    const question = [...s.requests.values()].find((r) => r.kind !== 'permission')
     if (question) {
       question.answer({ text })
       return 'answered'
@@ -341,6 +346,14 @@ export function answer(id: string, request: string, a: Answer) {
   r.answer(a)
 }
 
+// reply answers a question round of the process's session with one reply per question (round.ts). It
+// throws a Refusal for replies that do not answer every question, and the round then waits on.
+export function reply(id: string, request: string, replies: unknown) {
+  const r = runningOf(id)?.requests.get(request)
+  if (!r || r.kind !== 'round') throw new Refusal(`no question round ${request} waits in ${id}; it was answered, or its session has ended`, 409)
+  r.answer({ replies })
+}
+
 // A run of a session: its input and abort, and how it runs and reports. The process's own session is
 // one; an agent run is another, which runs beside it and, unless it writes, leaves the record alone.
 interface Run {
@@ -357,8 +370,10 @@ interface Run {
   own: boolean
   schema?: Record<string, unknown>
   disallowed?: string[]
-  // tools are the controller's in-process tools the session writes GitHub with, allowed without a card.
-  tools?: McpSdkServerConfigWithInstance
+  // github are the controller's in-process tools the session writes GitHub with, allowed without a card.
+  github?: McpSdkServerConfigWithInstance
+  // asks says the session has the controller tool ask, allowed without a card.
+  asks?: boolean
   // user is told of each user message of the session, which carries the results of its tools.
   user?: () => void
   // read reads the structured result the session reported.
@@ -368,7 +383,8 @@ interface Run {
 // ownRun is the run of a process's own session: a work session reports complete or blocked, a fix
 // session of the review also what it did with each finding, and a planner session reports nothing.
 // A planner session writes GitHub through the controller's tools alone (ADR 0059), and every write goes
-// into the process's event log. user is told of the session's user messages.
+// into the process's event log. Every own session may ask the maintainer a question round. user is told
+// of the session's user messages.
 function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo: string, user?: () => void): Run {
   const what = sessionOf(record)
   const review = record.kind !== 'plan' && record.stage === 'review'
@@ -384,9 +400,10 @@ function ownRun(record: StageRecord | PlanRecord, s: Running, rt: Runtime, repo:
     // and its pipeline, and with the stage timeout.
     later: record.kind !== 'plan' && record.stage !== firstStage(record),
     own: true,
+    asks: true,
     ...(user ? { user } : {}),
     ...(record.kind === 'plan'
-      ? { tools: githubTools(rt.gh, repo, (e) => event(rt.stateDir, record.id, e)) }
+      ? { github: githubTools(rt.gh, repo, (e) => event(rt.stateDir, record.id, e)) }
       : { schema: review ? fixReport : address ? addressReport : report }),
     read: (raw, sessionId) => {
       const out = raw as { outcome?: unknown; message?: unknown; commits?: unknown; fixes?: unknown } | undefined
@@ -504,19 +521,27 @@ async function session(
   }
 
   // waiting shows the process as waiting for the maintainer while a request of its session waits.
-  // A question goes before a permission. Once none waits, the process is running again.
+  // A question or a round goes before a permission. Once none waits, the process is running again.
   const waiting = () => {
     if (!live()) return
     const open = [...s.requests.values()]
-    const first = open.find((r) => r.kind === 'question') ?? open[0]
+    const first = open.find((r) => r.kind !== 'permission') ?? open[0]
     if (!first) update(rt.stateDir, id, { state: 'running', note: `${what} running` })
-    else update(rt.stateDir, id, { state: first.kind === 'question' ? 'input' : 'approval', note: first.note, unseen: true })
+    else update(rt.stateDir, id, { state: first.kind === 'permission' ? 'approval' : 'input', note: first.note, unseen: true })
   }
-  // ask records a request and waits for its answer, or for its session to end without one.
-  const ask = (request: string, r: Omit<Request, 'answer' | 'close'>, e: Record<string, unknown>, decide: (a: Answer | { text: string }) => PermissionResult, signal: AbortSignal) =>
-    new Promise<PermissionResult>((resolve) => {
-      const closed: PermissionResult = { behavior: 'deny', message: 'The session ended before the maintainer answered.' }
-      const settle = (result: PermissionResult) => {
+  // ask records a request and waits for its answer, or for its session to end without one, which settles
+  // it with closed. decide reads an answer into what the request settles with and what the log keeps of
+  // it; a Refusal it throws leaves the request waiting.
+  const ask = <T>(
+    request: string,
+    r: Omit<Request, 'answer' | 'close'>,
+    e: Record<string, unknown>,
+    decide: (a: Parameters<Request['answer']>[0]) => { result: T; logged: Record<string, unknown> },
+    closed: T,
+    signal: AbortSignal,
+  ) =>
+    new Promise<T>((resolve) => {
+      const settle = (result: T) => {
         if (!s.requests.delete(request)) return
         resolve(result)
         waiting()
@@ -524,8 +549,8 @@ async function session(
       s.requests.set(request, {
         ...r,
         answer: (a) => {
-          const result = decide(a)
-          event(rt.stateDir, id, { event: 'answer', request, ...(typeof a === 'string' ? { answer: a } : { text: a.text }) })
+          const { result, logged } = decide(a)
+          event(rt.stateDir, id, { event: 'answer', request, ...logged })
           settle(result)
         },
         close: () => {
@@ -546,6 +571,9 @@ async function session(
       )
     })
 
+  // closed is what a permission or a question tells the session once it ended without an answer.
+  const closed: PermissionResult = { behavior: 'deny', message: 'The session ended before the maintainer answered.' }
+
   const canUseTool = async (
     tool: string,
     input: Record<string, unknown>,
@@ -554,10 +582,10 @@ async function session(
     const request = o.toolUseID || o.requestId
     if (tool === 'AskUserQuestion') {
       const asked = questions(input)
-      return ask(request, { kind: 'question', note: asked[0]?.question ?? 'The session asks a question' }, { event: 'question', questions: asked }, (a) => {
-        const text = typeof a === 'string' ? a : a.text
-        return { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(asked.map((q) => [q.question, text])) } }
-      }, o.signal)
+      return ask<PermissionResult>(request, { kind: 'question', note: asked[0]?.question ?? 'The session asks a question' }, { event: 'question', questions: asked }, (a) => {
+        const text = typeof a === 'string' ? a : 'text' in a ? a.text : ''
+        return { result: { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(asked.map((q) => [q.question, text])) } }, logged: { text } }
+      }, closed, o.signal)
     }
     const keys = allowance(tool, input, o.suggestions)
     // A reviewer neither uses nor keeps the process's allowances: a grant for one call of a reviewer
@@ -571,13 +599,35 @@ async function session(
       return { behavior: 'allow', updatedInput: input }
     }
     const reason = [o.decisionReason || o.description || '', o.blockedPath ? `It reaches ${o.blockedPath}.` : ''].filter(Boolean).join(' ')
-    return ask(request, { kind: 'permission', note: shown ? `${title}: ${shown}` : title }, { event: 'permission', tool, detail: shown, title, reason }, (a) => {
-      if (typeof a !== 'string' || a === 'deny') return { behavior: 'deny', message: 'The maintainer denied this call in the process view.' }
-      if (a === 'once' || !run.own) return { behavior: 'allow', updatedInput: input }
+    return ask<PermissionResult>(request, { kind: 'permission', note: shown ? `${title}: ${shown}` : title }, { event: 'permission', tool, detail: shown, title, reason }, (a) => {
+      const logged = typeof a === 'string' ? { answer: a } : {}
+      if (typeof a !== 'string' || a === 'deny') return { result: { behavior: 'deny', message: 'The maintainer denied this call in the process view.' }, logged }
+      if (a === 'once' || !run.own) return { result: { behavior: 'allow', updatedInput: input }, logged }
       const now = readRecord(rt.stateDir, id)?.allowed ?? []
       update(rt.stateDir, id, { allowed: [...now, ...keys.filter((k) => !now.includes(k))] })
-      return { behavior: 'allow', updatedInput: input, updatedPermissions: sessionScoped(o.suggestions) }
-    }, o.signal)
+      return { result: { behavior: 'allow', updatedInput: input, updatedPermissions: sessionScoped(o.suggestions) }, logged }
+    }, closed, o.signal)
+  }
+
+  // round asks a question round of the controller tool ask. It waits like a question: the process is
+  // input with the first title as its note. A chat message settles it as a reply in the maintainer's
+  // words. A stop of the session, or of the call, closes it.
+  const round: Round = (asked, signal) =>
+    ask<Settled>(
+      `round-${randomUUID()}`,
+      { kind: 'round', note: asked[0]?.title ?? 'The session asks a question round' },
+      { event: 'round', questions: asked },
+      (a) => {
+        if (typeof a === 'object' && 'text' in a) return { result: { text: a.text }, logged: { text: a.text } }
+        const answers = answered(asked, typeof a === 'object' && 'replies' in a ? a.replies : undefined)
+        return { result: { answers }, logged: { answers } }
+      },
+      'closed',
+      signal ? AbortSignal.any([run.abort.signal, signal]) : run.abort.signal,
+    )
+  const servers = {
+    ...(run.github ? { [githubServer]: run.github } : {}),
+    ...(run.asks ? { [controllerServer]: controllerTools(round) } : {}),
   }
 
   let timeout: number | undefined
@@ -611,10 +661,11 @@ async function session(
       settings: settings(record),
       ...(agent ? { agent } : {}),
       ...(run.disallowed ? { disallowedTools: run.disallowed } : {}),
-      ...(run.tools ? { mcpServers: { [githubServer]: run.tools }, allowedTools: [`mcp__${githubServer}`] } : {}),
+      // The controller's in-process tools run without a card.
+      ...(Object.keys(servers).length > 0 ? { mcpServers: servers, allowedTools: Object.keys(servers).map((name) => `mcp__${name}`) } : {}),
       // Every session runs the read commands the briefs name without a card; a session with the
       // controller's GitHub tools writes GitHub through them alone.
-      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [bash(rt.stateDir, id, run.tools !== undefined)] }] },
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [bash(rt.stateDir, id, run.github !== undefined)] }] },
       // A reviewer runs in the default mode: the runtime lets through the calls it knows read only, and
       // every other call is a card, where auto mode would let its classifier allow a write.
       permissionMode: run.own ? 'auto' : 'default',

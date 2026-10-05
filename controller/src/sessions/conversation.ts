@@ -4,6 +4,7 @@
 // The session's text and tool calls come from the stream. The maintainer's messages, the requests,
 // their answers and the end of each session come from the controller's own events.
 // Tool results, subagents' messages and thinking stay in the log and out of the conversation.
+import { askTool } from './round.js'
 
 // A question as the session asks it through AskUserQuestion, with the options it offers.
 export interface Question {
@@ -11,6 +12,24 @@ export interface Question {
   header: string
   options: { label: string; description: string }[]
   multiSelect: boolean
+}
+
+// A question of a question round, as the session asks it through the controller tool ask (round.ts):
+// its title, its text, the labels it offers, the recommended answer with its reason, and whether it takes
+// several labels.
+export interface RoundQuestion {
+  title: string
+  question: string
+  options: string[]
+  recommended?: string
+  why?: string
+  multiSelect: boolean
+}
+
+// The answer to one question of a round: its text, and whether it is the recommendation.
+export interface RoundAnswer {
+  answer: string
+  recommended: boolean
 }
 
 // The answers a permission request takes: allow this call, allow calls like it for the rest of the
@@ -24,8 +43,10 @@ export type Entry = { seq: number } & (
   | { kind: 'you'; text: string }
   | { kind: 'permission'; request: string; tool: string; detail: string; title: string; reason: string }
   | { kind: 'question'; request: string; questions: Question[] }
-  // An answer settles the request it names: a permission by one of the answers, a question by the text.
-  | { kind: 'answer'; request: string; answer?: Answer; text?: string }
+  | { kind: 'round'; request: string; questions: RoundQuestion[] }
+  // An answer settles the request it names: a permission by one of the answers, a question by the text,
+  // a round by one answer per question or by the text of a chat message.
+  | { kind: 'answer'; request: string; answer?: Answer; text?: string; answers?: RoundAnswer[] }
   // A call the maintainer had allowed for this process, which ran without a card.
   | { kind: 'allowed'; tool: string; detail: string }
   // A request whose session ended before it was answered.
@@ -101,12 +122,44 @@ export function questions(input: unknown): Question[] {
   })
 }
 
+// roundQuestions reads the questions of a round as its event holds them, and drops what is not one.
+export function roundQuestions(list: unknown): RoundQuestion[] {
+  if (!Array.isArray(list)) return []
+  return list.flatMap((q: unknown): RoundQuestion[] => {
+    const o = (q ?? {}) as Record<string, unknown>
+    if (typeof o.title !== 'string' || typeof o.question !== 'string') return []
+    return [
+      {
+        title: o.title,
+        question: o.question,
+        options: Array.isArray(o.options) ? o.options.filter((x): x is string => typeof x === 'string') : [],
+        ...(typeof o.recommended === 'string' ? { recommended: o.recommended } : {}),
+        ...(typeof o.why === 'string' ? { why: o.why } : {}),
+        multiSelect: o.multiSelect === true,
+      },
+    ]
+  })
+}
+
+// roundAnswers reads the answers of a round as its answer event holds them, or undefined for another answer.
+function roundAnswers(list: unknown): RoundAnswer[] | undefined {
+  if (!Array.isArray(list)) return undefined
+  return list.map((a: unknown) => {
+    const o = (a ?? {}) as Record<string, unknown>
+    return { answer: clip(str(o.answer), textLimit), recommended: o.recommended === true }
+  })
+}
+
 interface Block {
   type?: string
   text?: string
   name?: string
   input?: unknown
 }
+
+// The tool calls a card of their own stands for, which are no chips: the session's question, its question
+// round through the controller tool ask, and its structured result.
+const carded = ['AskUserQuestion', askTool, 'StructuredOutput']
 
 // main is whether a stream message is the main session's own assistant message, not a subagent's.
 function main(m: { type?: string; parent_tool_use_id?: unknown }): boolean {
@@ -123,8 +176,8 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
       const content = Array.isArray(m.message?.content) ? (m.message.content as Block[]) : []
       return content.flatMap((b): Entry[] => {
         if (b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '') return [{ seq, kind: 'text', text: clip(b.text, textLimit) }]
-        // A question is shown as its own card, so its call is no chip.
-        if (b.type === 'tool_use' && typeof b.name === 'string' && b.name !== 'AskUserQuestion' && b.name !== 'StructuredOutput') {
+        // A question and a round are shown as cards of their own, so their calls are no chips.
+        if (b.type === 'tool_use' && typeof b.name === 'string' && !carded.includes(b.name)) {
           return [{ seq, kind: 'tool', name: b.name, detail: detail(b.name, b.input, worktree) }]
         }
         return []
@@ -136,9 +189,12 @@ export function entries(e: Record<string, unknown>, seq: number, worktree = ''):
       return [{ seq, kind: 'permission', request: str(e.request), tool: str(e.tool), detail: str(e.detail), title: str(e.title), reason: str(e.reason) }]
     case 'question':
       return [{ seq, kind: 'question', request: str(e.request), questions: questions({ questions: e.questions }) }]
+    case 'round':
+      return [{ seq, kind: 'round', request: str(e.request), questions: roundQuestions(e.questions) }]
     case 'answer': {
       const answer = answers.find((a) => a === e.answer)
-      return [{ seq, kind: 'answer', request: str(e.request), ...(answer ? { answer } : {}), ...(typeof e.text === 'string' ? { text: clip(e.text, textLimit) } : {}) }]
+      const round = roundAnswers(e.answers)
+      return [{ seq, kind: 'answer', request: str(e.request), ...(answer ? { answer } : {}), ...(typeof e.text === 'string' ? { text: clip(e.text, textLimit) } : {}), ...(round ? { answers: round } : {}) }]
     }
     case 'allowed':
       return [{ seq, kind: 'allowed', tool: str(e.tool), detail: str(e.detail) }]

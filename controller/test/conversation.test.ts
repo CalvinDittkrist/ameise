@@ -7,10 +7,12 @@ afterEach(cleanup)
 
 let m: Machine
 let dir: string
+let server: Awaited<ReturnType<typeof start>>
 beforeEach(async () => {
   m = await machine()
   const s = await start(m)
   expect(s.running, s.stderr).toBe(true)
+  server = s
   dir = checkout(m, 'repo', { origin: 'https://github.com/owner/repo.git', originHead: 'main' })
   gated(dir)
   canPulls(m, 'owner/repo', [])
@@ -42,7 +44,8 @@ interface Entry {
   answer?: string
   tool?: string
   detail?: string
-  questions?: { question: string; options: { label: string }[] }[]
+  questions?: { question: string; options: unknown[] }[]
+  answers?: { answer: string; recommended: boolean }[]
   state?: string
 }
 
@@ -197,6 +200,150 @@ test('a question is a card, and the chat answer lets the session go on', async (
   await inState(r.id, 'blocked')
   expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: question.request, text: 'Drop' }))
   page.close()
+})
+
+// A round of three questions: one with options and a recommendation among them, one whose recommendation
+// is no option, and one that takes several options.
+const round = {
+  questions: [
+    { title: 'Flag', question: 'Keep the **old** flag?', options: ['Keep', 'Drop'], recommended: 'Drop', why: 'Nobody sets it.' },
+    { title: 'Name', question: 'What is the new flag called?', recommended: '--keep', why: 'It says what it does.' },
+    { title: 'Shells', question: 'Which shells does it support?', options: ['bash', 'zsh', 'fish'], multiSelect: true },
+  ],
+}
+const asking = (r: unknown) => `round ${JSON.stringify(r)}`
+const answeredWith = (lines: string[]) => `The maintainer answered:\n\n${lines.join('\n\n')}`
+
+test('a question round is a card that puts the process in input, and its answers reach the session one line per question', async () => {
+  play(m, `${asking(round)}\nblocked done`)
+  const r = await claim()
+  const page = await follow(r.id)
+  const card = (await until('a round card', () => page.entries().find((e) => e.kind === 'round'), (e) => e !== undefined))!
+  expect(card.questions).toEqual([
+    { title: 'Flag', question: 'Keep the **old** flag?', options: ['Keep', 'Drop'], recommended: 'Drop', why: 'Nobody sets it.', multiSelect: false },
+    { title: 'Name', question: 'What is the new flag called?', options: [], recommended: '--keep', why: 'It says what it does.', multiSelect: false },
+    { title: 'Shells', question: 'Which shells does it support?', options: ['bash', 'zsh', 'fish'], multiSelect: true },
+  ])
+  expect(await inState(r.id, 'input')).toMatchObject({ note: 'Flag' })
+  const board = (await api(m, 'GET', '/api/board?' + new URLSearchParams({ project: dir }).toString())).body as { processes: { needs: boolean; action: string }[] }
+  expect(board.processes).toMatchObject([{ needs: true, action: 'Continue' }])
+  // The call is the card, no chip, of the tool the session has as the server controller without a card.
+  expect(page.entries().filter((e) => e.kind === 'tool')).toEqual([])
+  const lines = read(m.claudeLog).split('\n')
+  const init = JSON.parse(lines.find((l) => l.startsWith('< ') && l.includes('"subtype":"initialize"'))?.slice(2) ?? '{}') as { request?: { sdkMcpServers?: string[] } }
+  expect(init.request?.sdkMcpServers).toEqual(['controller'])
+  expect(lines[lines.indexOf('--allowedTools') + 1]).toBe('mcp__controller')
+
+  const answers = [{ recommended: true }, { answer: 'Rename it to --stay' }, { answer: ['fish', 'bash'] }]
+  expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: card.request, answers })).toMatchObject({ status: 200 })
+  await said(page, answeredWith(['Q1 Flag: Drop (recommended)', 'Q2 Name: Rename it to --stay', 'Q3 Shells: bash, fish']))
+  await inState(r.id, 'blocked')
+  expect(page.entries()).toContainEqual(
+    expect.objectContaining({
+      kind: 'answer',
+      request: card.request,
+      answers: [
+        { answer: 'Drop', recommended: true },
+        { answer: 'Rename it to --stay', recommended: false },
+        { answer: 'bash, fish', recommended: false },
+      ],
+    }),
+  )
+  page.close()
+})
+
+test('a question round takes the recommendation by its flag alone, not by a choice of the same label', async () => {
+  play(m, `${asking({ questions: [round.questions[0], round.questions[1]] })}\nblocked done`)
+  const r = await claim()
+  const page = await follow(r.id)
+  const card = (await until('a round card', () => page.entries().find((e) => e.kind === 'round'), (e) => e !== undefined))!
+  expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: card.request, answers: [{ answer: 'Keep' }, { recommended: true }] })).toMatchObject({ status: 200 })
+  await said(page, answeredWith(['Q1 Flag: Keep', 'Q2 Name: --keep (recommended)']))
+  page.close()
+})
+
+test('a chat message while a question round is open settles it as the maintainer\'s reply', async () => {
+  play(m, `${asking(round)}\nblocked done`)
+  const r = await claim()
+  const page = await follow(r.id)
+  const card = (await until('a round card', () => page.entries().find((e) => e.kind === 'round'), (e) => e !== undefined))!
+  await inState(r.id, 'input')
+  const s = await api(m, 'POST', '/api/processes/message', { id: r.id, text: 'Stop, wrong direction' })
+  expect(s.body).toMatchObject({ delivered: 'answered' })
+  await said(page, answeredWith(['The maintainer replied: Stop, wrong direction']))
+  await inState(r.id, 'blocked')
+  expect(page.entries()).toContainEqual(expect.objectContaining({ kind: 'answer', request: card.request, text: 'Stop, wrong direction' }))
+  page.close()
+})
+
+test('answers that do not answer every question are refused, and the round waits on', async () => {
+  play(m, `${asking(round)}\nblocked done`)
+  const r = await claim()
+  const page = await follow(r.id)
+  const card = (await until('a round card', () => page.entries().find((e) => e.kind === 'round'), (e) => e !== undefined))!
+  const refused = async (answers: unknown) => (await api(m, 'POST', '/api/processes/answer', { id: r.id, request: card.request, answers })) as { status: number; body: { error: string } }
+  expect(await refused([{ recommended: true }])).toMatchObject({ status: 400, body: { error: 'answers is not one answer per question; send 3, in the order of the round' } })
+  expect(await refused([{ recommended: true }, { recommended: true }, { recommended: true }])).toMatchObject({ status: 400, body: { error: 'Q3 recommends nothing; send an answer of its own' } })
+  expect(await refused([{ answer: ['Keep', 'Drop'] }, { recommended: true }, { answer: ['zsh'] }])).toMatchObject({ status: 400, body: { error: 'Q1 takes one option; choose one, or write an answer' } })
+  expect(await refused([{ recommended: true }, { recommended: true }, { answer: ['ksh'] }])).toMatchObject({ status: 400, body: { error: 'Q3 offers no option "ksh"; choose among bash, zsh, fish' } })
+  expect(await refused([{ recommended: true }, { answer: '  ' }, { answer: ['zsh'] }])).toMatchObject({ status: 400, body: { error: 'Q2 has no answer; take its recommendation, choose an option or write an answer' } })
+  expect(recordOf(r.id)).toMatchObject({ state: 'input', note: 'Flag' })
+  expect(page.entries().filter((e) => e.kind === 'answer')).toEqual([])
+  expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: 'round-none', answers: [] })).toMatchObject({ status: 409 })
+  // A round is no permission, and a permission answer does not reach it.
+  expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: card.request, answer: 'once' })).toMatchObject({ status: 409 })
+  expect(await api(m, 'POST', '/api/processes/answer', { id: r.id, request: card.request, answers: [{ recommended: true }, { recommended: true }, { answer: ['zsh'] }] })).toMatchObject({ status: 200 })
+  await said(page, answeredWith(['Q1 Flag: Drop (recommended)', 'Q2 Name: --keep (recommended)', 'Q3 Shells: zsh']))
+  page.close()
+})
+
+test('a question round that breaks a rule is refused with the rule, and the session goes on', async () => {
+  const question = { title: 'Flag', question: 'Keep it?' }
+  play(
+    m,
+    [
+      asking({ questions: [] }),
+      asking({ questions: Array.from({ length: 13 }, () => question) }),
+      asking({ questions: [{ ...question, options: ['1', '2', '3', '4', '5', '6', '7'] }] }),
+      asking({ questions: [{ question: 'Keep it?' }] }),
+      asking({ questions: [{ title: 'Flag' }] }),
+      'blocked done',
+    ].join('\n'),
+  )
+  const r = await claim()
+  const page = await follow(r.id)
+  await inState(r.id, 'blocked')
+  const refusals = page.entries().filter((e) => e.kind === 'text' && e.text?.startsWith('The round was refused: ')).map((e) => e.text)
+  expect(refusals).toHaveLength(5)
+  expect(refusals[0]).toBe('The round was refused: error: a round asks 1 to 12 questions; this one asks 0')
+  expect(refusals[1]).toBe('The round was refused: error: a round asks 1 to 12 questions; this one asks 13')
+  expect(refusals[2]).toBe('The round was refused: error: a question offers at most 6 options; Q1 offers 7')
+  expect(refusals[3]).toContain('every question has a title')
+  expect(refusals[4]).toContain('every question has its text in question')
+  expect(page.entries().filter((e) => e.kind === 'round')).toEqual([])
+  page.close()
+})
+
+// A stop closes the round as its session ends. A kill leaves it open in the log, and the controller closes
+// it as it starts again, since no session of its own runs then.
+test.each(['SIGTERM', 'SIGKILL'] as const)('a question round still open when the controller stops by %s is closed', async (signal) => {
+  play(m, `${asking(round)}\nblocked done`)
+  const r = await claim()
+  const page = await follow(r.id)
+  const card = (await until('a round card', () => page.entries().find((e) => e.kind === 'round'), (e) => e !== undefined))!
+  await inState(r.id, 'input')
+  page.close()
+  const exited = new Promise((done) => server.process.once('exit', done))
+  server.process.kill(signal)
+  await exited
+  if (signal === 'SIGKILL') {
+    server = await start(m)
+    expect(server.running, server.stderr).toBe(true)
+  }
+  const log = read(join(m.state, 'processes', `${r.id}.events.jsonl`)).trim().split('\n').map((l) => JSON.parse(l) as { event?: string; request?: string })
+  expect(log.filter((e) => e.event === 'closed')).toEqual([expect.objectContaining({ request: card.request })])
+  expect(log.findIndex((e) => e.event === 'closed')).toBeLessThan(log.findIndex((e) => e.event === 'session-end'))
+  expect(recordOf(r.id)).toMatchObject({ state: 'interrupted' })
 })
 
 test('a message written while the session works arrives as its next turn', async () => {

@@ -618,6 +618,141 @@ test("a running session's permission, question and chat are answered on its page
   }
 })
 
+// The question round of the live test: a question with a recommendation among its options, one whose
+// recommendation is no option, and one that takes several options and recommends nothing.
+const round = {
+  questions: [
+    { title: "Flag", question: "Keep the **old** flag?", options: ["Keep", "Drop"], recommended: "Drop", why: "Nobody sets it." },
+    { title: "Name", question: "What is the new flag called?", recommended: "--keep", why: "It says what it does." },
+    { title: "Shells", question: "Which shells does it support?", options: ["bash", "zsh", "fish"], multiSelect: true },
+  ],
+}
+
+test("a running session's question round is answered question by question on its page, and a chat message settles the next one", async ({ page }) => {
+  const project = process.env.AMEISE_SENSORS!
+  const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
+  const next = { questions: [{ title: "Scope", question: "Does the reader take an scp-like URL too?", options: ["Yes", "No"] }] }
+  writeFileSync(play, `round ${JSON.stringify(round)}\nround ${JSON.stringify(next)}\nblocked Which name should the flag take?\n`)
+  try {
+    const claimed = await fetch(url("/api/processes"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
+    expect(claimed.status).toBe(201)
+    const { record } = await claimed.json()
+    await page.goto(url(`/#process=${record.id}`))
+    const conversation = main(page).getByLabel("Conversation")
+    const card = conversation.getByRole("article", { name: "Question round" }).first()
+    await expect(card.locator("[data-slot=card-title]")).toHaveText("Question round· 3 questions")
+    await expect(main(page).locator("[title=input]")).toHaveCount(1)
+    // The board shows it waiting for the maintainer, with the first title as its note.
+    await page.goto(url())
+    await expect(section(page, "Needs you").locator(`[aria-label='${record.branch}']`)).toContainText("Flag")
+    await page.goto(url(`/#process=${record.id}`))
+    const message = main(page).getByRole("textbox", { name: "Message" })
+    await expect(message).toHaveAttribute("placeholder", "Reply to the whole round in your own words…")
+
+    // One question at a time under its tab, the recommendation first with its reason.
+    const tabs = card.getByRole("tab")
+    await expect(tabs).toHaveText(["Q1", "Q2", "Q3"])
+    await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true")
+    const panel = card.getByRole("tabpanel")
+    await expect(panel.getByRole("heading")).toHaveText("Flag")
+    await expect(panel.locator("strong")).toHaveText("old")
+    await expect(panel.getByRole("button")).toHaveText(["DropNobody sets it.Recommended", "Keep"])
+    const send = card.getByRole("button", { name: "Send" })
+    await expect(send).toBeDisabled()
+
+    // Choosing an option answers its question and moves on.
+    await panel.getByRole("button", { name: "Keep" }).click()
+    await expect(tabs.nth(0)).toHaveAccessibleName("Q1, answered")
+    await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "false")
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true")
+    await expect(panel.getByRole("heading")).toHaveText("Name")
+    await expect(panel.getByRole("button")).toHaveText(["--keepIt says what it does.Recommended"])
+
+    // Accept all recommendations fills every question that has one, and Send waits for the one without.
+    await card.getByRole("button", { name: "Accept all recommendations" }).click()
+    await expect.poll(() => tabs.evaluateAll((t) => t.map((x) => x.getAttribute("aria-label")))).toEqual(["Q1, answered", "Q2, answered", "Q3"])
+    await expect(panel.getByRole("button", { name: /^--keep/ })).toHaveAttribute("aria-pressed", "true")
+    await expect(send).toBeDisabled()
+    await panel.getByRole("textbox", { name: "Your own answer" }).fill("Rename it to --stay")
+    await expect(panel.getByRole("button", { name: /^--keep/ })).toHaveAttribute("aria-pressed", "false")
+
+    // A question that takes several options toggles them and stays.
+    await tabs.nth(2).click()
+    await panel.getByRole("button", { name: "fish" }).click()
+    await panel.getByRole("button", { name: "bash" }).click()
+    await expect(panel.getByRole("button", { name: "fish" })).toHaveAttribute("aria-pressed", "true")
+    await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true")
+    await tabs.nth(0).click()
+    await expect(panel.getByRole("button", { name: /^Drop/ })).toHaveAttribute("aria-pressed", "true")
+    await send.click()
+
+    // The session reads one line per question; the card shows them, each opening to its question.
+    const result = conversation.getByRole("article", { name: "Session" }).filter({ hasText: "The maintainer answered:" })
+    await expect(result.locator("p")).toHaveText(["The maintainer answered:", "Q1 Flag: Drop (recommended)", "Q2 Name: Rename it to --stay", "Q3 Shells: bash, fish"])
+    await expect(card.getByRole("status")).toHaveText("You answered")
+    const lines = card.getByRole("group")
+    await expect(lines.locator("summary")).toHaveText(["Q1FlagDroprecommended", "Q2NameRename it to --stay", "Q3Shellsbash, fish"])
+    await expect(lines.nth(0).getByText("Recommended: Drop. Nobody sets it.")).toBeHidden()
+    await lines.nth(0).locator("summary").click()
+    await expect(lines.nth(0).getByText("Recommended: Drop. Nobody sets it.")).toBeVisible()
+    await expect(lines.nth(0).locator("strong")).toHaveText("old")
+
+    // A chat message while a round is open settles it in the maintainer's words.
+    const second = conversation.getByRole("article", { name: "Question round" }).nth(1)
+    await expect(second.getByRole("tabpanel").getByRole("heading")).toHaveText("Scope")
+    await expect(second.getByRole("button", { name: "Accept all recommendations" })).toHaveCount(0)
+    await message.fill("Stop, wrong direction")
+    await message.press("Enter")
+    await expect(second.getByRole("status")).toHaveText("You replied: Stop, wrong direction")
+    await expect(conversation.getByRole("article", { name: "Session" }).filter({ hasText: "The maintainer replied: Stop, wrong direction" })).toHaveCount(1)
+    await expect(conversation.getByRole("note")).toHaveText("Reported blocked: Which name should the flag take?")
+  } finally {
+    rmSync(play, { force: true })
+    await fetch(url("/api/processes"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, issue: 144 }) })
+  }
+})
+
+test("a question round its session left unanswered says so and offers nothing", async ({ page }) => {
+  const remove = rounded("p119", "interrupted", "the controller stopped while its implement session ran; resume it to go on", [
+    { event: "closed", request: "round-1" },
+    { event: "session-end", stage: "implement", state: "interrupted", note: "the controller stopped while its implement session ran; resume it to go on" },
+  ])
+  try {
+    await page.goto(url("/#process=p119"))
+    const card = main(page).getByRole("article", { name: "Question round" })
+    await expect(card.getByRole("status")).toHaveText("The session ended before it was answered")
+    await expect(card.locator("summary")).toHaveText(["Q1Remote form", "Q2Unusable projects", "Q3Tests", "Q4Shells"])
+    await expect(card.getByRole("tab")).toHaveCount(0)
+    await expect(card.getByRole("button")).toHaveCount(0)
+  } finally {
+    remove()
+  }
+})
+
+test("the round of another process opens fresh, without the choices made on the one before", async ({ page }) => {
+  const first = rounded("p119", "input", "Remote form", [])
+  const second = rounded("p120", "input", "Scope", [], [{ title: "Scope", question: "Does the reader take an scp-like URL too?", options: ["Yes", "No"], multiSelect: false }])
+  try {
+    await page.goto(url("/#process=p119"))
+    const card = main(page).getByRole("article", { name: "Question round" })
+    const tabs = card.getByRole("tab")
+    await card.getByRole("tabpanel").getByRole("button", { name: "https only" }).click()
+    await expect(tabs.nth(0)).toHaveAccessibleName("Q1, answered")
+    await tabs.nth(3).click()
+    await expect(tabs.nth(3)).toHaveAttribute("aria-selected", "true")
+
+    await page.goto(url("/#process=p120"))
+    await expect(tabs).toHaveText(["Q1"])
+    await expect(tabs.nth(0)).toHaveAccessibleName("Q1")
+    await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true")
+    await expect(card.getByRole("tabpanel").getByRole("heading")).toHaveText("Scope")
+    await expect(card.getByRole("button", { name: "Send" })).toBeDisabled()
+  } finally {
+    first()
+    second()
+  }
+})
+
 test("the conversation follows its end while the session writes, keeps the place once scrolled up, and offers the way back", async ({ page }) => {
   const project = process.env.AMEISE_SENSORS!
   const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
@@ -1104,6 +1239,39 @@ test("an acceptance's page shows every item with its verdict and sends one answe
   await expect(page.getByRole("textbox", { name: "Message" })).toBeDisabled()
 })
 
+// The question round of the written processes: four questions, with and without options, recommendation
+// and reason.
+const fourQuestions = [
+  { title: "Remote form", question: "Which remote forms does the reader take: `https` only, or also the scp-like `git@github.com:owner/name`?", options: ["https only", "https, and scp-like"], recommended: "https, and scp-like", why: "Most clones on this machine use the scp-like form.", multiSelect: false },
+  { title: "Unusable projects", question: "A project whose origin is not on GitHub: keep it in the file, **marked unusable**, or drop it?", options: ["Keep them, marked unusable", "Drop them"], recommended: "Keep them, marked unusable", why: "The board can then say why it shows nothing.", multiSelect: false },
+  { title: "Tests", question: "How many cases does the parser's test hold?", options: [], recommended: "One per form", why: "Each form is a branch of the parser.", multiSelect: false },
+  { title: "Shells", question: "Which shells does the completion support?", options: ["bash", "zsh", "fish"], multiSelect: true },
+]
+
+// rounded writes the record and the event log of a process whose session asked a question round, by
+// default of four questions, followed by the events given, such as its answer, and answers what removes
+// them again.
+const rounded = (id: string, state: string, note: string, after: object[], asked: object[] = fourQuestions) => {
+  const record = join(process.env.AMEISE_RECORDS!, `${id}.json`)
+  const log = join(process.env.AMEISE_RECORDS!, `${id}.events.jsonl`)
+  writeFileSync(record, JSON.stringify({
+    project: process.env.AMEISE_SENSORS!, kind: "work", branch: "feat/119-parse-the-remote", issue: 119, mode: "manual",
+    stage: "implement", state, note, session_id: "3b9e1f0a-7c2d-4e5f-8a6b-1d0c9e8f7a6b", context: 52310,
+    updated_at: new Date(Date.now() - 20 * 60_000).toISOString(),
+  }))
+  const said = (text: string) => ({ event: "stream", message: { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text }] } } })
+  writeFileSync(log, [
+    { event: "session-start", stage: "implement" },
+    said("The reader is written for https remotes. Four decisions are open before I go on."),
+    { event: "round", request: "round-1", questions: asked },
+    ...after.map((e) => ("text" in e && !("event" in e) ? said(String(e.text)) : e)),
+  ].map((l) => JSON.stringify(l)).join("\n") + "\n")
+  return () => {
+    rmSync(record, { force: true })
+    rmSync(log, { force: true })
+  }
+}
+
 // A standardize process waiting for its answers, with findings in every category as the fake auditors
 // report them.
 const standardization = (project: string, id: string) => {
@@ -1249,6 +1417,37 @@ for (const scheme of ["light", "dark"] as const) {
           maxDiffPixels: 100,
           threshold: 0.3,
         })
+      })
+    }
+
+    // The process page with a question round that waits, and with one the maintainer answered.
+    const answers = [
+      { answer: "https, and scp-like", recommended: true },
+      { answer: "Keep them, marked unusable", recommended: true },
+      { answer: "One per form, and one for a missing origin", recommended: false },
+      { answer: "bash, zsh", recommended: false },
+    ]
+    for (const [name, state, note, after] of [
+      ["round-open", "input", "Remote form", []],
+      ["round-answered", "running", "implement session running", [{ event: "answer", request: "round-1", answers }, { text: "Taking both forms, keeping unusable projects marked, and writing a case per form." }]],
+    ] as const) {
+      test(`the process page with a ${name.replace("-", " ")} holds its layout`, async ({ page }) => {
+        const remove = rounded("p119", state, note, [...after])
+        try {
+          await page.setViewportSize({ width: 1440, height: 1040 })
+          await page.goto(url("/#process=p119"))
+          await expect(main(page).getByRole("article", { name: "Question round" }).getByRole("status").or(main(page).getByRole("tab", { name: "Q1" }))).toBeVisible()
+          await expect(entries(page, "edge-sensors")).toHaveCount(5)
+          await page.evaluate(() => document.fonts.ready)
+          await expect(page).toHaveScreenshot(`process-${name}-${scheme}.png`, {
+            animations: "disabled",
+            caret: "hide",
+            maxDiffPixels: 100,
+            threshold: 0.3,
+          })
+        } finally {
+          remove()
+        }
       })
     }
 

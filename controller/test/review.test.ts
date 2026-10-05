@@ -151,8 +151,11 @@ test('every session allows the read commands its brief names without a card, and
   // The implement session in the auto mode and both reviewers in the default mode.
   for (const c of reads) expect(decided().filter((d) => d === allowed(c)), c).toHaveLength(3)
   for (const c of others) expect(decided().filter((d) => d === through(c)), c).toHaveLength(3)
-  // The reads are allowed by the hook, not by a prefix rule that would allow every argument.
-  expect(read(m.claudeLog).split('\n')).not.toContain('--allowedTools')
+  // The reads are allowed by the hook, not by a prefix rule that would allow every argument: the only
+  // tools allowed up front are the controller's own.
+  const args = read(m.claudeLog).split('\n')
+  const rules = args.flatMap((a, i) => (a === '--allowedTools' ? (args[i + 1] ?? '').split(',') : []))
+  for (const rule of rules) expect(rule).toMatch(/^mcp__/)
 })
 
 test('with the gate form none a fix session of the review goes straight to the next round', async () => {

@@ -163,6 +163,7 @@ In fake mode the scripted `fake/claude` is the executable. `AMEISE_FAKE_CLAUDE` 
 - `reviewer-<name>` says what that reviewer reports, `reviewer` what every other one reports. Without either a reviewer passes.
 - `author` says what the author session of the pull request reports. Without it, it reports the title `Fake pull request`.
 - `tool <name> <json>` calls a github tool of a planner session with the arguments.
+- `round <json>` asks a question round through the controller tool `ask` with the arguments and says the result.
 - `auditor-<category>` says what the auditor of that category of a [standardize process](#standardize-process) reports, `auditor` what every other one reports.
   - It plays `found <line>` per finding line, then `findings`. Without either file each auditor reports one finding of its category.
 - `apply` says what the apply session of a standardize process does. Without it, it reports `complete`.
@@ -375,6 +376,14 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - Any other form, such as `git diff --no-index` or `--output`, goes to the permission layer, so no settings file holds a rule for them.
 - A question the session asks with `AskUserQuestion` becomes a `question` event, and the process turns `input` with the question as its note. The next message answers it.
   - A call that asks several questions takes the one message as the answer to each.
+- A process's own session has the controller tool `ask`, an in-process MCP server `controller` allowed without a card, so it calls `mcp__controller__ask`.
+  - It asks a question round: 1 to 12 questions, each with a `title` and its `question`.
+  - A question may add up to 6 `options`, a `recommended` answer with its reason `why`, and `multiSelect`.
+  - A call that breaks one of these rules is refused with the rule, and nothing waits.
+  - The round becomes a `round` event, and the process turns `input` with the first title as its note.
+  - The process page answers it with one answer per question. The session reads one line per question, `Q<n> <title>: <answer>`, which ends in ` (recommended)` where the maintainer took the recommendation.
+  - A multi-select answer joins the chosen labels with `, ` in the order offered, the recommendation first.
+  - A message while the round waits settles it instead: the session reads `The maintainer replied: <text>`.
 - Each answer is an `answer` event. Once no request waits, the process is `running` again.
 - A message to a running session with no question waiting is its next turn, as a `message` event.
 - A message to a process whose session has ended is an event on its node of its graph, read from its stage and its `fixing` flag.
@@ -394,7 +403,7 @@ The session takes its input as a stream, so the maintainer talks to it from the 
   - A record without a session id refuses the message with `409`.
   - A message to a plan is an event on the planner node of the plan graph, which resumes the planner session by its id.
   - A hunt parked in its hunt stage, or in pr, goes on as its hunt session. Its next complete reads the hunt record again.
-- A request its session leaves unanswered as it ends is `closed`.
+- A request its session leaves unanswered as it ends is `closed`. One a killed controller left open is closed as the controller starts again.
 
 ## Open in terminal
 The process page opens the process's session in a terminal window. The controller writes `processes/<id>.command`: a shell script that changes into the worktree and runs `claude --resume <session id>` with the plugins and agent of its kind, `worker` or `planner`, and the session's settings. It runs `<terminal> <script>`; the default is `open -a Terminal` on macOS and `x-terminal-emulator -e` on Linux. A command that still runs after two seconds counts as open and is left running with its window.
@@ -651,13 +660,16 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - It sends `record` with the record and `compact_at`, the context size at which the session compacts.
   - Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
   - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from.
-  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
+  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.
 - `POST /api/processes/hold` with `{"id": "<id>", "hold": true|false}`: sets whether the implement session's next `complete` keeps it open, and answers `200` with `{id, hold}`.
   - `409` refuses a process that is no work process, and a hold of one past implement.
 - `POST /api/processes/answer` with `{"id": "<id>", "request": "<request>", "answer": "once"|"process"|"deny"}`: answers a permission request and answers `200`. `409` says no such request waits.
+  - With `"answers"` in place of `"answer"` it answers a question round, one answer per question in its order.
+  - An answer is `{"recommended": true}`, which takes the recommendation, or `{"answer": "<text>"}`, or `{"answer": ["<label>", ...]}` with the labels chosen.
+  - `400` refuses answers that do not answer every question, with the question and the rule.
 - `POST /api/processes/terminal` with `{"id": "<id>"}`: opens the session in a terminal and answers `200` with `{id, script}`.
   - `409` refuses a process without a session, `502` a terminal that fails.
   - `501` refuses on a platform without a known terminal while no `terminal` is configured.

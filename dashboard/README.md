@@ -40,7 +40,7 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - In ci follow what the stage waits for, the repair rounds it spent of its budget, and the checks it read last.
   - Each check shows its state and a link to its run.
   - Hold on a work process in implement keeps its session open at its next complete instead of starting the gate; Held releases it.
-  - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request and question.
+  - The conversation is the session's event log: its text with its tool calls as chips, the maintainer's messages, and a card for each permission request, question and question round.
   - The page scrolls below the header, with the chat under it. It opens at the end of the conversation and follows the end while the session writes.
   - Once the maintainer scrolled up, their place holds as the log grows, and Back to the end takes them there.
   - The session's text, the maintainer's messages and the text of a question render as markdown with GitHub's extensions. Raw HTML reads as text.
@@ -48,6 +48,15 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The lines between turns and the process's note stay plain.
   - A permission card answers allow once, allow for this process or deny. A chip the process allowed carries a shield.
   - A question card offers its options, and the chat below answers any question. The chat also sends a message mid-work, or resumes a session that has ended.
+  - A question round card, headed Question round with its count, shows one question at a time under tabs Q1 to Qn.
+    - The current tab is filled, and an answered one carries a check.
+    - The question shows its title, its text as markdown and its options as rows, then a field for an answer of one's own.
+    - The recommendation comes first among the options, badged Recommended with its reason.
+    - Choosing an option answers its question and moves to the next tab. A question that takes several options toggles them and stays.
+    - Accept all recommendations fills every question that has one. Send stays disabled until every question has an answer.
+    - Answered, the card shows one line per question: Q<n>, the title, the answer and a recommended badge where it was taken.
+    - Each line opens to the question and the recommendation with its reason.
+    - A chat message while the round is open answers the whole round instead, and the card says You replied.
   - Open in terminal resumes the session in a terminal window of this machine.
   - A plan's page adds Capture prototype, which asks for a name and says where the prototype went.
   - Its Finish removes the plan and opens its project's page. Force finishes a plan with work not captured.
@@ -82,6 +91,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
   - A process record carries a fixture event log with an answered question and an open permission request, so the process page shows both cards.
   - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and a question, which the live test answers from the page.
+  - Another plays two question rounds: the page answers the first question by question, and a chat message settles the second.
+  - The screenshots of a question round, open and answered, come from a record with a fixture event log, written for the test and removed again.
   - Another plays a session longer than the window, whose page the scroll test scrolls up and back to the end, and reloads.
   - The tests of merge, accept, release, plan, capture and finish answer their requests in the browser, so the fake's state stays.
   - The controller's tests cover what they do.

@@ -13,7 +13,7 @@ import { notify } from './notify.js'
 import { type Quota, readQuota, runtimes, warnings } from './quota.js'
 import { answers, type Answer, entries, type Entry } from './sessions/conversation.js'
 import { recover } from './sessions/running.js'
-import { type Announce, answer, hold, type Runtime, say } from './sessions/session.js'
+import { type Announce, answer, hold, reply, type Runtime, say } from './sessions/session.js'
 import { compactAt } from './sessions/settings.js'
 import { finishHunt, resumableHunt } from './stages/hunt.js'
 import { acceptStart, capture, captureRequest, finish, planRequest } from './stages/plan.js'
@@ -352,10 +352,17 @@ export function serve(o: Options): Server {
   }
 
   // An answer settles a permission request of the process's session: once, for the process, or deny.
+  // A question round takes answers in its place, one per question: its recommendation, or an answer of
+  // its own (round.ts).
   async function answered(req: IncomingMessage, res: ServerResponse) {
     const body = (await readJSON(req)) ?? {}
     const record = recorded(body.id)
     if (typeof body.request !== 'string' || body.request === '') throw new Refusal('request is not the id of a request; send the id its card names')
+    if (body.answers !== undefined) {
+      reply(record.id, body.request, body.answers)
+      send(res, 200, { id: record.id, request: body.request })
+      return
+    }
     if (!answers.includes(body.answer as Answer)) throw new Refusal(`answer ${JSON.stringify(body.answer)} is none of ${answers.join(', ')}`)
     answer(record.id, body.request, body.answer as Answer)
     send(res, 200, { id: record.id, request: body.request, answer: body.answer })

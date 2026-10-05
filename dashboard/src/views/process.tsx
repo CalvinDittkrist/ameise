@@ -12,6 +12,7 @@ import { Acceptance } from "@/components/acceptance"
 import { Capture, Finish } from "@/components/actions"
 import { Standardize } from "@/components/standardize"
 import { Prose } from "@/components/markdown"
+import { QuestionRound } from "@/components/round"
 import { Age } from "@/components/span"
 import { dot } from "@/components/rows"
 import {
@@ -29,6 +30,7 @@ import {
   type ProcessRecord,
   type ProjectBoard,
   type Question,
+  type RoundAnswer,
   say,
   seen,
   useProcess,
@@ -47,7 +49,7 @@ const stagesOf: Record<Process["kind"], string[]> = {
 }
 
 // The process page: the facts of one process, its stages and its session as a conversation, with cards
-// for the permissions and questions that wait for the maintainer, a chat that writes to the session and
+// for the permissions, questions and question rounds that wait for the maintainer, a chat that writes to the session and
 // an action that opens it in a terminal. It follows the process's event log as it is written. Opening it
 // marks the process seen, which clears the badge it carries since it turned blocked, ready or failed.
 export function ProcessView({ id, board, reload }: { id: string; board: Board; reload: () => Promise<void> }) {
@@ -85,7 +87,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
   }
   const { record, entries } = followed
   const { list, settled } = turns(entries)
-  const asking = list.some((t) => t.kind === "question" && !settled.has(t.entry.request))
+  const asking = list.find((t) => (t.kind === "question" || t.kind === "round") && !settled.has(t.entry.request))?.kind
   // The page scrolls through shadcn's message scroller. It opens at the end of the conversation and
   // follows the end while the log grows; once the maintainer scrolled up it keeps their place and offers
   // the way back. The viewport stays hidden until it stands at the end, so a fresh page does not flash
@@ -100,7 +102,9 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
             {record.route === "accept" && <Acceptance record={record} />}
             {record.kind === "standardize" && <Standardize record={record} />}
             <Separator />
-            <Conversation record={record} list={list} settled={settled} />
+            {/* Keyed by its process, so the cards of the page before, such as a half-answered round, keep
+                none of their choices on the next process's page. */}
+            <Conversation key={record.id} record={record} list={list} settled={settled} />
           </MessageScroller.Viewport>
           <div className="pointer-events-none absolute inset-x-4 bottom-3 flex max-w-3xl justify-center lg:inset-x-6">
             <MessageScroller.Button className="pointer-events-auto data-[active=false]:hidden" render={<Button variant="outline" size="sm" className="rounded-full bg-background shadow-md" />}>
@@ -112,7 +116,7 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
         <Chat
           id={record.id}
           disabled={!writable(record)}
-          placeholder={asking ? "Answer the question…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"}
+          placeholder={asking === "round" ? "Reply to the whole round in your own words…" : asking ? "Answer the question…" : record.state === "running" || record.state === "approval" ? "Write to the session…" : "Write to resume the session…"}
         />
       </MessageScroller.Root>
     </MessageScroller.Provider>
@@ -512,10 +516,12 @@ type Turn =
   | { kind: "you"; seq: number; text: string }
   | { kind: "permission"; seq: number; entry: Extract<Entry, { kind: "permission" }> }
   | { kind: "question"; seq: number; entry: Extract<Entry, { kind: "question" }> }
+  | { kind: "round"; seq: number; entry: Extract<Entry, { kind: "round" }> }
   | { kind: "line"; seq: number; text: string }
 
-// Settled is how a request was settled: by an answer, or by the end of its session without one.
-type Settled = { answer?: Answer; text?: string } | "closed"
+// Settled is how a request was settled: by an answer, or by the end of its session without one. A round
+// is answered by one answer per question, or by the text of a chat message.
+type Settled = { answer?: Answer; text?: string; answers?: RoundAnswer[] } | "closed"
 
 function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> } {
   const list: Turn[] = []
@@ -540,11 +546,16 @@ function turns(entries: Entry[]): { list: Turn[]; settled: Map<string, Settled> 
         list.push({ kind: "you", seq: e.seq, text: e.text })
         break
       case "permission":
+        list.push({ kind: "permission", seq: e.seq, entry: e })
+        break
       case "question":
-        list.push(e.kind === "permission" ? { kind: "permission", seq: e.seq, entry: e } : { kind: "question", seq: e.seq, entry: e })
+        list.push({ kind: "question", seq: e.seq, entry: e })
+        break
+      case "round":
+        list.push({ kind: "round", seq: e.seq, entry: e })
         break
       case "answer":
-        settled.set(e.request, { answer: e.answer, text: e.text })
+        settled.set(e.request, { answer: e.answer, text: e.text, answers: e.answers })
         break
       case "closed":
         settled.set(e.request, "closed")
@@ -593,6 +604,8 @@ function Turned({ record, turn: t, settled }: { record: ProcessRecord; turn: Tur
       return <Permission id={record.id} entry={t.entry} settled={settled.get(t.entry.request)} />
     case "question":
       return <Asked id={record.id} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
+    case "round":
+      return <QuestionRound id={record.id} request={t.entry.request} questions={t.entry.questions} settled={settled.get(t.entry.request)} />
     case "line":
       return (
         <p role="note" className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
