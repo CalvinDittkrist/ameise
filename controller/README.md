@@ -662,7 +662,7 @@ The record keeps `unseen` until the process's page is opened, so the dashboard s
   - It sends `record` with the record and `compact_at`, the context size at which the session compacts.
   - Then it sends `entries` with the conversation so far, then each change as it is written. `gone` ends it once the process is removed.
   - An entry is `{seq, kind, ...}`, `seq` being the line of the event log it comes from.
-  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `question`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
+  - The kinds are `text` and `tool` of the session and `you` for a message. `permission`, `round`, `answer`, `allowed` and `closed` are the requests, and `start` and `end` each session.
   - Tool results, thinking and the messages of subagents stay in the log and out of the conversation.
 - `POST /api/processes/message` with `{"id": "<id>", "text": "..."}`: writes to the process's session and answers `200` with `{id, delivered}`, which is `answered`, `sent` or `resumed` (see [Conversation](#conversation)).
   - `400` refuses an empty text, `409` a process without a session.
