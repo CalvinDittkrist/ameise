@@ -1,9 +1,10 @@
 # Print each reference to an ADR that has no file, as path:line: message. check.sh runs it from the repository root
-# over the files that may cite an ADR. The variable adrs lists the ADR file names under docs/adr, one per line.
+# over the files that may cite an ADR. The environment variable ADR_FILES lists the ADR file names under docs/adr, one
+# per line; it is no -v assignment, because the BSD awk of macOS refuses a -v value with a newline.
 # A reference is a relative Markdown link or a link definition to an ADR file, or the bare form ADR plus four digits.
 # A URL with a scheme, with or without //, is not a reference. check.sh passes each file as ./path, so that awk takes
 # no file name for an option or an assignment; the findings name the path without ./.
-BEGIN { n = split(adrs, a, "\n"); for (i = 1; i <= n; i++) { have["docs/adr/" a[i]] = 1; num[substr(a[i], 1, 4)] = 1 } }
+BEGIN { n = split(ENVIRON["ADR_FILES"], a, "\n"); for (i = 1; i <= n; i++) { have["docs/adr/" a[i]] = 1; num[substr(a[i], 1, 4)] = 1 } }
 
 # norm: a path without empty, . and .. segments; empty when it climbs above the root.
 function norm(p,   parts, out, n, i, k, s) {
