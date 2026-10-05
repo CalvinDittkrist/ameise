@@ -18,7 +18,9 @@ Without an argument: list the open issues with `gh issue list --state open --lim
    - Search closed rejections: `gh issue list --state closed --label wontfix --search "<concept>"`.
 2. Recommend category and state with reasoning and a three-line summary of the relevant code. Wait for the user.
 3. Verify the claim before any interview. Reproduce a bug from the reported steps; for a request, confirm the gap exists. Report confirmed, failed, or not enough detail (a `needs-info` signal).
-4. If the request needs shaping, run the interview rules in [../grill/SKILL.md](../grill/SKILL.md) round by round: each round through the controller tool `ask`, with `recommended` and `why` for every question, or in its markdown round format without the tool.
+4. If the request needs shaping, run the interview rules in [../grill/SKILL.md](../grill/SKILL.md) round by round.
+   - Ask each round through the controller tool `ask`, with `recommended` and `why` for every question.
+   - Without the tool, ask in its markdown round format.
 5. Apply the outcome with the controller's tools:
    - `ready-for-agent`: post the brief from [brief.md](brief.md) with `comment`.
      - Then ask whether the issue is routed to the factory, following [../tickets/routing.md](../tickets/routing.md): your recommendation with its reason, for this one issue.

@@ -90,7 +90,8 @@ The browser interface of the [controller](../controller/README.md): React, Vite 
   - It leaves the specs of the checkout the add-project test adds unanswered, so the board shows a note.
   - The claim test claims an issue of the frontier and abandons it again, so the board reads the same after it.
   - A process record carries a fixture event log with an answered question round and an open permission request, so the process page shows both cards.
-  - A scripted terminal records what Open in terminal runs. A canned claude plays a session that asks a permission and waits for a message, which the live test answers from the page.
+  - A scripted terminal records what Open in terminal runs.
+  - A canned claude plays a session that asks a permission and waits for a message, which the live test answers from the page.
   - Another plays two question rounds: the page answers the first question by question, and a chat message settles the second.
   - The screenshots of a question round, open and answered, come from a record with a fixture event log, written for the test and removed again.
   - Another plays a session longer than the window, whose page the scroll test scrolls up and back to the end, and reloads.
