@@ -177,13 +177,20 @@ export const abandon = (path: string, issue: number, force: boolean) =>
 // controller derives it from the event log: seq is the line of the log it comes from.
 export type Question = { question: string; header: string; options: { label: string; description: string }[]; multiSelect: boolean }
 export type Answer = "once" | "process" | "deny"
+// A question of a question round, which a session asks through the controller tool ask, and the answer to
+// one as the log holds it: its text, and whether it is the recommendation.
+export type RoundQuestion = { title: string; question: string; options: string[]; recommended?: string; why?: string; multiSelect: boolean }
+export type RoundAnswer = { answer: string; recommended: boolean }
+// A Reply answers one question of a round: by its recommendation, or by a text or the labels chosen.
+export type Reply = { recommended: true } | { answer: string | string[] }
 export type Entry = { seq: number } & (
   | { kind: "text"; text: string }
   | { kind: "tool"; name: string; detail: string }
   | { kind: "you"; text: string }
   | { kind: "permission"; request: string; tool: string; detail: string; title: string; reason: string }
   | { kind: "question"; request: string; questions: Question[] }
-  | { kind: "answer"; request: string; answer?: Answer; text?: string }
+  | { kind: "round"; request: string; questions: RoundQuestion[] }
+  | { kind: "answer"; request: string; answer?: Answer; text?: string; answers?: RoundAnswer[] }
   | { kind: "allowed"; tool: string; detail: string }
   | { kind: "closed"; request: string }
   | { kind: "start"; resumed: boolean }
@@ -400,6 +407,9 @@ export const say = (id: string, text: string) => call<{ delivered: "answered" | 
 
 // answer answers a permission request of the process's session.
 export const answer = (id: string, request: string, a: Answer) => call<{ answer: Answer }>("POST", "/api/processes/answer", { id, request, answer: a })
+
+// answerRound answers a question round of the process's session, one reply per question in its order.
+export const answerRound = (id: string, request: string, replies: Reply[]) => call<{ request: string }>("POST", "/api/processes/answer", { id, request, answers: replies })
 
 // hold sets whether the implement session's next complete report keeps it open instead of starting the gate.
 export const hold = (id: string, on: boolean) => call<{ hold: boolean }>("POST", "/api/processes/hold", { id, hold: on })
