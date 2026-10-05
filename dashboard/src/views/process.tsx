@@ -102,7 +102,9 @@ export function ProcessView({ id, board, reload }: { id: string; board: Board; r
             {record.route === "accept" && <Acceptance record={record} />}
             {record.kind === "standardize" && <Standardize record={record} />}
             <Separator />
-            <Conversation record={record} list={list} settled={settled} />
+            {/* Keyed by its process, so the cards of the page before, such as a half-answered round, keep
+                none of their choices on the next process's page. */}
+            <Conversation key={record.id} record={record} list={list} settled={settled} />
           </MessageScroller.Viewport>
           <div className="pointer-events-none absolute inset-x-4 bottom-3 flex max-w-3xl justify-center lg:inset-x-6">
             <MessageScroller.Button className="pointer-events-auto data-[active=false]:hidden" render={<Button variant="outline" size="sm" className="rounded-full bg-background shadow-md" />}>

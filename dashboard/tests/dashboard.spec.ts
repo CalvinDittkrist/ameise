@@ -729,6 +729,30 @@ test("a question round its session left unanswered says so and offers nothing", 
   }
 })
 
+test("the round of another process opens fresh, without the choices made on the one before", async ({ page }) => {
+  const first = rounded("p119", "input", "Remote form", [])
+  const second = rounded("p120", "input", "Scope", [], [{ title: "Scope", question: "Does the reader take an scp-like URL too?", options: ["Yes", "No"], multiSelect: false }])
+  try {
+    await page.goto(url("/#process=p119"))
+    const card = main(page).getByRole("article", { name: "Question round" })
+    const tabs = card.getByRole("tab")
+    await card.getByRole("tabpanel").getByRole("button", { name: "https only" }).click()
+    await expect(tabs.nth(0)).toHaveAccessibleName("Q1, answered")
+    await tabs.nth(3).click()
+    await expect(tabs.nth(3)).toHaveAttribute("aria-selected", "true")
+
+    await page.goto(url("/#process=p120"))
+    await expect(tabs).toHaveText(["Q1"])
+    await expect(tabs.nth(0)).toHaveAccessibleName("Q1")
+    await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true")
+    await expect(card.getByRole("tabpanel").getByRole("heading")).toHaveText("Scope")
+    await expect(card.getByRole("button", { name: "Send" })).toBeDisabled()
+  } finally {
+    first()
+    second()
+  }
+})
+
 test("the conversation follows its end while the session writes, keeps the place once scrolled up, and offers the way back", async ({ page }) => {
   const project = process.env.AMEISE_SENSORS!
   const play = join(process.env.AMEISE_FAKE_CLAUDE!, "play")
@@ -1215,11 +1239,19 @@ test("an acceptance's page shows every item with its verdict and sends one answe
   await expect(page.getByRole("textbox", { name: "Message" })).toBeDisabled()
 })
 
-// A standardize process waiting for its answers, with findings in every category as the fake auditors
-// report them.
-// rounded writes the record and the event log of a process whose session asked a question round of four
-// questions, followed by the events given, such as its answer, and answers what removes them again.
-const rounded = (id: string, state: string, note: string, after: object[]) => {
+// The question round of the written processes: four questions, with and without options, recommendation
+// and reason.
+const fourQuestions = [
+  { title: "Remote form", question: "Which remote forms does the reader take: `https` only, or also the scp-like `git@github.com:owner/name`?", options: ["https only", "https, and scp-like"], recommended: "https, and scp-like", why: "Most clones on this machine use the scp-like form.", multiSelect: false },
+  { title: "Unusable projects", question: "A project whose origin is not on GitHub: keep it in the file, **marked unusable**, or drop it?", options: ["Keep them, marked unusable", "Drop them"], recommended: "Keep them, marked unusable", why: "The board can then say why it shows nothing.", multiSelect: false },
+  { title: "Tests", question: "How many cases does the parser's test hold?", options: [], recommended: "One per form", why: "Each form is a branch of the parser.", multiSelect: false },
+  { title: "Shells", question: "Which shells does the completion support?", options: ["bash", "zsh", "fish"], multiSelect: true },
+]
+
+// rounded writes the record and the event log of a process whose session asked a question round, by
+// default of four questions, followed by the events given, such as its answer, and answers what removes
+// them again.
+const rounded = (id: string, state: string, note: string, after: object[], asked: object[] = fourQuestions) => {
   const record = join(process.env.AMEISE_RECORDS!, `${id}.json`)
   const log = join(process.env.AMEISE_RECORDS!, `${id}.events.jsonl`)
   writeFileSync(record, JSON.stringify({
@@ -1231,14 +1263,7 @@ const rounded = (id: string, state: string, note: string, after: object[]) => {
   writeFileSync(log, [
     { event: "session-start", stage: "implement" },
     said("The reader is written for https remotes. Four decisions are open before I go on."),
-    {
-      event: "round", request: "round-1", questions: [
-        { title: "Remote form", question: "Which remote forms does the reader take: `https` only, or also the scp-like `git@github.com:owner/name`?", options: ["https only", "https, and scp-like"], recommended: "https, and scp-like", why: "Most clones on this machine use the scp-like form.", multiSelect: false },
-        { title: "Unusable projects", question: "A project whose origin is not on GitHub: keep it in the file, **marked unusable**, or drop it?", options: ["Keep them, marked unusable", "Drop them"], recommended: "Keep them, marked unusable", why: "The board can then say why it shows nothing.", multiSelect: false },
-        { title: "Tests", question: "How many cases does the parser's test hold?", options: [], recommended: "One per form", why: "Each form is a branch of the parser.", multiSelect: false },
-        { title: "Shells", question: "Which shells does the completion support?", options: ["bash", "zsh", "fish"], multiSelect: true },
-      ],
-    },
+    { event: "round", request: "round-1", questions: asked },
     ...after.map((e) => ("text" in e && !("event" in e) ? said(String(e.text)) : e)),
   ].map((l) => JSON.stringify(l)).join("\n") + "\n")
   return () => {
@@ -1247,6 +1272,8 @@ const rounded = (id: string, state: string, note: string, after: object[]) => {
   }
 }
 
+// A standardize process waiting for its answers, with findings in every category as the fake auditors
+// report them.
 const standardization = (project: string, id: string) => {
   const category = (name: string, action: string, target: string, reason: string, confidence: string, report: string[]) => ({
     name, findings: [{ target, action, reason, confidence }], report,
