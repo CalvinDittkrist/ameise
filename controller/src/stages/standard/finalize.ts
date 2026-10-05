@@ -158,14 +158,15 @@ export async function finalize(c: Ctx) {
   }
 
   // The check, on what is on GitHub now, in a temporary worktree so the checkout stays as it is. The writing rules
-  // warn here: apply brings the structure, and rewriting the documents to the rules is work of its own.
+  // and the ADR rule warn here: apply brings the structure, and rewriting the documents or reducing the ADRs to the
+  // rules is work of its own.
   const parent = mkdtempSync(join(tmpdir(), 'ameise-check-'))
   const check = join(parent, 'check')
   try {
     await git(c, ['worktree', 'add', '-q', '--detach', check, tip]).catch((err: Error) => {
       throw new Stop(`cannot check out ${defaultBranch} for the check: ${last(err.message)}`)
     })
-    const r = await plugin(c, 'check.sh', [check], c.root, { env: { WF_WRITING_LENIENT: '1' } })
+    const r = await plugin(c, 'check.sh', [check], c.root, { env: { WF_WRITING_LENIENT: '1', WF_ADR_LENIENT: '1' } })
     await tryGit(c, ['worktree', 'remove', '--force', check])
     say(c, ...lines(r.stdout + '\n' + r.stderr).filter((l) => /^(fail|warn|skip): /.test(l)).map((l) => `check: ${l}`))
     const rejected = answered(answers, 'reject')

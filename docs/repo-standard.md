@@ -74,6 +74,13 @@ An ADR records a decision that holds today and is hard to reverse or surprising 
 - A smaller decision is one rule with its reason, at most 30 words, in the document of its area: a runbook, a README, this standard.
 - A comment or document cites an ADR that exists, or states the reason itself.
 
+The check fails on each breach of these rules: the count, an invalid `WF_ADR_MAX`, the status, a relation line, a number at or above the next free number, and an index without one.
+
+- It fails on a reference to an ADR with no file: a relative link, a link definition, or the bare form "ADR" plus four digits.
+- URLs with a scheme and changelogs are not read.
+- A repository may lower `WF_ADR_MAX` in its `Makefile`. A repository not reduced yet sets `WF_ADR_LENIENT=1` there, which turns the findings into warnings.
+- The check at the end of a standardisation warns on them too, because reducing the set is an issue of its own.
+
 ## Writing rules
 These rules hold for prose in documents, prompts and comments. The check fails on the mechanical ones, because documents grew without a limit and every agent that loads one pays for it:
 

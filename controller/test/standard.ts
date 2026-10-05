@@ -163,6 +163,7 @@ export const FILES: Record<string, string> = {
   '.cursor/rules/style.mdc': 'be nice\n',
   'NOTES.md': 'handover notes\n',
   'src/app.py': "print('hi')  # a \u2014 b\n", // an em dash the apply leaves to an issue: the check warns
+  'docs/adr/0001-use-make.md': '# 0001. Use make\n\nStatus: superseded\n', // a dead ADR the apply leaves to an issue: the check warns
 }
 
 export const REPLIES = `The agent-config auditor:
