@@ -51,10 +51,12 @@ export const skills = (record: SessionRecord): string[] => {
   return record.kind === 'hunt' ? [...work, 'worker:hunt-tests'] : work
 }
 
-// shadowsSimplify is whether a personal skill or a skill of the worktree is named simplify, which the
-// runtime prefers to its bundled skill of that name.
+// shadowsSimplify is whether a personal skill or command file, or one of the worktree, is named
+// simplify: the runtime prefers either to its bundled skill of that name.
 const shadowsSimplify = (worktree: string): boolean =>
-  [process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), join(worktree, '.claude')].some((dir) => existsSync(join(dir, 'skills', 'simplify')))
+  [process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), join(worktree, '.claude')].some(
+    (dir) => existsSync(join(dir, 'skills', 'simplify')) || existsSync(join(dir, 'commands', 'simplify.md')),
+  )
 
 // planSettings are a planner session's own settings: the base, the foreground subagents, whose report is
 // the tool result rather than a wait in sleep turns, and WF_CONTROLLER, the mark that the controller runs

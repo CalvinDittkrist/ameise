@@ -164,6 +164,19 @@ test('a work session leaves simplify out of its allowlist when a personal skill 
   for (const list of lists) expect(list).toEqual(['worker:docs', 'repo-standards:adr', 'repo-standards:docs-check'])
 })
 
+test('a work session leaves simplify out of its allowlist when a personal command file of that name shadows the bundled skill', async () => {
+  mkdirSync(join(m.root, '.claude', 'commands'), { recursive: true })
+  writeFileSync(join(m.root, '.claude', 'commands', 'simplify.md'), 'mine\n')
+  play(m, 'commit board.txt\ncomplete Implemented the board')
+  const r = await claim()
+  await ended(r.id)
+  const lists = started()
+    .read.filter((l) => l.includes('"subtype":"initialize"'))
+    .map((l) => (JSON.parse(l) as { request: { skills?: string[] } }).request.skills)
+  expect(lists.length).toBeGreaterThanOrEqual(1)
+  for (const list of lists) expect(list).toEqual(['worker:docs', 'repo-standards:adr', 'repo-standards:docs-check'])
+})
+
 test('the brief names the issue, the branch, the base and the read of the issue, and carries no text of it', async () => {
   play(m, 'complete done')
   const r = await claim()
