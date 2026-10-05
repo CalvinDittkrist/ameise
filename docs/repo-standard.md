@@ -12,7 +12,7 @@ The local workflow that works a repository on this standard is the controller, i
 
 - `claude plugin marketplace add CalvinDittkrist/ameise --scope project` registers it.
 - `claude plugin install <plugin>@ameise --scope project` enables each of `worker`, `planner` and `repo-standards`.
-- A repository with the marketplace under its old name first runs `claude plugin marketplace remove <old name> --scope project`, so its settings hold one source key ([the maintainer's list](factory-runbook.md#the-maintainers-list)).
+- A repository with the marketplace under its old name first runs `claude plugin marketplace remove <old name> --scope project`, so its settings hold one source key.
 
 ## Profile
 A repository's profile is its visibility plus its branch model. Both are derived from GitHub, never configured per repository ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
@@ -30,7 +30,7 @@ A repository's profile is its visibility plus its branch model. Both are derived
 | `Makefile` | The gate: a `check` target | fails without a `check` target; warns with `<fill in>` left |
 | `.github/workflows/*.yml` | A job named `check` that runs `make check` | fails without one |
 | `docs/architecture.md` | Map: purpose, components, data flow, boundaries, decisions | fails if missing, under 15 lines or over its word cap |
-| `docs/adr/README.md` + `NNNN-title.md` | Decisions, MADR-trimmed, numbered, each with a Status line | fails on a missing index, duplicate numbers, a missing Status or an ADR over its word cap |
+| `docs/adr/README.md` + `NNNN-title.md` | At most 20 decisions that hold today, MADR-trimmed, numbered, each with a Status line | fails on a missing index, duplicate numbers, a missing Status or an ADR over its word cap |
 | `docs/glossary.md` | Terms the code and issues use, one row each | warns if missing; fails on an entry over its word cap |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Closes, what and why, verification, limits | warns if missing |
 | `.github/dependabot.yml` | Grouped version updates, one entry per package manager | warns if missing |
@@ -57,15 +57,32 @@ The check fails on each of these and names it, such as `.claude/skills/<name>` o
 An `.mcp.json` only warns, because it stays when something uses it. Notes, planning material and dated reports need judgement and are left to the auditors.
 
 ## Instruction files
-`AGENTS.md` is the source; `CLAUDE.md` imports it with `@AGENTS.md`, because Claude Code reads `CLAUDE.md` and not `AGENTS.md` ([ADR 0007](adr/0007-agents-md-is-the-instruction-source.md)). Both stay under 200 lines.
+`AGENTS.md` is the source; `CLAUDE.md` imports it with `@AGENTS.md`, because Claude Code reads `CLAUDE.md` and not `AGENTS.md`. Both stay under 200 lines.
 
 - A monorepo may keep one such pair per area (`services/api/AGENTS.md` and `services/api/CLAUDE.md`).
 - An area's pair loads only when an agent works there, and the check holds each pair to the same rules.
 - Claude Code loads every nested `CLAUDE.md` it passes. So a `CLAUDE.md` or `AGENTS.md` kept as data, such as a template or a fixture, is instructions too.
 - Such a file must form a valid pair or be renamed.
 
+## ADRs
+An ADR records a decision that holds today and is hard to reverse or surprising without context ([ADR 0071](adr/0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)). Examples are security, a public interface, core architecture, or a choice an agent would plausibly undo.
+
+- A repository keeps at most `WF_ADR_MAX` ADRs, default 20. A new ADR on a full set removes or moves one in the same change.
+- A changed decision edits its ADR in place. A decision that no longer holds is deleted, and git keeps the history.
+- A status is proposed or accepted, and nothing else. An ADR names no relation to another: no amends, extends or supersedes line.
+- A number is never reused. The index carries the next free number. A merged ADR keeps the number and file name of its target.
+- A smaller decision is one rule with its reason, at most 30 words, in the document of its area: a runbook, a README, this standard.
+- A comment or document cites an ADR that exists, or states the reason itself.
+
+The check fails on each breach of these rules: the count, an invalid `WF_ADR_MAX`, the status, a relation line, a number at or above the next free number, and an index without one.
+
+- It fails on a reference to an ADR with no file: a relative link, a link definition, or the bare form "ADR" plus four digits.
+- URLs with a scheme and changelogs are not read.
+- A repository may lower `WF_ADR_MAX` in its `Makefile`. A repository not reduced yet sets `WF_ADR_LENIENT=1` there, which turns the findings into warnings.
+- The check at the end of a standardisation warns on them too, because reducing the set is an issue of its own.
+
 ## Writing rules
-The rules for prose in documents, prompts and comments ([ADR 0048](adr/0048-writing-rules-are-part-of-the-standard-and-the-gate-checks-the-mechanical-ones.md)):
+These rules hold for prose in documents, prompts and comments. The check fails on the mechanical ones, because documents grew without a limit and every agent that loads one pays for it:
 
 - No em dash, in any text file.
 - A paragraph has at most 80 words; longer content becomes bullets.
@@ -84,7 +101,7 @@ The check counts the em dash in every text file and the word caps in Markdown. S
 - Code blocks (fenced or indented), closed front matter, thematic breaks and tables are no paragraphs.
 - A document's count skips code blocks and front matter. A README that is not Markdown is counted whole.
 
-Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of a standardisation warns on them too, because rewriting the documents is an issue of its own. An accepted ADR may be shortened in wording; its decision is never edited ([ADR 0049](adr/0049-an-accepted-adr-may-be-shortened-in-wording-its-decision-is-never-edited.md)).
+Each finding fails the check. A repository not rewritten yet sets `WF_WRITING_LENIENT=1` for the check in its `Makefile`, which turns them into warnings. The check at the end of a standardisation warns on them too, because rewriting the documents is an issue of its own.
 
 The templates in `plugins/repo-standards/templates/` are the fixed form of each document: `README.md.tpl`, `plugin-README.md`, `architecture.md`, `adr-template.md` and `glossary.md`.
 
@@ -92,7 +109,7 @@ The templates in `plugins/repo-standards/templates/` are the fixed form of each 
 Every repository has a `Makefile`, and `make check` runs everything CI gates on ([ADR 0008](adr/0008-make-check-is-the-single-gate.md)). Agents run `make check` instead of guessing a per-repository test command. CI runs it in a job named `check`, and `check` is the one required status check. A repository with several CI jobs keeps them parallel, each calling its own make target, and adds an aggregating job named `check`.
 
 ## GitHub workspace
-Set by an idempotent script that shows the difference first and keeps a snapshot of the previous state ([ADR 0011](adr/0011-github-workspace-configured-by-an-idempotent-script.md)).
+Set by an idempotent script that shows the difference first and keeps a snapshot of the previous state ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 
 - `workspace.sh` prints one `diff:` line per difference and changes nothing. The plugin's copy does only this.
 - The controller's `workspace.sh --apply` writes the previous state as JSON to a snapshot file, then makes exactly those changes.
@@ -105,7 +122,7 @@ Set by an idempotent script that shows the difference first and keeps a snapshot
 The standard settings:
 
 - Merges: squash only, PR title as commit title, branches deleted on merge; wiki and discussions off.
-- With `dev` plus `main`, merge commits are allowed too. Only the promotion pull request uses them, so `dev` stays an ancestor of `main` ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
+- With `dev` plus `main`, merge commits are allowed too. Only the promotion pull request uses them, so `dev` stays an ancestor of `main` ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 - One branch ruleset on `main`, and on `dev` when present. The rulesets are named `standard: main` and `standard: dev`.
 - The branch ruleset requires a pull request, zero approvals, resolved conversations and the check `check`, and allows no force push, no deletion and no bypass.
 - It requires linear history, except on `main` with `dev` plus `main`.
@@ -143,12 +160,12 @@ The rest is printed as `manual:` steps:
 ## Milestones and releases
 Milestones are named `vX.Y.Z` and their description states the goal. Tickets are attached to one when they are cut. The spec they refine belongs to the same milestone, so a release waits for its acceptance.
 
-A release is manual and closes a milestone ([ADR 0012](adr/0012-releases-are-manual-and-close-a-milestone.md)):
+A release is manual and closes a milestone, so it never happens by accident and repositories that stage work on `dev` fit:
 
 - It refuses while the milestone has open issues.
 - In the two-level model it opens the promotion pull request from `dev` to `main`.
 - Then it tags, creates the GitHub release with generated notes and closes the milestone.
-- The promotion is merged with a merge commit, and the tag goes on that commit ([ADR 0013](adr/0013-promotions-merge-with-a-merge-commit-and-releases-tag-it.md)).
+- The promotion is merged with a merge commit, and the tag goes on that commit ([ADR 0009](adr/0009-profile-derived-from-github-with-two-branch-models.md)).
 
 Standardisation creates no milestone and closes only empty or orphaned open milestones. Empty ones have no issues. Orphaned ones have no open issues and a title that is not `vX.Y.Z`, so no release would ever close them.
 
@@ -165,7 +182,7 @@ It then opens one catalogue issue labelled `skill-candidate`, with one row per r
 ## Applying the findings
 The apply of the standardize process runs after the audit and refuses while a category with findings is pending. Every step finds what an earlier run created. So a run that stopped anywhere continues when started again, and a run on a conforming repository changes nothing. Rejected categories are left untouched and named at the end.
 
-Approval is per category, never per finding ([ADR 0016](adr/0016-approval-is-per-category-and-scripts-own-what-they-apply.md)):
+Approval is per category, never per finding, because a setting left out of an approval would be reported as drift on every run:
 
 - Within an approved category the run works through the `delete`, `replace` and `create` findings one by one, exactly as the report lists them.
 - `issue` findings become issues.
@@ -173,7 +190,7 @@ Approval is per category, never per finding ([ADR 0016](adr/0016-approval-is-per
 - `scaffold.sh` has templates for `agent-config`, `docs`, `tests-ci` and `workspace`. Approving one of them also creates every missing baseline file of it, listed or not.
 - Approving `agent-config` also brings `.claude/settings.json` to the template.
 
-Only a rejected category is left alone. So the report asks about a scaffolded category even when no auditor reported anything for it ([ADR 0035](adr/0035-every-category-the-apply-phase-scaffolds-is-answerable.md)):
+Only a rejected category is left alone. So the report asks about a scaffolded category even when no auditor reported anything for it, because otherwise its files would be scaffolded unasked:
 
 - Approving it creates its missing baseline files, and rejecting it keeps the apply phase out.
 - Leaving it unanswered scaffolds it as an approval would.

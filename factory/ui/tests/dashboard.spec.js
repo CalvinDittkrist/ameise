@@ -221,7 +221,7 @@ test('the stage line and the outcome box show the scripted states', async ({ pag
   await expect(detail(page).locator('.steps .at')).toHaveText('implement')
   await expect(detail(page).locator('.steps li').nth(1)).toHaveClass('')
   await expect(detail(page).locator('.outcome')).toContainText('blocked')
-  await expect(detail(page).locator('.outcome')).toContainText('supersede ADR 0012')
+  await expect(detail(page).locator('.outcome')).toContainText('change the release rule')
 
   await page.goto(working(`/#run=${FOLLOW_UP_RUN}`))
   // The follow-up run started at address-reviews and ended in ci, and never did the work before them.

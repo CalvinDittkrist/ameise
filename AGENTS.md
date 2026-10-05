@@ -2,7 +2,7 @@
 
 Public repository of `ameise`, a local controller and Claude Code plugins for agent-driven development: the controller claims GitHub issues into worktree sessions and drives their stages, and the worker, planner and repo-standards plugins carry the skills and agents they run.
 
-Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
+Beside the plugins, `factory/` is the factory: a Go service that works routed issues unattended on a host of its own, a peer of the local workflow that is taking the delivery pipeline over into Go ([ADR 0062](docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md), [ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)).
 
 `controller/` is the local program `ameise`, which holds this machine's projects and serves a local API. `dashboard/` is its browser interface, which the controller serves.
 
@@ -40,15 +40,14 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 ## Priorities
 - In this order when they conflict: security, low token use, throughput.
 - One uniform workflow that adapts per repository through `WF_*` variables and its `AGENTS.md`, never through local forks.
-- The local workflow and the factory are peers ([ADR 0038](docs/adr/0038-the-local-workflow-and-the-factory-are-peers.md)): the controller and its plugins serve hands-on work, the factory serves unattended delivery.
+- The local workflow and the factory are peers ([ADR 0062](docs/adr/0062-the-peers-share-a-contract-fixture-not-code.md)): the controller and its plugins serve hands-on work, the factory serves unattended delivery.
 - Each is its own unit and shares no code with the other.
 - The contract fixture `contract/fixture.json` is the one thing they share.
   - It states what both must agree on: the branch contract, the base branch rule, the gate's draft, the frontier rule, the label vocabulary.
   - Both sides' tests read it, and neither runs the other's code. A rule changes in the fixture first.
 - The factory owns the delivery pipeline in Go ([ADR 0040](docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md)): the stages implement, gate, review, pr, ci, validate, merge and address-reviews.
   - Each stage that needs judgement runs one fresh session, which reports through a structured result ([ADR 0039](docs/adr/0039-every-session-reports-through-a-structured-result.md)).
-  - It took the stages over from the worker plugin one release at a time, from the last to the first ([ADR 0043](docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md)).
-  - Its sessions run on its own prompts and no plugin ([ADR 0042](docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)).
+  - Its sessions run on its own prompts and no plugin, so a skill change never reaches an unattended host.
 - The why is in [docs/vision.md](docs/vision.md).
 
 ## Claude Code facts
@@ -70,8 +69,14 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
 - The label vocabulary is duplicated the same way, and a test in `controller/test/scripts/plugins.test.ts` fails when the shell copy differs from the contract fixture.
 - Docs: `docs/architecture.md` is the map, `docs/vision.md` is the why, decisions are ADRs in `docs/adr/`, terms are in `docs/glossary.md`.
   - The standard every repository follows is `docs/repo-standard.md`. Update the docs with the change that makes them stale.
+- ADRs are a capped set of decisions that hold today ([ADR 0071](docs/adr/0071-adrs-are-a-capped-set-of-decisions-that-hold-today.md)): at most 20, each hard to reverse or surprising without context.
+  - A changed decision edits its ADR in place; one that no longer holds is deleted. A status is proposed or accepted.
+  - A smaller rule goes with its reason into the document of its area. A comment cites an ADR that exists, or states the reason.
+  - No plugin file cites an ADR number, because plugins run in other repositories. A plugin states the reason inline.
 - Prose in documents, prompts and comments follows the [writing rules](docs/repo-standard.md#writing-rules).
 - `AGENTS.md` is the instruction source for every agent; `CLAUDE.md` only imports it. No repository-local skills, agents, commands or rules (the standard check fails on them).
+- The rename to `ameise` kept the release tags, the factory's names on the host, the labels, the `WF_` prefix and the term workflow, so repositories keep their settings.
+- Nothing reads the old name `workflows` or its directories: a hard cut leaves no alias to test or remove.
 - No agent co-authors in commits. Conventional commits.
 
 ## Gotchas
@@ -81,7 +86,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Its tests start the real binary through one helper, `factoryCommand` in `factory/process_test.go`, and watch it over HTTP and its data directory.
   - On Linux that helper has the kernel kill the binary with the test process, so a `go test` that times out or is killed leaves no factory behind.
   - `staticcheck` is pinned in the `factory` target's error line.
-- The dashboard is the factory's npm part ([ADR 0033](docs/adr/0033-the-dashboard-is-built-into-the-factory-binary.md)): npm in `factory/ui`.
+- The dashboard is the factory's npm part ([factory README](factory/README.md)): npm in `factory/ui`.
   - The binary embeds its build in `factory/ui/dist/app`, so the Go tests need `make ui` first.
   - `factory/ui/dist` stays in git with a placeholder, because Go refuses an embed pattern that matches nothing.
   - `factory/go.mod` ignores `./ui/node_modules`, because npm packages ship Go files of their own.
@@ -90,7 +95,7 @@ Beside the plugins, `factory/` is the factory: a Go service that works routed is
   - Its tests start the built `dist/main.js --fake`, so `npm test` builds first through `pretest`.
   - Its helper `controller/test/controller.ts` gives each test a machine of its own: a temporary configuration, state, PATH and scripted gh.
   - An agent it starts with an output schema (the worker, the reviewers) lists `StructuredOutput` in its `tools`. Without it the session ends with no result and fails.
-- The local dashboard is the controller's npm part ([ADR 0064](docs/adr/0064-the-local-dashboard-is-built-into-the-controller.md)): shadcn/ui on Tailwind in `dashboard/`.
+- The local dashboard is the controller's npm part ([dashboard README](dashboard/README.md)): shadcn/ui on Tailwind in `dashboard/`.
   - Its build writes into `controller/dist/dashboard`, and `tsc` of the controller leaves that directory alone.
   - A shadcn component is copied into `dashboard/src/components/ui` and imports `cn` from `@/lib/utils`.
   - The browser test starts the built controller in fake mode on a free port. It compares an approved screenshot per page, scheme and operating system (`dashboard/tests/screenshots/<page>-<scheme>-<platform>.png`).

@@ -9,14 +9,15 @@ wf_kv base "$(wf_base_branch)"
 
 # The controller starts a session with background tasks disabled, so a subagent's report is the result of the
 # Agent call; a session started by hand has no such setting and its subagents run in the background, where
-# ending the turn is how the agent waits (ADR 0017). The truthy set is the one Claude Code itself applies to a
-# boolean environment variable (2.1.278: whitespace removed, lowercased, then matched against 1, true, yes, on).
+# ending the turn is how the agent waits, since a sleep loop costs a full turn each time. The truthy set is the
+# one Claude Code itself applies to a boolean environment variable (2.1.278: whitespace removed, lowercased,
+# then matched against 1, true, yes, on).
 case "$(printf '%s' "${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
   1|true|yes|on) wf_kv subagents "foreground" ;;
   *) wf_kv subagents "background" ;;
 esac
 
-# The controller marks every session it starts with WF_CONTROLLER=1 (ADR 0063). A skill that needs it reads
+# The controller marks every session it starts with WF_CONTROLLER=1. A skill that needs it reads
 # this line and, without it, says the line to the user and stops, rather than failing somewhere later.
 if [ "${WF_CONTROLLER:-}" = 1 ]; then
   wf_kv controller "present"

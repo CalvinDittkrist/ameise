@@ -505,9 +505,9 @@ func TestAnAuthorGitHubCouldNotBeAskedAboutIsWarnedAboutAgainAfterItCould(t *tes
 // TestABotsReviewRunsAFollowUpWhoseRoundCountsWithinTheBudget drives the second gesture: a run ends
 // ready and leaves a pull request, a bot reviews it with the state COMMENTED and leaves a thread, and
 // the factory answers the thread in the worktree of the claim, as a repair round of the pull request
-// rather than a new mandate ([ADR 0051]).
+// rather than a new mandate ([runbook]).
 //
-// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+// [runbook]: ../docs/factory-runbook.md#answering-reviews
 func TestABotsReviewRunsAFollowUpWhoseRoundCountsWithinTheBudget(t *testing.T) {
 	t.Parallel()
 	gh, data := ciClaim(t)

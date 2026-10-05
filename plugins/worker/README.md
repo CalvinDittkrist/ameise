@@ -1,12 +1,12 @@
 # worker
 
-Skills and agents for the work on one issue ([ADR 0063](../../docs/adr/0063-plugins-are-skills-and-agents.md)). The controller `ameise` drives the stages: it starts the implement session with the `worker` agent, then runs the gate, the reviewer panel, the pull request, CI and the answers to reviews in sessions of its own ([ADR 0056](../../docs/adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)). The plugin has no hook and no steering script.
+Skills and agents for the work on one issue: prompts that decide, while the controller does the deterministic work. The controller `ameise` drives the stages: it starts the implement session with the `worker` agent, then runs the gate, the reviewer panel, the pull request, CI and the answers to reviews in sessions of its own. The plugin has no hook and no steering script.
 
 ## Skills
 | Skill | Script | Needs the controller | Effect |
 | --- | --- | --- | --- |
 | `/worker:hunt-tests` | `facts.sh`, `hunt.sh` | yes | the hunt stage of a test hunt; without the controller it says so and stops |
-| `/worker:docs` | `claude-docs.sh` | no | a read-only `docs-lookup` subagent answers one Claude Code question from the current documentation ([ADR 0030](../../docs/adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)) |
+| `/worker:docs` | `claude-docs.sh` | no | a read-only `docs-lookup` subagent answers one Claude Code question from the current documentation, so the pages stay out of the worker's context, which has no `WebFetch` |
 | `/worker:gh-axi` | | no | the `gh-axi` discovery skill, so the worker prefers it over raw `gh` |
 
 A skill that needs the controller reads the `controller:` line of `facts.sh`. The controller marks every session it starts with `WF_CONTROLLER=1`; without it the line says what to start, and the skill stops there.
@@ -18,10 +18,10 @@ A skill that needs the controller reads the `controller:` line of `facts.sh`. Th
 - `test-hunter`: one share of a test hunt, with `Read`, `Grep` and `Glob` only.
 - `docs-lookup`: answers one question from the documentation.
 
-The `worker` agent file names `opus` and sets no effort; without that `model`, a session takes `model` from your Claude Code settings. Every subagent runs on sonnet at high effort. `docs-reviewer` and `docs-lookup` run without CLAUDE.md.
+The `worker` agent file names `opus` and sets no effort; without that `model`, a session takes `model` from your Claude Code settings. Every subagent runs on sonnet at high effort. `docs-reviewer` and `docs-lookup` run without CLAUDE.md. The docs reviewer runs on a smaller model than the worker and without CLAUDE.md, because spotting slop needs no repository context.
 
 ## Test hunt
-[ADR 0045](../../docs/adr/0045-a-test-hunt-runs-on-a-branch-without-an-issue.md), [ADR 0046](../../docs/adr/0046-a-test-is-removed-at-high-confidence-without-approval-before-the-pull-request.md), [ADR 0047](../../docs/adr/0047-a-test-hunt-reads-its-shares-whole-and-hunts-while-it-finds-something.md):
+A hunt removes its candidates without asking anyone before the pull request, because asking per test stops an unattended session. The safeguards come after: a commit per test, the panel, the maintainer's merge.
 
 - `hunt.sh round` splits the tests into shares of at most 1500 lines, one `test-hunter` each.
 - `high` candidates are removed and `medium` ones checked by the worker, one commit per test. Up to three rounds run while a round finds something new.

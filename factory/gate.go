@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The gate stage, which the factory runs itself ([ADR 0043], step 5): the implement session stops once it
+// The gate stage, which the factory runs itself ([ADR 0040]): the implement session stops once it
 // has committed its implementation, and the factory merges the base into the branch when the base has
 // commits the branch lacks, determines the change class and runs the class's gate, in the worktree or,
 // for a gate on CI, on GitHub through a draft pull request (ci_gate.go). A merge that conflicts goes to
@@ -18,7 +18,7 @@ import (
 // output or the failed logs of its checks, within the gate's budget; the gate runs again on the commit
 // the session leaves. The pass is what the reviewers are briefed with and the pull request carries.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // stageGate is the stage a run is in while the factory merges the base and runs the gate.
 const stageGate = "gate"

@@ -8,12 +8,12 @@ import (
 )
 
 // What a run runs with. A run's sessions are made of the factory's own prompts and of Claude Code, and
-// nothing else: the factory updates nothing before a run and runs no plugin ([ADR 0042]). The version
+// nothing else: the factory updates nothing before a run and runs no plugin ([ADR 0040]). The version
 // of the factory is on the record from the moment the run was created; the version of Claude Code is
 // asked of the host before the first session, so a run that went wrong can be read back to what made
 // it. Claude Code is the host's, installed and upgraded by whoever runs the host.
 //
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // versionTimeout bounds the question asked of the installed Claude Code, which answers from the disk.
 const versionTimeout = 30 * time.Second

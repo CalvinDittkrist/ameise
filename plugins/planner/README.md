@@ -1,16 +1,16 @@
 # planner
 
-Skills and agents for a planning session on one topic ([ADR 0063](../../docs/adr/0063-plugins-are-skills-and-agents.md)). The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. Its brief names the plan branch, the base and the topic or the issue. The plugin has no hook and no script.
+Skills and agents for a planning session on one topic. The controller `ameise` starts it as a plan process from its dashboard: worktree `plan/<slug>`, a headless session with `--agent planner`, first turn `/planner:plan`. Its brief names the plan branch, the base and the topic or the issue. The plugin has no hook and no script.
 
 The planner writes GitHub issues, never code, and the plan branch is never committed to or pushed. The agent has eight tools, the controller's github tools and no Skill tool. It reads GitHub with `gh`.
 
-It writes GitHub only through the controller's tools ([ADR 0059](../../docs/adr/0059-sessions-read-github-themselves-and-write-it-only-through-controller-tools.md)): `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
+It writes GitHub only through the controller's tools, so every write passes the label rules in one place: `create_issue`, `set_labels`, `block`, `comment`, `close`, `attach_milestone`, `create_milestone`. A session outside the controller writes nothing.
 
 ## Skills
 | Skill | Tool or controller action | Needs the controller | Effect |
 | --- | --- | --- | --- |
 | `/planner:plan` | | no | the routes; recommends one and stops. Without the controller it says what needs one |
-| `/planner:grill [topic]` | | no | question rounds along the decision tree until nothing is open; collects glossary terms and ADR candidates |
+| `/planner:grill [topic]` | | no | question rounds along the decision tree until nothing is open; collects glossary terms and the ADRs to write, change or remove |
 | `/planner:spec` | `create_issue` with `spec` | yes | one spec issue from the conversation, no new questions |
 | `/planner:tickets [spec]` | `create_milestone`, `create_issue` with parent and milestone, `block`, `set_labels`, `attach_milestone` | yes | asks once for a `vX.Y.Z` milestone, once spec run or normal run, then per ticket who works it; vertical-slice `ready-for-agent` sub-issues with native blocking edges |
 | `/planner:triage [issue]` | `comment`, `set_labels`, `close` | yes | three buckets; per issue verify, grill, agent brief, labels and the routing question; `wontfix` closes with the reason |

@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// A reviewer runs on a runtime, and the reviewer codex runs on Codex ([ADR 0052]): `codex exec` in the
+// A reviewer runs on a runtime, and the reviewer codex runs on Codex ([ADR 0039]): `codex exec` in the
 // run's worktree, read-only, held to the reviewer's schema, its last message read as its result with
 // the checks a Claude reviewer's gets.
 //
-// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
+// [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
 
 // codexShim is the codex of testdata/runtimes as a test sees it: the log of its exec calls and the
 // directory of the last messages it writes by call.

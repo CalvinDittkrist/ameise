@@ -19,7 +19,7 @@ Practices that keep the budget flat:
 - Each injected command is a plugin script pre-approved in the skill's `allowed-tools`. Without that, the permission check refuses a forked skill's injection.
 - Long waits, for the gate, the checks and the bot's review, are the controller's and cost no turn.
 - The controller starts its sessions with `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, so their subagents block and hand the report back as the tool result.
-- A background launch returns at once and leaves the agent waiting in sleep turns, each one a full pass over the context ([ADR 0017](adr/0017-worker-subagents-run-in-the-foreground.md)).
+- A background launch returns at once and leaves the agent waiting in sleep turns, each one a full pass over the context.
 
 File access:
 
@@ -39,8 +39,8 @@ The context size:
 
 - Every stage after implement is a fresh session, so no context grows across stages ([ADR 0056](adr/0056-the-controller-replaces-the-orchestrator-and-runs-every-local-session-headless.md)).
 - The process view shows the implement session's size from its usage events, against the compact trigger.
-- A work session sets `autoCompactWindow: 312500` and pins `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`, so it compacts by 250 000 tokens ([ADR 0031](adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md)).
-- The workflow states that bound, not an undocumented percentage of the window. It stops the session growing until the model refuses ([ADR 0034](adr/0034-the-compact-trigger-is-raised-through-the-window.md)).
+- A work session sets `autoCompactWindow: 312500` and pins `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`, so it compacts by 250 000 tokens.
+- The pin states that bound, because the default percentage is undocumented and the override can only lower it. Implement has no hand-over, so compaction keeps it under the model's limit.
 
 Tools, plugins and instructions:
 
@@ -59,7 +59,7 @@ Tools, plugins and instructions:
 - So the vision is a linked file ([vision.md](vision.md)) and not an `@` import. An import would load at launch and cost the whole text everywhere.
 - A documentation page is read where it is needed and nowhere else. `/worker:docs` puts the question to a `docs-lookup` subagent that runs `claude-docs.sh`.
 - The pages stay in that context. A page can run to tens of thousands of tokens, so the agent narrows it with `grep` and runs on sonnet.
-- The worker's context gets the answer and the page URLs, under 300 words ([ADR 0030](adr/0030-agents-verify-claude-code-facts-against-the-live-documentation.md)).
+- The worker's context gets the answer and the page URLs, under 300 words ([security model](security.md#prompt-injection)).
 
 ## Measuring it
 `ameise context-report` prints one line per finished planning or worker session, with its kind, `plan` or `work`:
@@ -78,6 +78,6 @@ It reads Claude Code's session transcripts, a format that is internal and change
 
 A planning session's cost is cached input, uncached input and output in about equal thirds.
 
-A parked session's process exits, and the next message resumes the session by its id ([ADR 0071](adr/0071-a-parked-session-ends-its-process-and-resumes-by-id.md)). The resume keeps the prompt cache: a median of 0.9 percent of the context was re-cached at 679 measured resumes.
+A parked session's process exits; the next message resumes it by id, because a parked plan waits minutes to days and a live process holds memory and dies on restart. The resume keeps the prompt cache: a median of 0.9 percent of the context was re-cached at 679 measured resumes.
 
 It is a diagnostic for the maintainer and never an input to the pipeline, so it is a command of the controller and no part of a plugin. It reads the files itself and needs no running server. It looks at finished sessions; the process view is the live reading of the one that is running.

@@ -203,7 +203,7 @@ test('one unreadable transcript does not hide the other sessions', async () => {
 test('it counts a sleep in a loop and ignores a heredoc body', async () => {
   const m = await machine()
   const path = shellSession(m.root, [
-    'while true; do sleep 5; done', // the polling loop ADR 0017 forbids
+    'while true; do sleep 5; done', // the polling loop the token budget forbids
     "python3 - <<'PY'\ncat /etc/hosts\nPY", // a heredoc body is not a shell read
     "grep -c '<<EOF' setup.sh\ncat AGENTS.md", // a quoted `<<` must not swallow the cat
     'grep x <<< "foo"; cat README.md', // a here-string is not a heredoc either

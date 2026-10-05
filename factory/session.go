@@ -18,16 +18,15 @@ import (
 // A session is one non-interactive call of a runtime, and this is the one place such a call is built:
 // the agent, the prompt, the settings and the permission mode, the timeout of its stage and the JSON
 // schema of its result ([ADR 0039]). The runtime is Claude Code in print mode for every session but a
-// reviewer whose definition names Codex, which runs as `codex exec` (codex.go, [ADR 0052]). Every stage is the factory's own, and every session runs on the
-// factory's prompts and on no plugin ([ADR 0042]): the implement stage starts the implement session,
+// reviewer whose definition names Codex, which runs as `codex exec` (codex.go). Every stage is the factory's own, and every session runs on the
+// factory's prompts and on no plugin ([ADR 0040]): the implement stage starts the implement session,
 // the gate stage a fix session per conflicting merge and per failing gate, the review stage the
 // reviewers and their fix sessions, the pr stage a read-only session that writes the pull request's
 // title and body, the ci stage a fix session per repair round and an address-reviews session per round
 // of review comments, and the validate stage its validators and a fix session per round they fail.
 //
 // [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
-// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 type session struct {
 	stage string // the stage the session is started at, as the run records it
 	// runtime is the program the session runs on, runtimeClaude when it is empty.
@@ -101,7 +100,7 @@ func implementBrief(entry Entry, claim claimed) string {
 		"Read the issue and its latest comments with `gh issue view %d --repo %s --json title,body,comments --jq %s`, then the repository's instructions: "+
 		"AGENTS.md or CLAUDE.md at its root and the documents they point to for the part you change. "+
 		"The branch may carry commits of an earlier session on this issue: read them with `git log origin/%s..HEAD` and go on from where they stand rather than starting over.\n\n"+
-		"Make the smallest complete change that closes the issue. For a bug, reproduce it before you fix it. Update the documentation the change makes stale. "+
+		"Make the smallest complete change that closes the issue. For a bug, reproduce it before you fix it. Update the documentation the change makes stale: edit an ADR it makes stale in place, and delete one that no longer holds. "+
 		"Verify with the single test or linter for the files you touched, and commit in conventional commits without a co-author. "+
 		"Do only that: never push, and run no full gate, no reviewer and no pull request; the factory runs the gate, the review, the pull request and CI after you.\n\n"+
 		"Report complete with the commits of the branch beyond origin/%s in commits, each as its short hash and subject, once everything you changed is committed. "+
@@ -127,9 +126,9 @@ var issueRead = fmt.Sprintf(`'"# " + .title, "", .body[:%d], (.comments[-%d:][] 
 // (https://code.claude.com/docs/en/sub-agents.md, checked on 2026-09-24: --agents takes the
 // description, the prompt, the tools and the model of an agent for the session it starts, and --agent
 // runs the session as one of them). The workflow plugins are off in every session, so no agent, skill
-// or hook of a plugin reaches one ([ADR 0042]).
+// or hook of a plugin reaches one ([ADR 0040]).
 //
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 const workerAgent = "worker"
 
 // workerTools is the built-in tools of the worker agent: it reads, edits and runs commands, and hands
@@ -224,12 +223,13 @@ func (o overran) Error() string {
 //
 // The mode is manual: the factory never merges what it built. A finished run waits for the maintainer
 // on GitHub, which is the only surface the factory is steered from ([ADR 0023]). Foreground subagents
-// are the same setting a local claim makes ([ADR 0017]), and the auto permission mode is what being
+// block and hand their report back, where a background launch would leave the session waiting in
+// sleep turns ([token budget]), and the auto permission mode is what being
 // unattended costs: no prompt has anybody to ask ([ADR 0027]).
 //
-// [ADR 0017]: ../docs/adr/0017-worker-subagents-run-in-the-foreground.md
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
 // [ADR 0027]: ../docs/adr/0027-the-factorys-isolation-boundary-is-the-host.md
+// [token budget]: ../docs/token-budget.md
 func (f *Factory) command(ctx context.Context, s session, entry Entry, claim claimed) (*exec.Cmd, error) {
 	issue := entry.Issue
 	if f.fake {

@@ -1012,10 +1012,10 @@ func (f *Factory) execute(parent context.Context, r *Run, entry Entry) {
 	// A follow-up run answers a review on the pull request the claim opened: it starts at the
 	// address-reviews stage and goes on into the ci stage. A writer's review is a new mandate, so its
 	// count of repair rounds starts at none; a bot's is not, so the count the pull request has had
-	// carries over ([ADR 0051]), which the record holds since before the claim. The URL is rebuilt
+	// carries over ([runbook]), which the record holds since before the claim. The URL is rebuilt
 	// from the repository and the number, as a session's is.
 	//
-	// [ADR 0051]: ../docs/adr/0051-a-bots-review-queues-a-follow-up-run-within-the-repair-budget.md
+	// [runbook]: ../docs/factory-runbook.md#answering-reviews
 	if kindOf(entry.Signal) == kindFollowUp {
 		pull, reason := pullRequest(entry.pull, r.Repository)
 		if pull == "" {
@@ -1407,14 +1407,14 @@ func cancelledBy(ctx context.Context) (cancelled, bool) {
 
 // endInError ends a run whose session ended in an error. When the quota of the runtime that session ran
 // on is used up by then, the error is the quota's and not the issue's, which is how a Codex turn that
-// failed on its usage limit ends as well ([ADR 0053]): the outcome is quota, everything the run
+// failed on its usage limit ends as well ([ADR 0028]): the outcome is quota, everything the run
 // holds stays as it is, and the factory resumes the issue by itself after the reset, without spending
 // the one automatic resume an interruption has ([ADR 0026]). It does so once in a row, so a quota
 // resume that runs out again leaves the issue to a person. Otherwise, and when the check cannot answer, the run
 // has failed.
 //
 // [ADR 0026]: ../docs/adr/0026-the-factory-never-deletes-work-on-its-own.md
-// [ADR 0053]: ../docs/adr/0053-the-quota-check-reads-every-runtime-a-run-spends.md
+// [ADR 0028]: ../docs/adr/0028-the-quota-check-is-a-courtesy-not-a-guard.md
 func (f *Factory) endInError(ctx context.Context, r *Run, reason string, exitCode *int, runtime string) {
 	if runtime == "" {
 		runtime = runtimeClaude
@@ -1525,7 +1525,7 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 //
 // The compact pin matters more here than anywhere: a factory session has no hand-over at all, so
 // compaction is its only safety net, and it must fire where the workflow says rather than at a default
-// Claude Code does not document ([ADR 0031], [ADR 0034]). The window and the percentage are the
+// Claude Code does not document ([token budget]). The window and the percentage are the
 // factory's own constants; the contract fixture does not bind them, since the pin concerns only the
 // sessions the factory starts.
 //
@@ -1533,13 +1533,12 @@ func (f *Factory) take(ctx context.Context, r *Run, entry Entry) (claimed, error
 // orchestrator's and the repo-standards plugin a repository's own settings enable: a session runs on
 // the factory's prompts alone, so a plugin of ameise that a host or a repository carries changes nothing
 // about what an unattended session is told, and no /orchestrator:merge reaches a context that must
-// never merge what it built ([ADR 0023], [ADR 0042]). A plugin installed from a marketplace of another
+// never merge what it built ([ADR 0023], [ADR 0040]). A plugin installed from a marketplace of another
 // name is not switched off: the host uninstalls it (docs/factory-runbook.md).
 //
 // [ADR 0023]: ../docs/adr/0023-github-is-the-only-control-surface-of-the-factory.md
-// [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
-// [ADR 0034]: ../docs/adr/0034-the-compact-trigger-is-raised-through-the-window.md
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
+// [token budget]: ../docs/token-budget.md
 func sessionSettings() (string, error) {
 	settings, err := json.Marshal(map[string]any{
 		"env":               sessionVariables,
@@ -1556,19 +1555,20 @@ func sessionSettings() (string, error) {
 // session switches off.
 const marketplace = "ameise"
 
-// sessionVariables is the env block of those settings: subagents in the foreground, as a local claim
-// runs them ([ADR 0017]), and the percentage of the compact pin.
+// sessionVariables is the env block of those settings: the percentage of the compact pin, and
+// subagents in the foreground. A foreground subagent blocks and hands its report back as the tool
+// result, where a background launch would leave the session waiting in sleep turns, each a full pass
+// over its context ([token budget]).
 //
-// [ADR 0017]: ../docs/adr/0017-worker-subagents-run-in-the-foreground.md
+// [token budget]: ../docs/token-budget.md
 var sessionVariables = map[string]string{
 	"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 	"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":      compactPercentage,
 }
 
-// The factory's compact pin for the sessions it starts ([ADR 0031], [ADR 0034]). Their product is the compact trigger, 250 000 tokens.
+// The factory's compact pin for the sessions it starts ([token budget]). Their product is the compact trigger, 250 000 tokens.
 //
-// [ADR 0031]: ../docs/adr/0031-the-workflow-pins-the-size-at-which-a-worker-session-compacts.md
-// [ADR 0034]: ../docs/adr/0034-the-compact-trigger-is-raised-through-the-window.md
+// [token budget]: ../docs/token-budget.md
 const (
 	compactWindow     = 312500
 	compactPercentage = "80"

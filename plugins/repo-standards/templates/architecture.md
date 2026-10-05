@@ -19,4 +19,4 @@ What this system does and for whom, in one paragraph.
 - What an agent must not touch without asking.
 
 ## Decisions
-See [the ADRs](adr/README.md). Record a new ADR when a change alters a boundary, a dependency or a convention.
+See [the ADRs](adr/README.md): at most 20 decisions that hold today and are hard to reverse, each edited in place. A smaller rule goes with its reason into the document of its area.

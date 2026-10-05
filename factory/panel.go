@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// The review stage, which the factory runs itself ([ADR 0043], step 4): once the gate stage has
+// The review stage, which the factory runs itself ([ADR 0040]): once the gate stage has
 // recorded a pass (gate.go), the factory launches the reviewers of the panel beside each other,
 // each a read-only session made from the factory's own prompt, and reads a verdict and findings from
 // each. When any says fix, one fix session is given every finding of the round and fixes or disputes
@@ -25,7 +25,7 @@ import (
 // the pr stage, and a failure is handed to a fix session within the gate's budget. The panel summary
 // the pr stage appends is derived from the rounds the run recorded, never written by a session.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // reviewKnobs is the review object of the configuration as written, at the top of the file or on one
 // repository. A knob it leaves out is the one above it: the default for the host's, the host's for a
@@ -133,10 +133,10 @@ func (r reviewer) on() string {
 var knownReviewers = append(slices.Clone(defaultReview.Reviewers), "codex", "fable")
 
 // reviewers are the factory's own reviewer prompts, by the name the panel knows them by. Their focus is
-// the worker plugin's reviewers' ([ADR 0042]): the factory carries its own copy, written for a session
+// the worker plugin's reviewers' ([ADR 0040]): the factory carries its own copy, written for a session
 // that can read and do nothing else.
 //
-// [ADR 0042]: ../docs/adr/0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 var reviewers = map[string]reviewer{
 	"code": {"Fresh-context correctness review of the branch diff.", "sonnet", "high",
 		"Focus: correctness only. Logic errors, off-by-one, wrong types, unhandled errors and nulls, race conditions, broken callers of changed signatures, " +
@@ -150,8 +150,13 @@ var reviewers = map[string]reviewer{
 		"Focus: written text only (Markdown, docstrings, comments, commit messages). Hold it to the writing rules a script cannot count: a sentence has at most 25 words; " +
 			"no metaphors, no filler, no hedging; no session ids, dates or measurements told as a story. Also flag claims the code does not back; " +
 			"restating the code in prose; headings and bullet lists that carry no information; emojis in docs; documentation that should have changed but did not " +
-			"(the architecture, the ADRs, the README, a changelog when the repository has one); a change that deserves an ADR but has none. " +
-			"Prefer deletion over addition. S1 only for documentation that is factually wrong.", ""},
+			"(the architecture, the ADRs, the README, a changelog when the repository has one). " +
+			"Prefer deletion over addition. S1 only for documentation that is factually wrong. " +
+			"ADRs hold the decisions that hold today and are hard to reverse or surprising without context. " +
+			"A smaller decision is a rule with its reason in the document of its area. " +
+			"Read the ADR index and the ADRs the diff touches or contradicts, then flag: a change that contradicts an ADR without editing it (S2); " +
+			"a new ADR that is no hard decision and belongs as a rule in a document (S2); " +
+			"a deleted or merged ADR whose live rule appears nowhere else (S1, a rule is lost); a moved rule that lacks its reason (S2).", ""},
 	"tests": {"Fresh-context review of the tests in the branch diff.", "sonnet", "high",
 		"Focus: tests. A test must execute a public or executable interface and assert observable behaviour, state, output or failure modes; " +
 			"a test whose only evidence is that it opens, greps, parses or snapshots implementation source for strings, names or shapes proves nothing and must go (S2). " +
@@ -164,9 +169,9 @@ var reviewers = map[string]reviewer{
 			"functions doing three things, error handling that swallows context, configuration hard-coded, scope beyond the issue. " +
 			"Prefer simplicity and long-term maintainability over cleverness. S1 only when the design will demonstrably break under normal growth.", ""},
 	// The reviewer on Codex reads the whole change as a model of another family does, so a blind spot
-	// the Claude reviewers share is not the whole panel's ([ADR 0052]).
+	// the Claude reviewers share is not the whole panel's ([ADR 0039]).
 	//
-	// [ADR 0052]: ../docs/adr/0052-sessions-run-on-a-runtime-and-codex-is-one-of-them.md
+	// [ADR 0039]: ../docs/adr/0039-every-session-reports-through-a-structured-result.md
 	"codex": {"Fresh-context review of the branch diff by a model of another family.", codexModel, "",
 		"Focus: correctness, security and fit of the whole change, read by a model of another family than the other reviewers. " +
 			"Logic errors, unhandled errors and nulls, broken callers of changed signatures, untrusted input reaching a command, a path or a query, " +

@@ -14,9 +14,7 @@ import (
 )
 
 // The ci stage, tested the way the rest of the factory is: the real binary against the gh and claude
-// shims, the pull request's state moved by the test while the factory waits on it ([ADR 0043]).
-//
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// shims, the pull request's state moved by the test while the factory waits on it.
 
 // ciClaim is the fixture every test of the ci stage starts from: #104 routed on acme/edge-sensors,
 // claimed by factory-bot, whose implement session commits and stops after the review; the pr stage opens

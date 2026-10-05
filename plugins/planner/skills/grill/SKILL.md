@@ -24,5 +24,6 @@ Rules:
 - Decisions are the user's. Never answer your own question.
 - Test relationships with concrete scenarios and edge cases. Check claims about the code against the code and say when they differ.
 - Vocabulary: when a term conflicts with `docs/glossary.md` or is fuzzy, ask for the precise term. Keep a list of new or changed terms; the spec carries it.
-- Decisions that are hard to reverse and surprising without context go on an ADR list; the spec carries it, the implementing worker writes the ADRs.
-- The interview ends when the frontier is empty. Then list the decisions, the glossary terms and the ADR candidates, and ask for confirmation. Next: `/planner:spec`.
+- Decisions that are hard to reverse or surprising without context go on an ADR list: ADRs to write, change or remove.
+- A smaller decision is a rule with its reason in the document of its area. The spec carries the list; the implementing worker makes the change.
+- The interview ends when the frontier is empty. Then list the decisions, the glossary terms and the ADRs to write, change or remove, and ask for confirmation. Next: `/planner:spec`.

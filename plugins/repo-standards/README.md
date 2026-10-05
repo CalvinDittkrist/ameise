@@ -1,6 +1,6 @@
 # repo-standards
 
-Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. The plugin holds skills, agents, templates and the standard check ([ADR 0063](../../docs/adr/0063-plugins-are-skills-and-agents.md)).
+Owns the [repository standard](../../docs/repo-standard.md): the files every repository has, the ones it must not have, and the check for both. The plugin holds skills, agents, templates and the standard check.
 
 A standardisation runs in the controller: standardize on a project page opens its standardize process ([controller](../../controller/README.md#standardize-process)). The process runs the six auditors of this plugin, takes the approval per category and applies the approved ones with scripts of its own. Those scripts use the templates, `scaffold.sh` and `check.sh` of this plugin.
 
@@ -9,7 +9,7 @@ These work by hand in any session that loads the plugin.
 
 | Skill | Script | Needs the controller | Effect |
 | --- | --- | --- | --- |
-| `/repo-standards:adr <title>` | `new-adr.sh` | no | next numbered ADR from the template, added to the index |
+| `/repo-standards:adr <title>` | `new-adr.sh` | no | ADR under the index's next free number, added to the index; warns on a full set |
 | `/repo-standards:docs-check` | `check.sh` | no | pass or fail against the standard, exit 1 on failures, usable in CI; GitHub workspace drift as warnings, `skip:` without GitHub |
 
 The scripts:
@@ -41,6 +41,8 @@ Templates live in `templates/`. The README, plugin README, architecture, ADR and
 | --- | --- | --- |
 | `WF_PROJECT_TEMPLATE` | empty | `<owner>/<number>` of the project the controller's standardize process copies into a repository without one |
 | `WF_WRITING_LENIENT` | unset | `1` turns the writing rules' failures of `check.sh` into warnings |
+| `WF_ADR_MAX` | `20` | the most ADRs `check.sh` accepts; `new-adr.sh` warns past it |
+| `WF_ADR_LENIENT` | unset | `1` turns the ADR rule's failures of `check.sh` into warnings |
 
 ## Develop
 A repository adds the marketplace with `claude plugin marketplace add CalvinDittkrist/ameise --scope project`. It enables each plugin of its template with `claude plugin install <plugin>@ameise --scope project`. `scaffold.sh` runs both. `check.sh` warns for a template plugin that is not enabled and for any other plugin enabled at project scope.

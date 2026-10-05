@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// Change classes ([ADR 0041]): the factory determines the class of a change from the files it changed
+// Change classes ([runbook]): the factory determines the class of a change from the files it changed
 // before the review, whose reviewers the class decides, and again on the final head, whose gate it
 // decides. These tests run the real binary on a repository whose make check says it ran, and whose work
 // session commits a file under docs/.
 //
-// [ADR 0041]: ../docs/adr/0041-a-change-class-decides-the-gate-and-the-reviewers-before-the-pull-request.md
+// [runbook]: ../docs/factory-runbook.md#change-classes
 
 // docsClass is a class of the files under docs/ with the given gate, reviewed by docs and senior.
 func docsClass(gate []string) map[string]any {

@@ -61,15 +61,40 @@ else bad "no CI job named check in .github/workflows; add one that runs make che
 if [ -f "$root/docs/architecture.md" ]; then
   if [ "$(lines "$root/docs/architecture.md")" -ge 15 ]; then ok "docs/architecture.md"; else bad "docs/architecture.md is a stub ($(lines "$root/docs/architecture.md") lines)"; fi
 else bad "docs/architecture.md missing"; fi
+# The ADR rule is in docs/repo-standard.md#adrs. With WF_ADR_LENIENT set, each finding warns instead of failing.
+# The check at the end of a standardisation sets it, so reducing the set becomes an issue of its own.
+adr() { if [ -n "${WF_ADR_LENIENT:-}" ]; then warn "$@"; else bad "$@"; fi; }
 if [ -d "$root/docs/adr" ]; then
-  if [ -f "$root/docs/adr/README.md" ]; then ok "docs/adr/README.md"; else bad "docs/adr/README.md missing"; fi
-  nums=$(printf '%s\n' "$root"/docs/adr/[0-9][0-9][0-9][0-9]-*.md | sed -nE 's#.*/([0-9]{4})-.*\.md$#\1#p' | sort)
-  if [ -n "$nums" ]; then ok "ADRs: $(printf '%s\n' "$nums" | wc -l | tr -d ' ')"; else warn "no ADRs yet; record the first decision with /repo-standards:adr"; fi
-  dups=$(printf '%s\n' "$nums" | uniq -d); [ -z "$dups" ] || bad "duplicate ADR numbers: $(printf '%s' "$dups" | tr '\n' ' ')"
-  for f in "$root"/docs/adr/[0-9][0-9][0-9][0-9]-*.md; do
-    [ -e "$f" ] || continue
-    grep -Eq '^Status: (proposed|accepted|deprecated|superseded)' "$f" || bad "$(basename "$f") has no Status line"
-  done
+  idx="$root/docs/adr/README.md"
+  if [ -f "$idx" ]; then ok "docs/adr/README.md"; else bad "docs/adr/README.md missing"; fi
+  adrs=$(cd "$root/docs/adr" && for f in [0-9][0-9][0-9][0-9]-*.md; do [ -f "$f" ] && printf '%s\n' "$f"; done)
+  nums=$(printf '%s\n' "$adrs" | sed -nE 's#^([0-9]{4})-.*#\1#p' | sort)
+  count=$(printf '%s\n' "$nums" | grep -c . || true)
+  if ! max=$(adr_max); then adr "WF_ADR_MAX=$max is not a positive integer; set it to the most ADRs the repository keeps, such as 20"
+  elif [ "$count" -gt "$max" ]; then adr "$count ADRs (>$max); remove one, or move it as a rule with its reason into the document of its area"
+  else ok "ADRs: $count of at most $max"; fi
+  dups=$(printf '%s\n' "$nums" | uniq -d); [ -z "$dups" ] || adr "duplicate ADR numbers: $(printf '%s' "$dups" | tr '\n' ' ')"
+  next=$(adr_next_free "$idx")
+  [ -f "$idx" ] && [ -z "$next" ] && adr "docs/adr/README.md has no line Next free number: NNNN; add it above the table, one above the highest number ever used"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    p="docs/adr/$f" n=${f%%-*}
+    status=$(grep -E '^Status:' "$root/$p" || true)
+    if [ -z "$status" ]; then adr "$p has no Status line; add Status: proposed or Status: accepted"
+    else
+      while IFS= read -r s; do
+        printf '%s\n' "$s" | grep -Eqx 'Status: (proposed|accepted)[[:space:]]*' || adr "$p has \"$s\"; a status is exactly proposed or accepted"
+      done <<<"$status"
+    fi
+    rel=$(grep -nEi '^(partly )?(amends|amended by|extends|extended by|supersedes|superseded by)( in part)?:' "$root/$p" | cut -d: -f1 || true)
+    for l in $rel; do adr "$p:$l: a relation line; an ADR names no relation to another, edit or delete the other ADR instead"; done
+    if [ -n "$next" ] && [ "$((10#$n))" -ge "$((10#$next))" ]; then
+      adr "$p: number $n is at or above the next free number $next; raise Next free number in docs/adr/README.md"
+    fi
+  done <<<"$adrs"
+  refs=$(printf '%s\n' "$all" | adr_refs "$root" "$adrs")
+  if [ -z "$refs" ]; then ok "every ADR reference has its file"
+  else while IFS= read -r r; do adr "$r"; done <<<"$refs"; fi
 else bad "docs/adr/ missing"; fi
 pr=$(first_of "$root/.github" PULL_REQUEST_TEMPLATE.md pull_request_template.md)
 if [ -n "$pr" ]; then ok ".github/$pr"; else warn ".github/PULL_REQUEST_TEMPLATE.md missing"; fi

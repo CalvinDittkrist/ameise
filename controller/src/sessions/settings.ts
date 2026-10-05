@@ -10,7 +10,7 @@ import { directWrite } from '../github/github.js'
 import type { PlanRecord, SessionRecord, StageRecord, StandardizeRecord } from '../records/records.js'
 import { event } from '../records/store.js'
 
-// The local workflow's compact pin (ADR 0031, ADR 0034): the session compacts at 80% of a window of
+// The local workflow's compact pin (docs/token-budget.md): the session compacts at 80% of a window of
 // 312 500 tokens, which is 250 000. Implement has no hand-over, so compaction is its safety net.
 const compactWindow = 312500
 const compactPercentage = '80'
@@ -32,8 +32,9 @@ export type Settings = {
 // settings are the session's own settings: the worker's for a work process, the planner's for a plan.
 export const settings = (record: SessionRecord): Settings => (record.kind === 'plan' ? planSettings(record) : workSettings(record))
 
-// planSettings are a planner session's own settings: the base, the foreground subagents (ADR 0017) and
-// WF_CONTROLLER, the mark that the controller runs the session. The brief carries the plan's context.
+// planSettings are a planner session's own settings: the base, the foreground subagents, whose report is
+// the tool result rather than a wait in sleep turns, and WF_CONTROLLER, the mark that the controller runs
+// the session. The brief carries the plan's context.
 // The marketplace copies of the plugins are switched off, so the bundled planner is the one the session
 // loads. The repository's WF_PLANNER_LANGUAGE is the runtime's language setting, the language the
 // planner talks in.
@@ -56,7 +57,7 @@ export function planSettings(record: PlanRecord): Settings {
 
 // workSettings are the session's own settings, over the repository's: the mode, the issue, which a hunt
 // has none of, the base and the knob overrides of the claim, the mark that the controller runs the session, which a worker skill that
-// needs the controller reads (ADR 0063), the foreground subagents (ADR 0017) and the compact pin.
+// needs the controller reads (ADR 0057), the foreground subagents and the compact pin.
 export function workSettings(record: StageRecord | StandardizeRecord): Settings {
   return {
     env: {

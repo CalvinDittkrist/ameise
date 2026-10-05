@@ -17,7 +17,7 @@ export type Category = (typeof categories)[number]
 
 // The categories scaffold.sh of the plugin has templates for. Approving one of them creates every baseline file
 // of it that is missing, whether a finding lists it or not, so the report says so and asks about every one of
-// them (ADR 0035). A test scaffolds each category on its own, with every other one skipped, and expects files
+// them (docs/repo-standard.md). A test scaffolds each category on its own, with every other one skipped, and expects files
 // from exactly these.
 export const scaffoldCategories: Category[] = ['agent-config', 'docs', 'tests-ci', 'workspace']
 
@@ -158,7 +158,7 @@ export const hasFindings = (findings: Finding[], category: string, action?: stri
 
 // answerable is the categories the report asks about and the approve step answers, in report order: every
 // category with a finding, plus every scaffolded one, because the apply creates its missing baseline files
-// whether a finding lists them or not (ADR 0035). One source for the report and the answer, so the two cannot
+// whether a finding lists them or not (docs/repo-standard.md). One source for the report and the answer, so the two cannot
 // drift.
 export const answerable = (findings: Finding[]): Category[] => categories.filter((c) => hasFindings(findings, c) || scaffoldCategories.includes(c))
 
@@ -168,7 +168,7 @@ export type Decisions = [Category, string][]
 // decisions reads the recorded answers. It fails while the audit has not run or a category with findings is still
 // pending, so no finding is applied that was not answered. A scaffolded category without findings is left out
 // while it is unanswered: the apply then scaffolds it as it always has, and only a rejection takes it out
-// (ADR 0035).
+// (docs/repo-standard.md).
 export async function decisions(c: Ctx): Promise<{ dir: string; findings: Finding[]; answers: Decisions }> {
   const dir = await stateDir(c)
   const findings = readFindings(dir)

@@ -13,11 +13,11 @@ import (
 	"time"
 )
 
-// The gate stage, which the factory runs itself ([ADR 0043], step 5): the implement session stops after the
+// The gate stage, which the factory runs itself ([ADR 0040]): the implement session stops after the
 // implement stage, and the factory merges the base, runs the gate of the change class and hands a
 // failure to a fix session within the gate's budget.
 //
-// [ADR 0043]: ../docs/adr/0043-the-migration-runs-from-the-last-stage-to-the-first.md
+// [ADR 0040]: ../docs/adr/0040-the-factory-owns-the-delivery-lifecycle-in-go.md
 
 // linesGate is a make recipe that prints how many lines worked.md has, one for every session that
 // worked the branch, and exits with the test given as its status.

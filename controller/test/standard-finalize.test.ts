@@ -70,6 +70,7 @@ describe('workspace', { timeout: 180_000 }, () => {
     expect(f.originGit('branch', '--list', 'chore/standardize')).toBe('')
     expect(out).toContain('untouched: files (rejected in the audit)\n')
     expect(out).toContain('check: warn: src/app.py has 1 em dash; use a comma, a colon or two sentences\n')
+    expect(out).toContain('check: warn: docs/adr/0001-use-make.md has "Status: superseded"; a status is exactly proposed or accepted\n')
     expect(out.endsWith('result: pass\n'), out).toBe(true)
   })
 

@@ -2,10 +2,9 @@
 
 Date: 2026-09-25
 Status: accepted
-Amends: [0036](0036-the-factory-updates-the-worker-plugin-and-nothing-else.md), [0042](0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md) (the factory binary is no longer installed by hand)
 
 ## Context
-- A factory release reached a host only when a person installed it ([ADR 0042](0042-the-factory-carries-its-own-prompts-and-updates-no-plugin.md)), and a restart interrupted the run that was going. Spec #206.
+- A factory release reached a host only when a person installed it, and a restart interrupted the run that was going. Spec #206.
 
 ## Decision
 - A root timer runs the binary's update mode, one update tick at a time, when `auto_update` is true. The factory never replaces itself.
