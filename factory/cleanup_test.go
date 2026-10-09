@@ -136,6 +136,7 @@ func TestAnIdleHeldIssueIsLetGoOnTheDecisionGitHubCarries(t *testing.T) {
 		decide          func(t *testing.T, gh *ghShim, held issueJSON, work, base string)
 		assigneeRemoved bool
 		branchRemoved   bool
+		issueClosed     int // how often the factory closes the issue: GitHub left it open behind a merged pull request
 	}{
 		{
 			name: "the pull request was merged",
@@ -144,6 +145,7 @@ func TestAnIdleHeldIssueIsLetGoOnTheDecisionGitHubCarries(t *testing.T) {
 				gh.issue(t, "acme/edge-sensors", held)
 			},
 			branchRemoved: true,
+			issueClosed:   1,
 		},
 		{
 			name: "the issue was closed by its merged pull request",
@@ -247,6 +249,10 @@ func TestAnIdleHeldIssueIsLetGoOnTheDecisionGitHubCarries(t *testing.T) {
 			} else if head != work || gh.made(t, removal) != 0 {
 				t.Errorf("%s of the remote is at %q, want the commit the run made (%s): the worktree is pushed before it goes, and a branch that carries a commit no merge stands for stays",
 					claimedBranch, head, work)
+			}
+			closing := fmt.Sprintf("issue close %d --repo acme/edge-sensors", claimedIssue)
+			if made := gh.made(t, closing); made != one.issueClosed {
+				t.Errorf("the factory made `gh %s` %d times, want %d: it closes the issue of a merged pull request that GitHub left open, and no other", closing, made, one.issueClosed)
 			}
 			removed := fmt.Sprintf("issue edit %d --repo acme/edge-sensors --remove-assignee factory-bot", claimedIssue)
 			want := 0
